@@ -1,0 +1,218 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0a0a0c] text-gray-100 font-sans antialiased;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer components {
+  .gradient-text {
+    @apply bg-gradient-to-r from-neon-raspberry via-neon-orange to-neon-yellow bg-clip-text text-transparent;
+  }
+
+  .gradient-text-strategy {
+    @apply bg-gradient-to-r from-lime-300 via-yellow-400 to-orange-500 bg-clip-text text-transparent;
+  }
+
+  .panel {
+    @apply bg-gunmetal-800 backdrop-blur-xl rounded-xl p-8;
+  }
+
+  .panel-dark {
+    @apply bg-gunmetal-900 backdrop-blur-xl rounded-xl p-8;
+  }
+
+  .panel-light {
+    @apply bg-gunmetal-700 backdrop-blur-xl rounded-xl p-8;
+  }
+
+  .panel-fixed {
+    @apply max-h-[calc(100vh-16rem)] overflow-hidden flex flex-col;
+  }
+
+  .panel-content {
+    @apply overflow-y-auto flex-1;
+  }
+
+  .panel-footer {
+    @apply mt-4 pt-4 border-t border-gunmetal-700;
+  }
+}
+
+/* Panel entrance animation */
+.panel-stagger-enter {
+  opacity: 0;
+  transform: scale(1.05);
+  animation: panelStaggerEnter 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes panelStaggerEnter {
+  from {
+    opacity: 0;
+    transform: scale(1.05);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Custom scrollbar */
+.overflow-x-auto::-webkit-scrollbar {
+  height: 8px;
+}
+
+.overflow-x-auto::-webkit-scrollbar-track {
+  @apply bg-gunmetal-900;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb {
+  @apply bg-gunmetal-800 rounded-full;
+}
+
+.overflow-x-auto::-webkit-scrollbar-thumb:hover {
+  @apply bg-gunmetal-700;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.8;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes glow {
+  0% { filter: brightness(100%) drop-shadow(0 0 0 currentColor); }
+  100% { filter: brightness(150%) drop-shadow(0 0 10px currentColor); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    opacity: 0.8;
+    filter: drop-shadow(0 0 0 currentColor);
+  }
+  50% {
+    opacity: .9;
+    filter: drop-shadow(0 0 5px currentColor);
+  }
+}
+
+@keyframes shine {
+  to {
+    background-position: 200% center;
+  }
+}
+
+/* Page Transitions */
+.page-transition-enter {
+  opacity: 0;
+  transform: translateX(20px);
+}
+
+.page-transition-enter-active {
+  opacity: 1;
+  transform: translateX(0);
+  transition: opacity 300ms, transform 300ms;
+}
+
+.page-transition-exit {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.page-transition-exit-active {
+  opacity: 0;
+  transform: translateX(-20px);
+  transition: opacity 300ms, transform 300ms;
+}
+
+/* Neon text effects */
+.text-glow {
+  text-shadow: 0 0 10px currentColor;
+}
+
+.text-glow-lg {
+  text-shadow: 0 0 20px currentColor;
+}
+
+/* Gradient backgrounds */
+.bg-gradient-dark {
+  background: linear-gradient(135deg, rgba(10, 10, 12, 0.95) 0%, rgba(31, 31, 35, 0.95) 100%);
+}
+
+.bg-gradient-panel {
+  background: linear-gradient(135deg, rgba(42, 43, 48, 0.2) 0%, rgba(31, 31, 35, 0.2) 100%);
+}
+
+/* Glass effect utilities */
+.glass-effect {
+  @apply backdrop-blur-xl bg-gunmetal-800;
+}
+
+.glass-effect-dark {
+  @apply backdrop-blur-xl bg-gunmetal-900;
+}
+
+.glass-effect-light {
+  @apply backdrop-blur-xl bg-gunmetal-700;
+}
+
+/* Animation classes */
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-glow {
+  animation: glow 2s ease-in-out infinite alternate;
+}
+
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-spin-slow {
+  animation: spin 10s linear infinite;
+}
+
+/* Card hover effects */
+.card-hover {
+  @apply transition-all duration-300;
+}
+
+.card-hover:hover {
+  @apply transform scale-[1.02] shadow-lg;
+}
+
+/* Button transitions */
+.btn-transition {
+  @apply transition-all duration-300;
+}
+
+.btn-transition:hover {
+  @apply transform scale-[1.05];
+}
+
+.btn-transition:active {
+  @apply transform scale-[0.98];
+}
