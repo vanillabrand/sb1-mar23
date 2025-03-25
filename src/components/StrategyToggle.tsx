@@ -20,6 +20,9 @@ export function StrategyToggle({ strategy, onToggle }: StrategyToggleProps) {
       
       if (strategy.status === 'active') {
         await marketService.stopStrategyMonitoring(strategy.id);
+      } else {
+        // Start monitoring if strategy is not active
+        await marketService.startStrategyMonitoring(strategy.id);
       }
       
       onToggle();
@@ -34,21 +37,18 @@ export function StrategyToggle({ strategy, onToggle }: StrategyToggleProps) {
     <button
       onClick={handleToggle}
       disabled={isToggling}
-      className={`relative z-50 flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
-        strategy.status === 'active'
-          ? 'bg-neon-turquoise text-gunmetal-950 hover:bg-neon-yellow'
-          : 'bg-gunmetal-800 text-gray-400 hover:text-neon-turquoise'
-      } disabled:opacity-50`}
-      title={strategy.status === 'active' ? 'Disable Strategy' : 'Enable Strategy'}
+      className={`flex items-center justify-center w-10 h-10 rounded-full transition-colors ${
+        strategy.status === 'active' 
+          ? 'bg-neon-turquoise/20 text-neon-turquoise hover:bg-neon-turquoise/30' 
+          : 'bg-gunmetal-700 text-gray-400 hover:bg-gunmetal-600'
+      }`}
+      title={strategy.status === 'active' ? 'Stop Strategy' : 'Start Strategy'}
     >
       {isToggling ? (
-        <Loader2 className="w-4 h-4 animate-spin" />
+        <Loader2 className="w-5 h-5 animate-spin" />
       ) : (
-        <Power className="w-4 h-4" />
+        <Power className="w-5 h-5" />
       )}
-      <span className="text-sm font-medium">
-        {strategy.status === 'active' ? 'Active' : 'Inactive'}
-      </span>
     </button>
   );
 }
