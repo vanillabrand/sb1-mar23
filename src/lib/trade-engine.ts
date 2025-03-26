@@ -3,9 +3,10 @@ import { marketMonitor } from './market-monitor';
 import { tradeManager } from './trade-manager';
 import { tradeService } from './trade-service';
 import { analyticsService } from './analytics-service';
-import { supabase } from './supabase';
+import { supabase } from '@/lib/supabase';
 import { logService } from './log-service';
 import { technicalIndicators } from './indicators';
+import { NetworkError, TimeoutError } from '@/lib/errors';
 import type { Strategy } from './supabase-types';
 
 interface TradeSignal {

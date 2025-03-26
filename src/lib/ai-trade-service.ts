@@ -1,7 +1,126 @@
+import { EventEmitter } from 'events';
 import { logService } from './log-service';
-import type { Strategy } from './supabase-types';
-import type { TradeConfig } from './types';
+import type { 
+  TradeSignal, 
+  Strategy, 
+  TradeConfig, 
+  TradeAnalysis, 
+  MarketFitAnalysis 
+} from './types';
 import { bitmartService } from './bitmart-service';
+
+interface StrategyConfig {
+  type: 'scalper' | 'daytrader' | 'swing' | 'position';
+  assets: string[];
+  market_type: 'spot' | 'futures';
+  timeframes: {
+    analysis: string;   // For analysis (e.g., '1h' for trend direction)
+    execution: string;  // For trade execution (e.g., '1m' for scalping)
+    holding: {
+      min: number;     // Minimum hold time in milliseconds
+      max: number;     // Maximum hold time in milliseconds
+    };
+  };
+  trade_parameters: {
+    leverage: number;
+    position_size: number;
+    confidence_factor: number;
+    maxOpenTrades: number;
+    maxDailyTrades: number;
+    minProfitPct: number;
+    maxLossPct: number;
+    trailingStop?: {
+      activation: number;  // % profit to activate trailing stop
+      distance: number;    // % distance to maintain
+    };
+  };
+  risk_management: {
+    positionSizing: 'fixed' | 'dynamic' | 'kelly';
+    maxPositionSize: number;
+    maxTotalExposure: number;
+    stop_loss: number;
+    take_profit: number;
+    trailing_stop_loss: number;
+    max_drawdown: number;
+  };
+  market_conditions: {
+    requiredTrend: string[];
+    minVolatility: number;
+    maxVolatility: number;
+    correlationFilters: {
+      btcMin: number;
+      btcMax: number;
+    };
+    min_volume: number;
+    trend_direction: string;
+  };
+  validation: {
+    minConfidence: number;
+    requiredIndicators: string[];
+    confirmationTimeframes: string[];
+    minimumVolume: number;
+    minWinRate: number;
+    minProfitFactor: number;
+    maxDrawdown: number;
+    minTradeCount: number;
+  };
+  indicators: Array<{
+    name: string;
+    parameters: Record<string, any>;
+    weight: number;
+    conditions?: Record<string, any>;
+  }>;
+  execution_rules: {
+    entryConfirmation: string[];
+    exitConfirmation: string[];
+    positionScaling: {
+      enabled: boolean;
+      rules: string[];
+    };
+  };
+}
+
+interface Strategy {
+  id: string;
+  title: string;
+  description: string;
+  type: string;
+  status: 'active' | 'inactive' | 'error';
+  performance: number;
+  risk_level: 'Low' | 'Medium' | 'High';
+  user_id: string;
+  strategy_config: StrategyConfig;
+  created_at: string;
+  updated_at: string;
+  metrics?: {
+    equity: number;
+    pnl: number;
+    drawdown: number;
+    winRate: number;
+    volume: number;
+    exposure: number;
+    riskScore: number;
+    volatility: number;
+    valueAtRisk: number;
+    maxDrawdown: number;
+    sharpeRatio: number;
+    beta: number;
+  };
+  trades?: {
+    active: number;
+    total: number;
+    profitable: number;
+    avgDuration: number;
+  };
+  portfolio?: {
+    balance: number;
+    equity: number;
+    margin: number;
+    freeMargin: number;
+    marginLevel: number;
+    leverage: number;
+  };
+}
 
 interface TradeSignal {
   symbol: string;
@@ -28,18 +147,15 @@ interface MarketFitAnalysis {
 }
 
 interface TradeAnalysis {
-  shouldClose: boolean;
-  shouldAdjustStops: boolean;
-  reason?: string;
-  recommendedStops?: {
-    stopLoss: number;
-    takeProfit: number;
-  };
+  confidence: number;
+  riskScore: number;
+  recommendation: string;
+  reasoning: string;
 }
 
 class AITradeService {
   private static instance: AITradeService;
-  private static DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
+  private static DEEPSEEK_API_KEY = process.env.VITE_DEEPSEEK_API_KEY;
   private static DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
   // Use a stable key for each strategy rather than a unique timestamp per request
   private pendingRequests = new Map<string, Promise<TradeSignal[]>>();
@@ -171,7 +287,7 @@ Return an array of trade signals with this exact structure:
     }
   }
 
-  private validateTrades(trades: any[]): TradeSignal[] {
+  private async validateTrades(trades: any[]): Promise<TradeSignal[]> {
     return trades.filter(trade => {
       try {
         // Validate required fields
@@ -299,8 +415,9 @@ Return an array of trade signals with this exact structure:
     strategy: Strategy,
     marketData: any
   ): MarketFitAnalysis {
-    // Generate basic market fit analysis based on available data
-    const score = 0.5 + Math.random() * 0.5; // Random score between 0.5 and 1.0
+    // Use strategy parameters to influence the synthetic score
+    const baseScore = strategy.risk_level === 'High' ? 0.7 : 0.5;
+    const score = baseScore + Math.random() * 0.3; // Random score between baseScore and baseScore + 0.3
     
     return {
       isSuitable: score > 0.6,
@@ -327,9 +444,9 @@ Return an array of trade signals with this exact structure:
 
   private async getMarketData(strategy: Strategy): Promise<any> {
     try {
-      const assets = strategy.strategy_config?.assets || [];
+      const assets = (strategy.strategy_config as StrategyConfig)?.assets || [];
       const marketData = await Promise.all(
-        assets.map(async (symbol) => {
+        assets.map(async (symbol: string) => {
           const data = bitmartService.getAssetData(symbol);
           return {
             symbol,
@@ -351,9 +468,8 @@ Return an array of trade signals with this exact structure:
     }
   }
 
-  async analyzeTrade(strategy: Strategy, trade: any): Promise<TradeAnalysis> {
+  async analyzeTrade(strategy: Strategy, trade: TradeConfig): Promise<TradeAnalysis> {
     try {
-      // If no valid API key, use synthetic analysis
       if (!AITradeService.DEEPSEEK_API_KEY || AITradeService.DEEPSEEK_API_KEY === 'your_api_key') {
         return this.generateSyntheticTradeAnalysis(trade);
       }

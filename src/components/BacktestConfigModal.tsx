@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { Strategy } from '../lib/supabase-types';
 import type { BacktestConfig } from '../lib/backtest-service';
+import type { CSVValidationError } from '@/lib/types';
 
 interface BacktestConfigModalProps {
   strategy: Strategy;
@@ -80,8 +81,23 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
   );
   const [initialBalance, setInitialBalance] = useState(10000);
   const [error, setError] = useState<string | null>(null);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<CSVValidationError | null>(null);
   const [uploadedData, setUploadedData] = useState<any[] | null>(null);
+
+  const validateCSV = (headers: string[]): boolean => {
+    const requiredColumns = ['timestamp', 'open', 'high', 'low', 'close', 'volume'];
+    const hasValidHeaders = requiredColumns.every(col => headers.includes(col));
+    
+    if (!hasValidHeaders) {
+      setUploadError({
+        type: 'INVALID_HEADERS',
+        message: 'Invalid CSV format. Required columns: timestamp, open, high, low, close, volume'
+      });
+      return false;
+    }
+    
+    return true;
+  };
 
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -96,15 +112,8 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
         const lines = text.split('\n');
         const headers = lines[0].split(',');
         
-        // Validate headers
-        const requiredColumns = ['timestamp', 'open', 'high', 'low', 'close', 'volume'];
-        const hasValidHeaders = requiredColumns.every(col => headers.includes(col));
+        if (!validateCSV(headers)) return;
         
-        if (!hasValidHeaders) {
-          setUploadError('Invalid CSV format. Required columns: timestamp, open, high, low, close, volume');
-          return;
-        }
-
         // Parse data
         const data = lines.slice(1).map(line => {
           const values = line.split(',');
@@ -121,7 +130,10 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
         setUploadedData(data);
         setStep('config');
       } catch (error) {
-        setUploadError('Error parsing CSV file');
+        setUploadError({
+          type: 'PARSE_ERROR',
+          message: 'Failed to parse CSV file'
+        });
       }
     };
     reader.readAsText(file);
@@ -311,7 +323,7 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
             {uploadError && (
               <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center gap-2">
                 <AlertCircle className="w-5 h-5" />
-                {uploadError}
+                {uploadError.message}
               </div>
             )}
 

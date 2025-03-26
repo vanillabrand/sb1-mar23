@@ -1,5 +1,5 @@
-import { backgroundProcessManager } from '../src/lib/background-process-manager';
-import { logService } from '../src/lib/log-service';
+import { backgroundProcessManager } from '../src/lib/background-process-manager.js';
+import { logService } from '../src/lib/log-service.js';
 import dotenv from 'dotenv';
 
 // Load environment variables

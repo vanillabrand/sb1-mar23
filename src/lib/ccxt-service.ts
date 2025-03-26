@@ -11,9 +11,9 @@ class CCXTService extends EventEmitter {
   private demoMode = true;
   private readonly DEMO_EXCHANGE = 'bitmart';
   private readonly DEMO_CREDENTIALS = {
-    apiKey: '22e99effe3bce2cdb4e2a62a2c086f3518e3a3fc',
-    secret: 'b5811a357f6124cbd0925e19d5a61f342ee00aa5ca8cb3572fbc70cb60092d53',
-    memo: 'Gigantic_Demo'
+    apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY,
+    secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET,
+    memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO
   };
   private readonly MAX_RETRIES = 3;
   private readonly RATE_LIMIT = 2000; // 2 seconds between requests
@@ -318,6 +318,65 @@ class CCXTService extends EventEmitter {
       total,
       available: total - frozen,
       frozen
+    };
+  }
+
+  async createOrder(
+    symbol: string,
+    type: 'market' | 'limit',
+    side: 'buy' | 'sell',
+    amount: number,
+    price?: number
+  ): Promise<any> {
+    if (this.demoMode) {
+      return this.generateDemoOrder(symbol, type, side, amount, price);
+    }
+
+    try {
+      if (!this.exchange) {
+        throw new Error('Exchange not initialized');
+      }
+
+      // Normalize symbol format for CCXT
+      const normalizedSymbol = symbol.replace('_', '/');
+
+      // Create order with retry
+      return await this.retryOperation(async () => {
+        return this.exchange!.createOrder(normalizedSymbol, type, side, amount, price);
+      });
+    } catch (error) {
+      logService.log('error', `Failed to create ${type} ${side} order for ${symbol}`, error, 'CCXTService');
+      return this.generateDemoOrder(symbol, type, side, amount, price);
+    }
+  }
+
+  private generateDemoOrder(
+    symbol: string,
+    type: string,
+    side: string,
+    amount: number,
+    price?: number
+  ): any {
+    const orderId = `demo_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const timestamp = Date.now();
+    const marketPrice = price || parseFloat(this.generateDemoTicker(symbol).last_price);
+
+    return {
+      id: orderId,
+      symbol: symbol,
+      type: type,
+      side: side,
+      amount: amount,
+      price: marketPrice,
+      status: 'closed',
+      filled: amount,
+      remaining: 0,
+      timestamp: timestamp,
+      datetime: new Date(timestamp).toISOString(),
+      fee: {
+        cost: amount * marketPrice * 0.001,
+        currency: symbol.split('_')[1]
+      }
     };
   }
 

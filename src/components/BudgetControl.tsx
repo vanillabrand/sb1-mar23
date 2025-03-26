@@ -4,42 +4,69 @@ import { tradeService } from '../lib/trade-service';
 import { exchangeService } from '../lib/exchange-service';
 import { logService } from '../lib/log-service';
 import type { Strategy } from '../lib/supabase-types';
-import type { StrategyBudget } from '../lib/types';
+import type { StrategyBudget, ExchangeWallets } from '../lib/types';
 
 interface BudgetControlProps {
   strategy: Strategy;
   onSave: () => void;
 }
 
-export function BudgetControl({ strategy, onSave }: BudgetControlProps) {
+export const BudgetControl: React.FC<BudgetControlProps> = ({ strategy, onSave }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [budget, setBudget] = useState<number>(0);
   const [maxBudget, setMaxBudget] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [walletBalances, setWalletBalances] = useState<ExchangeWallets | null>(null);
 
   useEffect(() => {
-    loadBudgetData();
-  }, [strategy.id]);
+    loadWalletBalances();
+    
+    // Subscribe to balance updates
+    exchangeService.on('balancesUpdated', setWalletBalances);
+    
+    return () => {
+      exchangeService.off('balancesUpdated', setWalletBalances);
+    };
+  }, []);
 
-  const loadBudgetData = async () => {
+  const getAvailableBalance = (): number => {
+    if (!walletBalances) return 0;
+    
+    switch ((strategy.strategy_config as { marketType: string })?.marketType) {
+      case 'margin':
+        return walletBalances.margin?.available || 0;
+      case 'futures':
+        return walletBalances.futures?.available || 0;
+      default:
+        return walletBalances.spot.available;
+    }
+  };
+
+  const validateBudget = (amount: number): boolean => {
+    const available = getAvailableBalance();
+    if (amount > available) {
+      setError(`Insufficient balance. Available: ${available}`);
+      return false;
+    }
+    return true;
+  };
+
+  const loadWalletBalances = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Get current budget
-      const currentBudget = tradeService.getBudget(strategy.id);
-      
-      // Get available balance based on market type
-      const balance = await exchangeService.fetchBalance();
-      const availableBalance = balance.available;
+      const balances = await exchangeService.fetchBalance();
+      setWalletBalances(balances);
 
-      setBudget(currentBudget?.total || availableBalance);
+      const availableBalance = getAvailableBalance();
+      setBudget(availableBalance);
       setMaxBudget(availableBalance);
     } catch (error) {
-      logService.log('error', `Error loading budget data for strategy ${strategy.id}`, error, 'BudgetControl');
-      setError('Failed to load budget data');
+      logService.log('error', 'Error loading wallet balances', error, 'BudgetControl');
+      setError('Failed to load wallet balances');
     } finally {
       setLoading(false);
     }
@@ -54,8 +81,8 @@ export function BudgetControl({ strategy, onSave }: BudgetControlProps) {
         throw new Error('Budget must be greater than 0');
       }
 
-      if (budget > maxBudget) {
-        throw new Error(`Budget cannot exceed ${maxBudget}`);
+      if (!validateBudget(budget)) {
+        return;
       }
 
       // Calculate position sizing based on risk level

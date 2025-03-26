@@ -375,9 +375,32 @@ function AppContent() {
 }
 
 export default function App() {
+  const [insufficientBalanceMarket, setInsufficientBalanceMarket] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleInsufficientBalance = (marketType: string) => {
+      setInsufficientBalanceMarket(marketType);
+    };
+
+    exchangeService.onInsufficientBalance(handleInsufficientBalance);
+    
+    return () => {
+      exchangeService.offInsufficientBalance(handleInsufficientBalance);
+    };
+  }, []);
+
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+      
+      {insufficientBalanceMarket && (
+        <InsufficientBalanceModal
+          marketType={insufficientBalanceMarket as 'spot' | 'margin' | 'futures'}
+          onClose={() => setInsufficientBalanceMarket(null)}
+        />
+      )}
+    </>
   );
 }

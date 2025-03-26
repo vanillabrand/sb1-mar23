@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { 
   AlertTriangle, 
@@ -60,19 +60,15 @@ const RiskManager = () => {
   const [drawdownHistory, setDrawdownHistory] = useState<any[]>([]);
   const [assetVolatility, setAssetVolatility] = useState<any[]>([]);
   const [timeframe, setTimeframe] = useState<'1W' | '1M' | '3M' | '6M'>('1M');
+  const [lastUpdate, setLastUpdate] = useState<Date>(new Date());
+  const [marketConditions, setMarketConditions] = useState<any>({
+    volatilityIndex: 0,
+    marketSentiment: 'neutral',
+    trendStrength: 0,
+    liquidityScore: 0
+  });
 
-  useEffect(() => {
-    loadRiskData();
-    
-    // Set up periodic updates
-    const interval = setInterval(() => {
-      loadRiskData();
-    }, 60000); // Update every minute
-    
-    return () => clearInterval(interval);
-  }, [strategies]);
-
-  const loadRiskData = async () => {
+  const loadRiskData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -81,38 +77,66 @@ const RiskManager = () => {
       const activeStrategies = strategies.filter(s => s.status === 'active');
       
       if (activeStrategies.length === 0) {
-        setRiskMetrics({
-          portfolioRisk: 0,
-          maxDrawdown: 0,
-          valueAtRisk: 0,
-          totalExposure: 0,
-          volatility: 0
-        });
+        setRiskMetrics(defaultRiskMetrics);
         setDrawdownHistory([]);
         setAssetVolatility([]);
         setLoading(false);
         return;
       }
 
-      // Calculate portfolio risk metrics
+      // Calculate real-time market conditions
+      const marketData = await Promise.all([
+        analyticsService.getMarketSentiment(),
+        analyticsService.getVolatilityIndex(),
+        analyticsService.getLiquidityMetrics(),
+        analyticsService.getTrendAnalysis()
+      ]);
+
+      setMarketConditions({
+        volatilityIndex: marketData[1],
+        marketSentiment: marketData[0],
+        trendStrength: marketData[3],
+        liquidityScore: marketData[2]
+      });
+
+      // Enhanced portfolio risk calculation
       const metrics = await calculatePortfolioRisk(activeStrategies);
       setRiskMetrics(metrics);
 
-      // Generate drawdown history
+      // Real-time drawdown tracking
       const drawdown = await generateDrawdownHistory(activeStrategies);
       setDrawdownHistory(drawdown);
 
-      // Calculate asset volatility
+      // Asset volatility with enhanced indicators
       const volatility = await calculateAssetVolatility(activeStrategies);
       setAssetVolatility(volatility);
 
+      setLastUpdate(new Date());
       setLoading(false);
     } catch (error) {
       setError('Failed to load risk data');
       logService.log('error', 'Failed to load risk data:', error, 'RiskManager');
       setLoading(false);
     }
-  };
+  }, [strategies]);
+
+  useEffect(() => {
+    loadRiskData();
+    
+    // More frequent updates for critical metrics
+    const fastInterval = setInterval(() => {
+      calculateAssetVolatility(strategies.filter(s => s.status === 'active'))
+        .then(setAssetVolatility);
+    }, 15000); // Every 15 seconds
+
+    // Regular updates for complete risk assessment
+    const regularInterval = setInterval(loadRiskData, 60000); // Every minute
+    
+    return () => {
+      clearInterval(fastInterval);
+      clearInterval(regularInterval);
+    };
+  }, [loadRiskData, strategies]);
 
   const calculatePortfolioRisk = async (strategies: Strategy[]) => {
     try {
@@ -355,7 +379,8 @@ const RiskManager = () => {
 
       {/* DEFCON Monitor */}
       <DefconMonitor 
-        volatility={riskMetrics.volatility * 10} 
+        volatility={riskMetrics.volatility * 10}
+        marketConditions={marketConditions}
         className="mb-6"
       />
 

@@ -13,8 +13,7 @@ class MarketService extends EventEmitter {
   private static instance: MarketService;
   private strategies: Map<string, Strategy> = new Map();
   private monitoredAssets: Set<string> = new Set();
-  private isInitialized: boolean = false;
-  private initializationPromise: Promise<void> | null = null;
+  private initialized: boolean = false;
 
   private constructor() {
     super();
@@ -44,47 +43,46 @@ class MarketService extends EventEmitter {
   }
 
   async initialize(): Promise<void> {
-    if (this.isInitialized) return;
-    if (this.initializationPromise) return this.initializationPromise;
+    if (this.initialized) return;
 
-    this.initializationPromise = new Promise(async (resolve, reject) => {
-      try {
-        logService.log('info', 'Initializing market service', null, 'MarketService');
+    try {
+      // Only initialize core monitoring
+      await marketMonitor.initialize();
+      await analyticsService.initialize();
 
-        // Initialize required services in parallel
-        await Promise.all([
-          marketMonitor.initialize(),
-          analyticsService.initialize(),
-          tradeManager.initialize(),
-          tradeGenerator.initialize()
-        ]);
+      // Wait for WebSocket connection
+      if (!websocketService.isConnected()) {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error('Timeout waiting for WebSocket'));
+          }, 10000);
 
-        // Load active strategies
-        const { data: strategies } = await supabase
-          .from('strategies')
-          .select('*')
-          .eq('status', 'active');
-
-        if (strategies) {
-          // Initialize monitoring for each active strategy
-          for (const strategy of strategies) {
-            await this.trackStrategy(strategy);
-          }
-        }
-
-        this.isInitialized = true;
-        logService.log('info', 'Market service initialized successfully', null, 'MarketService');
-        resolve();
-      } catch (error) {
-        this.isInitialized = false;
-        logService.log('error', 'Failed to initialize market service', error, 'MarketService');
-        reject(error);
-      } finally {
-        this.initializationPromise = null;
+          websocketService.once('connected', () => {
+            clearTimeout(timeout);
+            resolve();
+          });
+        });
       }
-    });
 
-    return this.initializationPromise;
+      // Load active strategies
+      const { data: strategies, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('status', 'active');
+
+      if (error) throw error;
+
+      if (strategies) {
+        for (const strategy of strategies) {
+          await this.trackStrategy(strategy);
+        }
+      }
+
+      this.initialized = true;
+    } catch (error) {
+      await this.cleanup();
+      throw error;
+    }
   }
 
   private async trackStrategy(strategy: Strategy) {

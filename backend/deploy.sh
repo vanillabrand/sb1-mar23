@@ -1,5 +1,12 @@
 #!/bin/bash
 
+# Run pre-deployment checks
+if ! bash scripts/pre-deploy-check.sh; then
+  echo "Pre-deployment checks failed!"
+  exit 1
+fi
+
+# Continue with existing deployment steps
 # Deploy the background trading process
 pm2 delete trading-server || true
 pm2 start backend/server.ts --name trading-server \

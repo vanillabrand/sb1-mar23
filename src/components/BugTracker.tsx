@@ -16,26 +16,18 @@ import {
   X,
   Check
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { useAuth } from '../lib/auth-context';
+import { supabase } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
 import { logService } from '../lib/log-service';
 import { Pagination } from './ui/Pagination';
 import { useScreenSize, ITEMS_PER_PAGE } from '../lib/hooks/useScreenSize';
+import type { BugReport } from '@/lib/types';
 
-interface BugReport {
-  id: string;
-  title: string;
-  description: string;
-  status: 'open' | 'in_progress' | 'resolved' | 'closed';
-  priority: 'low' | 'medium' | 'high' | 'critical';
-  reported_by: string;
-  assigned_to?: string;
-  created_at: string;
-  updated_at: string;
+interface BugTrackerProps {
+  user: User | null;
 }
 
-export default function BugTracker() {
-  const { user } = useAuth();
+const BugTracker: React.FC<BugTrackerProps> = ({ user }) => {
   const [bugs, setBugs] = useState<BugReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -68,15 +60,15 @@ export default function BugTracker() {
     };
   }, []);
 
-  const handleRealtimeUpdate = (payload: any) => {
-    if (payload.eventType === 'INSERT') {
+  const handleRealtimeUpdate = (payload: RealtimePayload) => {
+    if (payload.eventType === 'INSERT' && payload.new) {
       setBugs(prev => [payload.new, ...prev]);
-    } else if (payload.eventType === 'UPDATE') {
+    } else if (payload.eventType === 'UPDATE' && payload.new) {
       setBugs(prev => prev.map(bug => 
-        bug.id === payload.new.id ? payload.new : bug
+        bug.id === payload.new!.id ? payload.new! : bug
       ));
-    } else if (payload.eventType === 'DELETE') {
-      setBugs(prev => prev.filter(bug => bug.id !== payload.old.id));
+    } else if (payload.eventType === 'DELETE' && payload.old) {
+      setBugs(prev => prev.filter(bug => bug.id !== payload.old!.id));
     }
   };
 
@@ -100,6 +92,12 @@ export default function BugTracker() {
 
   const handleSubmitBug = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    
+    if (!user?.id) {
+      setError('You must be logged in to submit a bug report');
+      return;
+    }
+
     const form = e.currentTarget;
     const formData = new FormData(form);
 

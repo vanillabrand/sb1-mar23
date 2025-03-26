@@ -3,6 +3,7 @@ import { ccxtService } from './ccxt-service';
 import { logService } from './log-service';
 import type { ExchangeConfig, ExchangeCredentials } from './types';
 import CryptoJS from 'crypto-js';
+import { websocketService } from './websocket-service';
 
 class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
@@ -13,13 +14,22 @@ class ExchangeService extends EventEmitter {
   private isDemoMode = false;
   private useUSDX = false;
   private credentials: ExchangeCredentials | null = null;
-  private retryAttempts = 0;
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000;
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
   private lastHealthCheck: ExchangeHealth = { ok: true, degraded: false };
   private readonly ENCRYPTION_KEY = process.env.REACT_APP_ENCRYPTION_KEY || 'your-fallback-key';
+  private retryAttempts = 0;
+  private walletBalances: Map<string, ExchangeWallets> = new Map();
+  private marketPairs: Map<string, MarketPair[]> = new Map();
+  private capabilities: ExchangeCapabilities | null = null;
+  private balanceUpdateInterval: NodeJS.Timer | null = null;
+  private wsSupported: boolean = false;
+  private wsSubscriptions: Set<string> = new Set();
+  private static MIN_REQUIRED_BALANCE = 10; // Minimum USD balance required
+  private balanceCheckInterval: NodeJS.Timeout | null = null;
+  private insufficientBalanceCallbacks: Set<(marketType: string) => void> = new Set();
 
   private constructor() {
     super();
@@ -108,9 +118,9 @@ class ExchangeService extends EventEmitter {
           // Initialize with stored credentials
           await this.initializeExchange({
             name: 'bitmart',
-            apiKey: savedCredentials.apiKey,
-            secret: savedCredentials.secret,
-            memo: savedCredentials.memo,
+            apiKey: savedCredentials.credentials!.apiKey,
+            secret: savedCredentials.credentials!.secret,
+            memo: savedCredentials.credentials!.memo,
             testnet: false,
             useUSDX: savedUseUSDX
           });
@@ -151,7 +161,16 @@ class ExchangeService extends EventEmitter {
     try {
       await ccxtService.initialize(config);
       this.currentExchange = config.name;
-      this.initialized = true;
+      
+      // Check if exchange supports WebSocket
+      const exchange = await ccxtService.getExchange();
+      this.wsSupported = Boolean(exchange.has.ws);
+      
+      await this.fetchExchangeCapabilities();
+      await this.initializeMarketPairs();
+      
+      // Initialize balance updates based on exchange capabilities
+      await this.initializeBalanceUpdates();
 
       if (!this.isDemoMode) {
         this.setCredentials({
@@ -162,13 +181,139 @@ class ExchangeService extends EventEmitter {
         }, config.name);
       }
 
-      this.emit('exchangeInitialized', { 
-        exchangeId: config.name, 
-        isDemoMode: this.isDemoMode 
+      this.emit('exchangeInitialized', {
+        exchangeId: config.name,
+        isDemoMode: this.isDemoMode,
+        capabilities: this.capabilities,
+        wsSupported: this.wsSupported
       });
     } catch (error) {
       logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
       throw error;
+    }
+  }
+
+  private async fetchExchangeCapabilities(): Promise<void> {
+    const exchange = await ccxtService.getExchange();
+    this.capabilities = {
+      supportedWallets: ['spot'],
+      supportedOrderTypes: ['market', 'limit'],
+      supportedTimeInForce: ['GTC'],
+      supportsMarginTrading: exchange.has.margin,
+      supportsFuturesTrading: exchange.has.future,
+      supportsSpotTrading: exchange.has.spot
+    };
+
+    if (exchange.has.margin) {
+      this.capabilities.supportedWallets.push('margin');
+      this.capabilities.marginRequirements = await this.fetchMarginRequirements();
+    }
+
+    if (exchange.has.future) {
+      this.capabilities.supportedWallets.push('futures');
+    }
+  }
+
+  private async initializeMarketPairs(): Promise<void> {
+    const exchange = await ccxtService.getExchange();
+    const markets = await exchange.loadMarkets();
+    
+    const pairs: MarketPair[] = [];
+    
+    for (const [symbol, market] of Object.entries(markets)) {
+      const pair: MarketPair = {
+        base: market.base,
+        quote: market.quote,
+        type: market.type || 'spot',
+        minQuantity: market.limits?.amount?.min || 0,
+        maxQuantity: market.limits?.amount?.max || Infinity,
+        pricePrecision: market.precision.price,
+        quantityPrecision: market.precision.amount,
+        minNotional: market.limits?.cost?.min || 0,
+        isActive: market.active,
+        permissions: market.info?.permissions || []
+      };
+      pairs.push(pair);
+    }
+    
+    this.marketPairs.set(this.currentExchange, pairs);
+  }
+
+  private async initializeBalanceUpdates(): Promise<void> {
+    if (this.wsSupported) {
+      await this.subscribeToBalanceUpdates();
+    } else {
+      this.startPollingBalances();
+    }
+  }
+
+  private async subscribeToBalanceUpdates(): Promise<void> {
+    try {
+      // Clear any existing subscriptions
+      if (this.balanceUpdateInterval) {
+        clearInterval(this.balanceUpdateInterval);
+      }
+      
+      await websocketService.connect();
+      
+      // Subscribe to different wallet types based on capabilities
+      const subscriptions = ['spot/balance'];
+      if (this.capabilities?.supportsMarginTrading) {
+        subscriptions.push('margin/balance');
+      }
+      if (this.capabilities?.supportsFuturesTrading) {
+        subscriptions.push('futures/balance');
+      }
+
+      for (const channel of subscriptions) {
+        await websocketService.subscribe(channel, this.handleBalanceUpdate.bind(this));
+        this.wsSubscriptions.add(channel);
+      }
+
+      // Fetch initial balances
+      await this.updateAllBalances();
+
+      // Set up a fallback polling with longer interval
+      this.balanceUpdateInterval = setInterval(async () => {
+        await this.updateAllBalances();
+      }, 60000); // Fallback update every minute
+
+    } catch (error) {
+      logService.log('error', 'Failed to subscribe to balance updates', error, 'ExchangeService');
+      // Fallback to polling if WebSocket subscription fails
+      this.startPollingBalances();
+    }
+  }
+
+  private startPollingBalances(): void {
+    if (this.balanceUpdateInterval) {
+      clearInterval(this.balanceUpdateInterval);
+    }
+
+    this.balanceUpdateInterval = setInterval(async () => {
+      await this.updateAllBalances();
+    }, 10000); // Poll every 10 seconds when WebSocket not available
+  }
+
+  private handleBalanceUpdate(data: any): void {
+    try {
+      const walletType = data.channel.split('/')[0] as keyof ExchangeWallets;
+      const currentBalances = this.walletBalances.get(this.currentExchange) || {};
+      
+      // Update specific wallet balance
+      if (currentBalances[walletType]) {
+        currentBalances[walletType] = {
+          total: parseFloat(data.total) || 0,
+          available: parseFloat(data.free) || 0,
+          used: parseFloat(data.used) || 0,
+          updateTime: Date.now()
+        };
+
+        this.walletBalances.set(this.currentExchange, currentBalances);
+        this.emit('balancesUpdated', currentBalances);
+      }
+    } catch (error) {
+      logService.log('error', 'Error processing balance update', error, 'ExchangeService');
     }
   }
 
@@ -180,12 +325,12 @@ class ExchangeService extends EventEmitter {
 
   async fetchTicker(symbol: string): Promise<any> {
     await this.ensureInitialized();
-    return ccxtService.fetchTicker(symbol);
+    return this.executeWithRetry(() => ccxtService.fetchTicker(symbol));
   }
 
   async fetchBalance(type: 'spot' | 'margin' | 'futures' = 'spot'): Promise<any> {
     await this.ensureInitialized();
-    return ccxtService.fetchBalance(type);
+    return this.executeWithRetry(() => ccxtService.fetchBalance(type));
   }
 
   async createOrder(
@@ -196,7 +341,9 @@ class ExchangeService extends EventEmitter {
     price?: number
   ): Promise<any> {
     await this.ensureInitialized();
-    return ccxtService.createOrder(symbol, type, side, amount, price);
+    return this.executeWithRetry(() => 
+      ccxtService.createOrder(symbol, type, side, amount, price)
+    );
   }
 
   private encryptCredentials(credentials: ExchangeCredentials): string {
@@ -270,9 +417,9 @@ class ExchangeService extends EventEmitter {
 
     await this.initializeExchange({
       name: 'bitmart',
-      apiKey: live ? credentials!.apiKey : 'demo',
-      secret: live ? credentials!.secret : 'demo',
-      memo: live ? credentials!.memo : 'demo',
+      apiKey: live ? credentials.credentials!.apiKey : 'demo',
+      secret: live ? credentials.credentials!.secret : 'demo',
+      memo: live ? credentials.credentials!.memo : 'demo',
       testnet: !live,
       useUSDX: this.useUSDX
     });
@@ -290,6 +437,90 @@ class ExchangeService extends EventEmitter {
     this.isDemoMode = true;
     this.credentials = null;
     this.retryAttempts = 0;
+  }
+
+  private async executeWithRetry<T>(operation: () => Promise<T>): Promise<T> {
+    for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        if (attempt === this.MAX_RETRIES - 1) throw error;
+        
+        this.retryAttempts++;
+        await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
+        
+        logService.log('warn', 
+          `Retry attempt ${attempt + 1} of ${this.MAX_RETRIES}`, 
+          error, 
+          'ExchangeService'
+        );
+      }
+    }
+    throw new Error('Max retries exceeded');
+  }
+
+  getAvailableMarketPairs(): MarketPair[] {
+    return this.marketPairs.get(this.currentExchange) || [];
+  }
+
+  getExchangeCapabilities(): ExchangeCapabilities | null {
+    return this.capabilities;
+  }
+
+  async disconnect(): Promise<void> {
+    // Clean up WebSocket subscriptions
+    for (const channel of this.wsSubscriptions) {
+      await websocketService.unsubscribe(channel);
+    }
+    this.wsSubscriptions.clear();
+
+    // Clear polling interval
+    if (this.balanceUpdateInterval) {
+      clearInterval(this.balanceUpdateInterval);
+      this.balanceUpdateInterval = null;
+    }
+  }
+
+  async initializeBalanceMonitoring(): Promise<void> {
+    if (this.balanceCheckInterval) {
+      clearInterval(this.balanceCheckInterval);
+    }
+
+    this.balanceCheckInterval = setInterval(async () => {
+      await this.checkBalances();
+    }, 30000); // Check every 30 seconds
+
+    // Initial check
+    await this.checkBalances();
+  }
+
+  private async checkBalances(): Promise<void> {
+    if (this.isDemoMode) {
+      return; // Skip balance checks in demo mode
+    }
+
+    const wallets = await this.fetchWalletBalances();
+    
+    // Check each market type
+    ['spot', 'margin', 'futures'].forEach(marketType => {
+      const wallet = wallets[marketType as keyof ExchangeWallets];
+      if (wallet && wallet.available < ExchangeService.MIN_REQUIRED_BALANCE) {
+        this.emit('insufficientBalance', marketType);
+        this.insufficientBalanceCallbacks.forEach(cb => cb(marketType));
+      }
+    });
+  }
+
+  onInsufficientBalance(callback: (marketType: string) => void): void {
+    this.insufficientBalanceCallbacks.add(callback);
+  }
+
+  offInsufficientBalance(callback: (marketType: string) => void): void {
+    this.insufficientBalanceCallbacks.delete(callback);
+  }
+
+  getExchangeDepositUrl(): string {
+    return this.exchange?.urls?.deposit || this.exchange?.urls?.www || '';
   }
 }
 

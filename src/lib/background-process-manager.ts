@@ -6,20 +6,22 @@ import { marketMonitor } from './market-monitor';
 import { logService } from './log-service';
 import { monitoringService } from './monitoring-service';
 import { aiTradeService } from './ai-trade-service';
+import { riskManager } from './risk-manager';
 import { config } from '../../backend/config';
+import { exchangeService } from './exchange-service';
 
 class BackgroundProcessManager extends EventEmitter {
   private static instance: BackgroundProcessManager;
-  private isRunning = false;
-  private healthCheckInterval: NodeJS.Timeout | null = null;
-  private readonly HEALTH_CHECK_INTERVAL = config.healthCheckInterval;
-  private readonly MAX_STRATEGIES = config.maxStrategiesPerProcess;
-  private readonly RECOVERY_ATTEMPTS = config.recoveryAttempts;
-  private readonly PROCESS_ID = `bg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  private activeStrategies: Map<string, any> = new Map();
+  private processIntervals: Map<string, NodeJS.Timeout> = new Map();
+  private readonly STRATEGY_CHECK_INTERVAL = 5 * 60 * 1000; // 5 minutes
+  private readonly MARKET_FIT_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
+  private balanceModalShown: Set<string> = new Set();
 
   private constructor() {
     super();
-    this.setupErrorHandling();
+    this.initialize();
+    exchangeService.onInsufficientBalance(this.handleInsufficientBalance.bind(this));
   }
 
   static getInstance(): BackgroundProcessManager {
@@ -29,145 +31,135 @@ class BackgroundProcessManager extends EventEmitter {
     return BackgroundProcessManager.instance;
   }
 
-  private setupErrorHandling() {
-    process.on('uncaughtException', this.handleError.bind(this));
-    process.on('unhandledRejection', this.handleError.bind(this));
-  }
-
-  private async handleError(error: Error) {
+  private async initialize(): Promise<void> {
     try {
-      await logService.log('error', 'Critical background process error', error, 'BackgroundProcessManager');
-      await this.updateProcessStatus('error', error.message);
-      
-      // Attempt recovery
-      await this.restartProcess();
-    } catch (recoveryError) {
-      console.error('Failed to handle critical error:', recoveryError);
-      process.exit(1);
+      // Get all active strategies
+      const { data: strategies, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('status', 'active');
+
+      if (error) throw error;
+
+      // Initialize monitoring for each strategy
+      await Promise.all(strategies.map(async (strategy) => {
+        await this.initializeStrategy(strategy);
+      }));
+
+      // Start global monitoring process
+      this.startGlobalMonitoring();
+    } catch (error) {
+      logService.log('error', 'Failed to initialize background processes', error, 'BackgroundProcessManager');
     }
   }
 
-  async start(): Promise<void> {
-    if (this.isRunning) return;
-
+  private async initializeStrategy(strategy: any): Promise<void> {
     try {
-      await this.registerProcess();
-      this.isRunning = true;
+      // Validate strategy configuration
+      const isValid = await this.validateStrategyConfiguration(strategy);
+      if (!isValid) {
+        await this.pauseStrategy(strategy.id, 'Invalid strategy configuration');
+        return;
+      }
 
-      // Initialize core services
-      await Promise.all([
-        marketMonitor.initialize(),
-        tradeManager.initialize(),
-        strategyMonitor.initialize(),
-        monitoringService.initialize()
+      // Initialize risk parameters
+      await riskManager.initializeStrategyRisk(strategy);
+
+      // Start market monitoring
+      await marketMonitor.addStrategy(strategy);
+
+      // Initialize trade monitoring
+      await tradeManager.initializeStrategy(strategy);
+
+      // Start continuous market fit analysis
+      await this.startMarketFitAnalysis(strategy);
+
+      // Start strategy-specific monitoring
+      this.startStrategyMonitoring(strategy);
+
+      this.activeStrategies.set(strategy.id, strategy);
+
+      logService.log('info', `Initialized monitoring for strategy ${strategy.id}`, 
+        { strategy: strategy.id }, 'BackgroundProcessManager');
+    } catch (error) {
+      logService.log('error', `Failed to initialize strategy ${strategy.id}`, error, 'BackgroundProcessManager');
+    }
+  }
+
+  private async validateStrategyConfiguration(strategy: any): Promise<boolean> {
+    try {
+      const validationResults = await Promise.all([
+        riskManager.validateRiskParameters(strategy),
+        this.validateBudgetRequirements(strategy),
+        this.validateMarketConditions(strategy)
       ]);
 
-      // Start health check
-      this.startHealthCheck();
-
-      // Start continuous monitoring
-      await this.startContinuousMonitoring();
-
-      logService.log('info', 'Background process manager started successfully', 
-        { processId: this.PROCESS_ID }, 'BackgroundProcessManager');
+      return validationResults.every(result => result === true);
     } catch (error) {
-      await this.handleError(error as Error);
+      logService.log('error', `Strategy validation failed for ${strategy.id}`, error, 'BackgroundProcessManager');
+      return false;
     }
   }
 
-  private async registerProcess(): Promise<void> {
-    const { error } = await supabase
-      .from('background_processes')
-      .upsert({
-        process_id: this.PROCESS_ID,
-        status: 'active',
-        last_heartbeat: new Date().toISOString(),
-        error_count: 0
-      });
-
-    if (error) throw error;
+  private async validateBudgetRequirements(strategy: any): Promise<boolean> {
+    const budget = await tradeManager.getAvailableBudget(strategy.id);
+    const minRequired = strategy.strategy_config?.minRequiredBudget || 0;
+    return budget >= minRequired;
   }
 
-  private async updateProcessStatus(status: 'active' | 'error' | 'stopped', errorMessage?: string): Promise<void> {
-    const { error } = await supabase
-      .from('background_processes')
-      .update({
-        status,
-        last_heartbeat: new Date().toISOString(),
-        last_error: errorMessage,
-        error_count: errorMessage ? supabase.rpc('increment_error_count') : undefined
-      })
-      .eq('process_id', this.PROCESS_ID);
-
-    if (error) throw error;
+  private async validateMarketConditions(strategy: any): Promise<boolean> {
+    const marketData = await marketMonitor.getStrategyMarketData(strategy);
+    return await aiTradeService.validateMarketConditions(strategy, marketData);
   }
 
-  private startHealthCheck(): void {
-    this.healthCheckInterval = setInterval(async () => {
+  private startStrategyMonitoring(strategy: any): void {
+    const interval = setInterval(async () => {
       try {
-        await this.updateProcessStatus('active');
-        await this.checkSystemHealth();
+        await this.processStrategy(strategy);
       } catch (error) {
-        await this.handleError(error as Error);
+        logService.log('error', `Error processing strategy ${strategy.id}`, error, 'BackgroundProcessManager');
       }
-    }, this.HEALTH_CHECK_INTERVAL);
+    }, this.STRATEGY_CHECK_INTERVAL);
+
+    this.processIntervals.set(strategy.id, interval);
   }
 
-  private async checkSystemHealth(): Promise<void> {
-    // Verify all critical services are running
-    const healthChecks = await Promise.all([
-      marketMonitor.checkHealth(),
-      tradeManager.checkHealth(),
-      strategyMonitor.checkHealth(),
-      monitoringService.checkHealth()
-    ]);
-
-    const unhealthyServices = healthChecks.filter(check => !check.healthy);
-    if (unhealthyServices.length > 0) {
-      throw new Error(`Unhealthy services detected: ${unhealthyServices.map(s => s.service).join(', ')}`);
-    }
-  }
-
-  private async startContinuousMonitoring(): Promise<void> {
-    // Load all active strategies with limit
-    const { data: strategies, error } = await supabase
-      .from('strategies')
-      .select('*')
-      .eq('status', 'active')
-      .limit(this.MAX_STRATEGIES);
-
-    if (error) throw error;
-
-    if (!strategies) return;
-
-    if (strategies.length >= this.MAX_STRATEGIES) {
-      logService.log('warn', `Maximum strategy limit reached (${this.MAX_STRATEGIES})`, 
-        null, 'BackgroundProcessManager');
-    }
-
-    // Initialize monitoring for each strategy
-    await Promise.all(strategies.map(async (strategy) => {
-      try {
-        // Start market monitoring
-        await marketMonitor.addStrategy(strategy);
-
-        // Initialize trade monitoring
-        await tradeManager.initializeStrategy(strategy);
-
-        // Start continuous market fit analysis
-        await this.startMarketFitAnalysis(strategy);
-
-        logService.log('info', `Initialized monitoring for strategy ${strategy.id}`, 
-          { strategy: strategy.id }, 'BackgroundProcessManager');
-      } catch (error) {
-        logService.log('error', `Failed to initialize strategy ${strategy.id}`, error, 'BackgroundProcessManager');
+  private async processStrategy(strategy: any): Promise<void> {
+    try {
+      // Get current market data
+      const marketData = await marketMonitor.getStrategyMarketData(strategy);
+      
+      // Check risk limits
+      const riskStatus = await riskManager.checkRiskLimits(strategy);
+      if (!riskStatus.withinLimits) {
+        await this.handleRiskViolation(strategy, riskStatus);
+        return;
       }
-    }));
+
+      // Get available budget
+      const budget = await tradeManager.getAvailableBudget(strategy.id);
+      if (budget <= 0) {
+        logService.log('warn', `Insufficient budget for strategy ${strategy.id}`, 
+          { budget }, 'BackgroundProcessManager');
+        return;
+      }
+
+      // Generate trade signals
+      const signals = await aiTradeService.generateTrades(strategy, marketData, budget);
+
+      // Validate and process signals
+      for (const signal of signals) {
+        const validatedSignal = await riskManager.validateTradeSignal(strategy, signal);
+        if (validatedSignal) {
+          await tradeManager.processTradeSignal(strategy, validatedSignal);
+        }
+      }
+    } catch (error) {
+      logService.log('error', `Error processing strategy ${strategy.id}`, error, 'BackgroundProcessManager');
+    }
   }
 
   private async startMarketFitAnalysis(strategy: any): Promise<void> {
-    const MARKET_FIT_CHECK_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
-
     setInterval(async () => {
       try {
         const marketData = await marketMonitor.getStrategyMarketData(strategy);
@@ -191,24 +183,35 @@ class BackgroundProcessManager extends EventEmitter {
         logService.log('error', `Market fit analysis failed for strategy ${strategy.id}`, 
           error, 'BackgroundProcessManager');
       }
-    }, MARKET_FIT_CHECK_INTERVAL);
+    }, this.MARKET_FIT_CHECK_INTERVAL);
+  }
+
+  private async handleRiskViolation(strategy: any, riskStatus: any): Promise<void> {
+    try {
+      logService.log('warn', `Risk violation detected for strategy ${strategy.id}`, 
+        { riskStatus }, 'BackgroundProcessManager');
+
+      await this.pauseStrategy(strategy.id, `Risk violation: ${riskStatus.reason}`);
+
+      // Close positions if required by risk status
+      if (riskStatus.requiresPositionClose) {
+        await tradeManager.closeAllStrategyTrades(strategy.id, 'Risk violation detected');
+      }
+
+      // Notify monitoring service
+      monitoringService.emit('riskViolation', {
+        strategyId: strategy.id,
+        riskStatus
+      });
+    } catch (error) {
+      logService.log('error', `Failed to handle risk violation for strategy ${strategy.id}`, 
+        error, 'BackgroundProcessManager');
+    }
   }
 
   private async handlePoorMarketFit(strategy: any, analysis: any): Promise<void> {
     try {
-      // Log the issue
-      await logService.log('warn', `Poor market fit detected for strategy ${strategy.id}`, 
-        { analysis }, 'BackgroundProcessManager');
-
-      // Update strategy status
-      await supabase
-        .from('strategies')
-        .update({
-          status: 'paused',
-          pause_reason: 'Poor market fit detected',
-          paused_at: new Date().toISOString()
-        })
-        .eq('id', strategy.id);
+      await this.pauseStrategy(strategy.id, 'Poor market fit detected');
 
       // Close any open trades
       await tradeManager.closeAllStrategyTrades(strategy.id, 'Strategy paused due to poor market fit');
@@ -225,60 +228,85 @@ class BackgroundProcessManager extends EventEmitter {
     }
   }
 
-  private async restartProcess(): Promise<void> {
+  private async pauseStrategy(strategyId: string, reason: string): Promise<void> {
     try {
-      this.isRunning = false;
-      if (this.healthCheckInterval) {
-        clearInterval(this.healthCheckInterval);
+      await supabase
+        .from('strategies')
+        .update({
+          status: 'paused',
+          pause_reason: reason,
+          paused_at: new Date().toISOString()
+        })
+        .eq('id', strategyId);
+
+      // Clear monitoring interval
+      const interval = this.processIntervals.get(strategyId);
+      if (interval) {
+        clearInterval(interval);
+        this.processIntervals.delete(strategyId);
       }
 
-      let attempts = 0;
-      while (attempts < this.RECOVERY_ATTEMPTS) {
-        try {
-          attempts++;
-          await this.start();
-          logService.log('info', 'Process successfully restarted', 
-            { attempt: attempts }, 'BackgroundProcessManager');
-          return;
-        } catch (error) {
-          logService.log('error', `Restart attempt ${attempts} failed`, 
-            error, 'BackgroundProcessManager');
-          if (attempts === this.RECOVERY_ATTEMPTS) {
-            throw error;
-          }
-          // Wait before next attempt
-          await new Promise(resolve => setTimeout(resolve, 5000));
-        }
-      }
+      this.activeStrategies.delete(strategyId);
     } catch (error) {
-      await logService.log('error', 'Failed to restart process after multiple attempts', 
-        error, 'BackgroundProcessManager');
-      process.exit(1);
+      logService.log('error', `Failed to pause strategy ${strategyId}`, error, 'BackgroundProcessManager');
     }
   }
 
-  async stop(): Promise<void> {
-    try {
-      this.isRunning = false;
-      if (this.healthCheckInterval) {
-        clearInterval(this.healthCheckInterval);
+  private startGlobalMonitoring(): void {
+    setInterval(async () => {
+      try {
+        // Check for new active strategies
+        const { data: strategies, error } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('status', 'active');
+
+        if (error) throw error;
+
+        // Initialize new strategies
+        for (const strategy of strategies) {
+          if (!this.activeStrategies.has(strategy.id)) {
+            await this.initializeStrategy(strategy);
+          }
+        }
+
+        // Clean up inactive strategies
+        for (const [strategyId, strategy] of this.activeStrategies) {
+          if (!strategies.find(s => s.id === strategyId)) {
+            await this.pauseStrategy(strategyId, 'Strategy no longer active');
+          }
+        }
+      } catch (error) {
+        logService.log('error', 'Global monitoring error', error, 'BackgroundProcessManager');
       }
+    }, this.STRATEGY_CHECK_INTERVAL);
+  }
 
-      await this.updateProcessStatus('stopped');
-      
-      // Clean up resources
-      await Promise.all([
-        marketMonitor.cleanup(),
-        tradeManager.cleanup(),
-        strategyMonitor.cleanup(),
-        monitoringService.cleanup()
-      ]);
+  private async handleInsufficientBalance(marketType: string): Promise<void> {
+    // Pause all strategies for this market type
+    const strategies = await this.getStrategiesForMarket(marketType);
+    for (const strategy of strategies) {
+      if (!this.balanceModalShown.has(strategy.id)) {
+        this.balanceModalShown.add(strategy.id);
+        
+        // Emit event for UI to show modal
+        this.emit('insufficientBalance', {
+          strategyId: strategy.id,
+          marketType
+        });
 
-      logService.log('info', 'Background process manager stopped successfully', 
-        { processId: this.PROCESS_ID }, 'BackgroundProcessManager');
-    } catch (error) {
-      await this.handleError(error as Error);
+        // Pause strategy
+        await this.pauseStrategy(strategy.id, {
+          reason: 'Insufficient balance',
+          pausedAt: new Date().toISOString()
+        });
+      }
     }
+  }
+
+  private async getStrategiesForMarket(marketType: string): Promise<any[]> {
+    const allStrategies = await this.getActiveStrategies();
+    return allStrategies.filter(s => s.strategy_config.marketType === marketType);
   }
 }
 

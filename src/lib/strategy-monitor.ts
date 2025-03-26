@@ -9,6 +9,8 @@ import { tradeService } from './trade-service';
 import { exchangeService } from './exchange-service';
 import type { Strategy } from './supabase-types';
 import { Decimal } from 'decimal.js';
+import { CACHE_DURATIONS } from '@/lib/constants';
+import type { MarketData } from '@/lib/types';
 
 interface IndicatorValue {
   name: string;
@@ -707,9 +709,16 @@ class StrategyMonitor extends EventEmitter {
 
   private async validateTradeSignal(
     strategy: Strategy,
-    signal: any
+    signal: TradeSignal
   ): Promise<TradeValidationResult> {
-    const marketData = await this.getMarketData(strategy);
+    const marketData: MarketData = await this.getMarketData(strategy);
+    
+    // Add null check
+    const currentPrice = marketData.price;
+    if (!currentPrice) {
+      throw new Error('Current price not available');
+    }
+    
     const issues: string[] = [];
     const recommendations: string[] = [];
 
@@ -719,7 +728,6 @@ class StrategyMonitor extends EventEmitter {
     }
 
     // Validate price deviation
-    const currentPrice = marketData.price;
     const priceDiff = Math.abs(currentPrice.minus(signal.entry_price)
       .div(signal.entry_price)
       .toNumber());

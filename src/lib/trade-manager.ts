@@ -5,8 +5,22 @@ import { tradeGenerator } from './trade-generator';
 import { logService } from './log-service';
 import { tradeService } from './trade-service';
 import { v4 as uuidv4 } from 'uuid';
-import type { Strategy, StrategyTrade } from './supabase-types';
+import type { SupabaseStrategy, StrategyTrade } from './supabase-types';
 import type { TradeConfig } from './types';
+import type { Trade, TradingParams } from '@/lib/types';
+import { Decimal } from 'decimal.js';
+
+interface TradeMonitor {
+  strategy: SupabaseStrategy;
+  trade: Trade;
+  cleanup?: () => void;
+}
+
+interface Budget {
+  total: number;
+  available: number;
+  allocated: number;
+}
 
 class TradeManager extends EventEmitter {
   private static instance: TradeManager;
@@ -225,7 +239,7 @@ class TradeManager extends EventEmitter {
     }
   }
 
-  async closeTrade(tradeId: string): Promise<void> {
+  async closeTrade(tradeId: string, reason?: string): Promise<void> {
     try {
       let foundTrade: StrategyTrade | undefined;
       let strategyId: string | undefined;
@@ -463,6 +477,43 @@ class TradeManager extends EventEmitter {
     }, 1000); // Check every second for scalping
 
     monitor.cleanup = () => clearInterval(checkInterval);
+  }
+
+  private async getCurrentPrice(symbol: string): Promise<number> {
+    const ticker = await exchangeService.fetchTicker(symbol);
+    return parseFloat(ticker.last_price);
+  }
+
+  private async updateTrailingStop(trade: Trade, currentPrice: number): Promise<void> {
+    try {
+      const trailingDistance = trade.direction === 'LONG'
+        ? currentPrice * (trade.trailingStopPct / 100)
+        : currentPrice * (trade.trailingStopPct / 100);
+
+      const newStopPrice = trade.direction === 'LONG'
+        ? currentPrice - trailingDistance
+        : currentPrice + trailingDistance;
+
+      if (trade.direction === 'LONG' && newStopPrice > (trade.stopLoss ?? 0)) {
+        await this.updateTradeStops(trade.id, { stopLoss: newStopPrice });
+      } else if (trade.direction === 'SHORT' && newStopPrice < (trade.stopLoss ?? Infinity)) {
+        await this.updateTradeStops(trade.id, { stopLoss: newStopPrice });
+      }
+    } catch (error) {
+      logService.log('error', `Failed to update trailing stop for trade ${trade.id}`, error, 'TradeManager');
+    }
+  }
+
+  private calculateUnrealizedPnL(trade: Trade, currentPrice: number): number {
+    const openPrice = new Decimal(trade.openPrice);
+    const size = new Decimal(trade.size);
+    const current = new Decimal(currentPrice);
+    
+    if (trade.direction === 'LONG') {
+      return current.minus(openPrice).times(size).toNumber();
+    } else {
+      return openPrice.minus(current).times(size).toNumber();
+    }
   }
 }
 

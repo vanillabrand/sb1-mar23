@@ -16,6 +16,13 @@ import { supabase } from '../lib/supabase';
 import { Hero } from './Hero';
 import { Reviews } from './Reviews';
 import { Awards } from './Awards';
+import type { AuthMode, AuthError } from '@/lib/types';
+
+interface AuthState {
+  loading: boolean;
+  error: AuthError | null;
+  success: string | null;
+}
 
 export function Auth() {
   const [mode, setMode] = useState<'login' | 'signup' | 'forgot' | 'empty'>('empty');
@@ -23,14 +30,15 @@ export function Auth() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
+  const [state, setState] = useState<AuthState>({
+    loading: false,
+    error: null,
+    success: null
+  });
 
   const handleModeChange = (newMode: 'login' | 'signup' | 'forgot' | 'empty') => {
     setMode(newMode);
-    setError(null);
-    setSuccess(null);
+    setState(prev => ({ ...prev, error: null, success: null }));
     setEmail('');
     setPassword('');
     setConfirmPassword('');
@@ -38,22 +46,22 @@ export function Auth() {
 
   const validateForm = () => {
     if (!email || (mode !== 'forgot' && !password)) {
-      setError('Please fill in all fields');
+      setState(prev => ({ ...prev, error: 'Please fill in all fields' }));
       return false;
     }
 
     if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-      setError('Please enter a valid email address');
+      setState(prev => ({ ...prev, error: 'Please enter a valid email address' }));
       return false;
     }
 
     if (mode === 'signup' && password !== confirmPassword) {
-      setError('Passwords do not match');
+      setState(prev => ({ ...prev, error: 'Passwords do not match' }));
       return false;
     }
 
     if ((mode === 'signup' || mode === 'login') && password.length < 6) {
-      setError('Password must be at least 6 characters');
+      setState(prev => ({ ...prev, error: 'Password must be at least 6 characters' }));
       return false;
     }
 
@@ -65,9 +73,7 @@ export function Auth() {
     
     if (!validateForm()) return;
     
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
+    setState(prev => ({ ...prev, loading: true, error: null }));
     
     try {
       switch (mode) {
@@ -89,7 +95,7 @@ export function Auth() {
             }
           });
           if (signupError) throw signupError;
-          setSuccess('Account created! Please check your email to verify your account.');
+          setState(prev => ({ ...prev, success: 'Account created! Please check your email to verify your account.' }));
           break;
         }
 
@@ -98,22 +104,23 @@ export function Auth() {
             redirectTo: `${window.location.origin}/reset-password`
           });
           if (resetError) throw resetError;
-          setSuccess('Password reset instructions have been sent to your email.');
+          setState(prev => ({ ...prev, success: 'Password reset instructions have been sent to your email.' }));
           break;
         }
       }
     } catch (err) {
       console.error('Auth error:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred during signup');
-    } finally {
-      setLoading(false);
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'An error occurred during signup'
+      }));
     }
   };
 
   const handleGitHubSignIn = async () => {
     try {
-      setLoading(true);
-      setError(null);
+      setState(prev => ({ ...prev, loading: true, error: null }));
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'github',
         options: {
@@ -122,16 +129,17 @@ export function Auth() {
       });
       if (error) throw error;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in with GitHub');
-    } finally {
-      setLoading(false);
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Failed to sign in with GitHub'
+      }));
     }
   };
 
   const handleDiscordSignIn = async () => {
     try {
-      setLoading(true);
-      setError(null);
+      setState(prev => ({ ...prev, loading: true, error: null }));
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'discord',
         options: {
@@ -140,9 +148,11 @@ export function Auth() {
       });
       if (error) throw error;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to sign in with Discord');
-    } finally {
-      setLoading(false);
+      setState(prev => ({
+        ...prev,
+        loading: false,
+        error: err instanceof Error ? err.message : 'Failed to sign in with Discord'
+      }));
     }
   };
 
@@ -177,17 +187,17 @@ export function Auth() {
           </p>
         </div>
 
-        {error && (
+        {state.error && (
           <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center gap-2">
             <AlertCircle className="w-5 h-5" />
-            {error}
+            {state.error}
           </div>
         )}
 
-        {success && (
+        {state.success && (
           <div className="p-4 bg-green-500/10 border border-green-500/20 text-green-400 rounded-lg flex items-center gap-2">
             <Check className="w-5 h-5" />
-            {success}
+            {state.success}
           </div>
         )}
 
@@ -195,7 +205,7 @@ export function Auth() {
         <div className="space-y-3">
           <button
             onClick={handleGitHubSignIn}
-            disabled={loading}
+            disabled={state.loading}
             className="w-full flex items-center justify-center gap-3 px-4 py-2 bg-[#24292e] text-white rounded-lg hover:bg-[#2f363d] transition-all duration-300 disabled:opacity-50"
           >
             <Github className="w-5 h-5" />
@@ -204,7 +214,7 @@ export function Auth() {
 
           <button
             onClick={handleDiscordSignIn}
-            disabled={loading}
+            disabled={state.loading}
             className="w-full flex items-center justify-center gap-3 px-4 py-2 bg-[#5865F2] text-white rounded-lg hover:bg-[#4752C4] transition-all duration-300 disabled:opacity-50"
           >
             <MessageSquare className="w-5 h-5" />
@@ -297,10 +307,10 @@ export function Auth() {
             <motion.button
               whileTap={{ scale: 0.98 }}
               type="submit"
-              disabled={loading}
+              disabled={state.loading}
               className="w-full flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-neon-turquoise hover:bg-neon-yellow focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neon-turquoise transition-all duration-300"
             >
-              {loading ? (
+              {state.loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <>

@@ -5,7 +5,7 @@ import { logService } from './log-service';
 import { tradeService } from './trade-service';
 import { analyticsService } from './analytics-service';
 import { bitmartService } from './bitmart-service';
-import type { Strategy } from './supabase-types';
+import type { Strategy, MonitorState } from '@/lib/types';
 import type { TradeConfig } from './types';
 
 interface IndicatorData {
@@ -18,7 +18,7 @@ interface IndicatorData {
 class TradeGenerator extends EventEmitter {
   private static instance: TradeGenerator;
   private activeStrategies: Map<string, Strategy> = new Map();
-  private monitorState: Map<string, any> = new Map();
+  private monitorState: Map<string, MonitorState> = new Map();
   private checkInterval: NodeJS.Timeout | null = null;
   private initialized = false;
   private readonly CHECK_FREQUENCY = 15000; // 15 seconds
@@ -166,8 +166,19 @@ class TradeGenerator extends EventEmitter {
     }
   }
 
-  private updateMonitoringStatus(strategyId: string, status: MonitoringStatus) {
-    this.emit('monitoringUpdate', { strategyId, ...status });
+  private async updateMonitorState(
+    strategyId: string,
+    update: Partial<MonitorState>
+  ): Promise<void> {
+    const currentState = this.monitorState.get(strategyId) || {
+      isActive: false,
+      lastCheckTime: 0
+    };
+    
+    this.monitorState.set(strategyId, {
+      ...currentState,
+      ...update
+    });
   }
 
   private async evaluateConditions(strategy: Strategy, indicators: any[], marketState: any) {

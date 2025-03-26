@@ -85,6 +85,8 @@ type SortOrder = 'asc' | 'desc';
 
 const ITEMS_PER_PAGE = 5;
 
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
 export default function Backtester() {
   const { strategies } = useStrategies();
   const [selectedStrategy, setSelectedStrategy] = useState<string | null>(null);
@@ -141,13 +143,18 @@ export default function Backtester() {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadError('File size exceeds 10MB limit');
+      return;
+    }
+
     setUploadError(null);
 
     try {
       const text = await file.text();
-      Papa.parse(text, {
+      Papa.parse<string[]>(text, {
         complete: (results) => {
-          const headers = results.data[0];
+          const headers = results.data[0] as string[];
           const requiredColumns = ['timestamp', 'open', 'high', 'low', 'close', 'volume'];
           const hasValidHeaders = requiredColumns.every(col => 
             headers.includes(col)
@@ -158,14 +165,22 @@ export default function Backtester() {
             return;
           }
 
-          const data = results.data.slice(1).map(row => ({
-            timestamp: new Date(row[0]).getTime(),
-            open: parseFloat(row[1]),
-            high: parseFloat(row[2]),
-            low: parseFloat(row[3]),
-            close: parseFloat(row[4]),
-            volume: parseFloat(row[5])
-          }));
+          const data = results.data.slice(1).map(row => {
+            const parsedRow = {
+              timestamp: new Date(row[0]).getTime(),
+              open: parseFloat(row[1]) || 0,
+              high: parseFloat(row[2]) || 0,
+              low: parseFloat(row[3]) || 0,
+              close: parseFloat(row[4]) || 0,
+              volume: parseFloat(row[5]) || 0
+            };
+
+            if (isNaN(parsedRow.timestamp)) {
+              throw new Error('Invalid timestamp format');
+            }
+
+            return parsedRow;
+          });
 
           handleStartBacktest({
             ...config,
@@ -173,12 +188,13 @@ export default function Backtester() {
             dataSource: 'file'
           });
         },
-        error: (error) => {
-          setUploadError(`Error parsing CSV: ${error.message}`);
+        error: (error: Papa.ParseError) => {
+          setUploadError(`CSV parsing error: ${error.message}`);
         }
       });
     } catch (error) {
       setUploadError('Error reading file');
+      console.error('File reading error:', error);
     }
   };
 

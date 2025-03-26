@@ -14,6 +14,7 @@ export interface ExchangeCredentials {
   apiKey: string;
   secret: string;
   memo?: string;
+  password?: string;  // Add this line
 }
 
 export interface Exchange {
@@ -41,7 +42,18 @@ export interface Exchange {
   spotSupported: boolean;
 }
 
-export type RiskLevel = 'Ultra Low' | 'Low' | 'Medium' | 'High' | 'Ultra High' | 'Extreme' | 'God Mode';
+export type RiskLevel = 'Low' | 'Medium' | 'High';
+
+export interface CreateStrategyData {
+  title: string;
+  description: string;
+  riskLevel: RiskLevel;
+  userId: string;
+  strategyConfig: any;
+  type: string;
+  status: string;
+  performance: number;
+}
 
 export interface StrategyTemplate {
   id: string;
@@ -100,7 +112,7 @@ export const SUPPORTED_EXCHANGES: Exchange[] = Object.entries(ccxt.exchanges).ma
   return {
     id,
     name: exchange.name || id.toUpperCase(),
-    logo: `path/to/exchange/logos/${id}.png`, // You'll need to handle logos
+    logo: `path/to/exchange/logos/${id}.png`,
     description: `Trade on ${exchange.name || id.toUpperCase()}`,
     features: [
       exchange.has.spot ? 'Spot Trading' : null,
@@ -142,6 +154,11 @@ export const SUPPORTED_EXCHANGES: Exchange[] = Object.entries(ccxt.exchanges).ma
         description: `Your ${exchange.name || id.toUpperCase()} password`
       }] : [])
     ],
+    docs: {
+      setup: ['Visit the exchange website', 'Generate API keys with trading permissions'],
+      permissions: ['Trading', 'Account info'],
+      restrictions: ['No withdrawals']
+    },
     testnetSupported: Boolean(exchange.urls?.test),
     marginSupported: exchange.has.margin,
     futuresSupported: exchange.has.future,
@@ -150,6 +167,7 @@ export const SUPPORTED_EXCHANGES: Exchange[] = Object.entries(ccxt.exchanges).ma
 });
 
 interface StrategyConfig {
+  marketType: 'spot' | 'margin' | 'futures';
   assets: string[];
   // other strategy configuration properties...
 }
@@ -158,5 +176,148 @@ interface Strategy {
   id: string;
   status: string;
   strategy_config: StrategyConfig;
+  risk_level: string;
   // other strategy properties...
+}
+
+export interface WalletBalance {
+  total: number;
+  available: number;
+  used: number;
+  updateTime: number;
+}
+
+export interface ExchangeWallets {
+  spot: WalletBalance;
+  margin?: WalletBalance;
+  futures?: WalletBalance;
+  funding?: WalletBalance;
+}
+
+export interface MarketPair {
+  base: string;
+  quote: string;
+  type: 'spot' | 'margin' | 'futures';
+  minQuantity: number;
+  maxQuantity: number;
+  pricePrecision: number;
+  quantityPrecision: number;
+  minNotional: number;
+  isActive: boolean;
+  permissions: string[];
+}
+
+export interface ExchangeCapabilities {
+  supportedWallets: ('spot' | 'margin' | 'futures' | 'funding')[];
+  supportedOrderTypes: ('market' | 'limit' | 'stop' | 'stopLimit')[];
+  supportedTimeInForce: string[];
+  supportsMarginTrading: boolean;
+  supportsFuturesTrading: boolean;
+  supportsSpotTrading: boolean;
+  marginRequirements?: {
+    initialMargin: number;
+    maintenanceMargin: number;
+    maxLeverage: number;
+  };
+}
+
+export interface TradeSignal {
+  asset: string;
+  direction: 'LONG' | 'SHORT';
+  entry_price: number;
+  stop_loss: number;
+  take_profit: number;
+  position_size: number;
+  confidence: number;
+  conditions_met: string[];
+  timestamp: number;
+}
+
+export interface Strategy {
+  id: string;
+  status: string;
+  strategy_config: any; // Define proper type
+  maxRiskScore: number;
+}
+
+export interface TradeConfig {
+  // Add proper fields
+}
+
+export interface TradeAnalysis {
+  shouldClose: boolean;
+  shouldAdjustStops: boolean;
+  reason: string;
+  recommendedStops?: {
+    stopLoss: number;
+    takeProfit: number;
+  };
+}
+
+export interface MarketFitAnalysis {
+  isSuitable: boolean;
+  // Add other required fields
+}
+
+export interface MonitorState {
+  isActive: boolean;
+  lastCheckTime: number;
+}
+
+export interface MarketData {
+  price: Decimal | null;
+  volume: number;
+  timestamp: number;
+}
+
+export interface TradingParams {
+  minProfitPct: number;
+  maxLossPct: number;
+  timeframes: {
+    holding: {
+      max: number;
+    };
+  };
+  trailingStop?: {
+    activation: number;
+    distance: number;
+  };
+}
+
+export interface Trade {
+  id: string;
+  symbol: string;
+  direction: 'LONG' | 'SHORT';
+  openPrice: number;
+  size: number;
+  openTime: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  trailingStopPct?: number;
+}
+
+export interface MarketSentiment {
+  fearGreedIndex: number;
+  bullBearIndex: number;
+  lastUpdate: number;
+}
+
+export interface CSVValidationError {
+  type: 'INVALID_HEADERS' | 'PARSE_ERROR' | 'FILE_SIZE' | 'INVALID_DATA';
+  message: string;
+}
+
+export interface BacktestConfig {
+  startDate: Date;
+  endDate: Date;
+  asset: string;
+  strategy: string;
+  parameters: Record<string, any>;
+}
+
+export interface ProgressStatus {
+  status: 'running' | 'complete' | 'error';
+  progress: number;
+  currentStep: string;
+  error?: string;
 }

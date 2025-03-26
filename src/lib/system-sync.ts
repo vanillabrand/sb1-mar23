@@ -31,68 +31,43 @@ class SystemSync extends EventEmitter {
 
   async initialize(): Promise<void> {
     try {
-      // Reset initialization progress
       initializationProgress.reset();
-
-      // Add initialization steps
-      initializationProgress.addStep('exchange', 'Exchange Connection');
-      initializationProgress.addStep('websocket', 'WebSocket Connection');
-      initializationProgress.addStep('strategy', 'Strategy Sync');
-      initializationProgress.addStep('template', 'Template Sync');
-      initializationProgress.addStep('market', 'Market Data');
-      initializationProgress.addStep('analytics', 'Analytics');
-      initializationProgress.addStep('monitoring', 'Monitoring Service');
-
-      // Initialize exchange service first
+      
+      // Core Services First
       initializationProgress.startStep('exchange');
       await this.initializeExchange();
       initializationProgress.completeStep('exchange');
-      
-      // Initialize WebSocket connection
-      initializationProgress.startStep('websocket');
-      websocketService.connect();
-      initializationProgress.completeStep('websocket');
-      
-      // Initialize strategy and template sync
-      initializationProgress.startStep('strategy');
-      await strategySync.initialize();
-      initializationProgress.completeStep('strategy');
 
-      initializationProgress.startStep('template');
-      await templateSync.initialize();
-      initializationProgress.completeStep('template');
-      
-      // Initialize market service
+      // Database Connection
+      initializationProgress.startStep('database');
+      await this.initializeDatabase();
+      initializationProgress.completeStep('database');
+
+      // WebSocket after exchange is ready
+      initializationProgress.startStep('websocket');
+      await this.initializeWebSocket();
+      initializationProgress.completeStep('websocket');
+
+      // Market Data Services
       initializationProgress.startStep('market');
       await marketService.initialize();
       initializationProgress.completeStep('market');
 
-      // Initialize analytics service
-      initializationProgress.startStep('analytics');
-      await analyticsService.initialize();
-      initializationProgress.completeStep('analytics');
-      
-      // Initialize monitoring service
-      initializationProgress.startStep('monitoring');
-      await monitoringService.initialize();
-      initializationProgress.completeStep('monitoring');
-      
-      // Perform initial sync
+      // Trading Services
+      await Promise.all([
+        tradeManager.initialize(),
+        tradeGenerator.initialize(),
+        strategyMonitor.initialize()
+      ]);
+
+      // Final Sync
       await this.performFullSync();
       
-      // Set up periodic sync
+      // Start periodic sync
       this.startPeriodicSync();
       
-      // Listen for auth state changes
-      supabase.auth.onAuthStateChange(async (event) => {
-        if (event === 'SIGNED_IN') {
-          await this.performFullSync();
-        }
-      });
-
-      logService.log('info', 'System sync initialized successfully', null, 'SystemSync');
     } catch (error) {
-      logService.log('error', 'System initialization error', error, 'SystemSync');
+      await this.handleInitializationError(error);
       throw error;
     }
   }
@@ -332,6 +307,62 @@ class SystemSync extends EventEmitter {
       logService.log('error', 'Failed to sync with background process', error, 'SystemSync');
       throw error;
     }
+  }
+
+  private async initializeDatabase(): Promise<void> {
+    const maxRetries = 3;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+      try {
+        const { data, error } = await supabase.auth.getSession();
+        if (error) throw error;
+        if (data.session) return;
+        
+        // If no session, initialize demo mode
+        await this.initializeDemoMode();
+        return;
+      } catch (error) {
+        attempt++;
+        if (attempt === maxRetries) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+
+  private async initializeWebSocket(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error('WebSocket connection timeout'));
+      }, 10000);
+
+      websocketService.connect();
+      
+      websocketService.once('connected', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+
+      websocketService.once('error', (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      });
+    });
+  }
+
+  private async handleInitializationError(error: unknown): Promise<void> {
+    // Cleanup all services
+    await Promise.allSettled([
+      this.cleanup(),
+      marketService.cleanup(),
+      tradeManager.cleanup(),
+      tradeGenerator.cleanup(),
+      strategyMonitor.cleanup(),
+      websocketService.disconnect()
+    ]);
+
+    // Fall back to demo mode
+    await this.initializeDemoMode();
   }
 }
 
