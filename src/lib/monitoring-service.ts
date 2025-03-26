@@ -1,11 +1,14 @@
 import { supabase } from './supabase-client';
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
+import { bitmartService } from './bitmart-service';
+import { tradeManager } from './trade-manager';
 
 class MonitoringService extends EventEmitter {
   private static instance: MonitoringService;
   private initialized = false;
   private initializationPromise: Promise<void> | null = null;
+  private updateInterval: number = 5000; // 5 seconds
 
   private constructor() {
     super();
@@ -306,6 +309,122 @@ class MonitoringService extends EventEmitter {
       logService.log('error', 'Failed to get all monitoring statuses', error, 'MonitoringService');
       throw error;
     }
+  }
+
+  async updateStrategyStatus(strategyId: string): Promise<DetailedMonitoringStatus> {
+    try {
+      // Get strategy configuration
+      const strategy = await this.getStrategy(strategyId);
+      
+      // Get current market data
+      const marketData = await bitmartService.getMarketData(strategy.symbol);
+      
+      // Calculate market metrics
+      const marketMetrics = await this.calculateMarketMetrics(marketData);
+      
+      // Get current indicator values
+      const indicators = await this.calculateIndicators(strategy, marketData);
+      
+      // Evaluate strategy conditions
+      const conditions = await this.evaluateStrategyConditions(strategy, indicators);
+      
+      // Get active positions
+      const positions = await this.getPositionDetails(strategy);
+      
+      const status: DetailedMonitoringStatus = {
+        status: 'monitoring',
+        message: 'Actively monitoring market conditions',
+        timestamp: Date.now(),
+        activeConditions: conditions,
+        marketMetrics,
+        positions,
+        lastIndicatorValues: indicators,
+        nextEvaluation: new Date(Date.now() + this.updateInterval).toISOString()
+      };
+
+      // Update status in database
+      await this.saveMonitoringStatus(strategyId, status);
+      
+      return status;
+    } catch (error) {
+      logService.log('error', 'Failed to update strategy status', error, 'MonitoringService');
+      throw error;
+    }
+  }
+
+  private async calculateMarketMetrics(marketData: any): Promise<any> {
+    const volatility = await this.calculateVolatility(marketData.klines);
+    const trendStrength = await this.calculateTrendStrength(marketData.klines);
+    
+    return {
+      volatility,
+      volume24h: marketData.volume24h,
+      priceChange24h: marketData.priceChange24h,
+      trendStrength
+    };
+  }
+
+  private async evaluateStrategyConditions(
+    strategy: Strategy, 
+    indicators: Record<string, number>
+  ): Promise<StrategyCondition[]> {
+    const conditions: StrategyCondition[] = [];
+    
+    for (const condition of strategy.strategy_config.conditions) {
+      const currentValue = indicators[condition.indicator];
+      const status = this.evaluateCondition(currentValue, condition);
+      
+      conditions.push({
+        name: condition.name,
+        currentValue,
+        targetValue: condition.target,
+        status,
+        lastUpdated: new Date().toISOString()
+      });
+    }
+    
+    return conditions;
+  }
+
+  private async getPositionDetails(strategy: Strategy): Promise<TradePosition[]> {
+    const positions = [];
+    
+    if (process.env.MODE === 'demo') {
+      // Simulate position updates in demo mode
+      const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+      
+      for (const trade of activeTrades) {
+        const currentPrice = await bitmartService.getCurrentPrice(trade.symbol);
+        const unrealizedPnl = this.calculateUnrealizedPnl(trade, currentPrice);
+        
+        positions.push({
+          entryPrice: trade.entryPrice,
+          currentPrice,
+          stopLoss: trade.stopLoss,
+          takeProfit: trade.takeProfit,
+          trailingStop: trade.trailingStop,
+          size: trade.size,
+          leverage: trade.leverage,
+          unrealizedPnl: unrealizedPnl.amount,
+          unrealizedPnlPercent: unrealizedPnl.percentage,
+          timeOpen: trade.openTime
+        });
+      }
+    } else {
+      // Get real position data from exchange
+      const exchangePositions = await bitmartService.getPositions(strategy.symbol);
+      // Transform exchange positions to our format...
+    }
+    
+    return positions;
+  }
+
+  private calculateUnrealizedPnl(trade: any, currentPrice: number) {
+    const priceDiff = currentPrice - trade.entryPrice;
+    const amount = priceDiff * trade.size * trade.leverage;
+    const percentage = (priceDiff / trade.entryPrice) * 100 * trade.leverage;
+    
+    return { amount, percentage };
   }
 }
 

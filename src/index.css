@@ -44,6 +44,48 @@
   .panel-footer {
     @apply mt-4 pt-4 border-t border-gunmetal-700;
   }
+
+  .panel-metallic {
+    @apply relative overflow-hidden;
+    background: linear-gradient(
+      135deg,
+      rgba(24, 24, 27, 0.95) 0%,
+      rgba(39, 39, 42, 0.95) 49%,
+      rgba(24, 24, 27, 0.95) 100%
+    );
+  }
+
+  .panel-metallic::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      45deg,
+      transparent 0%,
+      rgba(152, 152, 152, 0.05) 50%,
+      transparent 100%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .panel-metallic::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
+      rgba(255, 255, 255, 0.08) 0%,
+      transparent 50%
+    );
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+
+  .panel-metallic:hover::before,
+  .panel-metallic:hover::after {
+    opacity: 1;
+  }
 }
 
 /* Panel entrance animation */

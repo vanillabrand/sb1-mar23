@@ -35,6 +35,8 @@ class TradeEngine extends EventEmitter {
   private readonly SIGNAL_CHECK_INTERVAL = 5000; // 5 seconds
   private readonly SIGNAL_EXPIRY = 300000; // 5 minutes
   private initialized = false;
+  private readonly MAX_RETRIES = 3;
+  private readonly BACKOFF_DELAY = 1000;
 
   private constructor() {
     super();
@@ -536,6 +538,50 @@ class TradeEngine extends EventEmitter {
     }
     this.activeStrategies.clear();
     this.initialized = false;
+  }
+
+  async executeTradeOperation<T>(
+    operation: () => Promise<T>,
+    context: string
+  ): Promise<T> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (this.isRetryableError(error)) {
+          const delay = this.calculateBackoff(attempt);
+          logService.log('warn', 
+            `Retry attempt ${attempt} for ${context}. Waiting ${delay}ms`,
+            error,
+            'TradeEngine'
+          );
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+        
+        throw error;
+      }
+    }
+    
+    throw new Error(`Max retries exceeded for ${context}: ${lastError?.message}`);
+  }
+
+  private isRetryableError(error: any): boolean {
+    return error instanceof NetworkError ||
+           error instanceof TimeoutError ||
+           error.code === 'ECONNRESET' ||
+           error.code === 'ETIMEDOUT';
+  }
+
+  private calculateBackoff(attempt: number): number {
+    return Math.min(
+      this.BACKOFF_DELAY * Math.pow(2, attempt - 1) + Math.random() * 1000,
+      30000
+    );
   }
 }
 

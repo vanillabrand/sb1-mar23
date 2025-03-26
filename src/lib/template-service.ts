@@ -74,7 +74,18 @@ class TemplateService {
     const marketConditions = {
       trend: 'neutral',
       volatility: 'medium',
-      majorAssets: {} as Record<string, any>
+      majorAssets: {} as Record<string, any>,
+      globalMetrics: {
+        cryptoFearGreedIndex: number,
+        btcDominance: number,
+        totalMarketCap: number,
+        volume24h: number
+      },
+      correlations: {
+        btcCorrelation: number,
+        sectorCorrelation: number
+      },
+      marketPhase: 'accumulation' | 'markup' | 'distribution' | 'markdown'
     };
 
     // Get data for major assets

@@ -2,6 +2,10 @@ import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { Decimal } from 'decimal.js';
 import type { Strategy } from './supabase-types';
+import { StrategyTranslator } from './strategy-translator';
+import backtrader as bt
+import pandas as pd
+from typing import Dict, Any
 
 interface BacktestConfig {
   strategy: Strategy;

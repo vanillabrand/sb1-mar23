@@ -20,6 +20,7 @@ import { DefconMonitor } from './DefconMonitor';
 import { EmergencyStopButton } from './EmergencyStopButton';
 import { analyticsService } from '../lib/analytics-service';
 import { monitoringService } from '../lib/monitoring-service';
+import { StrategyAssetPanel } from './StrategyAssetPanel';
 
 const TIMEZONES = [
   { id: 'UTC', name: 'UTC', offset: 0 },
@@ -193,7 +194,10 @@ export default function Dashboard() {
           </div>
 
           <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
-            <DefconMonitor volatility={volatility} />
+            <DefconMonitor 
+              strategies={activeStrategies} 
+              className="mb-6"
+            />
           </div>
 
           <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">

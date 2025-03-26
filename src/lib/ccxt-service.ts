@@ -17,6 +17,10 @@ class CCXTService extends EventEmitter {
   };
   private readonly MAX_RETRIES = 3;
   private readonly RATE_LIMIT = 2000; // 2 seconds between requests
+  private readonly BURST_LIMIT = 5;
+  private readonly QUEUE_TIMEOUT = 30000;
+  private tokenBucket = this.BURST_LIMIT;
+  private lastRefill = Date.now();
   private lastRequestTime = 0;
   private requestQueue: Array<() => Promise<any>> = [];
   private processingQueue = false;
@@ -38,24 +42,41 @@ class CCXTService extends EventEmitter {
     this.processingQueue = true;
     
     while (this.requestQueue.length > 0) {
+      await this.refillTokenBucket();
+      
+      if (this.tokenBucket <= 0) {
+        await new Promise(resolve => setTimeout(resolve, this.RATE_LIMIT));
+        continue;
+      }
+
       const request = this.requestQueue.shift();
       if (!request) continue;
 
       try {
-        const now = Date.now();
-        const elapsed = now - this.lastRequestTime;
-        if (elapsed < this.RATE_LIMIT) {
-          await new Promise(resolve => setTimeout(resolve, this.RATE_LIMIT - elapsed));
-        }
-        
-        await request();
-        this.lastRequestTime = Date.now();
+        this.tokenBucket--;
+        await Promise.race([
+          request(),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Request timeout')), this.QUEUE_TIMEOUT)
+          )
+        ]);
       } catch (error) {
         logService.log('error', 'Error processing queued request', error, 'CCXTService');
       }
     }
     
     this.processingQueue = false;
+  }
+
+  private async refillTokenBucket() {
+    const now = Date.now();
+    const timePassed = now - this.lastRefill;
+    const tokensToAdd = Math.floor(timePassed / this.RATE_LIMIT);
+    
+    if (tokensToAdd > 0) {
+      this.tokenBucket = Math.min(this.BURST_LIMIT, this.tokenBucket + tokensToAdd);
+      this.lastRefill = now;
+    }
   }
 
   private async queueRequest<T>(operation: () => Promise<T>): Promise<T> {

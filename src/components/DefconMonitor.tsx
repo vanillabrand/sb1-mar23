@@ -5,36 +5,46 @@ import useSound from 'use-sound';
 import { marketService } from '../lib/market-service';
 import { analyticsService } from '../lib/analytics-service';
 import { bitmartService } from '../lib/bitmart-service';
+import { strategyMonitor } from '../lib/strategy-monitor';
 
-interface DefconMonitorProps {
-  volatility: number; // 0-100
-  className?: string;
+interface MarketMetrics {
+  volatility: number;      // 0-100
+  riskScore: number;       // 0-100
+  sentiment: number;       // 0-100 (normalized from -100 to 100)
+  volume: number;         // 0-100 (normalized)
+  activeStrategiesRisk: number; // 0-100
 }
 
-export function DefconMonitor({ volatility, className = "" }: DefconMonitorProps) {
+interface DefconMonitorProps {
+  className?: string;
+  strategies?: Strategy[];
+}
+
+export function DefconMonitor({ className = "", strategies = [] }: DefconMonitorProps) {
   const [defconLevel, setDefconLevel] = useState(5);
   const [pulseSpeed, setPulseSpeed] = useState(2);
   const [playKlaxon] = useSound('https://assets.mixkit.co/active_storage/sfx/2894/2894-preview.mp3', { volume: 0.5 });
   const [lastDefconLevel, setLastDefconLevel] = useState(5);
-  const [marketMetrics, setMarketMetrics] = useState({
+  const [marketMetrics, setMarketMetrics] = useState<MarketMetrics>({
     volatility: 0,
     riskScore: 0,
     sentiment: 0,
-    volume: 0
+    volume: 0,
+    activeStrategiesRisk: 0
   });
 
   useEffect(() => {
     const updateMarketMetrics = async () => {
       try {
         // Get market metrics from various services
-        const dashboardMetrics = analyticsService.getDashboardMetrics();
+        const dashboardMetrics = await analyticsService.getDashboardMetrics();
         const riskProfile = dashboardMetrics?.riskProfile?.current || 0;
         
-        // Get real-time market data
-        const btcData = bitmartService.getAssetData('BTC_USDT');
-        const ethData = bitmartService.getAssetData('ETH_USDT');
+        // Get real-time market data for major assets
+        const btcData = await bitmartService.getAssetData('BTC_USDT');
+        const ethData = await bitmartService.getAssetData('ETH_USDT');
         
-        // Calculate combined volatility
+        // Calculate volatility metrics
         const btcVol = Math.abs(btcData?.change24h || 0);
         const ethVol = Math.abs(ethData?.change24h || 0);
         const avgVolatility = (btcVol + ethVol) / 2;
@@ -46,12 +56,16 @@ export function DefconMonitor({ volatility, className = "" }: DefconMonitorProps
         
         // Calculate market sentiment (-100 to 100)
         const sentiment = ((btcData?.change24h || 0) + (ethData?.change24h || 0)) / 2;
+
+        // Calculate active strategies risk
+        const strategiesRisk = await calculateStrategiesRisk(strategies);
         
         setMarketMetrics({
           volatility: avgVolatility,
           riskScore: riskProfile * 10, // Scale to 0-100
           sentiment: (sentiment + 100) / 2, // Normalize to 0-100
-          volume: Math.min(volumeIntensity, 100)
+          volume: Math.min(volumeIntensity, 100),
+          activeStrategiesRisk: strategiesRisk
         });
       } catch (error) {
         console.error('Error updating market metrics:', error);
@@ -62,30 +76,45 @@ export function DefconMonitor({ volatility, className = "" }: DefconMonitorProps
     const interval = setInterval(updateMarketMetrics, 30000); // Update every 30 seconds
     
     return () => clearInterval(interval);
-  }, []);
+  }, [strategies]);
+
+  const calculateStrategiesRisk = async (strategies: Strategy[]): Promise<number> => {
+    if (!strategies.length) return 0;
+
+    const risks = await Promise.all(
+      strategies.map(async (strategy) => {
+        const monitor = await strategyMonitor.getStrategyStatus(strategy.id);
+        return monitor.riskScore || 0;
+      })
+    );
+
+    return Math.min(100, (risks.reduce((a, b) => a + b, 0) / risks.length));
+  };
 
   useEffect(() => {
     // Calculate DEFCON level based on multiple factors
     const calculateDefconLevel = () => {
       const weights = {
-        volatility: 0.3,
-        riskScore: 0.3,
+        volatility: 0.25,
+        riskScore: 0.25,
         sentiment: 0.2,
-        volume: 0.2
+        volume: 0.15,
+        strategiesRisk: 0.15
       };
 
       const weightedScore = 
         (marketMetrics.volatility * weights.volatility) +
         (marketMetrics.riskScore * weights.riskScore) +
-        (marketMetrics.sentiment * weights.sentiment) +
-        (marketMetrics.volume * weights.volume);
+        ((100 - marketMetrics.sentiment) * weights.sentiment) + // Invert sentiment for risk calculation
+        (marketMetrics.volume * weights.volume) +
+        (marketMetrics.activeStrategiesRisk * weights.strategiesRisk);
 
-      // Map score to DEFCON levels (1-5)
-      if (weightedScore >= 80) return 1;
-      if (weightedScore >= 60) return 2;
-      if (weightedScore >= 40) return 3;
-      if (weightedScore >= 20) return 4;
-      return 5;
+      // Map weighted score to DEFCON levels (1-5)
+      if (weightedScore >= 80) return 1;      // Maximum Alert
+      if (weightedScore >= 60) return 2;      // High Readiness
+      if (weightedScore >= 40) return 3;      // Increased Alert
+      if (weightedScore >= 20) return 4;      // Increased Intel
+      return 5;                               // Normal Readiness
     };
 
     const level = calculateDefconLevel();
@@ -110,12 +139,14 @@ export function DefconMonitor({ volatility, className = "" }: DefconMonitorProps
     1: '#ef4444'  // Red
   };
 
-  const defconDescriptions = {
-    5: 'NORMAL READINESS',
-    4: 'INCREASED INTEL',
-    3: 'INCREASED ALERT',
-    2: 'HIGH READINESS',
-    1: 'MAXIMUM ALERT'
+  const getMarketStateDescription = (): string => {
+    const { volatility, sentiment, riskScore } = marketMetrics;
+    
+    if (defconLevel === 1) return "EXTREME MARKET VOLATILITY - HIGH RISK";
+    if (defconLevel === 2) return "SIGNIFICANT MARKET INSTABILITY";
+    if (defconLevel === 3) return "ELEVATED MARKET UNCERTAINTY";
+    if (defconLevel === 4) return "MODERATE MARKET FLUCTUATION";
+    return "STABLE MARKET CONDITIONS";
   };
 
   const pulseAnimation = {
@@ -180,7 +211,7 @@ export function DefconMonitor({ volatility, className = "" }: DefconMonitorProps
             D E F C O N
           </motion.p>
           <p className="text-sm font-medium text-gray-400 mt-1">
-            {defconDescriptions[defconLevel as keyof typeof defconDescriptions]}
+            {getMarketStateDescription()}
           </p>
         </div>
       </div>
@@ -207,6 +238,12 @@ export function DefconMonitor({ volatility, className = "" }: DefconMonitorProps
             'text-neon-yellow'
           }`}>
             {marketMetrics.sentiment.toFixed(1)}%
+          </p>
+        </div>
+        <div>
+          <p className="text-sm text-gray-400">Strategies Risk</p>
+          <p className="text-xl font-bold text-neon-purple">
+            {marketMetrics.activeStrategiesRisk.toFixed(1)}%
           </p>
         </div>
       </div>

@@ -94,38 +94,64 @@ class CircuitBreaker {
   private failures = 0;
   private lastFailure: number = 0;
   private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+  private successfulAttempts = 0;
+  private readonly requiredSuccesses = 3;
 
   constructor(
     private threshold: number = 5,
     private timeout: number = 60000,
-    private halfOpenTimeout: number = 30000
+    private halfOpenTimeout: number = 30000,
+    private onStateChange?: (state: 'CLOSED' | 'OPEN' | 'HALF_OPEN') => void
   ) {}
 
   async execute<T>(operation: () => Promise<T>): Promise<T> {
     if (this.state === 'OPEN') {
       if (Date.now() - this.lastFailure > this.timeout) {
-        this.state = 'HALF_OPEN';
+        this.transitionTo('HALF_OPEN');
       } else {
-        throw new Error('Circuit breaker is OPEN');
+        throw new Error(`Circuit breaker is OPEN. Retry after ${this.getRemainingTimeout()}ms`);
       }
     }
 
     try {
       const result = await operation();
+      
       if (this.state === 'HALF_OPEN') {
-        this.state = 'CLOSED';
-        this.failures = 0;
+        this.successfulAttempts++;
+        if (this.successfulAttempts >= this.requiredSuccesses) {
+          this.transitionTo('CLOSED');
+        }
       }
+      
       return result;
     } catch (error) {
       this.failures++;
       this.lastFailure = Date.now();
       
       if (this.failures >= this.threshold) {
-        this.state = 'OPEN';
+        this.transitionTo('OPEN');
       }
       throw error;
     }
+  }
+
+  private transitionTo(newState: 'CLOSED' | 'OPEN' | 'HALF_OPEN') {
+    this.state = newState;
+    if (newState === 'CLOSED') {
+      this.failures = 0;
+      this.successfulAttempts = 0;
+    } else if (newState === 'HALF_OPEN') {
+      this.successfulAttempts = 0;
+    }
+    this.onStateChange?.(newState);
+  }
+
+  private getRemainingTimeout(): number {
+    return Math.max(0, this.timeout - (Date.now() - this.lastFailure));
+  }
+
+  getState(): string {
+    return this.state;
   }
 }
 
@@ -852,3 +878,338 @@ class StrategyMonitor extends EventEmitter {
 }
 
 export const strategyMonitor = StrategyMonitor.getInstance();
+
+interface MarketRegime {
+  type: 'TRENDING' | 'RANGING' | 'VOLATILE' | 'UNCERTAIN';
+  confidence: number;
+  metrics: Record<string, number>;
+  timestamp: number;
+  symbol: string;
+}
+
+interface RegimeIndicators {
+  adx: number;
+  macdHistogram: number;
+  macdStdDev: number;
+  macdMax: number;
+  atr: number;
+  atrUpperBand: number;
+  rsi: number;
+  bbWidth: number;
+  bbWidthMA: number;
+  bbWidthMax: number;
+  volatility: number;
+  trendStrength: number;
+}
+
+class MarketRegimeDetector {
+  private regimeHistory: Map<string, MarketRegime[]> = new Map();
+  private readonly HISTORY_LENGTH = 24; // Keep 24 hours of regime history
+  private readonly UPDATE_INTERVAL = 15 * 60 * 1000; // 15 minutes
+  private lastUpdate: Map<string, number> = new Map();
+
+  constructor(
+    private readonly indicatorService: IndicatorService,
+    private readonly marketDataService: MarketDataService
+  ) {}
+
+  async detectRegime(symbol: string, timeframe: string = '1h'): Promise<MarketRegime> {
+    const now = Date.now();
+    const lastUpdateTime = this.lastUpdate.get(symbol) || 0;
+
+    // Check if we need to update
+    if (now - lastUpdateTime < this.UPDATE_INTERVAL) {
+      return this.getLatestRegime(symbol);
+    }
+
+    const indicators = await this.calculateRegimeIndicators(symbol, timeframe);
+    const regime = await this.analyzeRegime(symbol, indicators);
+    
+    this.updateRegimeHistory(symbol, regime);
+    this.lastUpdate.set(symbol, now);
+
+    return regime;
+  }
+
+  private async calculateRegimeIndicators(
+    symbol: string,
+    timeframe: string
+  ): Promise<RegimeIndicators> {
+    // Fetch required candles for calculations
+    const candles = await this.marketDataService.getCandles(symbol, timeframe, 100);
+    
+    // Calculate ADX for trend strength
+    const adx = await this.indicatorService.calculateADX(candles, 14);
+    
+    // Calculate MACD
+    const macd = await this.indicatorService.calculateMACD(candles, {
+      fastPeriod: 12,
+      slowPeriod: 26,
+      signalPeriod: 9
+    });
+    
+    // Calculate Bollinger Bands
+    const bb = await this.indicatorService.calculateBB(candles, 20, 2);
+    
+    // Calculate ATR
+    const atr = await this.indicatorService.calculateATR(candles, 14);
+    
+    // Calculate RSI
+    const rsi = await this.indicatorService.calculateRSI(candles, 14);
+
+    // Calculate derived metrics
+    const macdHistogram = macd.histogram[macd.histogram.length - 1];
+    const macdValues = macd.histogram.slice(-30);
+    const macdStdDev = this.calculateStdDev(macdValues);
+    const macdMax = Math.max(...macdValues.map(Math.abs));
+
+    const atrValues = atr.slice(-30);
+    const atrMA = this.calculateSMA(atrValues, 10);
+    const atrUpperBand = atrMA + (this.calculateStdDev(atrValues) * 2);
+
+    const bbWidth = (bb.upper[bb.upper.length - 1] - bb.lower[bb.lower.length - 1]) /
+                   bb.middle[bb.middle.length - 1];
+    const bbWidthHistory = bb.upper.map((u, i) => 
+      (u - bb.lower[i]) / bb.middle[i]
+    );
+    const bbWidthMA = this.calculateSMA(bbWidthHistory.slice(-30), 10);
+    const bbWidthMax = Math.max(...bbWidthHistory.slice(-30));
+
+    // Calculate overall volatility and trend strength
+    const volatility = this.calculateVolatility(candles);
+    const trendStrength = this.calculateTrendStrength(candles);
+
+    return {
+      adx: adx[adx.length - 1],
+      macdHistogram,
+      macdStdDev,
+      macdMax,
+      atr: atr[atr.length - 1],
+      atrUpperBand,
+      rsi: rsi[rsi.length - 1],
+      bbWidth,
+      bbWidthMA,
+      bbWidthMax,
+      volatility,
+      trendStrength
+    };
+  }
+
+  private async analyzeRegime(
+    symbol: string,
+    indicators: RegimeIndicators
+  ): Promise<MarketRegime> {
+    // Trend detection
+    const isTrending = indicators.adx > 25 && 
+                      Math.abs(indicators.macdHistogram) > indicators.macdStdDev &&
+                      indicators.trendStrength > 0.7;
+
+    // Volatility detection
+    const isVolatile = indicators.atr > indicators.atrUpperBand &&
+                      indicators.volatility > 0.8;
+
+    // Range detection
+    const isRangebound = indicators.rsi > 40 && indicators.rsi < 60 &&
+                        indicators.bbWidth < indicators.bbWidthMA &&
+                        indicators.trendStrength < 0.3;
+
+    // Determine regime type and confidence
+    let type: MarketRegime['type'];
+    let confidence: number;
+
+    if (isTrending) {
+      type = 'TRENDING';
+      confidence = Math.min(
+        1,
+        (indicators.adx / 50 + 
+         Math.abs(indicators.macdHistogram) / indicators.macdMax +
+         indicators.trendStrength) / 3
+      );
+    } else if (isVolatile) {
+      type = 'VOLATILE';
+      confidence = Math.min(
+        1,
+        (indicators.atr / indicators.atrUpperBand +
+         indicators.volatility) / 2
+      );
+    } else if (isRangebound) {
+      type = 'RANGING';
+      confidence = Math.min(
+        1,
+        (1 - indicators.bbWidth / indicators.bbWidthMax +
+         1 - indicators.trendStrength) / 2
+      );
+    } else {
+      type = 'UNCERTAIN';
+      confidence = 0.5;
+    }
+
+    return {
+      type,
+      confidence,
+      metrics: indicators,
+      timestamp: Date.now(),
+      symbol
+    };
+  }
+
+  private updateRegimeHistory(symbol: string, regime: MarketRegime): void {
+    const history = this.regimeHistory.get(symbol) || [];
+    history.push(regime);
+    
+    // Keep only recent history
+    const cutoff = Date.now() - (this.HISTORY_LENGTH * 60 * 60 * 1000);
+    const filteredHistory = history.filter(r => r.timestamp >= cutoff);
+    
+    this.regimeHistory.set(symbol, filteredHistory);
+  }
+
+  private getLatestRegime(symbol: string): MarketRegime {
+    const history = this.regimeHistory.get(symbol);
+    if (!history || history.length === 0) {
+      throw new Error(`No regime history available for ${symbol}`);
+    }
+    return history[history.length - 1];
+  }
+
+  async adjustStrategyForRegime(
+    strategy: Strategy,
+    regime: MarketRegime
+  ): Promise<void> {
+    const config = { ...strategy.strategy_config };
+    const baseAdjustment = regime.confidence;
+
+    switch (regime.type) {
+      case 'TRENDING':
+        // In trending markets, increase position size and use trailing stops
+        config.trade_parameters = {
+          ...config.trade_parameters,
+          position_size: config.trade_parameters.position_size * (1 + baseAdjustment * 0.5),
+          trailing_stop: true,
+          trailing_stop_distance: config.trade_parameters.stop_loss * 1.5
+        };
+        
+        config.risk_management = {
+          ...config.risk_management,
+          stop_loss: config.risk_management.stop_loss * (1 + baseAdjustment * 0.3),
+          take_profit: config.risk_management.take_profit * (1 + baseAdjustment * 0.5)
+        };
+        break;
+        
+      case 'RANGING':
+        // In ranging markets, reduce position size and tighten stops
+        config.trade_parameters = {
+          ...config.trade_parameters,
+          position_size: config.trade_parameters.position_size * (1 - baseAdjustment * 0.3),
+          trailing_stop: false
+        };
+        
+        config.risk_management = {
+          ...config.risk_management,
+          stop_loss: config.risk_management.stop_loss * 0.8,
+          take_profit: config.risk_management.take_profit * 0.8
+        };
+        break;
+        
+      case 'VOLATILE':
+        // In volatile markets, reduce position size and widen stops
+        config.trade_parameters = {
+          ...config.trade_parameters,
+          position_size: config.trade_parameters.position_size * (1 - baseAdjustment * 0.5),
+          trailing_stop: true,
+          trailing_stop_distance: config.trade_parameters.stop_loss * 2
+        };
+        
+        config.risk_management = {
+          ...config.risk_management,
+          stop_loss: config.risk_management.stop_loss * (1 + baseAdjustment),
+          take_profit: config.risk_management.take_profit * (1 + baseAdjustment * 0.5)
+        };
+        break;
+        
+      case 'UNCERTAIN':
+        // In uncertain markets, reduce exposure significantly
+        config.trade_parameters = {
+          ...config.trade_parameters,
+          position_size: config.trade_parameters.position_size * 0.5,
+          trailing_stop: false
+        };
+        
+        config.risk_management = {
+          ...config.risk_management,
+          stop_loss: config.risk_management.stop_loss * 1.2,
+          take_profit: config.risk_management.take_profit * 0.8
+        };
+        break;
+    }
+
+    // Ensure adjustments don't exceed maximum limits
+    this.validateAndClampConfig(config);
+    
+    // Update strategy configuration
+    await this.updateStrategyConfig(strategy.id, config);
+    
+    // Log regime change
+    logService.log(
+      'info',
+      `Strategy ${strategy.id} adjusted for ${regime.type} regime (confidence: ${regime.confidence})`,
+      { regime, newConfig: config },
+      'MarketRegimeDetector'
+    );
+  }
+
+  private calculateStdDev(values: number[]): number {
+    const mean = values.reduce((a, b) => a + b) / values.length;
+    const squareDiffs = values.map(value => Math.pow(value - mean, 2));
+    return Math.sqrt(squareDiffs.reduce((a, b) => a + b) / values.length);
+  }
+
+  private calculateSMA(values: number[], period: number): number {
+    return values.slice(-period).reduce((a, b) => a + b) / period;
+  }
+
+  private calculateVolatility(candles: any[]): number {
+    const returns = candles.slice(1).map((candle, i) => 
+      (candle.close - candles[i].close) / candles[i].close
+    );
+    return this.calculateStdDev(returns) * Math.sqrt(returns.length);
+  }
+
+  private calculateTrendStrength(candles: any[]): number {
+    const prices = candles.map(c => c.close);
+    const sma20 = this.calculateSMA(prices, 20);
+    const sma50 = this.calculateSMA(prices, 50);
+    
+    // Calculate trend strength based on SMA alignment and price position
+    const currentPrice = prices[prices.length - 1];
+    const trendAlignment = (sma20 - sma50) / sma50;
+    const pricePosition = (currentPrice - sma50) / sma50;
+    
+    return Math.min(1, (Math.abs(trendAlignment) + Math.abs(pricePosition)) / 2);
+  }
+
+  private validateAndClampConfig(config: any): void {
+    // Ensure position size stays within global limits
+    config.trade_parameters.position_size = Math.min(
+      config.trade_parameters.position_size,
+      GLOBAL_MAX_POSITION_SIZE
+    );
+
+    // Ensure stop loss isn't too tight
+    config.risk_management.stop_loss = Math.max(
+      config.risk_management.stop_loss,
+      MINIMUM_STOP_LOSS_DISTANCE
+    );
+
+    // Validate take profit is greater than stop loss
+    if (config.risk_management.take_profit <= config.risk_management.stop_loss) {
+      config.risk_management.take_profit = config.risk_management.stop_loss * 1.5;
+    }
+  }
+}
+
+// Export singleton instance
+export const marketRegimeDetector = new MarketRegimeDetector(
+  indicatorService,
+  marketDataService
+);

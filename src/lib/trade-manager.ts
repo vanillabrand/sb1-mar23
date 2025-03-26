@@ -15,6 +15,7 @@ class TradeManager extends EventEmitter {
   private initialized = false;
   private isUpdating = false;
   private readonly UPDATE_INTERVAL = 15000; // 15 seconds
+  private activeTradeMonitors: Map<string, TradeMonitor> = new Map();
 
   private constructor() {
     super();
@@ -405,6 +406,63 @@ class TradeManager extends EventEmitter {
       logService.log('error', `Failed to update stops for trade ${tradeId}`, error, 'TradeManager');
       throw error;
     }
+  }
+
+  private async setupTradeManagement(monitor: TradeMonitor): Promise<void> {
+    const { strategy, trade } = monitor;
+    const { type, timeframes, tradingParams } = strategy.strategy_config;
+
+    // Setup strategy-specific monitoring and management
+    switch (type) {
+      case 'scalper':
+        await this.setupScalperManagement(monitor);
+        break;
+      case 'daytrader':
+        await this.setupDayTraderManagement(monitor);
+        break;
+      // ... other strategy types
+    }
+  }
+
+  private async setupScalperManagement(monitor: TradeMonitor): Promise<void> {
+    const { strategy, trade } = monitor;
+    const { tradingParams } = strategy.strategy_config;
+
+    // Setup tight monitoring for scalping
+    const checkInterval = setInterval(async () => {
+      try {
+        const currentPrice = await this.getCurrentPrice(trade.symbol);
+        const unrealizedPnL = this.calculateUnrealizedPnL(trade, currentPrice);
+        
+        // Check profit target
+        if (unrealizedPnL >= tradingParams.minProfitPct) {
+          await this.closeTrade(trade.id, 'Profit target reached');
+          return;
+        }
+
+        // Check stop loss
+        if (unrealizedPnL <= -tradingParams.maxLossPct) {
+          await this.closeTrade(trade.id, 'Stop loss triggered');
+          return;
+        }
+
+        // Check holding time
+        const duration = Date.now() - trade.openTime;
+        if (duration >= strategy.strategy_config.timeframes.holding.max) {
+          await this.closeTrade(trade.id, 'Maximum holding time exceeded');
+          return;
+        }
+
+        // Update trailing stop if enabled
+        if (tradingParams.trailingStop && unrealizedPnL >= tradingParams.trailingStop.activation) {
+          await this.updateTrailingStop(trade, currentPrice);
+        }
+      } catch (error) {
+        logService.log('error', 'Scalper management error', error, 'TradeManager');
+      }
+    }, 1000); // Check every second for scalping
+
+    monitor.cleanup = () => clearInterval(checkInterval);
   }
 }
 

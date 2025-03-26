@@ -108,7 +108,7 @@ export function NewsWidget({ assets = [], limit = 10 }: NewsWidgetProps) {
   }
 
   return (
-    <div>
+    <motion.div layout className="min-h-[400px]">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <Newspaper className="w-5 h-5 text-neon-yellow" />
@@ -116,62 +116,71 @@ export function NewsWidget({ assets = [], limit = 10 }: NewsWidgetProps) {
         </div>
       </div>
 
-      <div className="space-y-4">
-        <AnimatePresence mode="wait">
-          {displayedNews.map((item, index) => (
-            <motion.a
-              key={item.id}
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="block bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-lg p-6 hover:bg-gunmetal-800/90 transition-all duration-300 group"
-            >
-              <div className="flex items-start gap-6">
-                <div className="flex-1">
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    {item.relatedAssets?.slice(0, 3).map((asset: string) => (
-                      <span 
-                        key={asset} 
-                        className={`px-2 py-0.5 text-xs font-medium bg-gunmetal-900/50 rounded-full ${getAssetColor(asset)}`}
-                      >
-                        {asset}
-                      </span>
-                    ))}
-                  </div>
-                  
-                  <h4 className="text-sm font-medium text-gray-200 mb-4">{item.title}</h4>
-                  
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1 text-sm text-gray-400">
-                        <Calendar className="w-4 h-4" />
-                        {formatDate(item.publishedAt)}
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentPage}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+        >
+          <div className="space-y-4">
+            {displayedNews.map((item, index) => (
+              <PanelWrapper 
+                key={item.id} 
+                index={index}
+                className="rounded-lg p-6"
+              >
+                <a
+                  href={item.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block group"
+                >
+                  <div className="flex items-start gap-6">
+                    <div className="flex-1">
+                      <div className="flex flex-wrap gap-2 mb-3">
+                        {item.relatedAssets?.slice(0, 3).map((asset: string) => (
+                          <span 
+                            key={asset} 
+                            className={`px-2 py-0.5 text-xs font-medium bg-gunmetal-900/50 rounded-full ${getAssetColor(asset)}`}
+                          >
+                            {asset}
+                          </span>
+                        ))}
                       </div>
-                      <span className="text-sm text-gray-400">{item.source}</span>
+                      
+                      <h4 className="text-sm font-medium text-gray-200 mb-4">{item.title}</h4>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-1 text-sm text-gray-400">
+                            <Calendar className="w-4 h-4" />
+                            {formatDate(item.publishedAt)}
+                          </div>
+                          <span className="text-sm text-gray-400">{item.source}</span>
+                        </div>
+                        <ExternalLink className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </div>
                     </div>
-                    <ExternalLink className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </div>
-                </div>
-              </div>
-            </motion.a>
-          ))}
-        </AnimatePresence>
-      </div>
+                </a>
+              </PanelWrapper>
+            ))}
+          </div>
+        </motion.div>
+      </AnimatePresence>
 
       {totalPages > 1 && (
-        <div className="mt-6">
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={setCurrentPage}
-            showPageNumbers={screenSize !== 'sm'}
-          />
-        </div>
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          onPageChange={setCurrentPage}
+          showPageNumbers={screenSize !== 'sm'}
+          itemsPerPage={itemsPerPage}
+          totalItems={news.length}
+          className="mt-4"
+        />
       )}
-    </div>
+    </motion.div>
   );
 }

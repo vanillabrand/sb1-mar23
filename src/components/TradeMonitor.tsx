@@ -66,6 +66,41 @@ interface TradeSignal {
   executed_at?: string;
 }
 
+// Add new interfaces for detailed monitoring
+interface StrategyCondition {
+  name: string;
+  currentValue: number;
+  targetValue: number;
+  status: 'watching' | 'met' | 'not_met';
+  lastUpdated: string;
+}
+
+interface TradePosition {
+  entryPrice: number;
+  currentPrice: number;
+  stopLoss: number;
+  takeProfit: number;
+  trailingStop?: number;
+  size: number;
+  leverage: number;
+  unrealizedPnl: number;
+  unrealizedPnlPercent: number;
+  timeOpen: string;
+}
+
+interface DetailedMonitoringStatus extends MonitoringStatus {
+  activeConditions: StrategyCondition[];
+  marketMetrics: {
+    volatility: number;
+    volume24h: number;
+    priceChange24h: number;
+    trendStrength: number;
+  };
+  positions: TradePosition[];
+  lastIndicatorValues: Record<string, number>;
+  nextEvaluation: string;
+}
+
 export default function TradeMonitor() {
   const {
     strategies,
@@ -596,6 +631,146 @@ export default function TradeMonitor() {
       <div className="mt-2 text-xs text-gray-400">{signal.rationale}</div>
     </div>
   );
+
+  const LiveTradesPanel: React.FC<{ strategy: Strategy }> = ({ strategy }) => {
+    const monitorDetails = monitoringStatus.get(strategy.id) as DetailedMonitoringStatus;
+    
+    return (
+      <div className="space-y-4">
+        {/* Market Conditions Panel */}
+        <div className="bg-gunmetal-900/30 p-4 rounded-lg">
+          <div className="flex items-center justify-between mb-3">
+            <h6 className="text-sm font-medium text-gray-300 flex items-center gap-2">
+              <Activity className="w-4 h-4" />
+              Market Conditions
+            </h6>
+            <span className="text-xs text-gray-400">
+              Next Update: {formatTimeDistance(monitorDetails?.nextEvaluation)}
+            </span>
+          </div>
+          
+          <div className="grid grid-cols-2 gap-3">
+            <MetricCard
+              icon={<Gauge className="w-4 h-4" />}
+              label="Volatility"
+              value={`${(monitorDetails?.marketMetrics.volatility * 100).toFixed(2)}%`}
+              trend={monitorDetails?.marketMetrics.volatility > 0.15 ? 'up' : 'neutral'}
+            />
+            <MetricCard
+              icon={<TrendingUp className="w-4 h-4" />}
+              label="Trend Strength"
+              value={`${(monitorDetails?.marketMetrics.trendStrength * 100).toFixed(2)}%`}
+              trend={monitorDetails?.marketMetrics.trendStrength > 0.6 ? 'up' : 'neutral'}
+            />
+          </div>
+        </div>
+
+        {/* Strategy Conditions Monitor */}
+        <div className="bg-gunmetal-900/30 p-4 rounded-lg">
+          <h6 className="text-sm font-medium text-gray-300 flex items-center gap-2 mb-3">
+            <Target className="w-4 h-4" />
+            Strategy Conditions
+          </h6>
+          
+          <div className="space-y-2">
+            {monitorDetails?.activeConditions.map((condition, idx) => (
+              <div key={idx} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className={`w-2 h-2 rounded-full ${
+                    condition.status === 'met' 
+                      ? 'bg-neon-turquoise' 
+                      : condition.status === 'watching' 
+                      ? 'bg-neon-yellow' 
+                      : 'bg-neon-pink'
+                  }`} />
+                  <span className="text-sm text-gray-400">{condition.name}</span>
+                </div>
+                <div className="text-sm">
+                  <span className={condition.status === 'met' ? 'text-neon-turquoise' : 'text-gray-400'}>
+                    {condition.currentValue.toFixed(2)} / {condition.targetValue.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Indicator Values */}
+        <div className="bg-gunmetal-900/30 p-4 rounded-lg">
+          <h6 className="text-sm font-medium text-gray-300 flex items-center gap-2 mb-3">
+            <Brain className="w-4 h-4" />
+            Active Indicators
+          </h6>
+          
+          <div className="grid grid-cols-2 gap-2">
+            {Object.entries(monitorDetails?.lastIndicatorValues || {}).map(([name, value], idx) => (
+              <div key={idx} className="text-sm">
+                <span className="text-gray-400">{name}:</span>{' '}
+                <span className="text-gray-200">{value.toFixed(4)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Active Positions */}
+        {monitorDetails?.positions.length > 0 ? (
+          <div className="space-y-3">
+            {monitorDetails.positions.map((position, idx) => (
+              <div key={idx} className="bg-gunmetal-900/30 p-4 rounded-lg">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Wallet className="w-4 h-4 text-neon-yellow" />
+                    <span className="text-sm font-medium text-gray-200">
+                      Position #{idx + 1}
+                    </span>
+                  </div>
+                  <span className="text-xs text-gray-400">
+                    {formatTimeDistance(position.timeOpen)}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="text-sm">
+                    <span className="text-gray-400">Entry:</span>{' '}
+                    <span className="text-gray-200">${position.entryPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-400">Current:</span>{' '}
+                    <span className="text-gray-200">${position.currentPrice.toFixed(2)}</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-400">Stop Loss:</span>{' '}
+                    <span className="text-neon-pink">${position.stopLoss.toFixed(2)}</span>
+                  </div>
+                  <div className="text-sm">
+                    <span className="text-gray-400">Take Profit:</span>{' '}
+                    <span className="text-neon-turquoise">${position.takeProfit.toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-gunmetal-700">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm text-gray-400">Unrealized P&L</span>
+                    <span className={`text-sm font-medium ${
+                      position.unrealizedPnl >= 0 ? 'text-neon-turquoise' : 'text-neon-pink'
+                    }`}>
+                      {position.unrealizedPnl >= 0 ? '+' : ''}
+                      ${Math.abs(position.unrealizedPnl).toFixed(2)} ({position.unrealizedPnlPercent.toFixed(2)}%)
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-gunmetal-900/30 p-4 rounded-lg text-center">
+            <Clock className="w-5 h-5 text-gray-400 mx-auto mb-2" />
+            <p className="text-sm text-gray-400">Monitoring for trade opportunities...</p>
+          </div>
+        )}
+      </div>
+    );
+  };
 
   useEffect(() => {
     const subscription = supabase

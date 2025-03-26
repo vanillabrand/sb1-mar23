@@ -33,21 +33,64 @@ const TOP_PAIRS = [
   'LINK_USDT'  // Chainlink
 ];
 
+interface StrategyFormData {
+  title: string;
+  description: string;
+  riskLevel: RiskLevel;
+  selectedPairs: string[];
+  marketRequirements: {
+    trendFilter: boolean;
+    volatilityFilter: boolean;
+    correlationFilter: boolean;
+    volumeFilter: boolean;
+  };
+  validationCriteria: {
+    minWinRate: number;
+    minProfitFactor: number;
+    maxDrawdown: number;
+    minTradeCount: number;
+  };
+  confirmationRules: {
+    timeframes: string[];
+    indicators: string[];
+    minConfidence: number;
+  };
+}
+
 export function CreateStrategyModal({ onClose, onCreated }: CreateStrategyModalProps) {
   const { user } = useAuth();
   const { createStrategy } = useStrategies();
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [riskLevel, setRiskLevel] = useState<RiskLevel>('Medium');
+  const [formData, setFormData] = useState<StrategyFormData>({
+    title: '',
+    description: '',
+    riskLevel: 'Medium',
+    selectedPairs: [],
+    marketRequirements: {
+      trendFilter: false,
+      volatilityFilter: false,
+      correlationFilter: false,
+      volumeFilter: false,
+    },
+    validationCriteria: {
+      minWinRate: 0,
+      minProfitFactor: 0,
+      maxDrawdown: 0,
+      minTradeCount: 0,
+    },
+    confirmationRules: {
+      timeframes: [],
+      indicators: [],
+      minConfidence: 0,
+    },
+  });
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedPairs, setSelectedPairs] = useState<string[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
 
-    if (selectedPairs.length === 0) {
+    if (formData.selectedPairs.length === 0) {
       setError('Please select at least one trading pair');
       return;
     }
@@ -57,17 +100,20 @@ export function CreateStrategyModal({ onClose, onCreated }: CreateStrategyModalP
       setError(null);
 
       // Generate strategy configuration with AI
-      const strategyConfig = await aiService.generateStrategy(description || title, riskLevel, {
-        assets: selectedPairs,
+      const strategyConfig = await aiService.generateStrategy(formData.description || formData.title, formData.riskLevel, {
+        assets: formData.selectedPairs,
         timeframe: '1h',
-        marketType: riskLevel === 'High' || riskLevel === 'Ultra High' || riskLevel === 'Extreme' || riskLevel === 'God Mode' ? 'futures' : 'spot'
+        marketType: formData.riskLevel === 'High' || formData.riskLevel === 'Ultra High' || formData.riskLevel === 'Extreme' || formData.riskLevel === 'God Mode' ? 'futures' : 'spot',
+        marketRequirements: formData.marketRequirements,
+        validationCriteria: formData.validationCriteria,
+        confirmationRules: formData.confirmationRules,
       });
 
       // Create strategy with generated config
       await createStrategy({
-        title,
-        description,
-        risk_level: riskLevel,
+        title: formData.title,
+        description: formData.description,
+        risk_level: formData.riskLevel,
         user_id: user.id,
         strategy_config: strategyConfig,
         type: 'custom',
@@ -118,8 +164,8 @@ export function CreateStrategyModal({ onClose, onCreated }: CreateStrategyModalP
             </label>
             <input
               type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              value={formData.title}
+              onChange={(e) => setFormData({ ...formData, title: e.target.value })}
               className="w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent"
               placeholder="Enter a name for your strategy"
               required
@@ -131,8 +177,8 @@ export function CreateStrategyModal({ onClose, onCreated }: CreateStrategyModalP
               Description
             </label>
             <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
               className="w-full h-24 bg-gunmetal-800 border border-gunmetal-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent resize-none"
               placeholder="Describe your trading strategy in natural language..."
               required
@@ -146,9 +192,9 @@ export function CreateStrategyModal({ onClose, onCreated }: CreateStrategyModalP
             <div className="space-y-2">
               <Combobox
                 options={TOP_PAIRS}
-                selectedOptions={selectedPairs}
-                onSelect={(pair) => setSelectedPairs([...selectedPairs, pair])}
-                onRemove={(pair) => setSelectedPairs(selectedPairs.filter(p => p !== pair))}
+                selectedOptions={formData.selectedPairs}
+                onSelect={(pair) => setFormData({ ...formData, selectedPairs: [...formData.selectedPairs, pair] })}
+                onRemove={(pair) => setFormData({ ...formData, selectedPairs: formData.selectedPairs.filter(p => p !== pair) })}
                 placeholder="Search trading pairs..."
                 className="w-full"
               />
@@ -163,8 +209,8 @@ export function CreateStrategyModal({ onClose, onCreated }: CreateStrategyModalP
               Risk Level
             </label>
             <RiskSlider
-              value={riskLevel}
-              onChange={setRiskLevel}
+              value={formData.riskLevel}
+              onChange={(riskLevel) => setFormData({ ...formData, riskLevel })}
             />
           </div>
 

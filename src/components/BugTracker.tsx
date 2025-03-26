@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Bug, 
   Plus, 
@@ -184,198 +184,133 @@ export default function BugTracker() {
   };
 
   return (
-    <div className="p-8 space-y-6">
-      {/* Header */}
-      <div className="bg-gunmetal-800/20 rounded-xl p-4 mb-6">
-        <div className="flex items-center gap-3 mb-2">
-          <Bug className="w-6 h-6 text-neon-raspberry" />
-          <h2 className="text-xl font-bold gradient-text">Bug Tracker</h2>
-        </div>
-        <p className="text-sm text-gray-400">
-          Track and manage bug reports. Help improve the platform by reporting issues you encounter.
-        </p>
-      </div>
-
-      {/* Controls */}
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
-        <div className="flex-1 flex flex-col md:flex-row gap-4">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-            <input
-              type="text"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Search bug reports..."
-              className="w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg pl-10 pr-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent"
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value)}
-              className="bg-gunmetal-800 border border-gunmetal-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent"
-            >
-              <option value="all">All Status</option>
-              <option value="open">Open</option>
-              <option value="in_progress">In Progress</option>
-              <option value="resolved">Resolved</option>
-              <option value="closed">Closed</option>
-            </select>
-
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="bg-gunmetal-800 border border-gunmetal-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent"
-            >
-              <option value="all">All Priority</option>
-              <option value="critical">Critical</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-            </select>
-
-            <button
-              onClick={() => setSortOrder(order => order === 'asc' ? 'desc' : 'asc')}
-              className="p-2 bg-gunmetal-800 rounded-lg text-gray-400 hover:text-neon-turquoise transition-colors"
-            >
-              {sortOrder === 'asc' ? (
-                <SortAsc className="w-5 h-5" />
-              ) : (
-                <SortDesc className="w-5 h-5" />
-              )}
-            </button>
-          </div>
-        </div>
-
-        <button
-          onClick={() => setShowNewBugModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-[#FF69B4] transition-all duration-300"
+    <motion.div layout className="min-h-[500px]">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={currentPage}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
         >
-          <Plus className="w-4 h-4" />
-          Report Bug
-        </button>
-      </div>
-
-      {/* Bug List */}
-      {loading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 className="w-8 h-8 text-neon-raspberry animate-spin" />
-        </div>
-      ) : filteredBugs.length === 0 ? (
-        <div className="text-center py-12">
-          <Bug className="w-12 h-12 text-gray-500 mx-auto mb-4" />
-          <p className="text-gray-300 text-lg mb-2">No bug reports found</p>
-          <p className="text-gray-400">
-            {searchTerm || statusFilter !== 'all' || priorityFilter !== 'all'
-              ? 'Try adjusting your filters'
-              : 'Report a bug to get started'}
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {displayedBugs.map((bug) => (
-            <motion.div
-              key={bug.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-gunmetal-800/30 rounded-xl overflow-hidden"
-            >
-              <div 
-                className="p-6 cursor-pointer"
-                onClick={() => setSelectedBug(selectedBug === bug.id ? null : bug.id)}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className={`transform transition-transform ${selectedBug === bug.id ? 'rotate-180' : ''}`}>
-                      <ChevronDown className="w-5 h-5 text-gray-400" />
-                    </div>
-                    <div>
-                      <h3 className="text-lg font-semibold text-gray-200">{bug.title}</h3>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className={`text-sm ${getStatusColor(bug.status)}`}>
-                          {bug.status.replace('_', ' ').toUpperCase()}
-                        </span>
-                        <span className={`text-sm ${getPriorityColor(bug.priority)}`}>
-                          {bug.priority.toUpperCase()}
-                        </span>
-                        <span className="text-sm text-gray-400">
-                          {new Date(bug.created_at).toLocaleDateString()}
-                        </span>
+          {loading ? (
+            <div className="flex justify-center py-12">
+              <Loader2 className="w-8 h-8 text-neon-raspberry animate-spin" />
+            </div>
+          ) : filteredBugs.length === 0 ? (
+            <div className="text-center py-12">
+              <Bug className="w-12 h-12 text-gray-500 mx-auto mb-4" />
+              <p className="text-gray-300 text-lg mb-2">No bug reports found</p>
+              <p className="text-gray-400">
+                {searchTerm || statusFilter !== 'all' || priorityFilter !== 'all'
+                  ? 'Try adjusting your filters'
+                  : 'Report a bug to get started'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {displayedBugs.map((bug) => (
+                <motion.div
+                  key={bug.id}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gunmetal-800/30 rounded-xl overflow-hidden"
+                >
+                  <div 
+                    className="p-6 cursor-pointer"
+                    onClick={() => setSelectedBug(selectedBug === bug.id ? null : bug.id)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className={`transform transition-transform ${selectedBug === bug.id ? 'rotate-180' : ''}`}>
+                          <ChevronDown className="w-5 h-5 text-gray-400" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-200">{bug.title}</h3>
+                          <div className="flex items-center gap-3 mt-1">
+                            <span className={`text-sm ${getStatusColor(bug.status)}`}>
+                              {bug.status.replace('_', ' ').toUpperCase()}
+                            </span>
+                            <span className={`text-sm ${getPriorityColor(bug.priority)}`}>
+                              {bug.priority.toUpperCase()}
+                            </span>
+                            <span className="text-sm text-gray-400">
+                              {new Date(bug.created_at).toLocaleDateString()}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
+
+                    {selectedBug === bug.id && (
+                      <div className="mt-4 space-y-4">
+                        <p className="text-gray-300 whitespace-pre-wrap">{bug.description}</p>
+                        
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                          <div className="bg-gunmetal-900/30 p-3 rounded-lg">
+                            <div className="flex items-center gap-2 mb-1">
+                              <User className="w-4 h-4 text-neon-turquoise" />
+                              <span className="text-xs text-gray-400">Reported By</span>
+                            </div>
+                            <p className="text-sm text-gray-200">User #{bug.reported_by.slice(0, 8)}</p>
+                          </div>
+
+                          <div className="bg-gunmetal-900/30 p-3 rounded-lg">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Clock className="w-4 h-4 text-neon-yellow" />
+                              <span className="text-xs text-gray-400">Created</span>
+                            </div>
+                            <p className="text-sm text-gray-200">
+                              {new Date(bug.created_at).toLocaleString()}
+                            </p>
+                          </div>
+
+                          <div className="bg-gunmetal-900/30 p-3 rounded-lg">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Tag className="w-4 h-4 text-neon-orange" />
+                              <span className="text-xs text-gray-400">Status</span>
+                            </div>
+                            <select
+                              value={bug.status}
+                              onChange={(e) => handleUpdateStatus(bug.id, e.target.value as BugReport['status'])}
+                              className="bg-transparent text-sm font-medium focus:outline-none focus:ring-0 border-0 p-0"
+                            >
+                              <option value="open" className="bg-gunmetal-900">Open</option>
+                              <option value="in_progress" className="bg-gunmetal-900">In Progress</option>
+                              <option value="resolved" className="bg-gunmetal-900">Resolved</option>
+                              <option value="closed" className="bg-gunmetal-900">Closed</option>
+                            </select>
+                          </div>
+
+                          <div className="bg-gunmetal-900/30 p-3 rounded-lg">
+                            <div className="flex items-center gap-2 mb-1">
+                              <AlertCircle className="w-4 h-4 text-neon-pink" />
+                              <span className="text-xs text-gray-400">Priority</span>
+                            </div>
+                            <p className={`text-sm font-medium ${getPriorityColor(bug.priority)}`}>
+                              {bug.priority.toUpperCase()}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      </AnimatePresence>
 
-                {selectedBug === bug.id && (
-                  <div className="mt-4 space-y-4">
-                    <p className="text-gray-300 whitespace-pre-wrap">{bug.description}</p>
-                    
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      <div className="bg-gunmetal-900/30 p-3 rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <User className="w-4 h-4 text-neon-turquoise" />
-                          <span className="text-xs text-gray-400">Reported By</span>
-                        </div>
-                        <p className="text-sm text-gray-200">User #{bug.reported_by.slice(0, 8)}</p>
-                      </div>
-
-                      <div className="bg-gunmetal-900/30 p-3 rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Clock className="w-4 h-4 text-neon-yellow" />
-                          <span className="text-xs text-gray-400">Created</span>
-                        </div>
-                        <p className="text-sm text-gray-200">
-                          {new Date(bug.created_at).toLocaleString()}
-                        </p>
-                      </div>
-
-                      <div className="bg-gunmetal-900/30 p-3 rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <Tag className="w-4 h-4 text-neon-orange" />
-                          <span className="text-xs text-gray-400">Status</span>
-                        </div>
-                        <select
-                          value={bug.status}
-                          onChange={(e) => handleUpdateStatus(bug.id, e.target.value as BugReport['status'])}
-                          className="bg-transparent text-sm font-medium focus:outline-none focus:ring-0 border-0 p-0"
-                        >
-                          <option value="open" className="bg-gunmetal-900">Open</option>
-                          <option value="in_progress" className="bg-gunmetal-900">In Progress</option>
-                          <option value="resolved" className="bg-gunmetal-900">Resolved</option>
-                          <option value="closed" className="bg-gunmetal-900">Closed</option>
-                        </select>
-                      </div>
-
-                      <div className="bg-gunmetal-900/30 p-3 rounded-lg">
-                        <div className="flex items-center gap-2 mb-1">
-                          <AlertCircle className="w-4 h-4 text-neon-pink" />
-                          <span className="text-xs text-gray-400">Priority</span>
-                        </div>
-                        <p className={`text-sm font-medium ${getPriorityColor(bug.priority)}`}>
-                          {bug.priority.toUpperCase()}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          ))}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="mt-6">
-          <Pagination
-            currentPage={currentPage}
-            totalPages={totalPages}
-            onPageChange={setCurrentPage}
-            showPageNumbers={screenSize !== 'sm'}
-          />
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage}
+        totalPages={totalPages}
+        onPageChange={setCurrentPage}
+        showPageNumbers={screenSize !== 'sm'}
+        itemsPerPage={itemsPerPage}
+        totalItems={filteredBugs.length}
+        loading={loading}
+        className="mt-6"
+      />
 
       {/* New Bug Modal */}
       {showNewBugModal && (
@@ -462,6 +397,6 @@ export default function BugTracker() {
           </motion.div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
