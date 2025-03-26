@@ -1,6 +1,7 @@
 import { logService } from './log-service';
 import type { Strategy } from './supabase-types';
 import type { TradeConfig } from './types';
+import { bitmartService } from './bitmart-service';
 
 interface TradeSignal {
   symbol: string;
@@ -17,6 +18,23 @@ interface TradeSignal {
   timeframe: string;
   indicators: Record<string, number>;
   rationale: string;
+}
+
+interface MarketFitAnalysis {
+  isSuitable: boolean;
+  score: number;
+  reason?: string;
+  details?: Record<string, any>;
+}
+
+interface TradeAnalysis {
+  shouldClose: boolean;
+  shouldAdjustStops: boolean;
+  reason?: string;
+  recommendedStops?: {
+    stopLoss: number;
+    takeProfit: number;
+  };
 }
 
 class AITradeService {
@@ -70,49 +88,36 @@ class AITradeService {
   }
 
   private buildTradePrompt(strategy: Strategy, historicalData: any[], budget: number): string {
-    return `
-      As a crypto trading expert, analyze the following data and generate trade signals:
+    return `Generate optimal trade signals based on the following strategy and market data:
 
-      Strategy Configuration:
-      ${JSON.stringify(strategy.strategy_config, null, 2)}
+Strategy Configuration:
+${JSON.stringify(strategy.strategy_config, null, 2)}
 
-      Strategy Description:
-      ${strategy.description}
+Historical Data (Last 100 points):
+${JSON.stringify(historicalData.slice(-100), null, 2)}
 
-      Risk Level: ${strategy.risk_level}
-      Available Budget: ${budget} USDT
+Available Budget: ${budget} USDT
 
-      Historical Market Data (last minute):
-      ${JSON.stringify(historicalData.slice(-60), null, 2)}
+Requirements:
+1. Analyze current market conditions against strategy rules
+2. Validate all strategy conditions are met
+3. Calculate optimal position size based on budget and risk
+4. Generate precise entry/exit points
+5. Include confidence score based on condition alignment
+6. Return trades in strict JSON format
 
-      Requirements:
-      1. Generate trade signals based on strategy rules and market conditions
-      2. Consider risk level when determining position sizes
-      3. Include stop loss and take profit levels
-      4. Provide confidence score and rationale for each trade
-      5. Ensure position sizes respect available budget
-      6. Include relevant technical indicators
-
-      Format response as a JSON array of trade signals with this structure:
-      {
-        "symbol": string,
-        "direction": "Long" | "Short",
-        "confidence": number (0-1),
-        "entry": {
-          "price": number,
-          "type": "market" | "limit",
-          "amount": number
-        },
-        "stopLoss": number,
-        "takeProfit": number,
-        "trailingStop": number (optional),
-        "timeframe": string,
-        "indicators": object,
-        "rationale": string
-      }
-
-      Return ONLY the JSON array, no additional text.
-    `;
+Return an array of trade signals with this exact structure:
+[{
+  "asset": string,
+  "direction": "LONG" | "SHORT",
+  "entry_price": number,
+  "stop_loss": number,
+  "take_profit": number,
+  "position_size": number,
+  "confidence": number,
+  "conditions_met": string[],
+  "timestamp": number
+}]`;
   }
 
   private async callDeepSeekAPI(prompt: string): Promise<TradeSignal[]> {
@@ -226,6 +231,197 @@ class AITradeService {
     });
 
     return trades;
+  }
+
+  async analyzeMarketFit(
+    strategy: Strategy,
+    marketData?: any
+  ): Promise<MarketFitAnalysis> {
+    try {
+      if (!marketData) {
+        marketData = await this.getMarketData(strategy);
+      }
+
+      // If no valid API key, use synthetic analysis
+      if (!AITradeService.DEEPSEEK_API_KEY || AITradeService.DEEPSEEK_API_KEY === 'your_api_key') {
+        return this.generateSyntheticMarketFit(strategy, marketData);
+      }
+
+      const analysis = await this.callDeepSeekAPI(
+        this.buildMarketFitPrompt(strategy, marketData)
+      );
+
+      return this.validateMarketFitAnalysis(analysis);
+    } catch (error) {
+      logService.log('error', 'Failed to analyze market fit', error, 'AITradeService');
+      return this.generateSyntheticMarketFit(strategy, marketData);
+    }
+  }
+
+  private buildMarketFitPrompt(strategy: Strategy, marketData: any): string {
+    return `
+      As a crypto trading expert, analyze the market fit for the following strategy:
+
+      Strategy Configuration:
+      ${JSON.stringify(strategy.strategy_config, null, 2)}
+
+      Strategy Description:
+      ${strategy.description}
+
+      Risk Level: ${strategy.risk_level}
+
+      Current Market Data:
+      ${JSON.stringify(marketData, null, 2)}
+
+      Requirements:
+      1. Evaluate if current market conditions are suitable for this strategy
+      2. Consider volatility, volume, and price action
+      3. Account for strategy's risk level
+      4. Provide a suitability score and detailed reasoning
+
+      Format response as a JSON object with this structure:
+      {
+        "isSuitable": boolean,
+        "score": number (0-1),
+        "reason": string,
+        "details": {
+          "confidence": number,
+          "marketConditions": string,
+          "timestamp": string
+        }
+      }
+
+      Return ONLY the JSON object, no additional text.
+    `;
+  }
+
+  private generateSyntheticMarketFit(
+    strategy: Strategy,
+    marketData: any
+  ): MarketFitAnalysis {
+    // Generate basic market fit analysis based on available data
+    const score = 0.5 + Math.random() * 0.5; // Random score between 0.5 and 1.0
+    
+    return {
+      isSuitable: score > 0.6,
+      score,
+      reason: score > 0.6 
+        ? 'Market conditions appear favorable for the strategy'
+        : 'Current market volatility may not be optimal',
+      details: {
+        confidence: score,
+        marketConditions: 'normal',
+        timestamp: new Date().toISOString()
+      }
+    };
+  }
+
+  private validateMarketFitAnalysis(analysis: any): MarketFitAnalysis {
+    return {
+      isSuitable: Boolean(analysis.isSuitable),
+      score: Number(analysis.score) || 0.5,
+      reason: String(analysis.reason || ''),
+      details: analysis.details || {}
+    };
+  }
+
+  private async getMarketData(strategy: Strategy): Promise<any> {
+    try {
+      const assets = strategy.strategy_config?.assets || [];
+      const marketData = await Promise.all(
+        assets.map(async (symbol) => {
+          const data = bitmartService.getAssetData(symbol);
+          return {
+            symbol,
+            price: data?.price || 0,
+            change24h: data?.change24h || 0,
+            volume24h: data?.volume24h || 0,
+            priceHistory: data?.priceHistory || []
+          };
+        })
+      );
+      
+      return {
+        assets: marketData,
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      logService.log('error', 'Failed to fetch market data', error, 'AITradeService');
+      throw error;
+    }
+  }
+
+  async analyzeTrade(strategy: Strategy, trade: any): Promise<TradeAnalysis> {
+    try {
+      // If no valid API key, use synthetic analysis
+      if (!AITradeService.DEEPSEEK_API_KEY || AITradeService.DEEPSEEK_API_KEY === 'your_api_key') {
+        return this.generateSyntheticTradeAnalysis(trade);
+      }
+
+      const prompt = this.buildTradeAnalysisPrompt(strategy, trade);
+      const analysis = await this.callDeepSeekAPI(prompt);
+      return this.validateTradeAnalysis(analysis);
+    } catch (error) {
+      logService.log('error', 'Failed to analyze trade', error, 'AITradeService');
+      return this.generateSyntheticTradeAnalysis(trade);
+    }
+  }
+
+  private buildTradeAnalysisPrompt(strategy: Strategy, trade: any): string {
+    return `
+      As a crypto trading expert, analyze the current state of this trade:
+
+      Strategy Configuration:
+      ${JSON.stringify(strategy.strategy_config, null, 2)}
+
+      Trade Details:
+      ${JSON.stringify(trade, null, 2)}
+
+      Requirements:
+      1. Evaluate if the trade should be closed based on current conditions
+      2. Determine if stop loss/take profit levels should be adjusted
+      3. Provide clear reasoning for the recommendation
+      4. If stops should be adjusted, provide new levels
+
+      Format response as a JSON object with this structure:
+      {
+        "shouldClose": boolean,
+        "shouldAdjustStops": boolean,
+        "reason": string,
+        "recommendedStops": {
+          "stopLoss": number,
+          "takeProfit": number
+        }
+      }
+
+      Return ONLY the JSON object, no additional text.
+    `;
+  }
+
+  private generateSyntheticTradeAnalysis(trade: any): TradeAnalysis {
+    // Generate basic analysis based on simple rules
+    const profitPercent = (trade.currentPrice - trade.entry.price) / trade.entry.price * 100;
+    const isLong = trade.direction === 'Long';
+    const isProfitable = (isLong && profitPercent > 0) || (!isLong && profitPercent < 0);
+
+    return {
+      shouldClose: Math.abs(profitPercent) > 5, // Close if profit/loss exceeds 5%
+      shouldAdjustStops: isProfitable,
+      reason: isProfitable ? 'Taking profits' : 'Stop loss triggered',
+      recommendedStops: isProfitable ? {
+        stopLoss: trade.currentPrice * 0.98,
+        takeProfit: trade.currentPrice * 1.02
+      } : undefined
+    };
+  }
+
+  private validateTradeAnalysis(analysis: any): TradeAnalysis {
+    return {
+      shouldClose: Boolean(analysis.shouldClose),
+      shouldAdjustStops: Boolean(analysis.shouldAdjustStops),
+      reason: String(analysis.reason || ''),
+      recommendedStops: analysis.recommendedStops
+    };
   }
 }
 

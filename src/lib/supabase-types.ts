@@ -215,3 +215,22 @@ export type StrategyTemplate = Database['public']['Tables']['strategy_templates'
 export type StrategyTrade = Database['public']['Tables']['strategy_trades']['Row']
 export type StrategyBudget = Database['public']['Tables']['strategy_budgets']['Row']
 export type BudgetHistory = Database['public']['Tables']['budget_history']['Row']
+
+interface StrategyConfig {
+  maxPositions?: number;
+  assets?: string[];
+  indicators?: any[];
+  trade_parameters?: {
+    position_size?: number;
+    confidence_factor?: number;
+  };
+  minMarketFitScore?: number;
+  // Add other strategy config properties as needed
+}
+
+export interface Strategy {
+  id: string;
+  status: string;
+  strategy_config?: StrategyConfig;
+  // ... other strategy properties
+}

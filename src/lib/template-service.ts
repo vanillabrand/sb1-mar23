@@ -3,6 +3,7 @@ import { supabase } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { AIService } from './ai-service';
 import type { StrategyTemplate, RiskLevel } from './types';
+import { marketMonitor } from './market-monitor';
 
 class TemplateService {
   private static instance: TemplateService;
@@ -69,10 +70,89 @@ class TemplateService {
   }
 
   private async generateTemplatesForMarket(): Promise<StrategyTemplate[]> {
+    // Get market conditions from monitored assets
+    const marketConditions = {
+      trend: 'neutral',
+      volatility: 'medium',
+      majorAssets: {} as Record<string, any>
+    };
+
+    // Get data for major assets
+    const majorAssets = ['BTC_USDT', 'ETH_USDT'];
+    for (const asset of majorAssets) {
+      const state = marketMonitor.getMarketState(asset);
+      const data = marketMonitor.getHistoricalData(asset, 100);
+      
+      if (state && data.length > 0) {
+        marketConditions.majorAssets[asset] = {
+          state,
+          currentPrice: data[data.length - 1].close,
+          trend: state.trend,
+          volatility: state.volatility
+        };
+      }
+    }
+
+    // Determine overall market trend and volatility based on major assets
+    const trends = Object.values(marketConditions.majorAssets).map(asset => asset.state.trend);
+    const volatilities = Object.values(marketConditions.majorAssets).map(asset => asset.state.volatility);
+    
+    marketConditions.trend = trends.every(t => t === 'bullish') ? 'bullish' :
+                            trends.every(t => t === 'bearish') ? 'bearish' : 'mixed';
+    
+    marketConditions.volatility = volatilities.includes('high') ? 'high' :
+                                 volatilities.every(v => v === 'low') ? 'low' : 'medium';
+    const configurations = this.getBaseConfigurations();
     const templates: StrategyTemplate[] = [];
 
-    // Template configurations
-    const configurations = [
+    for (const config of configurations) {
+      try {
+        const riskLevel = config.riskLevels[
+          Math.floor(Math.random() * config.riskLevels.length)
+        ] as RiskLevel;
+
+        // Enhanced prompt with market conditions
+        const prompt = `Generate a detailed cryptocurrency trading strategy with these parameters:
+Description: ${config.description}
+Risk Level: ${riskLevel}
+Current Market Conditions:
+- Overall Trend: ${marketConditions.trend}
+- Volatility: ${marketConditions.volatility}
+- Major Asset Performance: ${JSON.stringify(marketConditions.majorAssets)}
+
+Requirements:
+1. Strategy must be specifically adapted to current market conditions
+2. Include precise entry/exit rules
+3. Specify position sizing and risk management
+4. Define clear technical indicators and their thresholds
+5. Include market condition checks before entry
+6. Return strategy in strict JSON format
+
+Return ONLY a JSON object with no additional text.`;
+
+        const strategyConfig = await AIService.generateStrategy(
+          prompt,
+          riskLevel,
+          {
+            timeframe: config.timeframe,
+            marketType: riskLevel === 'High' ? 'futures' : 'spot',
+            marketConditions // Pass market conditions to AI service
+          }
+        );
+
+        templates.push({
+          ...strategyConfig,
+          lastUpdated: Date.now()
+        });
+      } catch (error) {
+        logService.log('error', `Failed to generate template for config: ${config.description}`, error, 'TemplateService');
+      }
+    }
+    return templates;
+  }
+
+  private getBaseConfigurations(): { type: string, riskLevels: RiskLevel[], timeframe: string, description: string }[] {
+    return [
       {
         type: 'trend',
         riskLevels: ['Low', 'Medium'] as RiskLevel[],
@@ -92,45 +172,6 @@ class TemplateService {
         description: 'Counter-trend strategy for market reversals'
       }
     ];
-
-    // Generate templates for each configuration
-    for (const config of configurations) {
-      try {
-        const riskLevel = config.riskLevels[
-          Math.floor(Math.random() * config.riskLevels.length)
-        ] as RiskLevel;
-
-        // Generate strategy configuration using AI
-        const strategyConfig = await AIService.generateStrategy(
-          config.description,
-          riskLevel,
-          {
-            timeframe: config.timeframe,
-            marketType: riskLevel === 'High' ? 'futures' : 'spot'
-          }
-        );
-
-        const template: StrategyTemplate = {
-          id: uuidv4(),
-          title: `${config.type.charAt(0).toUpperCase() + config.type.slice(1)} Strategy`,
-          description: config.description,
-          risk_level: riskLevel,
-          metrics: {
-            winRate: (65 + Math.random() * 20).toFixed(1),
-            avgReturn: (15 + Math.random() * 20).toFixed(1)
-          },
-          config: strategyConfig,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        };
-
-        templates.push(template);
-      } catch (error) {
-        logService.log('error', `Failed to generate template for ${config.type}`, error, 'TemplateService');
-      }
-    }
-
-    return templates;
   }
 
   private async saveTemplates(templates: StrategyTemplate[]): Promise<void> {

@@ -1,6 +1,8 @@
 import { logService } from './log-service';
 import { EventEmitter } from './event-emitter';
 import type { Strategy } from './supabase-types';
+import { ccxtService } from './ccxt-service';
+import { marketMonitor } from './market-monitor';
 
 class AIService extends EventEmitter {
   private static instance: AIService;
@@ -155,9 +157,23 @@ class AIService extends EventEmitter {
     options?: {
       timeframe?: string;
       marketType?: 'spot' | 'futures';
+      marketConditions?: any;
     }
   ): Promise<any> {
     try {
+      const marketData = await Promise.all(
+        assets.map(async (asset) => {
+          const ticker = await ccxtService.fetchTicker(asset);
+          const historicalData = await marketMonitor.getHistoricalData(asset, 100);
+          return {
+            asset,
+            currentPrice: ticker.last_price,
+            volume24h: ticker.quote_volume_24h,
+            priceHistory: historicalData
+          };
+        })
+      );
+
       // If no API key, fall back to rule-based immediately
       if (!AIService.DEEPSEEK_API_KEY || AIService.DEEPSEEK_API_KEY === 'your_api_key') {
         throw new Error('No valid DeepSeek API key');
@@ -167,72 +183,56 @@ class AIService extends EventEmitter {
 
       const prompt = `Generate a detailed cryptocurrency trading strategy based on the following:
 
-Description: "${description}"
-Risk Level: ${riskLevel}
-Assets: ${assets.join(', ')}
-Timeframe: ${options?.timeframe || '1h'}
-Market Type: ${options?.marketType || 'spot'}
+Market Analysis:
+${JSON.stringify(marketData, null, 2)}
+
+User Requirements:
+- Description: ${description}
+- Risk Level: ${riskLevel}
+- Assets: ${assets.join(', ')}
+- Timeframe: ${options?.timeframe || '4h'}
+- Market Type: ${options?.marketType || 'spot'}
 
 Requirements:
-1. Use the exact trading pairs provided: ${assets.join(', ')}
-2. Include specific entry and exit conditions with clear numeric values
-3. Include risk management parameters appropriate for ${riskLevel} risk level
-4. Specify position sizing and leverage limits
-5. Include required technical indicators with exact parameters
-6. MUST include a detailed strategy rationale explaining the strategy's approach and methodology
+1. Strategy must be optimized for current market conditions
+2. Include specific entry/exit criteria using technical indicators
+3. Define position sizing and risk management rules
+4. Specify stop-loss and take-profit levels
+5. Include market condition filters
+6. Return strategy in strict JSON format with no additional text
 
-Format the response as a JSON object with this structure:
+Strategy must follow this exact JSON structure:
 {
-  "strategy_name": string,
-  "strategy_rationale": string (REQUIRED - detailed explanation of strategy approach),
-  "market_type": "${options?.marketType || 'spot'}",
-  "assets": ${JSON.stringify(assets)},
-  "timeframe": "${options?.timeframe || '1h'}",
-  "trade_parameters": {
-    "leverage": number,
-    "position_size": number (0-1),
-    "confidence_factor": number (0-1)
-  },
-  "conditions": {
-    "entry": [
-      {
-        "indicator": string,
-        "operator": ">" | "<" | ">=" | "<=" | "==" | "crosses_above" | "crosses_below",
-        "value": number,
-        "timeframe": string
-      }
-    ],
-    "exit": [
-      {
-        "indicator": string,
-        "operator": string,
-        "value": number,
-        "timeframe": string
-      }
-    ]
+  "name": string,
+  "description": string,
+  "risk_level": string,
+  "market_type": string,
+  "timeframe": string,
+  "assets": string[],
+  "indicators": {
+    "name": string,
+    "parameters": object,
+    "conditions": object
+  }[],
+  "entry_rules": string[],
+  "exit_rules": string[],
+  "position_sizing": {
+    "type": string,
+    "size": number,
+    "max_position": number
   },
   "risk_management": {
     "stop_loss": number,
     "take_profit": number,
-    "trailing_stop_loss": number,
+    "trailing_stop": number,
     "max_drawdown": number
   },
-  "indicators": [
-    {
-      "name": string,
-      "parameters": object,
-      "weight": number
-    }
-  ]
-}
-
-IMPORTANT:
-- Entry/exit conditions must be specific and numeric
-- Risk parameters must match the ${riskLevel} risk level
-- Position size must be appropriate for the risk level
-- Include detailed indicator configurations
-- Ensure all numeric values are reasonable and properly scaled
-- MUST include a detailed strategy_rationale field explaining the strategy's approach`;
+  "market_filters": {
+    "min_volume": number,
+    "trend_direction": string,
+    "volatility_range": object
+  }
+}`;
 
       this.emit('progress', { step: 'Sending request to DeepSeek API...', progress: 40 });
 

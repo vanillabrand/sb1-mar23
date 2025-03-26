@@ -4,7 +4,18 @@ import { marketService } from './market-service';
 import { tradeManager } from './trade-manager';
 import { aiTradeService } from './ai-trade-service';
 import { logService } from './log-service';
+import { bitmartService } from './bitmart-service';
+import { marketMonitor } from './market-monitor';
+import { tradeService } from './trade-service';
 import type { Strategy } from './supabase-types';
+
+interface IndicatorValue {
+  name: string;
+  value: number;
+  signal?: number;
+  upper?: number;
+  lower?: number;
+}
 
 class StrategyMonitor extends EventEmitter {
   private static instance: StrategyMonitor;
@@ -71,7 +82,7 @@ class StrategyMonitor extends EventEmitter {
       
       // 1. Validate budget first
       const budget = await tradeService.getBudget(strategy.id);
-      if (!budget || budget <= 0) {
+      if (!budget || budget.total <= 0) {
         throw new Error('Strategy requires configured budget before activation');
       }
 
@@ -126,6 +137,31 @@ class StrategyMonitor extends EventEmitter {
     });
   }
 
+  private async handleTradeUpdate(strategy: Strategy, trade: any) {
+    try {
+      // Update monitoring status
+      this.emit('tradeUpdate', { strategy, trade });
+
+      // Check if trade requires any actions (e.g., closing, adjusting stops)
+      const analysis = await aiTradeService.analyzeTrade(strategy, trade);
+      
+      if (analysis.shouldClose) {
+        await tradeManager.closeTrade(trade.id);
+        logService.log('info', `Trade closed: ${analysis.reason}`, { tradeId: trade.id }, 'StrategyMonitor');
+      } else if (analysis.shouldAdjustStops && analysis.recommendedStops) {
+        await tradeManager.updateTradeStops(trade.id, {
+          stopLoss: analysis.recommendedStops.stopLoss,
+          takeProfit: analysis.recommendedStops.takeProfit
+        });
+      }
+
+      // Log trade update
+      logService.log('info', `Trade updated for strategy ${strategy.id}`, { trade, analysis }, 'StrategyMonitor');
+    } catch (error) {
+      logService.log('error', `Error handling trade update for strategy ${strategy.id}`, error, 'StrategyMonitor');
+    }
+  }
+
   private async handleActivationFailure(strategyId: string, error: any) {
     try {
       // Cleanup any partial activation
@@ -165,8 +201,7 @@ class StrategyMonitor extends EventEmitter {
       const trades = await aiTradeService.generateTrades(
         strategy,
         marketData,
-        budget,
-        { maxPositions: strategy.strategy_config?.maxPositions || 3 }
+        budget
       );
       
       // Execute generated trades
@@ -188,7 +223,20 @@ class StrategyMonitor extends EventEmitter {
   private async getStrategyMarketData(strategy: Strategy) {
     const marketData = {
       assets: {} as Record<string, any>,
-      marketConditions: await marketMonitor.getMarketConditions(),
+      marketConditions: {
+        states: Object.fromEntries(
+          (strategy.strategy_config?.assets || []).map(asset => [
+            asset,
+            marketMonitor.getMarketState(asset)
+          ])
+        ),
+        historicalData: Object.fromEntries(
+          (strategy.strategy_config?.assets || []).map(asset => [
+            asset,
+            marketMonitor.getHistoricalData(asset, 100)
+          ])
+        )
+      },
       timestamp: new Date().toISOString()
     };
 
@@ -197,7 +245,11 @@ class StrategyMonitor extends EventEmitter {
         price: await marketMonitor.getCurrentPrice(asset),
         volume: await marketMonitor.get24hVolume(asset),
         historicalData: await marketMonitor.getHistoricalData(asset, 100),
-        indicators: await marketMonitor.getIndicatorValues(asset, strategy.strategy_config?.indicators || [])
+        indicators: await marketMonitor.getIndicatorValues(asset, 
+          Array.isArray(strategy.strategy_config?.indicators) 
+            ? strategy.strategy_config.indicators 
+            : []
+        ) as IndicatorValue[]
       };
     }
 
@@ -371,6 +423,17 @@ class StrategyMonitor extends EventEmitter {
 
   private async monitorStrategyConditions(strategy: Strategy) {
     try {
+      // Check if strategy needs adaptation
+      if (await strategyAdapter.shouldAdaptStrategy(strategy)) {
+        const adaptedStrategy = await strategyAdapter.adaptStrategy(strategy);
+        await this.updateStrategy(strategy.id, adaptedStrategy);
+        
+        this.emit('strategy:adapted', {
+          strategyId: strategy.id,
+          adaptedStrategy
+        });
+      }
+
       if (!strategy.strategy_config?.assets) {
         throw new Error('Strategy has no configured assets');
       }

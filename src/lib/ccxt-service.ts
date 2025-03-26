@@ -6,7 +6,7 @@ import type { ExchangeConfig } from './types';
 
 class CCXTService extends EventEmitter {
   private static instance: CCXTService;
-  private exchange: ccxt.Exchange | null = null;
+  private exchange: typeof import('ccxt').Exchange | null = null;
   private exchangeId: string | null = null;
   private demoMode = true;
   private readonly DEMO_EXCHANGE = 'bitmart';
@@ -161,7 +161,8 @@ class CCXTService extends EventEmitter {
       }
 
       // Create exchange instance
-      this.exchange = new ExchangeClass(exchangeConfig);
+      const ExchangeConstructor = ExchangeClass as typeof ccxt.Exchange;
+      this.exchange = new (ExchangeConstructor as any)(exchangeConfig);
       this.exchangeId = exchangeId;
 
       // Configure testnet if available and requested

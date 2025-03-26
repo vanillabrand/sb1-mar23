@@ -369,6 +369,56 @@ class TradeManager extends EventEmitter {
     this.initialized = false;
     this.isUpdating = false;
   }
+
+  async updateTradeStops(tradeId: string, stops: { stopLoss?: number; takeProfit?: number }): Promise<void> {
+    try {
+      let foundTrade: StrategyTrade | undefined;
+      let strategyId: string | undefined;
+
+      // Find the trade in active trades
+      for (const [sId, trades] of this.activeTrades.entries()) {
+        if (trades.has(tradeId)) {
+          foundTrade = trades.get(tradeId);
+          strategyId = sId;
+          break;
+        }
+      }
+
+      if (!foundTrade || !strategyId) {
+        throw new Error(`Trade ${tradeId} not found`);
+      }
+
+      // Update trade stops in database
+      const { data: updatedTrade, error } = await supabase
+        .from('strategy_trades')
+        .update({
+          stop_loss: stops.stopLoss ?? foundTrade.stop_loss,
+          take_profit: stops.takeProfit ?? foundTrade.take_profit,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tradeId)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (updatedTrade) {
+        // Update local cache
+        this.activeTrades.get(strategyId)?.set(tradeId, updatedTrade);
+        
+        // Emit update event
+        this.emit('tradeExecuted', { 
+          type: 'update', 
+          trade: updatedTrade 
+        });
+        
+        logService.log('info', `Updated stops for trade ${tradeId}`, { stops }, 'TradeManager');
+      }
+    } catch (error) {
+      logService.log('error', `Failed to update stops for trade ${tradeId}`, error, 'TradeManager');
+      throw error;
+    }
+  }
 }
 
 export const tradeManager = TradeManager.getInstance();
