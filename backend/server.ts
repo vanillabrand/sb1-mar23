@@ -1,6 +1,6 @@
 import { backgroundProcessManager } from '../src/lib/background-process-manager';
 import { logService } from '../src/lib/log-service';
-import * as dotenv from 'dotenv';
+import dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();

@@ -12,5 +12,11 @@
     "start:frontend": "vite",
     "build:frontend": "tsc && vite build",
     "preview": "vite preview"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7"
+  },
+  "devDependencies": {
+    "@types/dotenv": "^6.1.1"
   }
 }
