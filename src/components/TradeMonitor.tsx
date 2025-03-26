@@ -43,6 +43,7 @@ import { AssetPairMonitor } from './AssetPairMonitor';
 import { tradeManager } from '../lib/trade-manager';
 import { analyticsService } from '../lib/analytics-service';
 import { supabase } from '../lib/supabase';
+import { monitoringService } from '../lib/monitoring-service'; // Add this import
 import type { Strategy } from '../lib/supabase-types';
 import type { StrategyBudget } from '../lib/types';
 import { PanelWrapper } from './PanelWrapper';
@@ -105,6 +106,55 @@ export default function TradeMonitor() {
   }
 
   const itemsPerPage = 3;
+
+  // Initialize monitoring service
+  useEffect(() => {
+    monitoringService.initialize().catch(error => {
+      logService.log('error', 'Failed to initialize monitoring service', error, 'TradeMonitor');
+    });
+    
+    // Set up event handlers for strategy changes
+    const handleStrategyUpdated = (strategy) => {
+      // If refresh is available, use it instead of trying to update the state directly
+      if (typeof refresh === 'function') {
+        refresh();
+      }
+    };
+    
+    const handleStrategyDeleted = (strategy) => {
+      // If refresh is available, use it instead of trying to update the state directly
+      if (typeof refresh === 'function') {
+        refresh();
+      }
+    };
+    
+    const handleMonitoringStatusUpdated = (status) => {
+      setMonitoringStatus(prev => {
+        const newStatus = new Map(prev);
+        newStatus.set(status.strategy_id, {
+          status: status.status,
+          message: status.message || '',
+          timestamp: Date.now(),
+          progress: status.progress,
+          indicators: status.indicators,
+          conditions: status.conditions,
+        });
+        return newStatus;
+      });
+    };
+    
+    // Subscribe to events
+    monitoringService.on('strategyUpdated', handleStrategyUpdated);
+    monitoringService.on('strategyDeleted', handleStrategyDeleted);
+    monitoringService.on('monitoringStatusUpdated', handleMonitoringStatusUpdated);
+    
+    // Clean up on unmount
+    return () => {
+      monitoringService.off('strategyUpdated', handleStrategyUpdated);
+      monitoringService.off('strategyDeleted', handleStrategyDeleted);
+      monitoringService.off('monitoringStatusUpdated', handleMonitoringStatusUpdated);
+    };
+  }, [strategies, refresh]);
 
   // Initialize monitoring once strategies are loaded
   useEffect(() => {
@@ -191,6 +241,7 @@ export default function TradeMonitor() {
       signal?: TradeSignal;
     }
   ) => {
+    // Update local state
     setMonitoringStatus(prev => {
       const newStatus = new Map(prev);
       newStatus.set(strategyId, {
@@ -200,6 +251,38 @@ export default function TradeMonitor() {
         ...data,
       });
       return newStatus;
+    });
+    
+    // Update in database via monitoring service
+    monitoringService.updateMonitoringStatus(strategyId, {
+      status,
+      message,
+      progress: data?.signal ? 100 : undefined,
+      indicators: data?.indicators,
+      conditions: data?.signal ? [
+        // Example conditions based on signal data
+        {
+          name: 'Entry Price',
+          value: data.signal.entry_price,
+          target: data.signal.entry_price,
+          met: true
+        },
+        {
+          name: 'Stop Loss',
+          value: data.signal.stop_loss,
+          target: data.signal.stop_loss,
+          met: true
+        },
+        {
+          name: 'Take Profit',
+          value: data.signal.take_profit,
+          target: data.signal.take_profit,
+          met: true
+        }
+      ] : undefined,
+      next_check: new Date(Date.now() + 60000) // Check again in 1 minute
+    }).catch(error => {
+      logService.log('error', `Failed to update monitoring status for strategy ${strategyId}`, error, 'TradeMonitor');
     });
   };
 
@@ -211,6 +294,23 @@ export default function TradeMonitor() {
       logService.log('info', 'Initializing monitoring...', { strategies }, 'TradeMonitor');
       
       await marketService.initialize();
+
+      // Load all monitoring statuses from the database
+      const dbStatuses = await monitoringService.getAllMonitoringStatuses();
+      const statusMap = new Map<string, MonitoringStatus>();
+      
+      dbStatuses.forEach(status => {
+        statusMap.set(status.strategy_id, {
+          status: status.status,
+          message: status.message || '',
+          timestamp: new Date(status.last_check).getTime(),
+          progress: status.progress,
+          indicators: status.indicators,
+          conditions: status.conditions,
+        });
+      });
+      
+      setMonitoringStatus(statusMap);
 
       const activeStrategies = strategies.filter(s => s.status === 'active');
       for (const strategy of activeStrategies) {
@@ -254,7 +354,6 @@ export default function TradeMonitor() {
   const handleBudgetConfirm = async (budget: StrategyBudget) => {
     if (!pendingStrategy) return;
 
-  
     let success = false;
     try {
       setError(null);
@@ -262,10 +361,13 @@ export default function TradeMonitor() {
       const strategy = pendingStrategy;
       
       await tradeService.setBudget(strategy.id, budget);
-      await updateStrategy(strategy.id, {
+      
+      // Use monitoringService to update strategy
+      await monitoringService.updateStrategy(strategy.id, {
         status: 'active',
         updated_at: new Date().toISOString(),
       });
+      
       await marketService.startStrategyMonitoring(strategy);
       success = true;
       refresh();
@@ -284,11 +386,6 @@ export default function TradeMonitor() {
         setError(null);
       }
       setIsSubmittingBudget(false);
-      if (success) {
-        setShowBudgetModal(false);
-        setPendingStrategy(null);
-        setError(null);
-      }
     }
   };
 
@@ -305,7 +402,9 @@ export default function TradeMonitor() {
 
       await marketService.stopStrategyMonitoring(strategyId);
       await tradeService.setBudget(strategyId, null);
-      await updateStrategy(strategyId, {
+      
+      // Use monitoringService to update strategy
+      await monitoringService.updateStrategy(strategyId, {
         status: 'inactive',
         updated_at: new Date().toISOString(),
       });
@@ -320,7 +419,6 @@ export default function TradeMonitor() {
       setDeactivatingStrategy(null);
     }
   };
-
   const handleStrategyActivate = async (strategy: Strategy) => {
     try {
       const budget = tradeService.getBudget(strategy.id);
@@ -330,10 +428,12 @@ export default function TradeMonitor() {
         return;
       }
 
-      await updateStrategy(strategy.id, {
+      // Use monitoringService to update strategy
+      await monitoringService.updateStrategy(strategy.id, {
         status: 'active',
         updated_at: new Date().toISOString(),
       });
+      
       await marketService.startStrategyMonitoring(strategy);
       updateMonitoringStatus(strategy.id, 'monitoring', 'Strategy activated, monitoring market conditions');
       refresh();
@@ -348,6 +448,23 @@ export default function TradeMonitor() {
     try {
       if (!monitoringInitialized) {
         await initializeMonitoring();
+      } else {
+        // Refresh monitoring statuses from database
+        const dbStatuses = await monitoringService.getAllMonitoringStatuses();
+        const statusMap = new Map<string, MonitoringStatus>();
+        
+        dbStatuses.forEach(status => {
+          statusMap.set(status.strategy_id, {
+            status: status.status,
+            message: status.message || '',
+            timestamp: new Date(status.last_check).getTime(),
+            progress: status.progress,
+            indicators: status.indicators,
+            conditions: status.conditions,
+          });
+        });
+        
+        setMonitoringStatus(statusMap);
       }
       await refresh();
     } finally {
@@ -479,6 +596,25 @@ export default function TradeMonitor() {
       <div className="mt-2 text-xs text-gray-400">{signal.rationale}</div>
     </div>
   );
+
+  useEffect(() => {
+    const subscription = supabase
+      .channel('strategy_monitor')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'strategies' },
+        async () => {
+          // Force refresh all data
+          await loadStrategies();
+          await loadTrades();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   return (
     <div className="p-8 space-y-6">
@@ -639,7 +775,7 @@ export default function TradeMonitor() {
 
                       {strategy.status === 'active' && (
                         <div className="space-y-4">
-                          {/* Trading Parameters */}
+                                                    {/* Trading Parameters */}
                           <div className="bg-gunmetal-900/20 p-4 rounded-lg">
                             <div className="flex items-center gap-2 mb-3">
                               <Sliders className="w-4 h-4 text-neon-yellow" />

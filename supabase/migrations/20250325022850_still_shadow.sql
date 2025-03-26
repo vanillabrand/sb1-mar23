@@ -1,7 +1,14 @@
--- Create function to handle strategy deletion cleanup
 CREATE OR REPLACE FUNCTION handle_strategy_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
+  -- Close all open trades first
+  UPDATE strategy_trades 
+  SET 
+    status = 'closed',
+    updated_at = now()
+  WHERE strategy_id = OLD.id 
+  AND status = 'open';
+
   -- Delete strategy trades
   DELETE FROM strategy_trades WHERE strategy_id = OLD.id;
   
@@ -20,10 +27,3 @@ BEGIN
   RETURN OLD;
 END;
 $$ LANGUAGE plpgsql;
-
--- Create trigger for strategy deletion
-DROP TRIGGER IF EXISTS on_strategy_delete ON strategies;
-CREATE TRIGGER on_strategy_delete
-  BEFORE DELETE ON strategies
-  FOR EACH ROW
-  EXECUTE FUNCTION handle_strategy_deletion();

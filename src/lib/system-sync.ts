@@ -8,6 +8,7 @@ import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { websocketService } from './websocket-service';
 import { initializationProgress } from './initialization-progress';
+import { monitoringService } from './monitoring-service';
 
 class SystemSync extends EventEmitter {
   private static instance: SystemSync;
@@ -39,6 +40,7 @@ class SystemSync extends EventEmitter {
       initializationProgress.addStep('template', 'Template Sync');
       initializationProgress.addStep('market', 'Market Data');
       initializationProgress.addStep('analytics', 'Analytics');
+      initializationProgress.addStep('monitoring', 'Monitoring Service');
 
       // Initialize exchange service first
       initializationProgress.startStep('exchange');
@@ -68,6 +70,11 @@ class SystemSync extends EventEmitter {
       initializationProgress.startStep('analytics');
       await analyticsService.initialize();
       initializationProgress.completeStep('analytics');
+      
+      // Initialize monitoring service
+      initializationProgress.startStep('monitoring');
+      await monitoringService.initialize();
+      initializationProgress.completeStep('monitoring');
       
       // Perform initial sync
       await this.performFullSync();

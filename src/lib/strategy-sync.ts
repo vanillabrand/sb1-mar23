@@ -2,7 +2,7 @@ import { EventEmitter } from './event-emitter';
 import { supabase } from './supabase';
 import { logService } from './log-service';
 import { v4 as uuidv4 } from 'uuid';
-import { AIService } from './ai-service';
+import { AIService } from Q Q './ai-service';
 import type { Strategy } from './supabase-types';
 
 class StrategySync extends EventEmitter {
@@ -32,7 +32,30 @@ class StrategySync extends EventEmitter {
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'strategies' },
-        this.handleRealtimeUpdate.bind(this)
+        async (payload) => {
+          try {
+            switch (payload.eventType) {
+              case 'DELETE':
+                if (payload.old?.id) {
+                  this.strategies.delete(payload.old.id);
+                  this.emit('strategyDeleted', payload.old.id);
+                  
+                  // Force sync all components
+                  await Promise.all([
+                    marketService.syncStrategies(),
+                    tradeManager.syncTrades()
+                  ]);
+                }
+                break;
+              case 'UPDATE':
+              case 'INSERT':
+                await this.initialize(); // Full sync
+                break;
+            }
+          } catch (error) {
+            logService.log('error', 'Error handling realtime update', error, 'StrategySync');
+          }
+        }
       )
       .subscribe();
   }

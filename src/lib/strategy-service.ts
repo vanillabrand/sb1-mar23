@@ -257,23 +257,36 @@ class StrategyService {
     try {
       const strategy = await this.getStrategy(id);
       if (!strategy) {
-        // If strategy doesn't exist, just clean up cache and return
         this.strategyCache.delete(id);
         return;
       }
 
-      // If strategy is active, deactivate it first
+      // 1. Close all open trades on exchange first
+      const { data: openTrades } = await supabase
+        .from('strategy_trades')
+        .select('*')
+        .eq('strategy_id', id)
+        .eq('status', 'open');
+
+      if (openTrades) {
+        for (const trade of openTrades) {
+          await exchangeService.cancelOrder(trade.exchange_order_id);
+          await tradeManager.closeTrade(trade.id);
+        }
+      }
+
+      // 2. Deactivate if active
       if (strategy.status === 'active') {
         await this.deactivateStrategy(id);
       }
 
+      // 3. Delete strategy (cascade will handle related records)
       const { error } = await supabase
         .from('strategies')
         .delete()
         .eq('id', id);
 
       if (error) {
-        // Handle 406 errors silently for non-existent strategies
         if (error.code === 'PGRST116') {
           this.strategyCache.delete(id);
           return;
@@ -281,12 +294,21 @@ class StrategyService {
         throw error;
       }
 
-      // Remove from cache
+      // 4. Clean up local state
       this.strategyCache.delete(id);
+      
+      // 5. Notify all components
+      this.emit('strategyDeleted', id);
+      
+      // 6. Force sync all strategy lists
+      await Promise.all([
+        strategySync.initialize(),
+        marketService.syncStrategies(),
+        tradeManager.syncTrades()
+      ]);
 
-      logService.log('info', `Strategy ${id} deleted`, null, 'StrategyService');
     } catch (error) {
-      logService.log('error', `Failed to delete strategy ${id}`, error, 'StrategyService');
+      logService.log('error', `Failed to delete strategy ${id}:`, error, 'StrategyService');
       throw error;
     }
   }
