@@ -10,30 +10,41 @@ import { tradeManager } from './lib/trade-manager';
 import { strategyMonitor } from './lib/strategy-monitor';
 
 // Initialize all trading services
-Promise.resolve().then(async () => {
+const initializeServices = async (): Promise<void> => {
   try {
     // Initialize core services first
-    await systemSync.initialize();
-    await marketService.initialize();
+    await Promise.all([
+      systemSync.initialize(),
+      marketService.initialize()
+    ]);
     
     // Initialize trading components
-    await tradeManager.initialize();
-    await tradeGenerator.initialize();
-    await strategyMonitor.initialize();
+    await Promise.all([
+      tradeManager.initialize(),
+      tradeGenerator.initialize(),
+      strategyMonitor.initialize()
+    ]);
   } catch (error) {
-    console.warn('Error initializing trading services:', error);
+    console.error('Error initializing trading services:', error);
+    throw error; // Re-throw to handle at a higher level if needed
   }
-});
+};
 
 const rootElement = document.getElementById('root');
 if (!rootElement) {
-  throw new Error('Root element not found');
+  throw new Error('Failed to find root element');
 }
 
-createRoot(rootElement).render(
-  <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
-  </StrictMode>
-);
+// Initialize services before rendering
+initializeServices().then(() => {
+  createRoot(rootElement).render(
+    <StrictMode>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </StrictMode>
+  );
+}).catch(error => {
+  console.error('Failed to initialize application:', error);
+  // Consider showing a user-friendly error screen
+});

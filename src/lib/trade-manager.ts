@@ -168,42 +168,17 @@ class TradeManager extends EventEmitter {
     }
   }
 
-  async executeTrade(strategy: Strategy, config: TradeConfig) {
-    if (!this.initialized) {
-      await this.initialize();
-    }
-
+  async executeTrade(strategy: Strategy, config: TradeConfig): Promise<void> {
     try {
-      logService.log('info', `Executing trade for strategy ${strategy.id}`, config, 'TradeManager');
+      // Create trade record first
+      const trade = await this.createTradeRecord(strategy, config);
       
-      // Get current market price
+      // Get current price for the asset
       const ticker = await exchangeService.fetchTicker(config.symbol);
       const currentPrice = parseFloat(ticker.last_price);
-      
-      // Create trade record
-      const { data: trade, error } = await supabase
-        .from('strategy_trades')
-        .insert({
-          id: uuidv4(),
-          strategy_id: strategy.id,
-          pair: config.symbol,
-          type: config.type,
-          entry_price: currentPrice,
-          current_price: currentPrice,
-          amount: config.amount,
-          pnl: 0,
-          pnl_percent: 0,
-          status: 'open'
-        })
-        .select()
-        .single();
 
-      if (error || !trade) {
-        throw error || new Error('Failed to create trade record');
-      }
-
-      // Execute order on exchange if in live mode
-      if (exchangeService.isLive()) {
+      // Only execute order on exchange if in live mode AND not demo mode
+      if (exchangeService.isLive() && !exchangeService.isDemoMode()) {
         try {
           await exchangeService.createOrder(
             config.symbol,
@@ -212,10 +187,23 @@ class TradeManager extends EventEmitter {
             config.amount,
             currentPrice
           );
+          logService.log('info', `Order executed on exchange for strategy ${strategy.id}`, {
+            symbol: config.symbol,
+            type: config.type,
+            amount: config.amount,
+            price: currentPrice
+          }, 'TradeManager');
         } catch (orderError) {
           logService.log('error', 'Failed to execute order on exchange', orderError, 'TradeManager');
           // Continue processing since the trade record exists
         }
+      } else {
+        logService.log('info', `Simulated trade for strategy ${strategy.id} (demo mode)`, {
+          symbol: config.symbol,
+          type: config.type,
+          amount: config.amount,
+          price: currentPrice
+        }, 'TradeManager');
       }
       
       // Add to active trades
@@ -227,10 +215,9 @@ class TradeManager extends EventEmitter {
       // Emit trade event
       this.emit('tradeExecuted', { 
         type: 'open', 
-        trade 
+        trade,
+        simulated: exchangeService.isDemoMode()
       });
-      
-      return trade;
     } catch (error) {
       logService.log('error', `Failed to execute trade for strategy ${strategy.id}`, error, 'TradeManager');
       throw error;

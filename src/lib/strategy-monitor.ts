@@ -4,10 +4,11 @@ import { marketService } from './market-service';
 import { tradeManager } from './trade-manager';
 import { aiTradeService } from './ai-trade-service';
 import { logService } from './log-service';
-import { bitmartService } from './bitmart-service';
 import { marketMonitor } from './market-monitor';
 import { tradeService } from './trade-service';
+import { exchangeService } from './exchange-service';
 import type { Strategy } from './supabase-types';
+import { Decimal } from 'decimal.js';
 
 interface IndicatorValue {
   name: string;
@@ -15,512 +16,838 @@ interface IndicatorValue {
   signal?: number;
   upper?: number;
   lower?: number;
+  timestamp: number;
+}
+
+interface MarketDataCacheEntry {
+  timestamp: number;
+  data: MarketData;
+  expiresAt: number;
+}
+
+interface MarketData {
+  price: Decimal;
+  volume: Decimal;
+  indicators: Record<string, number>;
+  marketState: {
+    volatility: number;
+    trend: 'bullish' | 'bearish' | 'sideways';
+    sentiment: number;
+  };
+}
+
+interface MarketFitAnalysis {
+  isSuitable: boolean;
+  score: number;
+  reason?: string;
+  details: {
+    marketConditions: MarketState;
+    riskAnalysis: RiskAnalysis;
+    confidenceScore: number;
+    warnings: string[];
+  };
+}
+
+interface RiskAnalysis {
+  level: number;
+  factors: string[];
+  mitigations: string[];
+}
+
+interface AnalysisCacheEntry {
+  timestamp: number;
+  data: MarketFitAnalysis;
+  expiresAt: number;
+}
+
+interface TradeValidationResult {
+  isValid: boolean;
+  issues: string[];
+  riskScore: number;
+  recommendations: string[];
+}
+
+interface StrategyMetrics {
+  winRate: number;
+  profitFactor: number;
+  sharpeRatio: number;
+  maxDrawdown: number;
+  recoveryFactor: number;
+}
+
+interface CacheEntry<T> {
+  timestamp: number;
+  data: T;
+  expiresAt: number;
+}
+
+const CACHE_DURATIONS = {
+  MARKET_DATA: 5 * 60 * 1000, // 5 minutes
+  ANALYSIS: 15 * 60 * 1000,   // 15 minutes
+  CLEANUP_INTERVAL: 60 * 60 * 1000 // 1 hour
+} as const;
+
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY = 1000; // 1 second
+
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailure: number = 0;
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+
+  constructor(
+    private threshold: number = 5,
+    private timeout: number = 60000,
+    private halfOpenTimeout: number = 30000
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailure > this.timeout) {
+        this.state = 'HALF_OPEN';
+      } else {
+        throw new Error('Circuit breaker is OPEN');
+      }
+    }
+
+    try {
+      const result = await operation();
+      if (this.state === 'HALF_OPEN') {
+        this.state = 'CLOSED';
+        this.failures = 0;
+      }
+      return result;
+    } catch (error) {
+      this.failures++;
+      this.lastFailure = Date.now();
+      
+      if (this.failures >= this.threshold) {
+        this.state = 'OPEN';
+      }
+      throw error;
+    }
+  }
 }
 
 class StrategyMonitor extends EventEmitter {
   private static instance: StrategyMonitor;
-  private activeStrategies = new Map<string, Strategy>();
-  private pollingInterval: NodeJS.Timeout | null = null;
-  private readonly POLL_INTERVAL = 5000; // 5 seconds
-  private initialized = false;
+  private activeStrategies: Map<string, Strategy> = new Map();
+  private marketDataCache: Map<string, MarketDataCacheEntry> = new Map();
+  private analysisCache: Map<string, AnalysisCacheEntry> = new Map();
+  private pollingInterval?: NodeJS.Timeout;
+  private isInitialized = false;
+  private metricsCache: Map<string, StrategyMetrics> = new Map();
+  private readonly METRICS_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+  private exchangeCircuitBreaker = new CircuitBreaker();
+  private marketDataCircuitBreaker = new CircuitBreaker();
 
   private constructor() {
     super();
-    this.setupRealtimeSubscription();
+    this.cleanupStaleData = this.cleanupStaleData.bind(this);
+    this.handleError = this.handleError.bind(this);
   }
 
-  static getInstance(): StrategyMonitor {
+  public static getInstance(): StrategyMonitor {
     if (!StrategyMonitor.instance) {
       StrategyMonitor.instance = new StrategyMonitor();
     }
     return StrategyMonitor.instance;
   }
 
-  private setupRealtimeSubscription() {
-    supabase
-      .channel('strategy_changes')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'strategies' },
-        this.handleStrategyChange.bind(this)
-      )
-      .subscribe();
-  }
+  public async initialize(): Promise<void> {
+    if (this.isInitialized) return;
 
-  private async handleStrategyChange(payload: any) {
     try {
-      const strategy = payload.new as Strategy;
-      const oldStrategy = payload.old as Strategy;
-
-      if (!strategy || !strategy.id) return;
-
-      // Handle status changes
-      if (oldStrategy?.status !== strategy.status) {
-        if (strategy.status === 'active') {
-          await this.handleStrategyActivation(strategy);
-        } else if (strategy.status === 'inactive') {
-          await this.handleStrategyDeactivation(strategy);
-        }
-      }
-
-      // Update active strategies map
-      if (strategy.status === 'active') {
-        this.activeStrategies.set(strategy.id, strategy);
-      } else {
-        this.activeStrategies.delete(strategy.id);
-      }
-
-      this.emit('strategyUpdate', strategy);
+      await this.loadActiveStrategies();
+      this.setupRealtimeSubscription();
+      this.startPolling();
+      setInterval(this.cleanupStaleData, CACHE_DURATIONS.CLEANUP_INTERVAL);
+      this.isInitialized = true;
     } catch (error) {
-      logService.log('error', 'Error handling strategy change', error, 'StrategyMonitor');
-    }
-  }
-
-  private async handleStrategyActivation(strategy: Strategy) {
-    try {
-      logService.log('info', `Strategy ${strategy.id} activation started`, strategy, 'StrategyMonitor');
-      
-      // 1. Validate budget first
-      const budget = await tradeService.getBudget(strategy.id);
-      if (!budget || budget.total <= 0) {
-        throw new Error('Strategy requires configured budget before activation');
-      }
-
-      // 2. Check market fit using AI
-      const marketFitAnalysis = await aiTradeService.analyzeMarketFit(strategy);
-      if (!marketFitAnalysis.isSuitable) {
-        throw new Error(`Strategy not suitable for current market: ${marketFitAnalysis.reason}`);
-      }
-
-      // 3. Add to active strategies
-      this.activeStrategies.set(strategy.id, strategy);
-
-      // 4. Start market monitoring
-      await marketService.startStrategyMonitoring(strategy);
-
-      // 5. Initialize trade monitoring
-      await this.initializeTradeMonitoring(strategy);
-
-      // 6. Generate initial trades if none exist
-      const existingTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
-      if (existingTrades.length === 0) {
-        await this.generateTradesForStrategy(strategy);
-      }
-
-      // 7. Update strategy status in DB
-      await supabase
-        .from('strategies')
-        .update({
-          status: 'active',
-          last_market_fit_check: new Date().toISOString(),
-          market_fit_score: marketFitAnalysis.score,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', strategy.id);
-
-      this.emit('strategyActivated', strategy);
-      logService.log('info', `Strategy ${strategy.id} activated successfully`, strategy, 'StrategyMonitor');
-    } catch (error) {
-      logService.log('error', `Error activating strategy ${strategy.id}`, error, 'StrategyMonitor');
-      await this.handleActivationFailure(strategy.id, error);
+      this.handleError('Initialization failed', error);
       throw error;
     }
   }
 
-  private async initializeTradeMonitoring(strategy: Strategy) {
-    // Set up trade monitoring for the strategy
-    await tradeManager.initializeStrategy(strategy);
-    
-    // Subscribe to trade events
-    tradeManager.on(`trade:${strategy.id}`, async (trade) => {
-      await this.handleTradeUpdate(strategy, trade);
+  private async loadActiveStrategies(): Promise<void> {
+    const { data: strategies, error } = await supabase
+      .from('strategies')
+      .select('*')
+      .eq('status', 'active');
+
+    if (error) throw error;
+
+    strategies?.forEach(strategy => {
+      this.activeStrategies.set(strategy.id, strategy);
     });
   }
 
-  private async handleTradeUpdate(strategy: Strategy, trade: any) {
-    try {
-      // Update monitoring status
-      this.emit('tradeUpdate', { strategy, trade });
+  private startPolling(): void {
+    if (this.pollingInterval) return;
 
-      // Check if trade requires any actions (e.g., closing, adjusting stops)
-      const analysis = await aiTradeService.analyzeTrade(strategy, trade);
-      
-      if (analysis.shouldClose) {
-        await tradeManager.closeTrade(trade.id);
-        logService.log('info', `Trade closed: ${analysis.reason}`, { tradeId: trade.id }, 'StrategyMonitor');
-      } else if (analysis.shouldAdjustStops && analysis.recommendedStops) {
-        await tradeManager.updateTradeStops(trade.id, {
-          stopLoss: analysis.recommendedStops.stopLoss,
-          takeProfit: analysis.recommendedStops.takeProfit
-        });
+    this.pollingInterval = setInterval(async () => {
+      for (const strategy of this.activeStrategies.values()) {
+        await this.checkStrategyHealth(strategy);
       }
-
-      // Log trade update
-      logService.log('info', `Trade updated for strategy ${strategy.id}`, { trade, analysis }, 'StrategyMonitor');
-    } catch (error) {
-      logService.log('error', `Error handling trade update for strategy ${strategy.id}`, error, 'StrategyMonitor');
-    }
+    }, 30000); // Check every 30 seconds
   }
 
-  private async handleActivationFailure(strategyId: string, error: any) {
+  private async checkStrategyHealth(strategy: Strategy): Promise<void> {
     try {
-      // Cleanup any partial activation
-      this.activeStrategies.delete(strategyId);
-      await marketService.stopStrategyMonitoring(strategyId);
-      await tradeService.setBudget(strategyId, null);
+      const analysis = await this.getMarketFitAnalysis(strategy);
       
-      // Update strategy status
-      await supabase
-        .from('strategies')
-        .update({
-          status: 'inactive',
-          error_message: error.message,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', strategyId);
-    } catch (cleanupError) {
-      logService.log('error', `Error cleaning up failed activation for ${strategyId}`, cleanupError, 'StrategyMonitor');
-    }
-  }
-
-  private async generateTradesForStrategy(strategy: Strategy) {
-    try {
-      logService.log('info', `Generating trades for strategy ${strategy.id}`, strategy, 'StrategyMonitor');
-      
-      // Get historical and current market data
-      const marketData = await this.getStrategyMarketData(strategy);
-      
-      // Get available budget
-      const budget = await tradeManager.getAvailableBudget(strategy.id);
-      if (!budget || budget <= 0) {
-        logService.log('warn', `No budget available for strategy ${strategy.id}`, null, 'StrategyMonitor');
+      if (!analysis.isSuitable) {
+        await this.handleUnsuitableMarket(strategy, analysis);
         return;
       }
 
-      // Generate trades using AI
-      const trades = await aiTradeService.generateTrades(
-        strategy,
-        marketData,
-        budget
-      );
-      
-      // Execute generated trades
-      for (const trade of trades) {
-        try {
-          const executedTrade = await tradeManager.executeTrade(strategy, trade);
-          this.emit('tradeExecuted', { strategy, trade: executedTrade });
-        } catch (error) {
-          logService.log('error', `Failed to execute trade for strategy ${strategy.id}`, error, 'StrategyMonitor');
-        }
-      }
+      const trades = tradeManager.getActiveTradesForStrategy(strategy.id);
+      await this.validateTrades(strategy, trades);
 
-      logService.log('info', `Generated ${trades.length} trades for strategy ${strategy.id}`, null, 'StrategyMonitor');
     } catch (error) {
-      logService.log('error', `Error generating trades for strategy ${strategy.id}`, error, 'StrategyMonitor');
+      this.handleError(`Health check failed for strategy ${strategy.id}`, error);
     }
   }
 
-  private async getStrategyMarketData(strategy: Strategy) {
-    const marketData = {
-      assets: {} as Record<string, any>,
-      marketConditions: {
-        states: Object.fromEntries(
-          (strategy.strategy_config?.assets || []).map(asset => [
-            asset,
-            marketMonitor.getMarketState(asset)
-          ])
-        ),
-        historicalData: Object.fromEntries(
-          (strategy.strategy_config?.assets || []).map(asset => [
-            asset,
-            marketMonitor.getHistoricalData(asset, 100)
-          ])
-        )
-      },
-      timestamp: new Date().toISOString()
-    };
+  private async getMarketFitAnalysis(
+    strategy: Strategy,
+    retryCount = 0
+  ): Promise<MarketFitAnalysis> {
+    const cacheKey = `${strategy.id}-market-fit`;
+    const cached = this.analysisCache.get(cacheKey);
 
-    for (const asset of (strategy.strategy_config?.assets || [])) {
-      marketData.assets[asset] = {
-        price: await marketMonitor.getCurrentPrice(asset),
-        volume: await marketMonitor.get24hVolume(asset),
-        historicalData: await marketMonitor.getHistoricalData(asset, 100),
-        indicators: await marketMonitor.getIndicatorValues(asset, 
-          Array.isArray(strategy.strategy_config?.indicators) 
-            ? strategy.strategy_config.indicators 
-            : []
-        ) as IndicatorValue[]
-      };
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
     }
 
-    return marketData;
-  }
-
-  private async checkMarketFit(strategy: Strategy) {
     try {
-      const marketData = await this.getStrategyMarketData(strategy);
-      const analysis = await aiTradeService.analyzeMarketFit(strategy, marketData);
-
-      await supabase
-        .from('strategies')
-        .update({
-          last_market_fit_check: new Date().toISOString(),
-          market_fit_score: analysis.score,
-          market_fit_details: analysis.details
-        })
-        .eq('id', strategy.id);
-
-      if (!analysis.isSuitable) {
-        logService.log('warn', `Strategy ${strategy.id} no longer fits market conditions`, analysis, 'StrategyMonitor');
-        this.emit('strategyMarketFitWarning', { strategy, analysis });
-      }
+      const analysis = await aiTradeService.analyzeMarketFit(strategy);
+      
+      this.analysisCache.set(cacheKey, {
+        timestamp: Date.now(),
+        data: analysis,
+        expiresAt: Date.now() + CACHE_DURATIONS.ANALYSIS
+      });
 
       return analysis;
     } catch (error) {
-      logService.log('error', `Error checking market fit for strategy ${strategy.id}`, error, 'StrategyMonitor');
+      if (retryCount < MAX_RETRY_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return this.getMarketFitAnalysis(strategy, retryCount + 1);
+      }
       throw error;
     }
   }
 
-  private async handleStrategyDeactivation(strategy: Strategy) {
-    try {
-      logService.log('info', `Strategy ${strategy.id} deactivation started`, strategy, 'StrategyMonitor');
-      
-      // 1. Remove from active strategies first
-      this.activeStrategies.delete(strategy.id);
+  private async handleUnsuitableMarket(
+    strategy: Strategy,
+    analysis: MarketFitAnalysis
+  ): Promise<void> {
+    logService.log('warn', 
+      `Market conditions unsuitable for strategy ${strategy.id}`,
+      { analysis },
+      'StrategyMonitor'
+    );
 
-      // 2. Close all open trades
-      const trades = tradeManager.getActiveTradesForStrategy(strategy.id);
-      for (const trade of trades) {
-        await tradeManager.closeTrade(trade.id);
+    const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+    
+    if (activeTrades.length > 0) {
+      await this.handleRiskMitigation(strategy, activeTrades, analysis);
+    }
+
+    await this.updateStrategyStatus(strategy.id, 'paused', {
+      reason: analysis.reason,
+      marketFitScore: analysis.score
+    });
+  }
+
+  private async handleRiskMitigation(
+    strategy: Strategy,
+    trades: any[],
+    analysis: MarketFitAnalysis
+  ): Promise<void> {
+    const riskLevel = analysis.details.riskAnalysis.level;
+
+    if (riskLevel >= 4) { // High risk
+      await Promise.all(trades.map(trade => 
+        tradeManager.closeTrade(trade.id, 'Emergency market conditions')
+      ));
+    } else { // Moderate risk
+      await Promise.all(trades.map(trade =>
+        tradeManager.adjustTradeRisk(trade.id, {
+          tightenStops: true,
+          reduceExposure: true
+        })
+      ));
+    }
+  }
+
+  private async updateStrategyStatus(
+    strategyId: string,
+    status: string,
+    details: Record<string, any>
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('strategies')
+      .update({
+        status,
+        updated_at: new Date().toISOString(),
+        ...details
+      })
+      .eq('id', strategyId);
+
+    if (error) throw error;
+  }
+
+  private handleError(message: string, error: any): void {
+    logService.log('error', message, error, 'StrategyMonitor');
+    this.emit('error', { message, error });
+  }
+
+  private cleanupStaleData(): void {
+    const now = Date.now();
+
+    for (const [key, entry] of this.marketDataCache.entries()) {
+      if (now > entry.expiresAt) {
+        this.marketDataCache.delete(key);
       }
+    }
 
-      // 3. Stop market monitoring
-      await marketService.stopStrategyMonitoring(strategy.id);
+    for (const [key, entry] of this.analysisCache.entries()) {
+      if (now > entry.expiresAt) {
+        this.analysisCache.delete(key);
+      }
+    }
+  }
 
-      // 4. Clear budget
-      await tradeService.setBudget(strategy.id, null);
+  public async shutdown(): Promise<void> {
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval);
+    }
 
-      // 5. Update strategy status
+    for (const strategy of this.activeStrategies.values()) {
+      await this.handleStrategyDeactivation(strategy);
+    }
+
+    this.activeStrategies.clear();
+    this.marketDataCache.clear();
+    this.analysisCache.clear();
+    this.isInitialized = false;
+  }
+
+  private setupRealtimeSubscription(): void {
+    supabase
+      .channel('strategy-monitor')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'strategies'
+        },
+        this.handleStrategyChange.bind(this)
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'monitoring_status'
+        },
+        this.handleMonitoringStatusChange.bind(this)
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trade_signals'
+        },
+        this.handleTradeSignalChange.bind(this)
+      )
+      .subscribe(async (status) => {
+        if (status !== 'SUBSCRIBED') {
+          this.handleError('Realtime subscription failed', new Error(status));
+        }
+      });
+  }
+
+  private async handleStrategyChange(payload: any): Promise<void> {
+    const { eventType, new: newRecord, old: oldRecord } = payload;
+
+    try {
+      switch (eventType) {
+        case 'INSERT':
+          if (newRecord.status === 'active') {
+            this.activeStrategies.set(newRecord.id, newRecord);
+            await this.initializeStrategyMonitoring(newRecord);
+          }
+          break;
+
+        case 'UPDATE':
+          if (newRecord.status !== oldRecord.status) {
+            if (newRecord.status === 'active') {
+              this.activeStrategies.set(newRecord.id, newRecord);
+              await this.initializeStrategyMonitoring(newRecord);
+            } else {
+              await this.handleStrategyDeactivation(oldRecord);
+              this.activeStrategies.delete(oldRecord.id);
+            }
+          } else {
+            this.activeStrategies.set(newRecord.id, newRecord);
+          }
+          break;
+
+        case 'DELETE':
+          await this.handleStrategyDeactivation(oldRecord);
+          this.activeStrategies.delete(oldRecord.id);
+          break;
+      }
+    } catch (error) {
+      this.handleError(`Strategy change handler failed for ${payload.eventType}`, error);
+    }
+  }
+
+  private async initializeStrategyMonitoring(strategy: Strategy): Promise<void> {
+    try {
+      // Initialize market data monitoring
+      const marketData = await this.getMarketData(strategy);
+      await this.updateMonitoringStatus(strategy.id, {
+        lastCheck: new Date().toISOString(),
+        marketData,
+        status: 'active'
+      });
+
+      // Initialize performance metrics
+      await this.updateStrategyMetrics(strategy);
+
+      // Set up initial risk parameters
+      await this.configureRiskParameters(strategy);
+
+      this.emit('strategy:initialized', {
+        strategyId: strategy.id,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      this.handleError(`Failed to initialize monitoring for strategy ${strategy.id}`, error);
+      await this.updateMonitoringStatus(strategy.id, {
+        status: 'error',
+        error: error.message
+      });
+    }
+  }
+
+  private async validateTrades(
+    strategy: Strategy,
+    trades: any[]
+  ): Promise<TradeValidationResult[]> {
+    const results: TradeValidationResult[] = [];
+
+    for (const trade of trades) {
+      try {
+        const validation = await this.validateSingleTrade(strategy, trade);
+        results.push(validation);
+
+        if (!validation.isValid) {
+          await this.handleInvalidTrade(strategy, trade, validation);
+        }
+      } catch (error) {
+        this.handleError(`Trade validation failed for ${trade.id}`, error);
+      }
+    }
+
+    return results;
+  }
+
+  private async validateSingleTrade(
+    strategy: Strategy,
+    trade: any
+  ): Promise<TradeValidationResult> {
+    const marketData = await this.getMarketData(strategy);
+    const riskAnalysis = await this.analyzeTradeRisk(trade, marketData);
+    const positionSize = await this.validatePositionSize(trade, strategy);
+    const stopLoss = this.validateStopLoss(trade, marketData);
+
+    const issues: string[] = [];
+    const recommendations: string[] = [];
+
+    if (riskAnalysis.riskScore > strategy.maxRiskScore) {
+      issues.push('Risk score exceeds strategy maximum');
+      recommendations.push('Consider closing position or adjusting risk parameters');
+    }
+
+    if (!positionSize.isValid) {
+      issues.push('Position size outside allowed range');
+      recommendations.push(positionSize.recommendation);
+    }
+
+    if (!stopLoss.isValid) {
+      issues.push('Stop loss validation failed');
+      recommendations.push(stopLoss.recommendation);
+    }
+
+    return {
+      isValid: issues.length === 0,
+      issues,
+      riskScore: riskAnalysis.riskScore,
+      recommendations
+    };
+  }
+
+  private async handleInvalidTrade(
+    strategy: Strategy,
+    trade: any,
+    validation: TradeValidationResult
+  ): Promise<void> {
+    logService.log('warn',
+      `Invalid trade detected for strategy ${strategy.id}`,
+      { trade, validation },
+      'StrategyMonitor'
+    );
+
+    if (validation.riskScore > strategy.maxRiskScore * 1.5) {
+      // Emergency close for high-risk situations
+      await tradeManager.closeTrade(trade.id, 'Emergency risk management');
+    } else {
+      // Attempt to adjust the trade
+      await tradeManager.adjustTradeRisk(trade.id, {
+        tightenStops: true,
+        reduceExposure: true,
+        recommendations: validation.recommendations
+      });
+    }
+
+    // Update monitoring status
+    await this.updateMonitoringStatus(strategy.id, {
+      lastCheck: new Date().toISOString(),
+      warnings: validation.issues,
+      riskScore: validation.riskScore
+    });
+  }
+
+  private async updateStrategyMetrics(strategy: Strategy): Promise<void> {
+    try {
+      const trades = await tradeService.getStrategyTrades(strategy.id);
+      const metrics = this.calculateStrategyMetrics(trades);
+      
+      this.metricsCache.set(strategy.id, metrics);
+      
       await supabase
         .from('strategies')
         .update({
-          status: 'inactive',
+          metrics,
           updated_at: new Date().toISOString()
         })
         .eq('id', strategy.id);
-
-      // 6. Cleanup trade monitoring
-      tradeManager.removeAllListeners(`trade:${strategy.id}`);
-
-      this.emit('strategyDeactivated', strategy);
-      logService.log('info', `Strategy ${strategy.id} deactivated successfully`, strategy, 'StrategyMonitor');
     } catch (error) {
-      logService.log('error', `Error deactivating strategy ${strategy.id}`, error, 'StrategyMonitor');
-      throw error;
+      this.handleError(`Failed to update metrics for strategy ${strategy.id}`, error);
     }
   }
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
+  private calculateStrategyMetrics(trades: any[]): StrategyMetrics {
+    // Calculate key performance metrics
+    const winningTrades = trades.filter(t => t.profit > 0);
+    const winRate = winningTrades.length / trades.length;
+    
+    const grossProfit = winningTrades.reduce((sum, t) => sum + t.profit, 0);
+    const grossLoss = Math.abs(trades
+      .filter(t => t.profit < 0)
+      .reduce((sum, t) => sum + t.profit, 0));
+    
+    const profitFactor = grossProfit / (grossLoss || 1);
+    
+    // Calculate Sharpe Ratio
+    const returns = trades.map(t => t.profit);
+    const avgReturn = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    const stdDev = Math.sqrt(
+      returns.reduce((sum, r) => sum + Math.pow(r - avgReturn, 2), 0) / returns.length
+    );
+    const sharpeRatio = (avgReturn - 0.02) / stdDev; // Assuming 2% risk-free rate
+    
+    // Calculate Maximum Drawdown
+    let peak = 0;
+    let maxDrawdown = 0;
+    let runningTotal = 0;
+    
+    trades.forEach(trade => {
+      runningTotal += trade.profit;
+      if (runningTotal > peak) peak = runningTotal;
+      const drawdown = peak - runningTotal;
+      if (drawdown > maxDrawdown) maxDrawdown = drawdown;
+    });
 
+    const recoveryFactor = grossProfit / (maxDrawdown || 1);
+
+    return {
+      winRate,
+      profitFactor,
+      sharpeRatio,
+      maxDrawdown,
+      recoveryFactor
+    };
+  }
+
+  private async handleMonitoringStatusChange(payload: any): Promise<void> {
+    const { new: newStatus } = payload;
+    
     try {
-      logService.log('info', 'Initializing strategy monitor', null, 'StrategyMonitor');
+      const strategy = this.activeStrategies.get(newStatus.strategy_id);
+      if (!strategy) return;
 
-      // Load active strategies from database
-      const { data: strategies, error } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('status', 'active');
-
-      if (error) throw error;
-
-      // Initialize active strategies
-      if (strategies) {
-        for (const strategy of strategies) {
-          await this.handleStrategyActivation(strategy);
-        }
+      if (newStatus.status === 'warning' || newStatus.status === 'error') {
+        await this.handleMonitoringAlert(strategy, newStatus);
       }
 
-      // Start polling
-      this.startPolling();
-
-      this.initialized = true;
-      logService.log('info', 'Strategy monitor initialized successfully', null, 'StrategyMonitor');
+      this.emit('monitoringStatusUpdate', {
+        strategyId: strategy.id,
+        status: newStatus
+      });
     } catch (error) {
-      logService.log('error', 'Failed to initialize strategy monitor', error, 'StrategyMonitor');
-      throw error;
+      this.handleError('Failed to handle monitoring status change', error);
     }
   }
 
-  private startPolling() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-    }
-
-    this.pollingInterval = setInterval(async () => {
-      try {
-        // Check each active strategy
-        for (const [strategyId, strategy] of this.activeStrategies) {
-          // 1. Verify strategy is still active in database
-          const { data } = await supabase
-            .from('strategies')
-            .select('status, last_market_fit_check')
-            .eq('id', strategyId)
-            .single();
-
-          if (!data || data.status !== 'active') {
-            await this.handleStrategyDeactivation(strategy);
-            continue;
-          }
-
-          // 2. Check market fit periodically (every 4 hours)
-          const lastCheck = new Date(data.last_market_fit_check || 0);
-          if (Date.now() - lastCheck.getTime() > 4 * 60 * 60 * 1000) {
-            const marketFit = await this.checkMarketFit(strategy);
-            if (!marketFit.isSuitable) {
-              // Optionally auto-deactivate if market fit is poor
-              if (marketFit.score < strategy.strategy_config?.minMarketFitScore || 0.3) {
-                await this.handleStrategyDeactivation(strategy);
-                continue;
-              }
-            }
-          }
-
-          // 3. Check for trade opportunities
-          const trades = tradeManager.getActiveTradesForStrategy(strategyId);
-          if (trades.length === 0) {
-            await this.generateTradesForStrategy(strategy);
-          }
-
-          // 4. Monitor existing trades
-          await this.monitorStrategyConditions(strategy);
-        }
-      } catch (error) {
-        logService.log('error', 'Error in strategy monitor polling', error, 'StrategyMonitor');
-      }
-    }, this.POLL_INTERVAL);
-
-    logService.log('info', `Started strategy polling (${this.POLL_INTERVAL}ms interval)`, null, 'StrategyMonitor');
-  }
-
-  getActiveStrategies(): Strategy[] {
-    return Array.from(this.activeStrategies.values());
-  }
-
-  isStrategyActive(strategyId: string): boolean {
-    return this.activeStrategies.has(strategyId);
-  }
-
-  cleanup() {
-    if (this.pollingInterval) {
-      clearInterval(this.pollingInterval);
-      this.pollingInterval = null;
-    }
-    this.activeStrategies.clear();
-    this.initialized = false;
-  }
-
-  private async monitorStrategyConditions(strategy: Strategy) {
+  private async handleTradeSignalChange(payload: any): Promise<void> {
+    const { eventType, new: signal } = payload;
+    
     try {
-      // Check if strategy needs adaptation
-      if (await strategyAdapter.shouldAdaptStrategy(strategy)) {
-        const adaptedStrategy = await strategyAdapter.adaptStrategy(strategy);
-        await this.updateStrategy(strategy.id, adaptedStrategy);
-        
-        this.emit('strategy:adapted', {
-          strategyId: strategy.id,
-          adaptedStrategy
-        });
-      }
-
-      if (!strategy.strategy_config?.assets) {
-        throw new Error('Strategy has no configured assets');
-      }
-
-      const assetData = new Map();
+      if (eventType !== 'INSERT') return;
       
-      // Gather market data for all strategy assets
-      for (const symbol of strategy.strategy_config.assets) {
-        const ticker = await bitmartService.getTicker(symbol);
-        const marketState = marketMonitor.getMarketState(symbol);
-        const historicalData = marketMonitor.getHistoricalData(symbol, 100);
-        
-        assetData.set(symbol, {
-          price: parseFloat(ticker.last_price),
-          marketState,
-          historicalData
-        });
+      const strategy = this.activeStrategies.get(signal.strategy_id);
+      if (!strategy) return;
+
+      const analysis = await this.getMarketFitAnalysis(strategy);
+      if (!analysis.isSuitable) {
+        await this.rejectTradeSignal(signal.id, 'Unsuitable market conditions');
+        return;
       }
 
-      // Generate trades based on current conditions
-      const trades = await aiTradeService.generateTrades(
-        strategy,
-        Array.from(assetData.values()),
-        await tradeService.getBudget(strategy.id)
+      const validation = await this.validateTradeSignal(strategy, signal);
+      if (!validation.isValid) {
+        await this.rejectTradeSignal(signal.id, validation.issues.join(', '));
+        return;
+      }
+
+      this.emit('validTradeSignal', {
+        signal,
+        validation,
+        analysis
+      });
+    } catch (error) {
+      this.handleError('Failed to handle trade signal change', error);
+    }
+  }
+
+  private async handleMonitoringAlert(
+    strategy: Strategy,
+    status: any
+  ): Promise<void> {
+    const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+    
+    if (status.status === 'error') {
+      // Emergency risk management
+      await Promise.all(activeTrades.map(trade =>
+        tradeManager.closeTrade(trade.id, 'Emergency system error')
+      ));
+      
+      await this.updateStrategyStatus(strategy.id, 'paused', {
+        reason: status.message,
+        pausedAt: new Date().toISOString()
+      });
+    } else if (status.status === 'warning') {
+      // Adjust risk parameters
+      await Promise.all(activeTrades.map(trade =>
+        tradeManager.adjustTradeRisk(trade.id, {
+          tightenStops: true,
+          reduceExposure: true
+        })
+      ));
+    }
+  }
+
+  private async rejectTradeSignal(
+    signalId: string,
+    reason: string
+  ): Promise<void> {
+    await supabase
+      .from('trade_signals')
+      .update({
+        status: 'rejected',
+        rejection_reason: reason,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', signalId);
+  }
+
+  private async validateTradeSignal(
+    strategy: Strategy,
+    signal: any
+  ): Promise<TradeValidationResult> {
+    const marketData = await this.getMarketData(strategy);
+    const issues: string[] = [];
+    const recommendations: string[] = [];
+
+    // Validate signal expiration
+    if (new Date(signal.expires_at) <= new Date()) {
+      issues.push('Signal has expired');
+    }
+
+    // Validate price deviation
+    const currentPrice = marketData.price;
+    const priceDiff = Math.abs(currentPrice.minus(signal.entry_price)
+      .div(signal.entry_price)
+      .toNumber());
+    
+    if (priceDiff > strategy.strategy_config.maxPriceDeviation) {
+      issues.push('Price deviation exceeds maximum allowed');
+      recommendations.push('Update entry price to current market price');
+    }
+
+    // Validate market volatility
+    if (marketData.marketState.volatility > strategy.strategy_config.maxVolatility) {
+      issues.push('Market volatility exceeds strategy limits');
+      recommendations.push('Wait for lower volatility conditions');
+    }
+
+    // Calculate risk score
+    const riskScore = this.calculateRiskScore(signal, marketData);
+
+    return {
+      isValid: issues.length === 0,
+      issues,
+      riskScore,
+      recommendations
+    };
+  }
+
+  private calculateRiskScore(signal: any, marketData: MarketData): number {
+    const volatilityWeight = 0.3;
+    const volumeWeight = 0.2;
+    const sentimentWeight = 0.2;
+    const trendWeight = 0.3;
+
+    const volatilityScore = Math.min(marketData.marketState.volatility / 100, 1);
+    const volumeScore = Math.min(marketData.marketState.volume / 100, 1);
+    const sentimentScore = (marketData.marketState.sentiment + 100) / 200;
+    
+    const trendScore = marketData.marketState.trend === signal.direction ? 0.2 :
+      marketData.marketState.trend === 'sideways' ? 0.5 : 0.8;
+
+    return (
+      volatilityScore * volatilityWeight +
+      volumeScore * volumeWeight +
+      sentimentScore * sentimentWeight +
+      trendScore * trendWeight
+    ) * 100;
+  }
+
+  private async getMarketData(
+    strategy: Strategy,
+    retryCount = 0
+  ): Promise<MarketData> {
+    const cacheKey = `${strategy.id}-market-data`;
+    const cached = this.marketDataCache.get(cacheKey);
+
+    if (cached && Date.now() < cached.expiresAt) {
+      return cached.data;
+    }
+
+    try {
+      const marketState = await marketMonitor.getMarketState(strategy.strategy_config.symbol);
+      const price = await exchangeService.getCurrentPrice(strategy.strategy_config.symbol);
+      const volume = await exchangeService.get24hVolume(strategy.strategy_config.symbol);
+      const indicators = await marketMonitor.getIndicatorValues(
+        strategy.strategy_config.symbol,
+        strategy.strategy_config.indicators
       );
 
-      // Process generated trades
-      if (trades && trades.length > 0) {
-        for (const trade of trades) {
-          const signal = {
-            strategy,
-            signal: {
-              ...trade,
-              entry: {
-                price: trade.entry_price,
-                type: 'market',
-                amount: trade.entry.amount
-              }
-            }
-          };
+      const data: MarketData = {
+        price: new Decimal(price),
+        volume: new Decimal(volume),
+        indicators,
+        marketState
+      };
 
-          // Emit trade opportunity
-          this.emit('tradeOpportunity', signal);
+      this.marketDataCache.set(cacheKey, {
+        timestamp: Date.now(),
+        data,
+        expiresAt: Date.now() + CACHE_DURATIONS.MARKET_DATA
+      });
 
-          // Store trade signal
-          await this.storeTrade(strategy.id, signal);
-        }
-
-        // Update UI
-        this.emit('strategyUpdate', {
-          strategyId: strategy.id,
-          trades: trades,
-          lastUpdate: new Date().toISOString()
-        });
-      }
-
+      return data;
     } catch (error) {
-      logService.log('error', `Error monitoring strategy ${strategy.id}`, error, 'StrategyMonitor');
+      if (retryCount < MAX_RETRY_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY));
+        return this.getMarketData(strategy, retryCount + 1);
+      }
+      throw error;
     }
   }
 
-  private async storeTrade(strategyId: string, signal: any) {
+  private async handleStrategyDeactivation(strategy: Strategy): Promise<void> {
     try {
-      const { data: trade, error } = await supabase
-        .from('strategy_trades')
-        .insert({
-          strategy_id: strategyId,
-          symbol: signal.signal.symbol,
-          direction: signal.signal.direction,
-          entry_price: signal.signal.entry.price,
-          amount: signal.signal.entry.amount,
-          stop_loss: signal.signal.stopLoss,
-          take_profit: signal.signal.takeProfit,
-          status: 'pending',
-          confidence: signal.signal.confidence,
-          indicators: signal.signal.indicators,
-          rationale: signal.signal.rationale
-        })
-        .select()
-        .single();
+      // Close all active trades
+      const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+      await Promise.all(activeTrades.map(trade =>
+        tradeManager.closeTrade(trade.id, 'Strategy deactivated')
+      ));
 
-      if (error) throw error;
-      return trade;
+      // Clean up caches
+      this.marketDataCache.delete(`${strategy.id}-market-data`);
+      this.analysisCache.delete(`${strategy.id}-market-fit`);
+      this.metricsCache.delete(strategy.id);
+
+      // Update final metrics
+      await this.updateStrategyMetrics(strategy);
+
+      this.emit('strategy:deactivated', {
+        strategyId: strategy.id,
+        timestamp: Date.now()
+      });
     } catch (error) {
-      logService.log('error', 'Failed to store trade', error, 'StrategyMonitor');
-      throw error;
+      this.handleError(`Failed to handle strategy deactivation for ${strategy.id}`, error);
     }
+  }
+
+  private metrics = {
+    operations: new Map<string, { count: number, totalTime: number }>(),
+    errors: new Map<string, number>(),
+    lastReset: Date.now()
+  };
+
+  private async measureOperation<T>(
+    name: string,
+    operation: () => Promise<T>
+  ): Promise<T> {
+    const start = performance.now();
+    try {
+      return await operation();
+    } finally {
+      const duration = performance.now() - start;
+      const stats = this.metrics.operations.get(name) || { count: 0, totalTime: 0 };
+      this.metrics.operations.set(name, {
+        count: stats.count + 1,
+        totalTime: stats.totalTime + duration
+      });
+    }
+  }
+
+  public getMetrics(): Record<string, any> {
+    const result: Record<string, any> = {
+      uptime: Date.now() - this.metrics.lastReset,
+      operations: {},
+      errors: Object.fromEntries(this.metrics.errors)
+    };
+
+    for (const [name, stats] of this.metrics.operations) {
+      result.operations[name] = {
+        count: stats.count,
+        avgTime: stats.totalTime / stats.count,
+        totalTime: stats.totalTime
+      };
+    }
+
+    return result;
   }
 }
 

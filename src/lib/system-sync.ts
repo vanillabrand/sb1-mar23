@@ -1,14 +1,15 @@
-import { supabase } from './supabase';
 import { exchangeService } from './exchange-service';
-import { marketService } from './market-service';
-import { analyticsService } from './analytics-service';
+import { logService } from './log-service';
 import { strategySync } from './strategy-sync';
 import { templateSync } from './template-sync';
-import { EventEmitter } from './event-emitter';
-import { logService } from './log-service';
+import { marketService } from './market-service';
+import { analyticsService } from './analytics-service';
+import { supabase } from './supabase';
+import { EventEmitter } from 'events';
 import { websocketService } from './websocket-service';
 import { initializationProgress } from './initialization-progress';
 import { monitoringService } from './monitoring-service';
+import { tradeManager } from './trade-manager';
 
 class SystemSync extends EventEmitter {
   private static instance: SystemSync;
@@ -108,9 +109,9 @@ class SystemSync extends EventEmitter {
         // Initialize with stored credentials
         await exchangeService.initializeExchange({
           name: 'bitmart',
-          apiKey: credentials.apiKey,
-          secret: credentials.secret,
-          memo: credentials.memo,
+          apiKey: credentials.credentials!.apiKey,
+          secret: credentials.credentials!.secret,
+          memo: credentials.credentials?.memo,
           testnet: false
         });
       } else {
@@ -206,7 +207,10 @@ class SystemSync extends EventEmitter {
       
       const pairs = new Set<string>();
       strategies.forEach(strategy => {
-        if (strategy.strategy_config?.assets) {
+        if (typeof strategy.strategy_config === 'object' && 
+            strategy.strategy_config !== null && 
+            'assets' in strategy.strategy_config &&
+            Array.isArray(strategy.strategy_config.assets)) {
           strategy.strategy_config.assets.forEach((asset: string) => pairs.add(asset));
         }
       });
@@ -262,6 +266,72 @@ class SystemSync extends EventEmitter {
     websocketService.disconnect();
     this.syncInProgress = false;
     this.lastSyncTime = 0;
+  }
+
+  async syncWithBackgroundProcess(): Promise<void> {
+    try {
+      // Get latest background process state
+      const { data: processes } = await supabase
+        .from('background_processes')
+        .select('*')
+        .eq('status', 'active')
+        .order('last_heartbeat', { ascending: false })
+        .limit(1);
+
+      if (!processes || processes.length === 0) {
+        throw new Error('No active background process found');
+      }
+
+      const activeProcess = processes[0];
+
+      // Verify process health
+      const heartbeatAge = Date.now() - new Date(activeProcess.last_heartbeat).getTime();
+      if (heartbeatAge > 60000) { // 1 minute
+        throw new Error('Background process heartbeat is stale');
+      }
+
+      // Sync all active strategies
+      const { data: strategies } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('status', 'active');
+
+      if (strategies) {
+        await Promise.all(strategies.map(async (strategy) => {
+          // Sync strategy state
+          await strategySync.syncStrategy(strategy);
+
+          // Sync trades
+          await tradeManager.syncStrategyTrades(strategy.id);
+
+          // Sync monitoring status
+          // Get current monitoring status
+          const status = await monitoringService.getMonitoringStatus(strategy.id);
+          if (status) {
+            await monitoringService.updateMonitoringStatus(strategy.id, {
+              status: status.status,
+              message: status.message,
+              progress: status.progress,
+              indicators: status.indicators,
+              conditions: status.conditions,
+              market_conditions: status.market_conditions,
+              next_check: status.next_check
+            });
+          } else {
+            // Initialize monitoring status if none exists
+            await monitoringService.updateMonitoringStatus(strategy.id, {
+              status: 'idle'
+            });
+          }
+        }));
+      }
+
+      logService.log('info', 'Successfully synchronized with background process', 
+        { processId: activeProcess.process_id }, 'SystemSync');
+    } catch (error) {
+      logService.log('error', 'Failed to sync with background process', error, 'SystemSync');
+      throw error;
+    }
   }
 }
 

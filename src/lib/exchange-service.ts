@@ -2,6 +2,7 @@ import { EventEmitter } from './event-emitter';
 import { ccxtService } from './ccxt-service';
 import { logService } from './log-service';
 import type { ExchangeConfig, ExchangeCredentials } from './types';
+import CryptoJS from 'crypto-js';
 
 class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
@@ -18,6 +19,7 @@ class ExchangeService extends EventEmitter {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
   private lastHealthCheck: ExchangeHealth = { ok: true, degraded: false };
+  private readonly ENCRYPTION_KEY = process.env.REACT_APP_ENCRYPTION_KEY || 'your-fallback-key';
 
   private constructor() {
     super();
@@ -99,6 +101,7 @@ class ExchangeService extends EventEmitter {
     const savedUseUSDX = localStorage.getItem('useUSDX') === 'true';
     const savedCredentials = this.getCredentials();
 
+    
     this.initializationPromise = (async () => {
       try {
         if (savedCredentials) {
@@ -146,33 +149,25 @@ class ExchangeService extends EventEmitter {
 
   async initializeExchange(config: ExchangeConfig): Promise<void> {
     try {
-      // Initialize CCXT service
       await ccxtService.initialize(config);
-
       this.currentExchange = config.name;
       this.initialized = true;
-      this.isLiveMode = !config.testnet && config.apiKey !== 'demo';
-      this.isDemoMode = config.testnet || config.apiKey === 'demo';
-      this.useUSDX = config.useUSDX || false;
 
-      // Save credentials if not in demo mode
       if (!this.isDemoMode) {
         this.setCredentials({
           apiKey: config.apiKey,
           secret: config.secret,
-          memo: config.memo || ''
-        });
+          memo: config.memo,
+          password: config.password
+        }, config.name);
       }
 
-      logService.log('info', `Initialized ${config.name} exchange in ${this.isDemoMode ? 'demo' : 'live'} mode`, null, 'ExchangeService');
+      this.emit('exchangeInitialized', { 
+        exchangeId: config.name, 
+        isDemoMode: this.isDemoMode 
+      });
     } catch (error) {
       logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
-      
-      // Clear credentials if initialization fails
-      if (!this.isDemoMode) {
-        this.setCredentials(null);
-      }
-      
       throw error;
     }
   }
@@ -204,28 +199,43 @@ class ExchangeService extends EventEmitter {
     return ccxtService.createOrder(symbol, type, side, amount, price);
   }
 
-  setCredentials(credentials: ExchangeCredentials | null) {
-    this.credentials = credentials;
+  private encryptCredentials(credentials: ExchangeCredentials): string {
+    return CryptoJS.AES.encrypt(
+      JSON.stringify(credentials),
+      this.ENCRYPTION_KEY
+    ).toString();
+  }
+
+  private decryptCredentials(encrypted: string): ExchangeCredentials {
+    const bytes = CryptoJS.AES.decrypt(encrypted, this.ENCRYPTION_KEY);
+    return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
+  }
+
+  setCredentials(credentials: ExchangeCredentials | null, exchangeId: string) {
     if (credentials) {
-      localStorage.setItem('exchange_credentials', JSON.stringify(credentials));
+      const encrypted = this.encryptCredentials(credentials);
+      localStorage.setItem('current_exchange', exchangeId);
+      localStorage.setItem(`exchange_credentials_${exchangeId}`, encrypted);
     } else {
-      localStorage.removeItem('exchange_credentials');
+      localStorage.removeItem('current_exchange');
+      localStorage.removeItem(`exchange_credentials_${this.currentExchange}`);
     }
   }
 
-  getCredentials(): ExchangeCredentials | null {
-    if (!this.credentials) {
-      const stored = localStorage.getItem('exchange_credentials');
-      if (stored) {
-        try {
-          this.credentials = JSON.parse(stored);
-        } catch (error) {
-          logService.log('error', 'Failed to parse stored credentials', error, 'ExchangeService');
-          localStorage.removeItem('exchange_credentials');
-        }
-      }
+  getCredentials(): { credentials: ExchangeCredentials | null, exchangeId: string | null } {
+    const exchangeId = localStorage.getItem('current_exchange');
+    if (!exchangeId) return { credentials: null, exchangeId: null };
+
+    const encrypted = localStorage.getItem(`exchange_credentials_${exchangeId}`);
+    if (!encrypted) return { credentials: null, exchangeId: null };
+
+    try {
+      const credentials = this.decryptCredentials(encrypted);
+      return { credentials, exchangeId };
+    } catch (error) {
+      logService.log('error', 'Failed to decrypt credentials', error, 'ExchangeService');
+      return { credentials: null, exchangeId: null };
     }
-    return this.credentials;
   }
 
   getCurrentExchange(): string | null {

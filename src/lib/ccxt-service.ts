@@ -6,7 +6,7 @@ import type { ExchangeConfig } from './types';
 
 class CCXTService extends EventEmitter {
   private static instance: CCXTService;
-  private exchange: typeof import('ccxt').Exchange | null = null;
+  private exchange: ccxt.Exchange | null = null;
   private exchangeId: string | null = null;
   private demoMode = true;
   private readonly DEMO_EXCHANGE = 'bitmart';
@@ -175,7 +175,7 @@ class CCXTService extends EventEmitter {
         try {
           await this.retryOperation(async () => {
             if (!this.exchange) throw new Error('Exchange not initialized');
-            await this.exchange.loadMarkets();
+            await (this.exchange as ccxt.Exchange).loadMarkets();
           });
         } catch (error) {
           logService.log('warn', 'Failed to load markets, falling back to demo mode', error, 'CCXTService');

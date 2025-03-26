@@ -7,6 +7,7 @@ export interface ExchangeConfig {
   memo?: string;
   testnet?: boolean;
   useUSDX?: boolean;
+  password?: string;  // Some exchanges use password instead of memo
 }
 
 export interface ExchangeCredentials {
@@ -93,13 +94,20 @@ export interface MarketData {
   timestamp: number;
 }
 
-export const SUPPORTED_EXCHANGES: Exchange[] = [
-  {
-    id: 'bitmart',
-    name: 'BitMart',
-    logo: 'https://assets.staticimg.com/cms/media/1lB3PkckFDyfxz59kXSmUCSe6dQ9pqc3BL3n4e8Sc.png',
-    description: 'A secure and reliable digital asset trading platform.',
-    features: ['Spot Trading', 'Futures Trading', 'Margin Trading', 'API Trading'],
+// Dynamic exchange configuration based on CCXT
+export const SUPPORTED_EXCHANGES: Exchange[] = Object.entries(ccxt.exchanges).map(([id, ExchangeClass]) => {
+  const exchange = new (ExchangeClass as any)();
+  return {
+    id,
+    name: exchange.name || id.toUpperCase(),
+    logo: `path/to/exchange/logos/${id}.png`, // You'll need to handle logos
+    description: `Trade on ${exchange.name || id.toUpperCase()}`,
+    features: [
+      exchange.has.spot ? 'Spot Trading' : null,
+      exchange.has.margin ? 'Margin Trading' : null,
+      exchange.has.future ? 'Futures Trading' : null,
+      'API Trading'
+    ].filter(Boolean),
     fields: [
       {
         name: 'API Key',
@@ -107,7 +115,7 @@ export const SUPPORTED_EXCHANGES: Exchange[] = [
         required: true,
         type: 'text',
         placeholder: 'Enter your API key',
-        description: 'Your BitMart API key'
+        description: `Your ${exchange.name || id.toUpperCase()} API key`
       },
       {
         name: 'API Secret',
@@ -115,38 +123,40 @@ export const SUPPORTED_EXCHANGES: Exchange[] = [
         required: true,
         type: 'password',
         placeholder: 'Enter your API secret',
-        description: 'Your BitMart API secret'
+        description: `Your ${exchange.name || id.toUpperCase()} API secret`
       },
-      {
+      ...(exchange.has.memo ? [{
         name: 'Memo',
         key: 'memo',
         required: true,
         type: 'text',
         placeholder: 'Enter your memo',
-        description: 'Your BitMart API memo'
-      }
+        description: `Your ${exchange.name || id.toUpperCase()} memo`
+      }] : []),
+      ...(exchange.has.password ? [{
+        name: 'Password',
+        key: 'password',
+        required: true,
+        type: 'password',
+        placeholder: 'Enter your password',
+        description: `Your ${exchange.name || id.toUpperCase()} password`
+      }] : [])
     ],
-    docs: {
-      setup: [
-        'Log in to your BitMart account',
-        'Go to Account > API Management',
-        'Click "Create API"',
-        'Set permissions for trading',
-        'Copy API Key, Secret, and Memo'
-      ],
-      permissions: [
-        'Read Info',
-        'Spot Trading',
-        'Futures Trading'
-      ],
-      restrictions: [
-        'Withdrawals should be disabled for security',
-        'IP restrictions recommended'
-      ]
-    },
-    testnetSupported: true,
-    marginSupported: true,
-    futuresSupported: true,
-    spotSupported: true
-  }
-];
+    testnetSupported: Boolean(exchange.urls?.test),
+    marginSupported: exchange.has.margin,
+    futuresSupported: exchange.has.future,
+    spotSupported: exchange.has.spot
+  };
+});
+
+interface StrategyConfig {
+  assets: string[];
+  // other strategy configuration properties...
+}
+
+interface Strategy {
+  id: string;
+  status: string;
+  strategy_config: StrategyConfig;
+  // other strategy properties...
+}
