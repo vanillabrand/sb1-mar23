@@ -188,7 +188,7 @@ class SystemSync extends EventEmitter {
 
           if (trades) {
             // Update trade analytics
-            await analyticsService.updateTradeMetrics(strategy.id, trades);
+            await analyticsService.trackStrategy(strategy);
           }
         } catch (error) {
           logService.log('warn', `Error syncing trades for strategy ${strategy.id}`, error, 'SystemSync');
@@ -199,7 +199,6 @@ class SystemSync extends EventEmitter {
       throw error;
     }
   }
-
   private async syncMarketData(): Promise<void> {
     try {
       // Get all unique trading pairs from active strategies

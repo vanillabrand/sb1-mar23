@@ -5,6 +5,13 @@ import { v4 as uuidv4 } from 'uuid';
 import { AIService } from Q Q './ai-service';
 import type { Strategy } from './supabase-types';
 
+/**
+ * Manages synchronization of trading strategies with a remote database.
+ * 
+ * Provides a singleton class for handling real-time strategy updates, 
+ * including creating, updating, deleting, and tracking strategies.
+ * Maintains a local cache of strategies and handles periodic synchronization.
+ */
 class StrategySync extends EventEmitter {
   private static instance: StrategySync;
   private strategies = new Map<string, Strategy>();
