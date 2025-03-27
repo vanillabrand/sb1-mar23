@@ -1,36 +1,23 @@
-import { backgroundProcessManager } from '../src/lib/background-process-manager.js';
-import { logService } from '../src/lib/log-service.js';
-import * as dotenv from 'dotenv';
+import express from 'express';
+import cors from 'cors';
+import { config } from './config';
+import { setupRoutes } from './routes';
+import { initializeServices } from './services';
 
-// Load environment variables
-dotenv.config();
+const app = express();
 
-async function startServer() {
-  try {
-    // Initialize background process manager
-    await backgroundProcessManager.start();
-    
-    // Handle process signals
-    process.on('SIGTERM', (signal) => handleShutdown(signal));
-    process.on('SIGINT', (signal) => handleShutdown(signal));
-    
-    logService.log('info', 'Trading server started successfully', null, 'Server');
-  } catch (error) {
-    logService.log('error', 'Failed to start trading server', error, 'Server');
-    process.exit(1);
-  }
-}
+// Middleware
+app.use(cors());
+app.use(express.json());
 
-async function handleShutdown(signal: string) {
-  logService.log('info', `Received ${signal}, shutting down gracefully`, null, 'Server');
-  
-  try {
-    await backgroundProcessManager.stop();
-    process.exit(0);
-  } catch (error) {
-    logService.log('error', 'Error during shutdown', error, 'Server');
-    process.exit(1);
-  }
-}
+// Initialize services before routes
+await initializeServices();
 
-startServer();
+// Setup routes after services are initialized
+setupRoutes(app);
+
+app.listen(config.port, () => {
+  console.log(`Server running on port ${config.port}`);
+});
+
+export { app };

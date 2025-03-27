@@ -16,6 +16,7 @@ class CCXTService extends EventEmitter {
     memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO
   };
   private readonly MAX_RETRIES = 3;
+  private readonly MAX_CONCURRENT_REQUESTS = 10;
   private readonly RATE_LIMIT = 2000; // 2 seconds between requests
   private readonly BURST_LIMIT = 5;
   private readonly QUEUE_TIMEOUT = 30000;
@@ -24,9 +25,12 @@ class CCXTService extends EventEmitter {
   private lastRequestTime = 0;
   private requestQueue: Array<() => Promise<any>> = [];
   private processingQueue = false;
+  private cleanupInterval: NodeJS.Timeout;
 
-  private constructor() {
+  constructor() {
     super();
+    // Cleanup stale requests every 5 minutes
+    this.cleanupInterval = setInterval(() => this.cleanupStaleRequests(), 300000);
   }
 
   static getInstance(): CCXTService {
@@ -80,18 +84,16 @@ class CCXTService extends EventEmitter {
   }
 
   private async queueRequest<T>(operation: () => Promise<T>): Promise<T> {
-    return new Promise((resolve, reject) => {
-      this.requestQueue.push(async () => {
-        try {
-          const result = await operation();
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        }
-      });
-      
-      this.processQueue();
-    });
+    // Remove completed requests from queue
+    this.requestQueue = this.requestQueue.filter(p => p.isPending?.());
+    
+    if (this.requestQueue.length >= this.MAX_CONCURRENT_REQUESTS) {
+      await Promise.race(this.requestQueue);
+    }
+
+    const request = operation();
+    this.requestQueue.push(request);
+    return request;
   }
 
   private async retryOperation<T>(operation: () => Promise<T>): Promise<T> {
@@ -118,6 +120,10 @@ class CCXTService extends EventEmitter {
       maxDelay: 10000,
       jitter: 'full'
     });
+  }
+
+  private cleanupStaleRequests(): void {
+    this.requestQueue = this.requestQueue.filter(p => p.isPending?.());
   }
 
   async initialize(config: ExchangeConfig): Promise<void> {
@@ -393,10 +399,7 @@ class CCXTService extends EventEmitter {
   }
 
   cleanup(): void {
-    this.exchange = null;
-    this.exchangeId = null;
-    this.demoMode = true;
-    this.lastRequestTime = 0;
+    clearInterval(this.cleanupInterval);
     this.requestQueue = [];
     this.processingQueue = false;
   }

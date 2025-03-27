@@ -1,6 +1,6 @@
 import { EventEmitter } from './event-emitter';
 import { bitmartService } from './bitmart-service';
-import { SMA, RSI, MACD, BollingerBands, ATR } from 'technicalindicators';
+import { SMA, RSI, MACD } from 'technicalindicators';
 import { logService } from './log-service';
 import type { Strategy } from './supabase-types';
 

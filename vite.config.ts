@@ -4,13 +4,32 @@ import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      '@floating-ui/react',
+      'reconnecting-websocket',
+      'ccxt',
+      'technicalindicators'
+    ],
+    exclude: ['fsevents']
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'net': 'net-browserify'
+      'technicalindicators': path.resolve(__dirname, 'node_modules/technicalindicators/dist/index.js')
     }
   },
-  optimizeDeps: {
-    include: ['ccxt', 'reconnecting-websocket']
+  server: {
+    watch: {
+      usePolling: true
+    }
+  },
+  build: {
+    commonjsOptions: {
+      transformMixedEsModules: true,
+      include: [/technicalindicators/, /node_modules/]
+    }
   }
 });

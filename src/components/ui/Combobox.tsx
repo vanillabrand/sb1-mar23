@@ -1,18 +1,12 @@
-import React, { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   useFloating,
-  useInteractions,
-  useClick,
-  useDismiss,
-  useRole,
-  useListNavigation,
-  FloatingFocusManager,
   autoUpdate,
   offset,
   flip,
-  size,
+  size
 } from '@floating-ui/react';
-import { Search, Check } from 'lucide-react';
+import { Search } from 'lucide-react';
 
 interface ComboboxProps {
   options: string[];

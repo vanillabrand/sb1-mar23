@@ -1,0 +1,10 @@
+{
+  "watch": ["backend"],
+  "ext": ".ts,.js",
+  "ignore": ["node_modules"],
+  "exec": "node --loader ts-node/esm --experimental-specifier-resolution=node backend/server.ts",
+  "env": {
+    "NODE_ENV": "development",
+    "TS_NODE_PROJECT": "./tsconfig.json"
+  }
+}

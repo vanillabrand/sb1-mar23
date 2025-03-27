@@ -5,7 +5,8 @@ interface ImportMetaEnv {
   readonly VITE_DEMO_EXCHANGE_API_KEY: string
   readonly VITE_DEMO_EXCHANGE_SECRET: string
   readonly VITE_DEMO_EXCHANGE_MEMO: string
-  // Add other env variables as needed
+  readonly VITE_SUPABASE_URL: string
+  readonly VITE_SUPABASE_ANON_KEY: string
 }
 
 interface ImportMeta {

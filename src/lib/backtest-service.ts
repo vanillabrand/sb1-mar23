@@ -1,6 +1,6 @@
 import { EventEmitter } from './event-emitter';
 import { bitmartService } from './bitmart-service';
-import { backtestEngine } from './backtest-engine';
+import { BacktestEngine } from './backtest-engine';
 import { logService } from './log-service';
 import type { Strategy } from './supabase-types';
 
@@ -45,14 +45,16 @@ export interface BacktestTrade {
 class BacktestService extends EventEmitter {
   private static instance: BacktestService;
   private isRunning = false;
+  private engine: BacktestEngine;
 
   private constructor() {
     super();
+    this.engine = new BacktestEngine();
     this.setupEventHandlers();
   }
 
   private setupEventHandlers() {
-    backtestEngine.on('progress', (data) => {
+    this.engine.on('progress', (data) => {
       logService.log('info', 'Backtest progress update', data, 'BacktestService');
       this.emit('progress', {
         status: 'running',
@@ -61,7 +63,7 @@ class BacktestService extends EventEmitter {
       });
     });
 
-    backtestEngine.on('update', (data) => {
+    this.engine.on('update', (data) => {
       this.emit('update', data);
     });
   }
@@ -187,7 +189,7 @@ class BacktestService extends EventEmitter {
       }, 'BacktestService');
 
       // Run the backtest using the backtest engine
-      const results = await backtestEngine.runBacktest(config, data);
+      const results = await this.engine.runBacktest(config, data);
 
       // Format the results for consumption
       const formattedResults: BacktestResults = {
@@ -231,7 +233,7 @@ class BacktestService extends EventEmitter {
 
   cancelBacktest(): void {
     if (this.isRunning) {
-      backtestEngine.cancelBacktest();
+      this.engine.cancelBacktest();
       this.isRunning = false;
       logService.log('info', 'Backtest cancelled by user', null, 'BacktestService');
     }

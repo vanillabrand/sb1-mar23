@@ -21,6 +21,8 @@ export default {
   },
   setupFiles: ['<rootDir>/src/test/setup-env.ts'],
   transformIgnorePatterns: [
-    'node_modules/(?!(module-that-needs-transform)/)'
-  ]
+    'node_modules/(?!(module-that-needs-transform|technicalindicators|ccxt)/)'
+  ],
+  extensionsToTreatAsEsm: ['.ts', '.tsx'],
+  moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx', 'json', 'node']
 };

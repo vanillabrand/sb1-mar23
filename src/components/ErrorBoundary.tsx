@@ -1,4 +1,5 @@
-import { Component, ErrorInfo, ReactNode } from 'react';
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { AlertTriangle } from 'lucide-react';
 
 interface Props {
   children: ReactNode;
@@ -26,11 +27,10 @@ export class ErrorBoundary extends Component<Props, State> {
   public render() {
     if (this.state.hasError) {
       return this.props.fallback || (
-        <div role="alert">
-          <h2>Something went wrong.</h2>
-          <details style={{ whiteSpace: 'pre-wrap' }}>
-            {this.state.error?.toString()}
-          </details>
+        <div className="flex flex-col items-center justify-center p-4 bg-red-50 rounded-lg">
+          <AlertTriangle className="w-8 h-8 text-red-500 mb-2" />
+          <h2 className="text-lg font-semibold text-red-700">Something went wrong</h2>
+          <p className="text-sm text-red-600">Please refresh the page or contact support</p>
         </div>
       );
     }
