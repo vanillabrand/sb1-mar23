@@ -1,6 +1,6 @@
 import { backgroundProcessManager } from '../src/lib/background-process-manager.js';
 import { logService } from '../src/lib/log-service.js';
-import dotenv from 'dotenv';
+import * as dotenv from 'dotenv';
 
 // Load environment variables
 dotenv.config();
@@ -11,8 +11,8 @@ async function startServer() {
     await backgroundProcessManager.start();
     
     // Handle process signals
-    process.on('SIGTERM', handleShutdown);
-    process.on('SIGINT', handleShutdown);
+    process.on('SIGTERM', (signal) => handleShutdown(signal));
+    process.on('SIGINT', (signal) => handleShutdown(signal));
     
     logService.log('info', 'Trading server started successfully', null, 'Server');
   } catch (error) {

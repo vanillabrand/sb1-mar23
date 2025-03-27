@@ -479,6 +479,47 @@ class TradeManager extends EventEmitter {
     monitor.cleanup = () => clearInterval(checkInterval);
   }
 
+  private async setupDayTraderManagement(monitor: TradeMonitor): Promise<void> {
+    const { strategy, trade } = monitor;
+    const { tradingParams } = strategy.strategy_config;
+
+    // Setup monitoring for day trading (less frequent than scalping)
+    const checkInterval = setInterval(async () => {
+      try {
+        const currentPrice = await this.getCurrentPrice(trade.symbol);
+        const unrealizedPnL = this.calculateUnrealizedPnL(trade, currentPrice);
+        
+        // Check profit target
+        if (unrealizedPnL >= tradingParams.minProfitPct) {
+          await this.closeTrade(trade.id, 'Profit target reached');
+          return;
+        }
+
+        // Check stop loss
+        if (unrealizedPnL <= -tradingParams.maxLossPct) {
+          await this.closeTrade(trade.id, 'Stop loss triggered');
+          return;
+        }
+
+        // Check if market close is approaching
+        const marketCloseTime = strategy.strategy_config.timeframes.trading.end;
+        if (marketCloseTime && Date.now() >= marketCloseTime) {
+          await this.closeTrade(trade.id, 'Market closing');
+          return;
+        }
+
+        // Update trailing stop if enabled
+        if (tradingParams.trailingStop && unrealizedPnL >= tradingParams.trailingStop.activation) {
+          await this.updateTrailingStop(trade, currentPrice);
+        }
+      } catch (error) {
+        logService.log('error', 'Day trader management error', error, 'TradeManager');
+      }
+    }, 5000); // Check every 5 seconds for day trading
+
+    monitor.cleanup = () => clearInterval(checkInterval);
+  }
+
   private async getCurrentPrice(symbol: string): Promise<number> {
     const ticker = await exchangeService.fetchTicker(symbol);
     return parseFloat(ticker.last_price);

@@ -1,12 +1,12 @@
 import { EventEmitter } from 'events';
-import { logService } from './log-service';
+import { logService } from './log-service.js';
 import type { 
   TradeSignal, 
   Strategy, 
   TradeConfig, 
   TradeAnalysis, 
   MarketFitAnalysis 
-} from './types';
+} from './types.js';
 import { bitmartService } from './bitmart-service';
 
 interface StrategyConfig {

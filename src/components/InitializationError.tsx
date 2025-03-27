@@ -1,26 +1,28 @@
-import React from 'react';
+import { FC } from 'react';
 
-interface InitializationErrorProps {
+interface Props {
   error?: string;
 }
 
-export const InitializationError: React.FC<InitializationErrorProps> = ({ 
-  error = 'Application failed to initialize' 
-}) => {
+export const InitializationError: FC<Props> = ({ error }) => {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full p-6 bg-white rounded-lg shadow-lg">
-        <h1 className="text-2xl font-bold text-red-600 mb-4">
-          Initialization Error
-        </h1>
-        <p className="text-gray-600 mb-4">{error}</p>
-        <button
-          onClick={() => window.location.reload()}
-          className="w-full py-2 px-4 bg-blue-500 text-white rounded hover:bg-blue-600"
-        >
-          Retry
-        </button>
-      </div>
+    <div role="alert" style={{ padding: '2rem', textAlign: 'center' }}>
+      <h1>Application Initialization Error</h1>
+      <p>The application failed to start properly.</p>
+      {error && (
+        <pre style={{ 
+          margin: '1rem', 
+          padding: '1rem', 
+          backgroundColor: '#f8f8f8',
+          borderRadius: '4px',
+          overflow: 'auto'
+        }}>
+          {error}
+        </pre>
+      )}
+      <button onClick={() => window.location.reload()}>
+        Retry
+      </button>
     </div>
   );
 };

@@ -3,13 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import './index.css';
-import { systemSync } from '@/lib/system-sync';
-import { marketService } from '@/lib/market-service';
-import { tradeGenerator } from '@/lib/trade-generator';
-import { tradeManager } from '@/lib/trade-manager';
-import { strategyMonitor } from '@/lib/strategy-monitor';
-import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { InitializationError } from '@/components/InitializationError';
+import { systemSync } from './lib/system-sync';
+import { marketService } from './lib/market-service';
+import { tradeGenerator } from './lib/trade-generator';
+import { tradeManager } from './lib/trade-manager';
+import { strategyMonitor } from './lib/strategy-monitor';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { InitializationError } from './components/InitializationError';
 
 // Initialize all trading services
 const initializeServices = async (): Promise<void> => {
