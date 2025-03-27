@@ -57,23 +57,33 @@ export interface CreateStrategyData {
 
 export interface StrategyTemplate {
   id: string;
-  title: string;
+  name: string;
   description: string;
-  risk_level: RiskLevel;
-  metrics: {
-    expectedReturn: number;
-  };
-  config?: any;
-  user_id?: string;
-  created_at?: string;
-  updated_at?: string;
+  riskLevel: RiskLevel;
+  indicators: IndicatorConfig[];
+  parameters: Record<string, any>;
+}
+
+export type RiskLevel = 'low' | 'medium' | 'high';
+
+export interface IndicatorConfig {
+  name: string;
+  parameters: Record<string, any>;
+  timeframe?: string;
+  weight?: number;
 }
 
 export interface StrategyBudget {
-  total: number;
-  allocated: number;
-  available: number;
-  maxPositionSize: number;
+  strategyId: string;
+  allocation: number;
+  maxDrawdown: number;
+  riskLevel: RiskLevel;
+}
+
+export interface TradeValidationResult {
+  isValid: boolean;
+  riskScore: number;
+  recommendations: string[];
 }
 
 export interface BudgetHistory {
@@ -104,6 +114,26 @@ export interface MarketData {
   price: number;
   volume: number;
   timestamp: number;
+}
+
+export interface MarketInsight {
+  timestamp: number;
+  assets: AssetInsight[];
+  marketConditions: MarketConditions;
+  recommendations: string[];
+}
+
+export interface AssetInsight {
+  symbol: string;
+  sentiment: 'bullish' | 'bearish' | 'neutral';
+  signals: string[];
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
+export interface MarketConditions {
+  trend: 'uptrend' | 'downtrend' | 'sideways';
+  volatility: 'low' | 'medium' | 'high';
+  volume: 'low' | 'medium' | 'high';
 }
 
 // Dynamic exchange configuration based on CCXT

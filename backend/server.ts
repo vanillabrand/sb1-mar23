@@ -1,23 +1,39 @@
 import express from 'express';
 import cors from 'cors';
-import { config } from './config';
-import { setupRoutes } from './routes';
-import { initializeServices } from './services';
+import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
+import { supabaseServer } from './lib/supabase-client';
+
+dotenv.config();
 
 const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Initialize services before routes
-await initializeServices();
+const PORT = process.env.PORT || 3000;
 
-// Setup routes after services are initialized
-setupRoutes(app);
+wss.on('connection', (ws) => {
+  console.log('Client connected');
+  
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+      // Handle websocket messages
+      console.log('Received:', data);
+    } catch (error) {
+      console.error('WebSocket message error:', error);
+    }
+  });
 
-app.listen(config.port, () => {
-  console.log(`Server running on port ${config.port}`);
+  ws.on('close', () => {
+    console.log('Client disconnected');
+  });
 });
 
-export { app };
+server.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

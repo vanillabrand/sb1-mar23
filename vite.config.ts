@@ -11,14 +11,16 @@ export default defineConfig({
       '@floating-ui/react',
       'reconnecting-websocket',
       'ccxt',
-      'technicalindicators'
+      'http-proxy-agent',
+      'https-proxy-agent',
+      'socks-proxy-agent'
     ],
     exclude: ['fsevents']
   },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'technicalindicators': path.resolve(__dirname, 'node_modules/technicalindicators/dist/index.js')
+      'technicalindicators': path.resolve(__dirname, 'node_modules/technicalindicators/lib/index.js')
     }
   },
   server: {
@@ -29,7 +31,7 @@ export default defineConfig({
   build: {
     commonjsOptions: {
       transformMixedEsModules: true,
-      include: [/technicalindicators/, /node_modules/]
+      include: [/node_modules/]
     }
   }
 });
