@@ -1,17 +1,35 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+class SupabaseService {
+  private static instance: SupabaseService;
+  private client: SupabaseClient | null = null;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+  private constructor() {}
+
+  static getInstance(): SupabaseService {
+    if (!SupabaseService.instance) {
+      SupabaseService.instance = new SupabaseService();
+    }
+    return SupabaseService.instance;
+  }
+
+  getClient(): SupabaseClient {
+    if (!this.client) {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseUrl || !supabaseAnonKey) {
+        throw new Error('Missing Supabase environment variables');
+      }  // Removed the extra 's' here
+
+      this.client = createClient(supabaseUrl, supabaseAnonKey);
+    }
+    return this.client;
+  }
 }
 
-// Create Supabase client without proxy support for browser
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
-export const supabaseClient = supabase; // For compatibility
+export const supabase = SupabaseService.getInstance().getClient();
 
-// Export typed version of common queries
 export const getUser = async () => {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error) throw error;

@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
     "dev:frontend": "vite",
-    "dev:backend": "cross-env NODE_ENV=development node --loader ts-node/esm --experimental-specifier-resolution=node backend/server.ts",
+    "dev:backend": "cross-env NODE_ENV=development tsx backend/server.ts",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "analyze-bundle": "vite build --mode analyze",
@@ -14,16 +14,17 @@
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
     "@floating-ui/react": "^0.26.28",
-    "@supabase/supabase-js": "^2.49.3",
     "@tanstack/react-query": "^5.69.0",
     "@types/crypto-js": "^4.2.2",
     "ccxt": "^4.2.1",
     "concurrently": "^8.2.2",
+    "cors": "^2.8.5",
     "cross-env": "^7.0.3",
     "crypto-js": "^4.2.0",
     "decimal.js": "^10.4.3",
     "dotenv": "^16.4.7",
     "exponential-backoff": "^3.1.1",
+    "express": "^4.18.2",
     "framer-motion": "^12.6.2",
     "http-proxy-agent": "^7.0.0",
     "https-proxy-agent": "^7.0.2",
@@ -34,18 +35,23 @@
     "react-router-dom": "^6.30.0",
     "recharts": "^2.15.1",
     "reconnecting-websocket": "^4.4.0",
-    "socks-proxy-agent": "^8.0.5",
+    "socks-proxy-agent": "^8.0.2",
     "technicalindicators": "^3.1.0",
     "ts-node": "^10.9.2",
     "use-sound": "^5.0.0",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "ws": "^8.16.0"
   },
   "devDependencies": {
+    "@supabase/supabase-js": "^2.49.3",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
     "@types/node": "^20.11.24",
     "@types/papaparse": "^5.3.14",
     "@types/react": "^18.2.56",
     "@types/react-dom": "^18.2.19",
     "@types/uuid": "^9.0.8",
+    "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^7.0.2",
     "@typescript-eslint/parser": "^7.0.2",
     "@vitejs/plugin-react": "^4.2.1",
@@ -55,7 +61,13 @@
     "eslint-plugin-react-refresh": "^0.4.5",
     "postcss": "^8.4.35",
     "tailwindcss": "^3.4.1",
+    "tsx": "^4.7.1",
     "typescript": "^5.2.2",
     "vite": "^6.2.3"
+  },
+  "overrides": {
+    "ccxt": {
+      "version": "4.2.1"
+    }
   }
 }

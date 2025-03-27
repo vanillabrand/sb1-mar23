@@ -1,6 +1,7 @@
-import type { Strategy } from './supabase-types';
-import { StrategyTranslator } from './strategy-translator';
+import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
+import type { Strategy } from './supabase-types';
+import type { BacktestResult } from './types';
 
 // Replace Python-style imports with TypeScript types
 type Dictionary<T> = Record<string, T>;
@@ -21,9 +22,13 @@ interface Trade {
   size: number;
 }
 
-export class BacktestEngine {
+export class BacktestEngine extends EventEmitter {
   private running = false;
   private lastProgress = 0;
+
+  constructor() {
+    super();
+  }
 
   async runBacktest(strategy: Strategy, historicalData: any[]): Promise<BacktestResult> {
     if (this.running) {

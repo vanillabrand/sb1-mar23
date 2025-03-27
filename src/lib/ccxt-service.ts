@@ -1,5 +1,5 @@
+import ccxt from 'ccxt';
 import { backOff } from 'exponential-backoff';
-import * as ccxt from 'ccxt';
 import { logService } from './log-service';
 import { EventEmitter } from './event-emitter';
 import type { ExchangeConfig } from './types';

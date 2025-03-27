@@ -1,4 +1,22 @@
-// Add these types to the existing types.ts file
+// Import CCXT types only
+import type { Exchange as CCXTExchange } from 'ccxt';
+
+// Define exchange types without direct CCXT reference
+export type Exchange = CCXTExchange;
+export type ExchangeCredentials = {
+  apiKey: string;
+  secret: string;
+  memo?: string;
+};
+
+// Use string literal type instead of CCXT reference
+export type ExchangeId = 
+  | 'binance'
+  | 'bitmart'
+  | 'kucoin'
+  | 'okx'
+  | 'bybit'
+  | string;
 
 export interface ExchangeConfig {
   name: string;
@@ -8,13 +26,6 @@ export interface ExchangeConfig {
   testnet?: boolean;
   useUSDX?: boolean;
   password?: string;  // Some exchanges use password instead of memo
-}
-
-export interface ExchangeCredentials {
-  apiKey: string;
-  secret: string;
-  memo?: string;
-  password?: string;  // Add this line
 }
 
 export interface Exchange {

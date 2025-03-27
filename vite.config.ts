@@ -5,33 +5,25 @@ import path from 'path';
 export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
-    include: [
-      'react',
-      'react-dom',
-      '@floating-ui/react',
-      'reconnecting-websocket',
-      'ccxt',
-      'http-proxy-agent',
-      'https-proxy-agent',
-      'socks-proxy-agent'
-    ],
-    exclude: ['fsevents']
+    include: ['ccxt'],
+    esbuildOptions: {
+      target: 'es2020'
+    }
   },
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
-      'technicalindicators': path.resolve(__dirname, 'node_modules/technicalindicators/lib/index.js')
-    }
-  },
-  server: {
-    watch: {
-      usePolling: true
+      '@': path.resolve(__dirname, './src')
     }
   },
   build: {
+    target: 'es2020',
     commonjsOptions: {
       transformMixedEsModules: true,
       include: [/node_modules/]
     }
+  },
+  server: {
+    port: 5173,
+    strictPort: true
   }
 });

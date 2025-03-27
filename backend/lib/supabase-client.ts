@@ -14,7 +14,7 @@ const proxyUrl = process.env.PROXY_URL;
 const options = proxyUrl
   ? {
       auth: {
-        persistSession: true,
+        persistSession: false, // Changed to false for backend
       },
       global: {
         headers: {

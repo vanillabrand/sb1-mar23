@@ -12,7 +12,10 @@
     "baseUrl": ".",
     "paths": {
       "*": ["node_modules/*"]
-    }
+    },
+    "allowJs": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true
   },
   "include": ["backend/**/*", "src/**/*"],
   "exclude": ["node_modules"]

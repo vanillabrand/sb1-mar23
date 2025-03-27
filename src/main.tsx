@@ -14,20 +14,44 @@ import { InitializationError } from './components/InitializationError';
 // Initialize all trading services
 const initializeServices = async (): Promise<void> => {
   try {
+    console.log('Starting services initialization...');
+    
     // Initialize core services first
+    console.log('Initializing core services...');
     await Promise.all([
-      systemSync.initialize(),
-      marketService.initialize()
+      systemSync.initialize().catch(e => {
+        console.error('systemSync initialization failed:', e);
+        throw e;
+      }),
+      marketService.initialize().catch(e => {
+        console.error('marketService initialization failed:', e);
+        throw e;
+      })
     ]);
     
     // Initialize trading components
+    console.log('Initializing trading components...');
     await Promise.all([
-      tradeManager.initialize(),
-      tradeGenerator.initialize(),
-      strategyMonitor.initialize()
+      tradeManager.initialize().catch(e => {
+        console.error('tradeManager initialization failed:', e);
+        throw e;
+      }),
+      tradeGenerator.initialize().catch(e => {
+        console.error('tradeGenerator initialization failed:', e);
+        throw e;
+      }),
+      strategyMonitor.initialize().catch(e => {
+        console.error('strategyMonitor initialization failed:', e);
+        throw e;
+      })
     ]);
+
+    console.log('All services initialized successfully');
   } catch (error: unknown) {
+    console.error('Service initialization failed:', error);
+    
     // Proper error cleanup
+    console.log('Starting cleanup...');
     await Promise.allSettled([
       systemSync.cleanup(),
       marketService.cleanup(),
@@ -44,6 +68,7 @@ const initializeServices = async (): Promise<void> => {
 
 const initApp = async () => {
   try {
+    console.log('Starting application initialization...');
     await initializeServices();
     
     const rootElement = document.getElementById('root');
@@ -51,6 +76,7 @@ const initApp = async () => {
       throw new Error('Failed to find root element');
     }
     
+    console.log('Rendering application...');
     createRoot(rootElement).render(
       <StrictMode>
         <ErrorBoundary fallback={<InitializationError />}>
@@ -77,4 +103,5 @@ const initApp = async () => {
   }
 };
 
+console.log('Starting application...');
 initApp();

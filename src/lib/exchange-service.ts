@@ -19,7 +19,7 @@ class ExchangeService extends EventEmitter {
   private healthCheckInterval: NodeJS.Timeout | null = null;
   private readonly HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
   private lastHealthCheck: ExchangeHealth = { ok: true, degraded: false };
-  private readonly ENCRYPTION_KEY = process.env.REACT_APP_ENCRYPTION_KEY || 'your-fallback-key';
+  private readonly ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY || 'your-fallback-key';
   private retryAttempts = 0;
   private walletBalances: Map<string, ExchangeWallets> = new Map();
   private marketPairs: Map<string, MarketPair[]> = new Map();
