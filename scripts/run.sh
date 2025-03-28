@@ -76,20 +76,7 @@ build_frontend() {
 # Function to start development environment
 start_dev() {
     print_status "Starting development environment..."
-    
-    # Start frontend in background
-    npm run dev &
-    FRONTEND_PID=$!
-    
-    # Start backend in background
-    npm run dev:backend &
-    BACKEND_PID=$!
-    
-    # Handle cleanup on script exit
-    trap "kill $FRONTEND_PID $BACKEND_PID" EXIT
-    
-    # Wait for both processes
-    wait
+    npm run dev
 }
 
 # Function to start production environment
@@ -98,15 +85,6 @@ start_prod() {
     
     # Build frontend
     build_frontend
-    
-    # Start backend using PM2
-    print_status "Starting backend server..."
-    pm2 delete trading-server &>/dev/null || true
-    pm2 start npm --name trading-server -- run backend \
-        --max-memory-restart 1G \
-        --exp-backoff-restart-delay=100 \
-        --restart-delay=5000 \
-        --max-restarts=5
     
     # Start frontend using PM2
     print_status "Starting frontend server..."

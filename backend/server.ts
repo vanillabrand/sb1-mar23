@@ -1,62 +1,62 @@
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import { createServer } from 'http';
-import WebSocket from 'ws';
-import { supabaseServer } from './lib/supabase-client';
-
-dotenv.config();
+import { createProxyMiddleware } from 'http-proxy-middleware';
+import { config } from './config.js';
+import { supabase } from './lib/supabase-client.js';
+import { initializeServices, serviceManager } from './services/index.js';
 
 const app = express();
-const server = createServer(app);
-const wss = new WebSocket.Server({ server });
 
-app.use(cors());
+// CORS configuration
+app.use(cors({
+  origin: process.env.NODE_ENV === 'development' 
+    ? ['http://localhost:5173', 'http://127.0.0.1:5173']
+    : config.allowedOrigins,
+  credentials: true
+}));
+
 app.use(express.json());
 
-// Add health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-const PORT = process.env.PORT || 3000;
-
-wss.on('connection', (ws) => {
-  console.log('WebSocket client connected');
-  
-  ws.on('message', (message) => {
-    try {
-      const data = JSON.parse(message.toString());
-      console.log('Received WebSocket message:', data);
-    } catch (error) {
-      console.error('WebSocket message error:', error);
+// Proxy middleware for Bitmart API
+app.use('/api/proxy', createProxyMiddleware({
+  target: 'https://api-cloud.bitmart.com',
+  changeOrigin: true,
+  pathRewrite: {
+    '^/api/proxy': ''
+  },
+  onProxyRes: (proxyRes) => {
+    // Remove duplicate CORS headers
+    if (proxyRes.headers['access-control-allow-origin']) {
+      proxyRes.headers['access-control-allow-origin'] = '*';
     }
-  });
+  }
+}));
 
-  ws.on('close', () => {
-    console.log('WebSocket client disconnected');
-  });
-
-  ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
-});
-
-server.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
-  console.log(`WebSocket server is ready`);
-});
-
-// Handle server errors
-server.on('error', (error) => {
-  console.error('Server error:', error);
-});
-
-// Handle process termination
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received. Closing server...');
-  server.close(() => {
-    console.log('Server closed');
-    process.exit(0);
+// Health check endpoint
+app.get('/health', (req, res) => {
+  const services = serviceManager.getAllServicesStatus();
+  res.json({ 
+    status: 'ok',
+    services
   });
 });
+
+// Initialize services and start server
+async function startServer() {
+  try {
+    // Initialize all services
+    await initializeServices();
+
+    // Start server
+    app.listen(config.port, () => {
+      console.log(`Server running on port ${config.port}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+}
+
+startServer();
+
+export default app;

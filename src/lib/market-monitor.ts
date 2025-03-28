@@ -1,48 +1,19 @@
 import { EventEmitter } from './event-emitter';
-import { bitmartService } from './bitmart-service';
-import { SMA, RSI, MACD } from 'technicalindicators';
 import { logService } from './log-service';
-import type { Strategy } from './supabase-types';
+import { indicatorService } from './indicator-service';
+import { exchangeService } from './exchange-service';
+import type { Strategy, MarketData, MarketCondition, TimeFrame } from './types';
 
-interface MarketState {
-  trend: 'bullish' | 'bearish' | 'sideways';
-  volatility: 'low' | 'medium' | 'high';
-  volume: 'low' | 'medium' | 'high';
-  momentum: number;
-  strength: number;
-}
-
-interface MarketData {
-  symbol: string;
-  timestamp: number;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
-
-interface IndicatorValue {
-  name: string;
-  value: number;
-  signal?: number;
-  upper?: number;
-  lower?: number;
-}
-
-class MarketMonitor extends EventEmitter {
+export class MarketMonitor extends EventEmitter {
   private static instance: MarketMonitor;
-  private monitoredAssets: Map<string, MarketState> = new Map();
-  private historicalData: Map<string, MarketData[]> = new Map();
-  private updateInterval: NodeJS.Timeout | null = null;
-  private readonly UPDATE_INTERVAL = 15000; // 15 seconds
-  private assetSubscriptions = new Set<string>();
-  private hasActiveStrategies = false;
-  private initialized = false;
-  private initializationPromise: Promise<void> | null = null;
+  private strategies: Map<string, Strategy> = new Map();
+  private marketData: Map<string, MarketData> = new Map();
+  private readonly UPDATE_INTERVAL = 60000; // 1 minute
+  private readonly ANALYSIS_INTERVAL = 300000; // 5 minutes
 
   private constructor() {
     super();
+    this.startMonitoring();
   }
 
   static getInstance(): MarketMonitor {
@@ -52,318 +23,176 @@ class MarketMonitor extends EventEmitter {
     return MarketMonitor.instance;
   }
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-    if (this.initializationPromise) return this.initializationPromise;
-
-    this.initializationPromise = (async () => {
-      try {
-        logService.log('info', 'Initializing market monitor', null, 'MarketMonitor');
-        
-        // Set up WebSocket listeners
-        bitmartService.on('priceUpdate', this.handlePriceUpdate.bind(this));
-        
-        // Start periodic market state updates
-        this.startMonitoring();
-        
-        this.initialized = true;
-        logService.log('info', 'Market monitor initialized successfully', null, 'MarketMonitor');
-      } catch (error) {
-        logService.log('error', 'Failed to initialize market monitor', error, 'MarketMonitor');
-        throw error;
-      } finally {
-        this.initializationPromise = null;
-      }
-    })();
-
-    return this.initializationPromise;
-  }
-
-  private handlePriceUpdate(data: any) {
-    if (!data.symbol || !this.monitoredAssets.has(data.symbol)) return;
-    
-    this.updateMarketState(data.symbol).catch(error => {
-      logService.log('error', `Error updating market state for ${data.symbol}`, error, 'MarketMonitor');
-    });
-  }
-
-  private startMonitoring() {
-    if (this.updateInterval) {
-      clearInterval(this.updateInterval);
-    }
-
-    this.updateInterval = setInterval(() => {
-      this.monitoredAssets.forEach((_, symbol) => {
-        this.updateMarketState(symbol).catch(error => {
-          logService.log('error', `Error updating market state for ${symbol}`, error, 'MarketMonitor');
-        });
-      });
-    }, this.UPDATE_INTERVAL);
-    
-    logService.log('info', `Market monitoring started with interval: ${this.UPDATE_INTERVAL}ms`, null, 'MarketMonitor');
-  }
-
-  async addAsset(symbol: string) {
+  async addStrategy(strategy: Strategy): Promise<void> {
     try {
-      if (!this.initialized) {
-        await this.initialize();
-      }
-
-      const normalizedSymbol = symbol.includes('/') ? symbol.replace('/', '_') : symbol;
+      this.strategies.set(strategy.id, strategy);
+      await this.updateMarketData(strategy);
+      await this.analyzeMarketConditions(strategy);
       
-      if (this.monitoredAssets.has(normalizedSymbol)) {
-        return;
-      }
-
-      logService.log('info', `Adding asset to monitor: ${normalizedSymbol}`, null, 'MarketMonitor');
-
-      this.assetSubscriptions.add(normalizedSymbol);
-      this.hasActiveStrategies = true;
-
-      // Subscribe to real-time updates
-      bitmartService.subscribeToSymbol(normalizedSymbol);
-
-      // Initialize historical data
-      const now = Math.floor(Date.now() / 1000);
-      const sevenDaysAgo = now - (7 * 24 * 60 * 60);
-      
-      try {
-        const ticker = await bitmartService.getTicker(normalizedSymbol);
-        const price = parseFloat(ticker.last_price);
-        const historicalData = [{
-          symbol: normalizedSymbol,
-          timestamp: now * 1000,
-          open: price,
-          high: price,
-          low: price,
-          close: price,
-          volume: parseFloat(ticker.quote_volume_24h)
-        }];
-        this.historicalData.set(normalizedSymbol, historicalData);
-      } catch (error) {
-        logService.log('warn', `Error fetching initial data for ${normalizedSymbol}`, error, 'MarketMonitor');
-        // Initialize with current timestamp and price 100
-        const historicalData = [{
-          symbol: normalizedSymbol,
-          timestamp: now * 1000,
-          open: 100,
-          high: 100,
-          low: 100,
-          close: 100,
-          volume: 1000000
-        }];
-        this.historicalData.set(normalizedSymbol, historicalData);
-      }
-      
-      // Calculate and store initial market state
-      const state = await this.calculateMarketState(normalizedSymbol);
-      this.monitoredAssets.set(normalizedSymbol, state);
-
-      logService.log('info', `Successfully added asset to monitor: ${normalizedSymbol}`, null, 'MarketMonitor');
+      logService.log('info', `Started market monitoring for strategy ${strategy.id}`, 
+        { strategy: strategy.id }, 'MarketMonitor');
     } catch (error) {
-      logService.log('error', `Error adding asset ${symbol} to monitor:`, error, 'MarketMonitor');
+      logService.log('error', `Failed to add strategy to market monitor`, 
+        { strategy: strategy.id, error }, 'MarketMonitor');
       throw error;
     }
   }
 
-  removeAsset(symbol: string) {
-    const normalizedSymbol = symbol.includes('/') ? symbol.replace('/', '_') : symbol;
-    this.monitoredAssets.delete(normalizedSymbol);
-    this.historicalData.delete(normalizedSymbol);
-    this.assetSubscriptions.delete(normalizedSymbol);
-    bitmartService.unsubscribeFromSymbol(normalizedSymbol);
+  private async startMonitoring(): Promise<void> {
+    setInterval(() => {
+      this.strategies.forEach(strategy => {
+        this.updateMarketData(strategy).catch(error => {
+          logService.log('error', 'Market data update failed', 
+            { strategy: strategy.id, error }, 'MarketMonitor');
+        });
+      });
+    }, this.UPDATE_INTERVAL);
 
-    this.hasActiveStrategies = this.assetSubscriptions.size > 0;
-    logService.log('info', `Removed asset from monitor: ${normalizedSymbol}`, null, 'MarketMonitor');
+    setInterval(() => {
+      this.strategies.forEach(strategy => {
+        this.analyzeMarketConditions(strategy).catch(error => {
+          logService.log('error', 'Market analysis failed', 
+            { strategy: strategy.id, error }, 'MarketMonitor');
+        });
+      });
+    }, this.ANALYSIS_INTERVAL);
   }
 
-  private async updateMarketState(symbol: string) {
+  private async updateMarketData(strategy: Strategy): Promise<void> {
     try {
-      const ticker = await bitmartService.getTicker(symbol);
-      const price = parseFloat(ticker.last_price);
-      
-      // Update historical data
-      const data = this.historicalData.get(symbol) || [];
-      data.push({
-        symbol,
+      const timeframes: TimeFrame[] = ['1m', '5m', '15m', '1h', '4h', '1d'];
+      const marketData: MarketData = {
         timestamp: Date.now(),
-        open: parseFloat(ticker.open_24h),
-        high: parseFloat(ticker.high_24h),
-        low: parseFloat(ticker.low_24h),
-        close: price,
-        volume: parseFloat(ticker.quote_volume_24h)
-      });
+        pairs: {}
+      };
 
-      // Keep only the latest 1000 data points
-      if (data.length > 1000) {
-        data.splice(0, data.length - 1000);
-      }
-      this.historicalData.set(symbol, data);
-      
-      // Calculate and update market state
-      const state = await this.calculateMarketState(symbol);
-      this.monitoredAssets.set(symbol, state);
-      
-      // Emit market update event
-      this.emit('marketUpdate', {
-        symbol,
-        state,
-        price,
-        timestamp: Date.now()
-      });
+      await Promise.all(strategy.tradingPairs.map(async pair => {
+        const pairData = await Promise.all(timeframes.map(async timeframe => {
+          const candles = await exchangeService.getCandles(pair, timeframe, 100);
+          const volume = await exchangeService.get24hVolume(pair);
+          const orderBook = await exchangeService.getOrderBook(pair);
+
+          return {
+            timeframe,
+            candles,
+            volume,
+            orderBook,
+            indicators: await this.calculateIndicators(candles, timeframe)
+          };
+        }));
+
+        marketData.pairs[pair] = Object.fromEntries(
+          pairData.map((data, i) => [timeframes[i], data])
+        );
+      }));
+
+      this.marketData.set(strategy.id, marketData);
+      this.emit('marketDataUpdate', { strategyId: strategy.id, marketData });
     } catch (error) {
-      logService.log('warn', `Error updating market state for ${symbol}:`, error, 'MarketMonitor');
+      logService.log('error', 'Failed to update market data', 
+        { strategy: strategy.id, error }, 'MarketMonitor');
+      throw error;
     }
   }
 
-  private async calculateMarketState(symbol: string): Promise<MarketState> {
-    const data = this.historicalData.get(symbol);
-    if (!data || data.length < 2) {
-      return {
-        trend: 'sideways',
-        volatility: 'medium',
-        volume: 'medium',
-        momentum: 0,
-        strength: 50
-      };
-    }
-
-    const closes = data.map(d => d.close);
-    const volumes = data.map(d => d.volume);
-
-    // Calculate simple trend
-    const lastPrice = closes[closes.length - 1];
-    const prevPrice = closes[closes.length - 2];
-    const trend = lastPrice > prevPrice ? 'bullish' : lastPrice < prevPrice ? 'bearish' : 'sideways';
-
-    // Calculate volatility
-    const priceChanges = closes.slice(1).map((price, i) => 
-      Math.abs((price - closes[i]) / closes[i]) * 100
-    );
-    const avgVolatility = priceChanges.reduce((sum, val) => sum + val, 0) / priceChanges.length;
-    const volatility = avgVolatility > 2 ? 'high' : avgVolatility > 1 ? 'medium' : 'low';
-
-    // Calculate volume level
-    const avgVolume = volumes.reduce((sum, vol) => sum + vol, 0) / volumes.length;
-    const lastVolume = volumes[volumes.length - 1];
-    const volume = lastVolume > avgVolume * 1.5 ? 'high' : 
-                  lastVolume > avgVolume * 0.5 ? 'medium' : 'low';
-
-    // Calculate momentum (-100 to 100)
-    const momentum = ((lastPrice - prevPrice) / prevPrice) * 100;
-
-    // Calculate overall strength (0-100)
-    const strength = 50 + (momentum / 2);
-
+  private async calculateIndicators(candles: any[], timeframe: TimeFrame) {
     return {
-      trend,
-      volatility,
-      volume,
-      momentum,
-      strength
+      sma: await indicatorService.calculateIndicator(
+        { type: 'SMA', period: 20 },
+        candles
+      ),
+      ema: await indicatorService.calculateIndicator(
+        { type: 'EMA', period: 20 },
+        candles
+      ),
+      rsi: await indicatorService.calculateIndicator(
+        { type: 'RSI', period: 14 },
+        candles
+      ),
+      macd: await indicatorService.calculateIndicator(
+        { type: 'MACD', period: null },
+        candles
+      ),
+      bb: await indicatorService.calculateIndicator(
+        { type: 'BB', period: 20 },
+        candles
+      )
     };
   }
 
-  async getIndicatorValues(symbol: string, indicators: any[]): Promise<IndicatorValue[]> {
-    const data = this.historicalData.get(symbol);
-    if (!data || data.length < 2) {
-      throw new Error('Insufficient historical data');
+  private async analyzeMarketConditions(strategy: Strategy): Promise<void> {
+    try {
+      const marketData = this.marketData.get(strategy.id);
+      if (!marketData) return;
+
+      const conditions: MarketCondition = {
+        timestamp: Date.now(),
+        volatility: this.calculateVolatility(marketData),
+        trend: this.identifyTrend(marketData),
+        volume: this.analyzeVolume(marketData),
+        liquidity: this.assessLiquidity(marketData),
+        sentiment: await this.analyzeSentiment(marketData)
+      };
+
+      this.emit('marketConditionUpdate', {
+        strategyId: strategy.id,
+        conditions
+      });
+    } catch (error) {
+      logService.log('error', 'Failed to analyze market conditions', 
+        { strategy: strategy.id, error }, 'MarketMonitor');
+      throw error;
     }
-
-    const closes = data.map(d => d.close);
-    const results: IndicatorValue[] = [];
-
-    for (const indicator of indicators) {
-      try {
-        switch (indicator.name.toLowerCase()) {
-          case 'rsi': {
-            const values = RSI.calculate({
-              period: indicator.parameters?.period || 14,
-              values: closes
-            });
-            results.push({
-              name: 'RSI',
-              value: values[values.length - 1] || 50
-            });
-            break;
-          }
-          case 'macd': {
-            const values = MACD.calculate({
-              fastPeriod: indicator.parameters?.fastPeriod || 12,
-              slowPeriod: indicator.parameters?.slowPeriod || 26,
-              signalPeriod: indicator.parameters?.signalPeriod || 9,
-              values: closes
-            });
-            const lastValue = values[values.length - 1];
-            results.push({
-              name: 'MACD',
-              value: lastValue?.MACD || 0,
-              signal: lastValue?.signal || 0
-            });
-            break;
-          }
-          case 'sma': {
-            const values = SMA.calculate({
-              period: indicator.parameters?.period || 20,
-              values: closes
-            });
-            results.push({
-              name: 'SMA',
-              value: values[values.length - 1] || closes[closes.length - 1]
-            });
-            break;
-          }
-          case 'bollinger': {
-            const bb = BollingerBands.calculate({
-              period: indicator.parameters?.period || 20,
-              stdDev: indicator.parameters?.stdDev || 2,
-              values: closes
-            });
-            const lastBB = bb[bb.length - 1];
-            results.push({
-              name: 'Bollinger',
-              value: lastBB?.middle || closes[closes.length - 1],
-              upper: lastBB?.upper,
-              lower: lastBB?.lower
-            });
-            break;
-          }
-        }
-      } catch (error) {
-        logService.log('warn', `Error calculating ${indicator.name}:`, error, 'MarketMonitor');
-      }
-    }
-
-    return results;
   }
 
-  getMarketState(symbol: string): MarketState | undefined {
-    return this.monitoredAssets.get(symbol);
+  private calculateVolatility(marketData: MarketData): number {
+    // Implementation of volatility calculation using standard deviation
+    // of price changes across different timeframes
+    return 0; // Placeholder
   }
 
-  getHistoricalData(symbol: string, period: number): MarketData[] {
-    const data = this.historicalData.get(symbol);
-    if (!data) return [];
-    
-    const cutoff = Date.now() - period;
-    return data.filter(d => d.timestamp >= cutoff);
+  private identifyTrend(marketData: MarketData): 'uptrend' | 'downtrend' | 'sideways' {
+    // Implementation of trend identification using multiple indicators
+    // and timeframe correlation
+    return 'sideways'; // Placeholder
   }
 
-  isMonitoringAsset(symbol: string): boolean {
-    return this.monitoredAssets.has(symbol);
+  private analyzeVolume(marketData: MarketData): {
+    level: 'high' | 'medium' | 'low';
+    change24h: number;
+  } {
+    // Implementation of volume analysis comparing current volume
+    // to historical averages
+    return { level: 'medium', change24h: 0 }; // Placeholder
   }
 
-  cleanup() {
-    if (this.updateInterval) {
-      clearInterval(this.updateInterval);
-      this.updateInterval = null;
-    }
-    this.monitoredAssets.clear();
-    this.historicalData.clear();
-    this.assetSubscriptions.clear();
-    this.hasActiveStrategies = false;
-    this.initialized = false;
-    logService.log('info', 'Market monitor cleaned up', null, 'MarketMonitor');
+  private assessLiquidity(marketData: MarketData): {
+    score: number;
+    spreadAvg: number;
+    depth: number;
+  } {
+    // Implementation of liquidity assessment using order book analysis
+    return { score: 0, spreadAvg: 0, depth: 0 }; // Placeholder
+  }
+
+  private async analyzeSentiment(marketData: MarketData): Promise<{
+    score: number;
+    signals: string[];
+  }> {
+    // Implementation of market sentiment analysis using technical indicators
+    // and possibly external data sources
+    return { score: 0, signals: [] }; // Placeholder
+  }
+
+  getMarketData(strategyId: string): MarketData | undefined {
+    return this.marketData.get(strategyId);
+  }
+
+  removeStrategy(strategyId: string): void {
+    this.strategies.delete(strategyId);
+    this.marketData.delete(strategyId);
+    logService.log('info', `Stopped market monitoring for strategy ${strategyId}`, 
+      { strategyId }, 'MarketMonitor');
   }
 }
 

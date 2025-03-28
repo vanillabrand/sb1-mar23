@@ -11,11 +11,12 @@ import { initializationProgress } from './initialization-progress';
 import { monitoringService } from './monitoring-service';
 import { tradeManager } from './trade-manager';
 
-class SystemSync extends EventEmitter {
+export class SystemSync extends EventEmitter {
   private static instance: SystemSync;
   private syncInProgress = false;
   private lastSyncTime = 0;
-  private readonly SYNC_INTERVAL = 30000; // 30 seconds
+  private readonly SYNC_TIMEOUT = 30000;
+  private readonly MIN_SYNC_INTERVAL = 5000;
   private syncInterval: NodeJS.Timeout | null = null;
 
   private constructor() {
@@ -117,24 +118,23 @@ class SystemSync extends EventEmitter {
     }
   }
 
-  private async performFullSync(): Promise<void> {
-    if (this.syncInProgress) return;
+  async performFullSync(): Promise<void> {
+    if (this.syncInProgress) {
+      throw new Error('Sync already in progress');
+    }
+
+    if (Date.now() - this.lastSyncTime < this.MIN_SYNC_INTERVAL) {
+      throw new Error('Sync requested too soon after last sync');
+    }
     
     this.syncInProgress = true;
     this.emit('syncStart');
 
     try {
-      // Sync strategies and templates
-      await Promise.all([
-        strategySync.syncAll(),
-        templateSync.syncAll()
+      await Promise.race([
+        this.executeSyncOperations(),
+        this.createSyncTimeout()
       ]);
-      
-      // Sync trades
-      await this.syncTrades();
-      
-      // Sync market data
-      await this.syncMarketData();
       
       this.lastSyncTime = Date.now();
       this.emit('syncComplete');
@@ -143,9 +143,27 @@ class SystemSync extends EventEmitter {
     } catch (error) {
       logService.log('error', 'Full sync error', error, 'SystemSync');
       this.emit('syncError', error);
+      throw error;
     } finally {
       this.syncInProgress = false;
     }
+  }
+
+  private async executeSyncOperations(): Promise<void> {
+    await Promise.all([
+      this.syncStrategies(),
+      this.syncTemplates(),
+      this.syncTrades(),
+      this.syncMarketData()
+    ]);
+  }
+
+  private createSyncTimeout(): Promise<never> {
+    return new Promise((_, reject) => {
+      setTimeout(() => {
+        reject(new Error('Sync operation timed out'));
+      }, this.SYNC_TIMEOUT);
+    });
   }
 
   private async syncTrades(): Promise<void> {

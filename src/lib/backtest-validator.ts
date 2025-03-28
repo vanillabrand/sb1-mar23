@@ -13,27 +13,41 @@ export class BacktestValidator {
     results: BacktestResults,
     strategy: Strategy
   ): Promise<ValidationReport> {
+    if (!results || !strategy) {
+      throw new Error('Invalid input: results and strategy are required');
+    }
+
+    if (!Array.isArray(results.trades)) {
+      throw new Error('Invalid results: trades must be an array');
+    }
+
     try {
       const validations: ValidationCheck[] = [];
-      let isValid = true;
+      
+      // Run validations in parallel for better performance
+      const [
+        tradeCountCheck,
+        winRateCheck,
+        drawdownCheck,
+        riskMetricsCheck,
+        overfittingCheck
+      ] = await Promise.all([
+        this.validateTradeCount(results.trades),
+        this.validateWinRate(results),
+        this.validateDrawdown(results),
+        this.validateRiskMetrics(results),
+        this.checkForOverfitting(results, strategy)
+      ]);
 
-      // Validate minimum number of trades
-      validations.push(this.validateTradeCount(results.trades));
+      validations.push(
+        tradeCountCheck,
+        winRateCheck,
+        drawdownCheck,
+        riskMetricsCheck,
+        overfittingCheck
+      );
 
-      // Validate win rate
-      validations.push(this.validateWinRate(results));
-
-      // Validate drawdown
-      validations.push(this.validateDrawdown(results));
-
-      // Validate risk metrics
-      validations.push(this.validateRiskMetrics(results));
-
-      // Validate for overfitting
-      validations.push(await this.checkForOverfitting(results, strategy));
-
-      // Check if any critical validations failed
-      isValid = validations.every(v => !v.isCritical || v.passed);
+      const isValid = validations.every(v => !v.isCritical || v.passed);
 
       return {
         isValid,
@@ -43,6 +57,7 @@ export class BacktestValidator {
         confidenceScore: this.calculateConfidenceScore(validations, results)
       };
     } catch (error) {
+      logService.log('error', 'Backtest validation failed', error, 'BacktestValidator');
       throw error;
     }
   }

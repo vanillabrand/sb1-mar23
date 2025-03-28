@@ -1,17 +1,73 @@
-import { supabase } from './supabase-client';
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-import { bitmartService } from './bitmart-service';
-import { tradeManager } from './trade-manager';
+import { marketMonitor } from './market-monitor';
+import { riskManager } from './risk-manager';
+import { tradeService } from './trade-service';
+import { analyticsService } from './analytics-service';
+import { aiTradeService } from './ai-trade-service';
+import { exchangeService } from './exchange-service';
+import { ccxtService } from './ccxt-service';
+import { emailService } from './email-service';
+import type { 
+  Strategy, 
+  MonitoringStatus, 
+  HealthCheck,
+  AlertConfig,
+  Alert 
+} from './types';
 
-class MonitoringService extends EventEmitter {
+// Add new monitoring metrics types
+interface SystemMetrics {
+  cpu: number;
+  memory: number;
+  latency: number;
+  uptime: number;
+}
+
+interface ExchangeMetrics {
+  connectionStatus: boolean;
+  apiLatency: number;
+  rateLimit: number;
+  lastSync: number;
+}
+
+interface AIMetrics {
+  lastPredictionTime: number;
+  predictionLatency: number;
+  confidenceScore: number;
+  errorRate: number;
+}
+
+// Extend MonitoringStatus
+interface MonitoringStatus {
+  strategyId: string;
+  status: 'active' | 'paused' | 'error';
+  lastUpdate: number;
+  metrics: {
+    market?: any;
+    conditions?: any;
+    lastTrade?: any;
+    system?: SystemMetrics;
+    exchange?: ExchangeMetrics;
+    ai?: AIMetrics;
+  };
+  alerts: Alert[];
+}
+
+export class MonitoringService extends EventEmitter {
   private static instance: MonitoringService;
-  private initialized = false;
-  private initializationPromise: Promise<void> | null = null;
-  private updateInterval: number = 5000; // 5 seconds
+  private status: Map<string, MonitoringStatus> = new Map();
+  private healthChecks: Map<string, HealthCheck> = new Map();
+  private alerts: Map<string, AlertConfig> = new Map();
+  private readonly HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
+  private readonly SYSTEM_METRICS_INTERVAL = 60000;
+  private readonly EXCHANGE_METRICS_INTERVAL = 15000;
 
   private constructor() {
     super();
+    this.initializeHealthChecks();
+    this.initializeSystemMetrics();
+    this.initializeExchangeMetrics();
   }
 
   static getInstance(): MonitoringService {
@@ -21,410 +77,339 @@ class MonitoringService extends EventEmitter {
     return MonitoringService.instance;
   }
 
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-    if (this.initializationPromise) return this.initializationPromise;
-
-    this.initializationPromise = (async () => {
-      try {
-        logService.log('info', 'Initializing monitoring service', null, 'MonitoringService');
-        
-        // Subscribe to realtime updates
-        supabase
-          .channel('strategy_changes')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'strategies' },
-            this.handleStrategyChange.bind(this)
-          )
-          .subscribe();
-
-        // Subscribe to monitoring status updates
-        supabase
-          .channel('monitoring_status_changes')
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'monitoring_status' },
-            this.handleMonitoringStatusChange.bind(this)
-          )
-          .subscribe();
-
-        this.initialized = true;
-        logService.log('info', 'Monitoring service initialized successfully', null, 'MonitoringService');
-      } catch (error) {
-        logService.log('error', 'Failed to initialize monitoring service', error, 'MonitoringService');
-        throw error;
-      } finally {
-        this.initializationPromise = null;
-      }
-    })();
-
-    return this.initializationPromise;
-  }
-
-  private handleStrategyChange(payload: any) {
+  async startMonitoring(strategy: Strategy): Promise<void> {
     try {
-      const { eventType, new: newRecord, old: oldRecord } = payload;
-      
-      switch (eventType) {
-        case 'INSERT':
-          this.emit('strategyCreated', newRecord);
-          logService.log('info', `Strategy created: ${newRecord.name}`, { id: newRecord.id }, 'MonitoringService');
-          break;
-        case 'UPDATE':
-          this.emit('strategyUpdated', newRecord);
-          logService.log('info', `Strategy updated: ${newRecord.name}`, { id: newRecord.id }, 'MonitoringService');
-          break;
-        case 'DELETE':
-          this.emit('strategyDeleted', oldRecord);
-          logService.log('info', `Strategy deleted: ${oldRecord.name}`, { id: oldRecord.id }, 'MonitoringService');
-          break;
-      }
+      // Initialize monitoring status with new metrics
+      this.status.set(strategy.id, {
+        strategyId: strategy.id,
+        status: 'active',
+        lastUpdate: Date.now(),
+        metrics: {
+          system: await this.getInitialSystemMetrics(),
+          exchange: await this.getInitialExchangeMetrics(),
+          ai: this.getInitialAIMetrics()
+        },
+        alerts: []
+      });
+
+      // Set up alert configuration
+      this.alerts.set(strategy.id, this.createDefaultAlertConfig());
+
+      // Subscribe to market events
+      marketMonitor.on('marketDataUpdate', this.handleMarketUpdate.bind(this));
+      marketMonitor.on('marketConditionUpdate', this.handleMarketCondition.bind(this));
+
+      // Subscribe to risk events
+      riskManager.on('riskAlert', this.handleRiskAlert.bind(this));
+
+      // Subscribe to trade events
+      tradeService.on('tradeExecuted', this.handleTradeExecution.bind(this));
+      tradeService.on('tradeError', this.handleTradeError.bind(this));
+
+      // Add new event subscriptions
+      analyticsService.on('analyticsUpdate', this.handleAnalyticsUpdate.bind(this));
+      aiTradeService.on('predictionComplete', this.handleAIPrediction.bind(this));
+      exchangeService.on('connectionStatus', this.handleExchangeConnection.bind(this));
+
+      logService.log('info', `Started enhanced monitoring for strategy ${strategy.id}`, 
+        { strategy: strategy.id }, 'MonitoringService');
     } catch (error) {
-      logService.log('error', 'Error handling strategy change', error, 'MonitoringService');
-    }
-  }
-
-  private handleMonitoringStatusChange(payload: any) {
-    try {
-      const { eventType, new: newRecord } = payload;
-      
-      if (eventType === 'INSERT' || eventType === 'UPDATE') {
-        this.emit('monitoringStatusUpdated', newRecord);
-        logService.log('info', `Monitoring status updated for strategy ${newRecord.strategy_id}`, 
-          { status: newRecord.status }, 'MonitoringService');
-      }
-    } catch (error) {
-      logService.log('error', 'Error handling monitoring status change', error, 'MonitoringService');
-    }
-  }
-
-  async updateMonitoringStatus(strategyId: string, status: {
-    status: 'monitoring' | 'generating' | 'executing' | 'idle',
-    message?: string,
-    progress?: number,
-    indicators?: any,
-    conditions?: any,
-    market_conditions?: any,
-    next_check?: Date
-  }): Promise<void> {
-    try {
-      // First check if a monitoring status exists for this strategy
-      const { data: existingStatus, error: fetchError } = await supabase
-        .from('monitoring_status')
-        .select('id')
-        .eq('strategy_id', strategyId)
-        .maybeSingle();
-
-      if (fetchError) {
-        throw fetchError;
-      }
-
-      const now = new Date().toISOString();
-      
-      if (existingStatus) {
-        // Update existing status
-        const { error } = await supabase
-          .from('monitoring_status')
-          .update({
-            status: status.status,
-            message: status.message,
-            progress: status.progress,
-            indicators: status.indicators,
-            conditions: status.conditions,
-            market_conditions: status.market_conditions,
-            last_check: now,
-            next_check: status.next_check?.toISOString(),
-            updated_at: now
-          })
-          .eq('strategy_id', strategyId);
-
-        if (error) throw error;
-      } else {
-        // Create new status
-        const { error } = await supabase
-          .from('monitoring_status')
-          .insert({
-            strategy_id: strategyId,
-            status: status.status,
-            message: status.message,
-            progress: status.progress,
-            indicators: status.indicators,
-            conditions: status.conditions,
-            market_conditions: status.market_conditions,
-            last_check: now,
-            next_check: status.next_check?.toISOString()
-          });
-
-        if (error) throw error;
-      }
-      
-      logService.log('info', `Updated monitoring status for strategy ${strategyId}`, 
-        { status: status.status }, 'MonitoringService');
-    } catch (error) {
-      logService.log('error', 'Failed to update monitoring status', error, 'MonitoringService');
+      logService.log('error', `Failed to start monitoring`, 
+        { strategy: strategy.id, error }, 'MonitoringService');
       throw error;
     }
   }
 
-  async createStrategy(strategyData: any): Promise<string> {
-    try {
-      logService.log('info', 'Creating new strategy', { name: strategyData.name }, 'MonitoringService');
-      
-      // Ensure created_at and updated_at are set
-      const now = new Date().toISOString();
-      const dataWithTimestamps = {
-        ...strategyData,
-        created_at: now,
-        updated_at: now
-      };
-      
-      const { data, error } = await supabase
-        .from('strategies')
-        .insert(dataWithTimestamps)
-        .select('id')
-        .single();
-
-      if (error) throw error;
-      
-      // Initialize monitoring status for new strategy
-      await this.updateMonitoringStatus(data.id, { status: 'idle' });
-      
-      return data.id;
-    } catch (error) {
-      logService.log('error', 'Failed to create strategy', error, 'MonitoringService');
-      throw error;
-    }
+  private initializeHealthChecks(): void {
+    setInterval(() => {
+      this.status.forEach((status, strategyId) => {
+        this.performHealthCheck(strategyId).catch(error => {
+          logService.log('error', 'Health check failed', 
+            { strategyId, error }, 'MonitoringService');
+        });
+      });
+    }, this.HEALTH_CHECK_INTERVAL);
   }
 
-  async updateStrategy(id: string, strategyData: any): Promise<void> {
+  private async performHealthCheck(strategyId: string): Promise<void> {
     try {
-      logService.log('info', `Updating strategy ${id}`, { name: strategyData.name }, 'MonitoringService');
-      
-      // Ensure updated_at is set
-      const dataWithTimestamp = {
-        ...strategyData,
-        updated_at: new Date().toISOString()
-      };
-      
-      const { error } = await supabase
-        .from('strategies')
-        .update(dataWithTimestamp)
-        .eq('id', id);
+      const status = this.status.get(strategyId);
+      if (!status) return;
 
-      if (error) throw error;
-    } catch (error) {
-      logService.log('error', 'Failed to update strategy', error, 'MonitoringService');
-      throw error;
-    }
-  }
+      const marketData = marketMonitor.getMarketData(strategyId);
+      const riskMetrics = riskManager.getRiskMetrics(strategyId);
+      const tradeStatus = await tradeService.getTradeStatus(strategyId);
 
-  async deleteStrategy(id: string): Promise<void> {
-    try {
-      logService.log('info', `Deleting strategy ${id}`, null, 'MonitoringService');
-      
-      const { error } = await supabase
-        .from('strategies')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      
-      // Monitoring status will be automatically deleted due to ON DELETE CASCADE
-    } catch (error) {
-      logService.log('error', 'Failed to delete strategy', error, 'MonitoringService');
-      throw error;
-    }
-  }
-
-  async copyStrategy(id: string): Promise<string> {
-    try {
-      logService.log('info', `Copying strategy ${id}`, null, 'MonitoringService');
-      
-      // Get the strategy to copy
-      const { data: strategy, error: fetchError } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('id', id)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Create a copy with a new name
-      const now = new Date().toISOString();
-      const newStrategy = {
-        ...strategy,
-        id: undefined, // Let Supabase generate a new ID
-        name: `${strategy.name} (Copy)`,
-        created_at: now,
-        updated_at: now
-      };
-
-      // Insert the copy
-      const { data: newData, error: insertError } = await supabase
-        .from('strategies')
-        .insert(newStrategy)
-        .select('id')
-        .single();
-
-      if (insertError) throw insertError;
-      
-      // Initialize monitoring status for copied strategy
-      await this.updateMonitoringStatus(newData.id, { status: 'idle' });
-      
-      return newData.id;
-    } catch (error) {
-      logService.log('error', 'Failed to copy strategy', error, 'MonitoringService');
-      throw error;
-    }
-  }
-
-  async getMonitoringStatus(strategyId: string): Promise<any> {
-    try {
-      const { data, error } = await supabase
-        .from('monitoring_status')
-        .select('*')
-        .eq('strategy_id', strategyId)
-        .maybeSingle();
-
-      if (error) throw error;
-      
-      return data;
-    } catch (error) {
-      logService.log('error', 'Failed to get monitoring status', error, 'MonitoringService');
-      throw error;
-    }
-  }
-
-  async getAllMonitoringStatuses(): Promise<any[]> {
-    try {
-      const { data, error } = await supabase
-        .from('monitoring_status')
-        .select('*');
-
-      if (error) throw error;
-      
-      return data || [];
-    } catch (error) {
-      logService.log('error', 'Failed to get all monitoring statuses', error, 'MonitoringService');
-      throw error;
-    }
-  }
-
-  async updateStrategyStatus(strategyId: string): Promise<DetailedMonitoringStatus> {
-    try {
-      // Get strategy configuration
-      const strategy = await this.getStrategy(strategyId);
-      
-      // Get current market data
-      const marketData = await bitmartService.getMarketData(strategy.symbol);
-      
-      // Calculate market metrics
-      const marketMetrics = await this.calculateMarketMetrics(marketData);
-      
-      // Get current indicator values
-      const indicators = await this.calculateIndicators(strategy, marketData);
-      
-      // Evaluate strategy conditions
-      const conditions = await this.evaluateStrategyConditions(strategy, indicators);
-      
-      // Get active positions
-      const positions = await this.getPositionDetails(strategy);
-      
-      const status: DetailedMonitoringStatus = {
-        status: 'monitoring',
-        message: 'Actively monitoring market conditions',
+      const healthCheck: HealthCheck = {
         timestamp: Date.now(),
-        activeConditions: conditions,
-        marketMetrics,
-        positions,
-        lastIndicatorValues: indicators,
-        nextEvaluation: new Date(Date.now() + this.updateInterval).toISOString()
+        marketDataAge: marketData ? Date.now() - marketData.timestamp : Infinity,
+        riskMetricsAge: riskMetrics ? Date.now() - riskMetrics.timestamp : Infinity,
+        lastTradeAge: tradeStatus.lastTradeTimestamp ? 
+          Date.now() - tradeStatus.lastTradeTimestamp : 
+          Infinity,
+        errors: []
       };
 
-      // Update status in database
-      await this.saveMonitoringStatus(strategyId, status);
-      
-      return status;
+      // Check for stale data
+      if (healthCheck.marketDataAge > 300000) { // 5 minutes
+        healthCheck.errors.push('Stale market data');
+      }
+      if (healthCheck.riskMetricsAge > 300000) {
+        healthCheck.errors.push('Stale risk metrics');
+      }
+      if (healthCheck.lastTradeAge > 86400000) { // 24 hours
+        healthCheck.errors.push('No recent trades');
+      }
+
+      this.healthChecks.set(strategyId, healthCheck);
+
+      if (healthCheck.errors.length > 0) {
+        this.emitAlert(strategyId, {
+          type: 'health',
+          severity: 'warning',
+          message: `Health check issues: ${healthCheck.errors.join(', ')}`,
+          timestamp: Date.now()
+        });
+      }
     } catch (error) {
-      logService.log('error', 'Failed to update strategy status', error, 'MonitoringService');
-      throw error;
+      logService.log('error', 'Health check failed', 
+        { strategyId, error }, 'MonitoringService');
     }
   }
 
-  private async calculateMarketMetrics(marketData: any): Promise<any> {
-    const volatility = await this.calculateVolatility(marketData.klines);
-    const trendStrength = await this.calculateTrendStrength(marketData.klines);
-    
+  private handleMarketUpdate({ strategyId, marketData }: any): void {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    status.lastUpdate = Date.now();
+    status.metrics.market = marketData;
+    this.status.set(strategyId, status);
+  }
+
+  private handleMarketCondition({ strategyId, conditions }: any): void {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    status.metrics.conditions = conditions;
+    this.status.set(strategyId, status);
+  }
+
+  private handleRiskAlert({ strategyId, metrics }: any): void {
+    this.emitAlert(strategyId, {
+      type: 'risk',
+      severity: 'high',
+      message: `Risk threshold exceeded: ${JSON.stringify(metrics)}`,
+      timestamp: Date.now()
+    });
+  }
+
+  private handleTradeExecution({ strategyId, trade }: any): void {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    status.metrics.lastTrade = trade;
+    this.status.set(strategyId, status);
+  }
+
+  private handleTradeError({ strategyId, error }: any): void {
+    this.emitAlert(strategyId, {
+      type: 'trade',
+      severity: 'error',
+      message: `Trade execution failed: ${error.message}`,
+      timestamp: Date.now()
+    });
+  }
+
+  private emitAlert(strategyId: string, alert: Alert): void {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    status.alerts.push(alert);
+    if (status.alerts.length > 100) {
+      status.alerts.shift(); // Keep last 100 alerts
+    }
+
+    this.status.set(strategyId, status);
+    this.emit('alert', { strategyId, alert });
+  }
+
+  private createDefaultAlertConfig(): AlertConfig {
     return {
-      volatility,
-      volume24h: marketData.volume24h,
-      priceChange24h: marketData.priceChange24h,
-      trendStrength
+      riskThresholds: {
+        drawdown: 0.15,
+        dailyLoss: 0.10,
+        exposure: 0.20
+      },
+      notifications: {
+        email: true,
+        slack: false,
+        telegram: false
+      },
+      severity: {
+        info: true,
+        warning: true,
+        error: true,
+        critical: true
+      }
     };
   }
 
-  private async evaluateStrategyConditions(
-    strategy: Strategy, 
-    indicators: Record<string, number>
-  ): Promise<StrategyCondition[]> {
-    const conditions: StrategyCondition[] = [];
-    
-    for (const condition of strategy.strategy_config.conditions) {
-      const currentValue = indicators[condition.indicator];
-      const status = this.evaluateCondition(currentValue, condition);
-      
-      conditions.push({
-        name: condition.name,
-        currentValue,
-        targetValue: condition.target,
-        status,
-        lastUpdated: new Date().toISOString()
+  getStatus(strategyId: string): MonitoringStatus | undefined {
+    return this.status.get(strategyId);
+  }
+
+  getHealthCheck(strategyId: string): HealthCheck | undefined {
+    return this.healthChecks.get(strategyId);
+  }
+
+  updateAlertConfig(strategyId: string, config: Partial<AlertConfig>): void {
+    const currentConfig = this.alerts.get(strategyId) || this.createDefaultAlertConfig();
+    this.alerts.set(strategyId, { ...currentConfig, ...config });
+  }
+
+  stopMonitoring(strategyId: string): void {
+    this.status.delete(strategyId);
+    this.healthChecks.delete(strategyId);
+    this.alerts.delete(strategyId);
+    logService.log('info', `Stopped monitoring for strategy ${strategyId}`, 
+      { strategyId }, 'MonitoringService');
+  }
+
+  private initializeSystemMetrics(): void {
+    setInterval(() => {
+      this.status.forEach((status, strategyId) => {
+        this.updateSystemMetrics(strategyId).catch(error => {
+          logService.log('error', 'System metrics update failed', 
+            { strategyId, error }, 'MonitoringService');
+        });
+      });
+    }, this.SYSTEM_METRICS_INTERVAL);
+  }
+
+  private initializeExchangeMetrics(): void {
+    setInterval(() => {
+      this.status.forEach((status, strategyId) => {
+        this.updateExchangeMetrics(strategyId).catch(error => {
+          logService.log('error', 'Exchange metrics update failed', 
+            { strategyId, error }, 'MonitoringService');
+        });
+      });
+    }, this.EXCHANGE_METRICS_INTERVAL);
+  }
+
+  private async updateSystemMetrics(strategyId: string): Promise<void> {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    const metrics: SystemMetrics = {
+      cpu: process.cpuUsage().user / 1000000,
+      memory: process.memoryUsage().heapUsed / 1024 / 1024,
+      latency: await this.measureLatency(),
+      uptime: process.uptime()
+    };
+
+    status.metrics.system = metrics;
+    this.status.set(strategyId, status);
+
+    if (metrics.memory > 1024 || metrics.cpu > 80) {
+      this.emitAlert(strategyId, {
+        type: 'system',
+        severity: 'warning',
+        message: `High resource usage - Memory: ${metrics.memory.toFixed(2)}MB, CPU: ${metrics.cpu.toFixed(2)}%`,
+        timestamp: Date.now()
       });
     }
-    
-    return conditions;
   }
 
-  private async getPositionDetails(strategy: Strategy): Promise<TradePosition[]> {
-    const positions = [];
-    
-    if (process.env.MODE === 'demo') {
-      // Simulate position updates in demo mode
-      const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
-      
-      for (const trade of activeTrades) {
-        const currentPrice = await bitmartService.getCurrentPrice(trade.symbol);
-        const unrealizedPnl = this.calculateUnrealizedPnl(trade, currentPrice);
-        
-        positions.push({
-          entryPrice: trade.entryPrice,
-          currentPrice,
-          stopLoss: trade.stopLoss,
-          takeProfit: trade.takeProfit,
-          trailingStop: trade.trailingStop,
-          size: trade.size,
-          leverage: trade.leverage,
-          unrealizedPnl: unrealizedPnl.amount,
-          unrealizedPnlPercent: unrealizedPnl.percentage,
-          timeOpen: trade.openTime
-        });
-      }
-    } else {
-      // Get real position data from exchange
-      const exchangePositions = await bitmartService.getPositions(strategy.symbol);
-      // Transform exchange positions to our format...
+  private async updateExchangeMetrics(strategyId: string): Promise<void> {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    const startTime = Date.now();
+    const isConnected = await ccxtService.checkConnection();
+    const latency = Date.now() - startTime;
+
+    const metrics: ExchangeMetrics = {
+      connectionStatus: isConnected,
+      apiLatency: latency,
+      rateLimit: ccxtService.getRateLimit(),
+      lastSync: exchangeService.getLastSyncTime()
+    };
+
+    status.metrics.exchange = metrics;
+    this.status.set(strategyId, status);
+
+    if (metrics.apiLatency > 5000) {
+      this.emitAlert(strategyId, {
+        type: 'exchange',
+        severity: 'warning',
+        message: `High exchange API latency: ${metrics.apiLatency}ms`,
+        timestamp: Date.now()
+      });
     }
-    
-    return positions;
   }
 
-  private calculateUnrealizedPnl(trade: any, currentPrice: number) {
-    const priceDiff = currentPrice - trade.entryPrice;
-    const amount = priceDiff * trade.size * trade.leverage;
-    const percentage = (priceDiff / trade.entryPrice) * 100 * trade.leverage;
-    
-    return { amount, percentage };
+  private async measureLatency(): Promise<number> {
+    const start = Date.now();
+    await marketMonitor.getMarketData();
+    return Date.now() - start;
+  }
+
+  private handleAnalyticsUpdate({ strategyId, data }: any): void {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    status.metrics.analytics = data;
+    this.status.set(strategyId, status);
+  }
+
+  private handleAIPrediction({ strategyId, prediction, latency }: any): void {
+    const status = this.status.get(strategyId);
+    if (!status) return;
+
+    status.metrics.ai = {
+      ...status.metrics.ai,
+      lastPredictionTime: Date.now(),
+      predictionLatency: latency,
+      confidenceScore: prediction.confidence
+    };
+    this.status.set(strategyId, status);
+  }
+
+  private handleExchangeConnection({ connected, latency }: any): void {
+    this.status.forEach((status) => {
+      if (status.metrics.exchange) {
+        status.metrics.exchange.connectionStatus = connected;
+        status.metrics.exchange.apiLatency = latency;
+      }
+    });
+  }
+
+  private getInitialSystemMetrics(): SystemMetrics {
+    return {
+      cpu: process.cpuUsage().user / 1000000,
+      memory: process.memoryUsage().heapUsed / 1024 / 1024,
+      latency: 0,
+      uptime: process.uptime()
+    };
+  }
+
+  private getInitialExchangeMetrics(): ExchangeMetrics {
+    return {
+      connectionStatus: ccxtService.checkConnection(),
+      apiLatency: 0,
+      rateLimit: ccxtService.getRateLimit(),
+      lastSync: exchangeService.getLastSyncTime()
+    };
+  }
+
+  private getInitialAIMetrics(): AIMetrics {
+    return {
+      lastPredictionTime: 0,
+      predictionLatency: 0,
+      confidenceScore: 0,
+      errorRate: 0
+    };
   }
 }
 

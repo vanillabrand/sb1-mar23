@@ -1,194 +1,148 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-import { tradeManager } from './trade-manager';
+import { tradeService } from './trade-service';
+import type { Strategy, RiskMetrics, Position } from './types';
 
-class RiskManager extends EventEmitter {
-  private strategyRiskParams: Map<string, RiskParameters> = new Map();
-  private readonly DEFAULT_MAX_DRAWDOWN = 0.1; // 10%
-  private readonly DEFAULT_MAX_POSITION_SIZE = 0.2; // 20% of budget
-  private readonly DEFAULT_MAX_DAILY_TRADES = 10;
+export class RiskManager extends EventEmitter {
+  private static instance: RiskManager;
+  private metrics: Map<string, RiskMetrics> = new Map();
+  private readonly MAX_DRAWDOWN = 0.15; // 15%
+  private readonly MAX_DAILY_LOSS = 0.10; // 10%
+  private readonly POSITION_SIZE_LIMIT = 0.20; // 20% of portfolio
 
-  async initializeStrategyRisk(strategy: any): Promise<void> {
+  private constructor() {
+    super();
+  }
+
+  static getInstance(): RiskManager {
+    if (!RiskManager.instance) {
+      RiskManager.instance = new RiskManager();
+    }
+    return RiskManager.instance;
+  }
+
+  async evaluateRisk(strategy: Strategy): Promise<RiskMetrics> {
     try {
-      const riskParams: RiskParameters = {
-        maxDrawdown: strategy.strategy_config?.maxDrawdown || this.DEFAULT_MAX_DRAWDOWN,
-        maxPositionSize: strategy.strategy_config?.maxPositionSize || this.DEFAULT_MAX_POSITION_SIZE,
-        maxDailyTrades: strategy.strategy_config?.maxDailyTrades || this.DEFAULT_MAX_DAILY_TRADES,
-        stopLossPercentage: strategy.strategy_config?.stopLossPercentage,
-        takeProfitPercentage: strategy.strategy_config?.takeProfitPercentage,
-        trailingStopPercentage: strategy.strategy_config?.trailingStopPercentage,
-        maxOpenPositions: strategy.strategy_config?.maxOpenPositions || 1,
-        riskPerTrade: strategy.strategy_config?.riskPerTrade || 0.02
-      };
+      const positions = await tradeService.getOpenPositions(strategy.id);
+      const metrics = await this.calculateRiskMetrics(strategy, positions);
+      this.metrics.set(strategy.id, metrics);
 
-      this.strategyRiskParams.set(strategy.id, riskParams);
+      if (this.shouldTriggerRiskAlert(metrics)) {
+        this.emit('riskAlert', {
+          strategyId: strategy.id,
+          metrics,
+          timestamp: Date.now()
+        });
+      }
+
+      return metrics;
     } catch (error) {
-      logService.log('error', `Failed to initialize risk parameters for strategy ${strategy.id}`, 
-        error, 'RiskManager');
+      logService.log('error', 'Failed to evaluate risk', 
+        { strategyId: strategy.id, error }, 'RiskManager');
       throw error;
     }
   }
 
-  async validateRiskParameters(strategy: any): Promise<boolean> {
-    try {
-      const config = strategy.strategy_config;
-      
-      // Validate required parameters
-      if (!config || !config.maxDrawdown || !config.maxPositionSize) {
-        return false;
-      }
+  private async calculateRiskMetrics(
+    strategy: Strategy,
+    positions: Position[]
+  ): Promise<RiskMetrics> {
+    const totalValue = await tradeService.getPortfolioValue(strategy.id);
+    const dailyPnL = await this.calculateDailyPnL(strategy);
+    const drawdown = await this.calculateDrawdown(strategy);
+    const exposureRatio = this.calculateExposureRatio(positions, totalValue);
+    const volatility = await this.calculateVolatility(strategy);
 
-      // Validate ranges
-      if (config.maxDrawdown > 0.5 || config.maxPositionSize > 0.5) {
-        return false;
-      }
-
-      // Validate stop loss and take profit
-      if (config.stopLossPercentage && config.stopLossPercentage > 0.2) {
-        return false;
-      }
-
-      if (config.takeProfitPercentage && config.takeProfitPercentage < config.stopLossPercentage) {
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logService.log('error', `Risk parameter validation failed for strategy ${strategy.id}`, 
-        error, 'RiskManager');
-      return false;
-    }
-  }
-
-  async checkRiskLimits(strategy: any): Promise<RiskStatus> {
-    try {
-      const riskParams = this.strategyRiskParams.get(strategy.id);
-      if (!riskParams) {
-        throw new Error(`Risk parameters not found for strategy ${strategy.id}`);
-      }
-
-      const checks = await Promise.all([
-        this.checkDrawdown(strategy, riskParams),
-        this.checkPositionSizes(strategy, riskParams),
-        this.checkDailyTradeLimit(strategy, riskParams),
-        this.checkOpenPositions(strategy, riskParams)
-      ]);
-
-      const violations = checks.filter(check => !check.withinLimits);
-      
-      return {
-        withinLimits: violations.length === 0,
-        violations,
-        requiresPositionClose: violations.some(v => v.requiresPositionClose),
-        reason: violations.map(v => v.reason).join(', ')
-      };
-    } catch (error) {
-      logService.log('error', `Risk check failed for strategy ${strategy.id}`, error, 'RiskManager');
-      return {
-        withinLimits: false,
-        violations: [{
-          type: 'error',
-          reason: 'Risk check failed',
-          requiresPositionClose: true
-        }],
-        requiresPositionClose: true,
-        reason: 'Risk check failed'
-      };
-    }
-  }
-
-  async validateTradeSignal(strategy: any, signal: any): Promise<any> {
-    try {
-      const riskParams = this.strategyRiskParams.get(strategy.id);
-      if (!riskParams) return null;
-
-      // Validate position size
-      const adjustedSize = this.calculateSafePositionSize(
-        signal.amount,
-        strategy,
-        riskParams
-      );
-
-      if (adjustedSize <= 0) return null;
-
-      // Add risk management parameters
-      return {
-        ...signal,
-        amount: adjustedSize,
-        stopLoss: this.calculateStopLoss(signal, riskParams),
-        takeProfit: this.calculateTakeProfit(signal, riskParams),
-        trailingStop: riskParams.trailingStopPercentage ? {
-          percentage: riskParams.trailingStopPercentage,
-          activation: signal.entry.price * (1 + riskParams.trailingStopPercentage)
-        } : null
-      };
-    } catch (error) {
-      logService.log('error', `Signal validation failed for strategy ${strategy.id}`, 
-        error, 'RiskManager');
-      return null;
-    }
-  }
-
-  private async checkDrawdown(strategy: any, riskParams: RiskParameters): Promise<RiskCheckResult> {
-    const trades = await tradeManager.getStrategyTrades(strategy.id);
-    const drawdown = this.calculateDrawdown(trades);
-    
     return {
-      type: 'drawdown',
-      withinLimits: drawdown <= riskParams.maxDrawdown,
-      requiresPositionClose: drawdown > riskParams.maxDrawdown * 1.2,
-      reason: `Drawdown (${(drawdown * 100).toFixed(2)}%) exceeds limit (${(riskParams.maxDrawdown * 100).toFixed(2)}%)`
+      timestamp: Date.now(),
+      totalValue,
+      dailyPnL,
+      drawdown,
+      exposureRatio,
+      volatility,
+      riskScore: this.calculateRiskScore({
+        dailyPnL,
+        drawdown,
+        exposureRatio,
+        volatility
+      })
     };
   }
 
-  private calculateSafePositionSize(
-    proposedSize: number,
-    strategy: any,
-    riskParams: RiskParameters
+  private async calculateDailyPnL(strategy: Strategy): Promise<number> {
+    const trades = await tradeService.getDailyTrades(strategy.id);
+    return trades.reduce((total, trade) => total + trade.realizedPnL, 0);
+  }
+
+  private async calculateDrawdown(strategy: Strategy): Promise<number> {
+    const history = await tradeService.getEquityCurve(strategy.id);
+    let peak = -Infinity;
+    let maxDrawdown = 0;
+
+    history.forEach(point => {
+      if (point.equity > peak) {
+        peak = point.equity;
+      }
+      const drawdown = (peak - point.equity) / peak;
+      maxDrawdown = Math.max(maxDrawdown, drawdown);
+    });
+
+    return maxDrawdown;
+  }
+
+  private calculateExposureRatio(
+    positions: Position[],
+    totalValue: number
   ): number {
-    const budget = tradeManager.getAvailableBudget(strategy.id);
-    const maxSize = budget * riskParams.maxPositionSize;
-    return Math.min(proposedSize, maxSize);
+    const totalExposure = positions.reduce(
+      (sum, pos) => sum + Math.abs(pos.value),
+      0
+    );
+    return totalExposure / totalValue;
   }
 
-  private calculateStopLoss(signal: any, riskParams: RiskParameters): number | null {
-    if (!riskParams.stopLossPercentage) return null;
-    
-    const direction = signal.type.toLowerCase() === 'long' ? -1 : 1;
-    return signal.entry.price * (1 + direction * riskParams.stopLossPercentage);
+  private async calculateVolatility(strategy: Strategy): Promise<number> {
+    const returns = await tradeService.getDailyReturns(strategy.id);
+    const mean = returns.reduce((sum, ret) => sum + ret, 0) / returns.length;
+    const squaredDiffs = returns.map(ret => Math.pow(ret - mean, 2));
+    return Math.sqrt(
+      squaredDiffs.reduce((sum, diff) => sum + diff, 0) / returns.length
+    );
   }
 
-  private calculateTakeProfit(signal: any, riskParams: RiskParameters): number | null {
-    if (!riskParams.takeProfitPercentage) return null;
-    
-    const direction = signal.type.toLowerCase() === 'long' ? 1 : -1;
-    return signal.entry.price * (1 + direction * riskParams.takeProfitPercentage);
+  private calculateRiskScore(metrics: {
+    dailyPnL: number;
+    drawdown: number;
+    exposureRatio: number;
+    volatility: number;
+  }): number {
+    const weights = {
+      dailyPnL: 0.25,
+      drawdown: 0.30,
+      exposureRatio: 0.25,
+      volatility: 0.20
+    };
+
+    return (
+      (metrics.dailyPnL < -this.MAX_DAILY_LOSS ? 1 : 0) * weights.dailyPnL +
+      (metrics.drawdown > this.MAX_DRAWDOWN ? 1 : 0) * weights.drawdown +
+      (metrics.exposureRatio > this.POSITION_SIZE_LIMIT ? 1 : 0) * weights.exposureRatio +
+      (metrics.volatility > 0.02 ? 1 : 0) * weights.volatility
+    );
+  }
+
+  private shouldTriggerRiskAlert(metrics: RiskMetrics): boolean {
+    return (
+      metrics.drawdown > this.MAX_DRAWDOWN ||
+      metrics.dailyPnL < -this.MAX_DAILY_LOSS ||
+      metrics.exposureRatio > this.POSITION_SIZE_LIMIT ||
+      metrics.riskScore > 0.7
+    );
+  }
+
+  getRiskMetrics(strategyId: string): RiskMetrics | undefined {
+    return this.metrics.get(strategyId);
   }
 }
 
-interface RiskParameters {
-  maxDrawdown: number;
-  maxPositionSize: number;
-  maxDailyTrades: number;
-  stopLossPercentage?: number;
-  takeProfitPercentage?: number;
-  trailingStopPercentage?: number;
-  maxOpenPositions: number;
-  riskPerTrade: number;
-}
-
-interface RiskCheckResult {
-  type: string;
-  withinLimits: boolean;
-  requiresPositionClose: boolean;
-  reason: string;
-}
-
-interface RiskStatus {
-  withinLimits: boolean;
-  violations: RiskCheckResult[];
-  requiresPositionClose: boolean;
-  reason: string;
-}
-
-export const riskManager = new RiskManager();
+export const riskManager = RiskManager.getInstance();

@@ -1,23 +1,22 @@
 import { EventEmitter } from './event-emitter';
-import { tradeGenerator } from './trade-generator';
-import { tradeManager } from './trade-manager';
-import { marketMonitor } from './market-monitor';
-import { analyticsService } from './analytics-service';
-import { tradeService } from './trade-service';
-import { supabase } from './supabase';
 import { logService } from './log-service';
-import type { Strategy } from './supabase-types';
-import type { MarketData } from './types';
+import { CCXTService } from './ccxt-service';
+import { indicatorService } from './indicators';
+import type { MarketData, Strategy, MarketCondition } from './types';
 
-class MarketService extends EventEmitter {
+export class MarketService extends EventEmitter {
   private static instance: MarketService;
-  private strategies: Map<string, Strategy> = new Map();
-  private monitoredAssets: Set<string> = new Set();
-  private initialized: boolean = false;
+  private ccxtService: CCXTService;
+  private marketData: Map<string, MarketData> = new Map();
+  private monitoredStrategies: Set<string> = new Set();
+  private intervalIds: Map<string, NodeJS.Timer> = new Map();
+
+  private readonly UPDATE_INTERVAL = 60000; // 1 minute
+  private readonly MARKET_CONDITIONS_CHECK_INTERVAL = 300000; // 5 minutes
 
   private constructor() {
     super();
-    this.setupEventListeners();
+    this.ccxtService = CCXTService.getInstance();
   }
 
   static getInstance(): MarketService {
@@ -27,296 +26,139 @@ class MarketService extends EventEmitter {
     return MarketService.instance;
   }
 
-  private setupEventListeners() {
-    tradeGenerator.on('tradeOpportunity', (data) => {
-      this.emit('tradeOpportunity', data);
-    });
-
-    tradeManager.on('tradeExecuted', (data) => {
-      this.emit('tradeExecuted', data);
-      this.emit('strategyUpdate', { strategyId: data.trade.strategy_id });
-    });
-
-    marketMonitor.on('marketUpdate', (data) => {
-      this.emit('marketUpdate', data);
-    });
-  }
-
-  async initialize(): Promise<void> {
-    if (this.initialized) return;
-
-    try {
-      // Only initialize core monitoring
-      await marketMonitor.initialize();
-      await analyticsService.initialize();
-
-      // Wait for WebSocket connection
-      if (!websocketService.isConnected()) {
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error('Timeout waiting for WebSocket'));
-          }, 10000);
-
-          websocketService.once('connected', () => {
-            clearTimeout(timeout);
-            resolve();
-          });
-        });
-      }
-
-      // Load active strategies
-      const { data: strategies, error } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('status', 'active');
-
-      if (error) throw error;
-
-      if (strategies) {
-        for (const strategy of strategies) {
-          await this.trackStrategy(strategy);
-        }
-      }
-
-      this.initialized = true;
-    } catch (error) {
-      await this.cleanup();
-      throw error;
-    }
-  }
-
-  private async trackStrategy(strategy: Strategy) {
-    try {
-      if (!strategy.strategy_config?.assets) {
-        throw new Error('Strategy has no configured trading pairs');
-      }
-
-      // Store strategy
-      this.strategies.set(strategy.id, strategy);
-
-      // Add all strategy assets to monitoring
-      for (const asset of strategy.strategy_config.assets) {
-        await this.addAsset(asset);
-      }
-
-      // Initialize services
-      await Promise.all([
-        tradeGenerator.addStrategy(strategy),
-        tradeManager.initializeStrategy(strategy),
-        analyticsService.trackStrategy(strategy)
-      ]);
-
-      logService.log('info', `Successfully started monitoring for strategy: ${strategy.id}`, null, 'MarketService');
-    } catch (error) {
-      logService.log('error', `Failed to track strategy: ${strategy.id}`, error, 'MarketService');
-      // Clean up if initialization fails
-      this.strategies.delete(strategy.id);
-      throw error;
-    }
-  }
-
-  async addAsset(symbol: string): Promise<void> {
-    try {
-      if (!this.isInitialized) {
-        await this.initialize();
-      }
-
-      logService.log('info', `Adding asset to monitor: ${symbol}`, null, 'MarketService');
-
-      this.monitoredAssets.add(symbol);
-      await marketMonitor.addAsset(symbol);
-
-      logService.log('info', `Successfully added asset: ${symbol}`, null, 'MarketService');
-    } catch (error) {
-      logService.log('error', `Failed to add asset: ${symbol}`, error, 'MarketService');
-      throw error;
-    }
-  }
-
-  async removeAsset(symbol: string): Promise<void> {
-    try {
-      logService.log('info', `Removing asset from monitor: ${symbol}`, null, 'MarketService');
-
-      this.monitoredAssets.delete(symbol);
-      marketMonitor.removeAsset(symbol);
-
-      logService.log('info', `Successfully removed asset: ${symbol}`, null, 'MarketService');
-    } catch (error) {
-      logService.log('error', `Failed to remove asset: ${symbol}`, error, 'MarketService');
-      throw error;
-    }
-  }
-
   async startStrategyMonitoring(strategy: Strategy): Promise<void> {
     try {
-      if (!this.isInitialized) {
-        await this.initialize();
+      if (this.monitoredStrategies.has(strategy.id)) {
+        return;
       }
 
-      logService.log('info', `Starting monitoring for strategy: ${strategy.id}`, null, 'MarketService');
+      this.monitoredStrategies.add(strategy.id);
+      await this.initializeMarketData(strategy);
 
-      // Ensure strategy is not already being monitored
-      if (this.strategies.has(strategy.id)) {
-        await this.stopStrategyMonitoring(strategy.id);
-      }
+      const intervalId = setInterval(
+        () => this.updateMarketData(strategy),
+        this.UPDATE_INTERVAL
+      );
+      this.intervalIds.set(strategy.id, intervalId);
 
-      // Validate strategy configuration
-      if (!strategy.strategy_config?.assets || strategy.strategy_config.assets.length === 0) {
-        throw new Error('Strategy has no configured trading pairs');
-      }
-
-      // Store strategy
-      this.strategies.set(strategy.id, strategy);
-
-      // Add all strategy assets to monitoring first
-      for (const asset of strategy.strategy_config.assets) {
-        await this.addAsset(asset);
-      }
-
-      // Initialize services after assets are monitored
-      await Promise.all([
-        tradeGenerator.addStrategy(strategy),
-        tradeManager.initializeStrategy(strategy),
-        analyticsService.trackStrategy(strategy)
-      ]);
-
-      logService.log('info', `Successfully started monitoring for strategy: ${strategy.id}`, null, 'MarketService');
-      this.emit('strategyUpdate', { strategyId: strategy.id, status: 'active' });
+      logService.log('info', `Started monitoring strategy: ${strategy.id}`, 
+        { strategyId: strategy.id }, 'MarketService');
     } catch (error) {
-      logService.log('error', `Failed to start monitoring for strategy: ${strategy.id}`, error, 'MarketService');
-      // Clean up if initialization fails
-      this.strategies.delete(strategy.id);
+      logService.log('error', `Failed to start monitoring strategy: ${strategy.id}`, 
+        error, 'MarketService');
       throw error;
     }
   }
 
   async stopStrategyMonitoring(strategyId: string): Promise<void> {
+    const intervalId = this.intervalIds.get(strategyId);
+    if (intervalId) {
+      clearInterval(intervalId);
+      this.intervalIds.delete(strategyId);
+      this.monitoredStrategies.delete(strategyId);
+      this.marketData.delete(strategyId);
+      
+      logService.log('info', `Stopped monitoring strategy: ${strategyId}`, 
+        { strategyId }, 'MarketService');
+    }
+  }
+
+  private async initializeMarketData(strategy: Strategy): Promise<void> {
     try {
-      logService.log('info', `Stopping monitoring for strategy: ${strategyId}`, null, 'MarketService');
-
-      const strategy = this.strategies.get(strategyId);
-      if (!strategy) {
-        // Handle non-existent strategy silently
-        logService.log('info', `Strategy ${strategyId} not found, already stopped`, null, 'MarketService');
-        return;
-      }
-
-      // Remove strategy assets from monitoring if no other strategy uses them
-      if (strategy.strategy_config?.assets) {
-        for (const asset of strategy.strategy_config.assets) {
-          const isUsedByOtherStrategy = Array.from(this.strategies.values())
-            .some(s => s.id !== strategyId && s.strategy_config?.assets?.includes(asset));
-
-          if (!isUsedByOtherStrategy) {
-            await this.removeAsset(asset);
-          }
-        }
-      }
-
-      // Remove from trade generator
-      tradeGenerator.removeStrategy(strategyId);
-
-      // Close all open trades
-      const openTrades = tradeManager.getActiveTradesForStrategy(strategyId);
-      for (const trade of openTrades) {
-        await tradeManager.closeTrade(trade.id);
-      }
-
-      // Clear strategy budget
-      await tradeService.setBudget(strategyId, null);
-
-      // Remove from monitored strategies
-      this.strategies.delete(strategyId);
-
-      logService.log('info', `Successfully stopped monitoring for strategy: ${strategyId}`, null, 'MarketService');
-      this.emit('strategyUpdate', { strategyId, status: 'inactive' });
+      const data = await this.fetchMarketData(strategy);
+      this.marketData.set(strategy.id, data);
+      this.emit('marketDataUpdated', { strategyId: strategy.id, data });
     } catch (error) {
-      logService.log('error', `Failed to stop monitoring for strategy: ${strategyId}`, error, 'MarketService');
+      logService.log('error', `Failed to initialize market data for strategy: ${strategy.id}`, 
+        error, 'MarketService');
       throw error;
     }
   }
 
-  async deleteStrategy(strategyId: string): Promise<void> {
+  private async updateMarketData(strategy: Strategy): Promise<void> {
     try {
-      logService.log('info', `Starting deletion process for strategy ${strategyId}`, null, 'MarketService');
+      const data = await this.fetchMarketData(strategy);
+      this.marketData.set(strategy.id, data);
       
-      // Emit deletion event immediately to update UI
-      this.emit('strategyDeleted', strategyId);
-      
-      // Clean up local state immediately
-      this.strategies.delete(strategyId);
-
-      // Stop monitoring if active
-      if (this.isStrategyActive(strategyId)) {
-        await this.stopStrategyMonitoring(strategyId);
-      }
-
-      // Clear budget
-      await tradeService.setBudget(strategyId, null);
-
-      // Delete strategy and all related data
-      const { error: deleteError } = await supabase
-        .from('strategies')
-        .delete()
-        .eq('id', strategyId);
-
-      if (deleteError) {
-        throw deleteError;
-      }
-
-      logService.log('info', `Successfully deleted strategy ${strategyId}`, null, 'MarketService');
-    } catch (error) {
-      // Restore local state if deletion failed
-      const { data: strategy } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('id', strategyId)
-        .single();
-
-      if (strategy) {
-        this.strategies.set(strategyId, strategy);
-        this.emit('strategyUpdated', strategy);
-      }
-      
-      logService.log('error', `Error deleting strategy ${strategyId}:`, error, 'MarketService');
-      throw error;
-    }
-  }
-
-  processMarketData(data: MarketData): void {
-    this.emit('marketData', data);
-  }
-
-  isStrategyActive(strategyId: string): boolean {
-    return this.strategies.has(strategyId);
-  }
-
-  getActiveStrategies(): Strategy[] {
-    return Array.from(this.strategies.values());
-  }
-
-  getMonitoredAssets(): string[] {
-    return Array.from(this.monitoredAssets);
-  }
-
-  cleanup() {
-    for (const strategyId of this.strategies.keys()) {
-      this.stopStrategyMonitoring(strategyId).catch(error => {
-        logService.log('error', `Failed to clean up strategy: ${strategyId}`, error, 'MarketService');
+      const marketConditions = await this.analyzeMarketConditions(strategy, data);
+      this.emit('marketDataUpdated', { 
+        strategyId: strategy.id, 
+        data,
+        marketConditions 
       });
+    } catch (error) {
+      logService.log('error', `Failed to update market data for strategy: ${strategy.id}`, 
+        error, 'MarketService');
+      // Don't throw here to prevent interval disruption
     }
+  }
 
-    this.strategies.clear();
-    this.monitoredAssets.clear();
-    this.isInitialized = false;
+  private async fetchMarketData(strategy: Strategy): Promise<MarketData> {
+    return await this.ccxtService.executeWithRetry(
+      async () => {
+        const ticker = await this.ccxtService.fetchTicker(strategy.symbol);
+        const orderBook = await this.ccxtService.fetchOrderBook(strategy.symbol);
+        const trades = await this.ccxtService.fetchRecentTrades(strategy.symbol);
 
-    // Clean up all services
-    tradeGenerator.cleanup();
-    tradeManager.cleanup();
-    marketMonitor.cleanup();
-    analyticsService.cleanup();
-    tradeService.clearAllBudgets();
+        return {
+          timestamp: Date.now(),
+          symbol: strategy.symbol,
+          price: ticker.last,
+          volume: ticker.baseVolume,
+          high24h: ticker.high,
+          low24h: ticker.low,
+          orderBook,
+          recentTrades: trades,
+        };
+      },
+      `fetchMarketData-${strategy.id}`
+    );
+  }
+
+  private async analyzeMarketConditions(
+    strategy: Strategy,
+    data: MarketData
+  ): Promise<MarketCondition> {
+    try {
+      const indicators = await Promise.all(
+        strategy.indicators.map(config => 
+          IndicatorService.calculateIndicator(config, data.recentTrades)
+        )
+      );
+
+      return {
+        timestamp: Date.now(),
+        volatility: this.calculateVolatility(data),
+        trend: this.analyzeTrend(indicators),
+        liquidity: this.analyzeLiquidity(data.orderBook),
+        indicators: indicators.reduce((acc, ind) => ({
+          ...acc,
+          [ind.name]: ind.value
+        }), {})
+      };
+    } catch (error) {
+      logService.log('error', 'Failed to analyze market conditions', 
+        error, 'MarketService');
+      throw error;
+    }
+  }
+
+  private calculateVolatility(data: MarketData): number {
+    const range = data.high24h - data.low24h;
+    return (range / data.price) * 100;
+  }
+
+  private analyzeTrend(indicators: any[]): 'bullish' | 'bearish' | 'neutral' {
+    // Implement trend analysis logic based on indicators
+    // This is a placeholder implementation
+    return 'neutral';
+  }
+
+  private analyzeLiquidity(orderBook: any): 'high' | 'medium' | 'low' {
+    // Implement liquidity analysis logic based on order book
+    // This is a placeholder implementation
+    return 'medium';
   }
 }
 
-export const marketService = MarketService.getInstance();
+export const marketService = new MarketService();

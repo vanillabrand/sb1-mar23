@@ -1,35 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Activity,
-  AlertCircle,
-  ChevronDown,
-  Clock,
-  Loader2,
-  Filter,
-  Search,
-  DollarSign,
-  Target,
-  Gauge,
-  RefreshCw,
-  TrendingUp,
-  TrendingDown,
-  X,
-  Power,
-  ChevronLeft,
-  ChevronRight,
-  ArrowUpRight,
-  ArrowDownRight,
-  Wallet,
-  BarChart3,
-  Brain,
-  AlertTriangle,
-  Eye,
-  Sparkles,
-  Sliders,
-  Scale,
-  Coins,
-  Hash
+  Activity, AlertCircle, ChevronDown, Clock, Loader2,
+  Filter, Search, DollarSign, Target, Gauge, RefreshCw,
+  TrendingUp, TrendingDown, X, Power, ChevronLeft,
+  ChevronRight, ArrowUpRight, ArrowDownRight, Wallet,
+  BarChart3, Brain, AlertTriangle, Eye, Sparkles,
+  Sliders, Scale, Coins, Hash
 } from 'lucide-react';
 import { useStrategies } from '../hooks/useStrategies';
 import { marketService } from '../lib/market-service';
@@ -43,11 +20,12 @@ import { AssetPairMonitor } from './AssetPairMonitor';
 import { tradeManager } from '../lib/trade-manager';
 import { analyticsService } from '../lib/analytics-service';
 import { supabase } from '../lib/supabase';
-import { monitoringService } from '../lib/monitoring-service'; // Add this import
-import type { Strategy } from '../lib/supabase-types';
+import { monitoringService } from '../lib/monitoring-service';
+import type { Strategy, Trade, MarketData } from '../lib/supabase-types';
 import type { StrategyBudget } from '../lib/types';
 import { PanelWrapper } from './PanelWrapper';
 
+// Type definitions
 interface TradeSignal {
   id: string;
   strategy_id: string;
@@ -66,7 +44,6 @@ interface TradeSignal {
   executed_at?: string;
 }
 
-// Add new interfaces for detailed monitoring
 interface StrategyCondition {
   name: string;
   currentValue: number;
@@ -88,6 +65,21 @@ interface TradePosition {
   timeOpen: string;
 }
 
+interface MonitoringStatus {
+  status: 'monitoring' | 'generating' | 'executing' | 'idle';
+  message: string;
+  timestamp: number;
+  progress?: number;
+  conditions?: {
+    name: string;
+    value: number;
+    target: number;
+    met: boolean;
+  }[];
+  indicators?: Record<string, number>;
+  signal?: TradeSignal;
+}
+
 interface DetailedMonitoringStatus extends MonitoringStatus {
   activeConditions: StrategyCondition[];
   marketMetrics: {
@@ -101,15 +93,15 @@ interface DetailedMonitoringStatus extends MonitoringStatus {
   nextEvaluation: string;
 }
 
-export default function TradeMonitor() {
-  const {
-    strategies,
-    loading: strategiesLoading,
-    updateStrategy,
-    refresh,
-  } = useStrategies();
+interface TradeMonitorProps {
+  strategies: Strategy[];
+}
 
-  const [loading, setLoading] = useState(true);
+export default function TradeMonitor({ strategies }: TradeMonitorProps) {
+  // State declarations
+  const [trades, setTrades] = useState<Trade[]>([]);
+  const [marketData, setMarketData] = useState<MarketData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -121,98 +113,133 @@ export default function TradeMonitor() {
   const [monitoringInitialized, setMonitoringInitialized] = useState(false);
   const [deactivatingStrategy, setDeactivatingStrategy] = useState<string | null>(null);
   const [lastUpdate, setLastUpdate] = useState(Date.now());
-  const [monitoringStatus, setMonitoringStatus] = useState<
-    Map<string, MonitoringStatus>
-  >(new Map());
-
-  interface MonitoringStatus {
-    status: 'monitoring' | 'generating' | 'executing' | 'idle';
-    message: string;
-    timestamp: number;
-    progress?: number;
-    conditions?: {
-      name: string;
-      value: number;
-      target: number;
-      met: boolean;
-    }[];
-    indicators?: Record<string, number>;
-    signal?: TradeSignal;
-  }
+  const [monitoringStatus, setMonitoringStatus] = useState<Map<string, MonitoringStatus>>(new Map());
 
   const itemsPerPage = 3;
 
   // Initialize monitoring service
   useEffect(() => {
-    monitoringService.initialize().catch(error => {
-      logService.log('error', 'Failed to initialize monitoring service', error, 'TradeMonitor');
-    });
-    
-    // Set up event handlers for strategy changes
-    const handleStrategyUpdated = (strategy) => {
-      // If refresh is available, use it instead of trying to update the state directly
-      if (typeof refresh === 'function') {
+    let mounted = true;
+
+    const initializeMonitoring = async () => {
+      try {
+        await monitoringService.initialize();
+        if (mounted) {
+          setMonitoringInitialized(true);
+        }
+      } catch (error) {
+        logService.log('error', 'Failed to initialize monitoring service', error, 'TradeMonitor');
+        if (mounted) {
+          setError('Failed to initialize monitoring');
+        }
+      }
+    };
+
+    initializeMonitoring();
+
+    // Event handlers
+    const handleStrategyUpdate = (strategy: Strategy) => {
+      if (mounted) {
         refresh();
       }
     };
-    
-    const handleStrategyDeleted = (strategy) => {
-      // If refresh is available, use it instead of trying to update the state directly
-      if (typeof refresh === 'function') {
+
+    const handleStrategyDelete = (strategyId: string) => {
+      if (mounted) {
         refresh();
       }
     };
-    
-    const handleMonitoringStatusUpdated = (status) => {
-      setMonitoringStatus(prev => {
-        const newStatus = new Map(prev);
-        newStatus.set(status.strategy_id, {
-          status: status.status,
-          message: status.message || '',
-          timestamp: Date.now(),
-          progress: status.progress,
-          indicators: status.indicators,
-          conditions: status.conditions,
+
+    const handleMonitoringStatusUpdate = (status: { 
+      strategy_id: string; 
+      status: MonitoringStatus; 
+    }) => {
+      if (mounted) {
+        setMonitoringStatus(prev => {
+          const newStatus = new Map(prev);
+          newStatus.set(status.strategy_id, status.status);
+          return newStatus;
         });
-        return newStatus;
-      });
+      }
     };
-    
+
     // Subscribe to events
-    monitoringService.on('strategyUpdated', handleStrategyUpdated);
-    monitoringService.on('strategyDeleted', handleStrategyDeleted);
-    monitoringService.on('monitoringStatusUpdated', handleMonitoringStatusUpdated);
-    
-    // Clean up on unmount
+    monitoringService.on('strategyUpdated', handleStrategyUpdate);
+    monitoringService.on('strategyDeleted', handleStrategyDelete);
+    monitoringService.on('monitoringStatusUpdated', handleMonitoringStatusUpdate);
+
     return () => {
-      monitoringService.off('strategyUpdated', handleStrategyUpdated);
-      monitoringService.off('strategyDeleted', handleStrategyDeleted);
-      monitoringService.off('monitoringStatusUpdated', handleMonitoringStatusUpdated);
+      mounted = false;
+      monitoringService.off('strategyUpdated', handleStrategyUpdate);
+      monitoringService.off('strategyDeleted', handleStrategyDelete);
+      monitoringService.off('monitoringStatusUpdated', handleMonitoringStatusUpdate);
     };
-  }, [strategies, refresh]);
+  }, []);
 
-  // Initialize monitoring once strategies are loaded
+  // Initialize data fetching
   useEffect(() => {
-    if (!strategiesLoading && !monitoringInitialized) {
-      initializeMonitoring().then(() => setLoading(false));
-    }
-  }, [strategiesLoading, monitoringInitialized]);
+    let mounted = true;
+    const unsubscribers: (() => void)[] = [];
 
-  // Set up periodic refresh
+    const initializeData = async () => {
+      try {
+        setIsLoading(true);
+        
+        // Subscribe to market updates
+        const unsubMarket = marketService.subscribe((data) => {
+          if (mounted) setMarketData(data);
+        });
+        unsubscribers.push(unsubMarket);
+
+        // Subscribe to trade updates
+        const unsubTrades = tradeService.subscribe((updatedTrades) => {
+          if (mounted) setTrades(updatedTrades);
+        });
+        unsubscribers.push(unsubTrades);
+
+        if (mounted) setIsLoading(false);
+      } catch (error) {
+        logService.log('error', 'Failed to initialize trade monitoring', error, 'TradeMonitor');
+        if (mounted) {
+          setError('Failed to initialize monitoring');
+          setIsLoading(false);
+        }
+      }
+    };
+
+    initializeData();
+
+    return () => {
+      mounted = false;
+      unsubscribers.forEach(unsub => unsub());
+    };
+  }, []);
+
+  // Refresh data periodically
   useEffect(() => {
     const interval = setInterval(() => {
       setLastUpdate(Date.now());
-    }, 5000); // Update every 5 seconds
+    }, 5000);
     
     return () => clearInterval(interval);
   }, []);
 
-  // Refresh data when lastUpdate changes
-  useEffect(() => {
-    if (monitoringInitialized) {
-      refresh();
+  const refresh = async () => {
+    if (refreshing) return;
+    
+    try {
+      setRefreshing(true);
+      await Promise.all([
+        marketService.refresh(),
+        tradeService.refresh()
+      ]);
+    } catch (error) {
+      logService.log('error', 'Failed to refresh data', error, 'TradeMonitor');
+      setError('Failed to refresh data');
+    } finally {
+      setRefreshing(false);
     }
-  }, [lastUpdate, monitoringInitialized]);
+  };
 
   // Register trade event listeners
   useEffect(() => {

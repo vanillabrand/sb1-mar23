@@ -6,7 +6,6 @@ export function Preloader() {
   return (
     <div className="fixed inset-0 bg-gunmetal-950 flex items-center justify-center z-50">
       <div className="text-center">
-        {/* Logo Animation */}
         <motion.div
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
@@ -24,12 +23,8 @@ export function Preloader() {
           <div className="absolute inset-[2px] rounded-xl bg-gunmetal-950 flex items-center justify-center">
             <Zap className="w-10 h-10 text-neon-yellow transform rotate-12" />
           </div>
-          
-          {/* Glow Effect */}
-          <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-neon-turquoise/20 via-neon-yellow/20 to-neon-raspberry/20 blur-xl" />
         </motion.div>
 
-        {/* Loading Text */}
         <motion.h1
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -41,7 +36,6 @@ export function Preloader() {
           </span>
         </motion.h1>
 
-        {/* Loading Bar */}
         <div className="w-48 h-1 bg-gunmetal-800 rounded-full overflow-hidden mx-auto">
           <motion.div
             initial={{ x: '-100%' }}
@@ -55,7 +49,6 @@ export function Preloader() {
           />
         </div>
 
-        {/* Loading Message */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}

@@ -1,5 +1,5 @@
 // Import CCXT types only
-import type { Exchange as CCXTExchange } from 'ccxt';
+import type { Exchange as CCXTExchange, exchanges } from 'ccxt';
 
 // Define exchange types without direct CCXT reference
 export type Exchange = CCXTExchange;
@@ -19,13 +19,12 @@ export type ExchangeId =
   | string;
 
 export interface ExchangeConfig {
-  name: string;
-  apiKey: string;
-  secret: string;
-  memo?: string;
-  testnet?: boolean;
-  useUSDX?: boolean;
-  password?: string;  // Some exchanges use password instead of memo
+  name: string;       // The exchange identifier (e.g., 'bitmart')
+  apiKey: string;     // API key
+  secret: string;     // API secret
+  memo?: string;      // Memo/password (used by some exchanges like Bitmart)
+  testnet?: boolean;  // Whether to use testnet
+  useUSDX?: boolean;  // Whether to use USDX
 }
 
 export interface Exchange {
@@ -148,19 +147,31 @@ export interface MarketConditions {
 }
 
 // Dynamic exchange configuration based on CCXT
-export const SUPPORTED_EXCHANGES: Exchange[] = Object.entries(ccxt.exchanges).map(([id, ExchangeClass]) => {
-  const exchange = new (ExchangeClass as any)();
-  return {
-    id,
-    name: exchange.name || id.toUpperCase(),
-    logo: `path/to/exchange/logos/${id}.png`,
-    description: `Trade on ${exchange.name || id.toUpperCase()}`,
-    features: [
-      exchange.has.spot ? 'Spot Trading' : null,
-      exchange.has.margin ? 'Margin Trading' : null,
-      exchange.has.future ? 'Futures Trading' : null,
-      'API Trading'
-    ].filter(Boolean),
+export const SUPPORTED_EXCHANGES: Array<{
+  id: string;
+  name: string;
+  logo: string;
+  description: string;
+  features: string[];
+  fields: Array<{
+    name: string;
+    key: string;
+    required: boolean;
+    type: string;
+    placeholder: string;
+    description: string;
+  }>;
+  testnetSupported: boolean;
+  marginSupported: boolean;
+  futuresSupported: boolean;
+  spotSupported: boolean;
+}> = [
+  {
+    id: 'binance',
+    name: 'Binance',
+    logo: 'path/to/exchange/logos/binance.png',
+    description: 'Trade on Binance',
+    features: ['Spot Trading', 'Margin Trading', 'Futures Trading', 'API Trading'],
     fields: [
       {
         name: 'API Key',
@@ -168,44 +179,24 @@ export const SUPPORTED_EXCHANGES: Exchange[] = Object.entries(ccxt.exchanges).ma
         required: true,
         type: 'text',
         placeholder: 'Enter your API key',
-        description: `Your ${exchange.name || id.toUpperCase()} API key`
+        description: 'Your Binance API key'
       },
       {
-        name: 'API Secret',
+        name: 'Secret Key',
         key: 'secret',
         required: true,
         type: 'password',
-        placeholder: 'Enter your API secret',
-        description: `Your ${exchange.name || id.toUpperCase()} API secret`
-      },
-      ...(exchange.has.memo ? [{
-        name: 'Memo',
-        key: 'memo',
-        required: true,
-        type: 'text',
-        placeholder: 'Enter your memo',
-        description: `Your ${exchange.name || id.toUpperCase()} memo`
-      }] : []),
-      ...(exchange.has.password ? [{
-        name: 'Password',
-        key: 'password',
-        required: true,
-        type: 'password',
-        placeholder: 'Enter your password',
-        description: `Your ${exchange.name || id.toUpperCase()} password`
-      }] : [])
+        placeholder: 'Enter your Secret key',
+        description: 'Your Binance Secret key'
+      }
     ],
-    docs: {
-      setup: ['Visit the exchange website', 'Generate API keys with trading permissions'],
-      permissions: ['Trading', 'Account info'],
-      restrictions: ['No withdrawals']
-    },
-    testnetSupported: Boolean(exchange.urls?.test),
-    marginSupported: exchange.has.margin,
-    futuresSupported: exchange.has.future,
-    spotSupported: exchange.has.spot
-  };
-});
+    testnetSupported: true,
+    marginSupported: true,
+    futuresSupported: true,
+    spotSupported: true
+  },
+  // Add other exchanges as needed
+];
 
 interface StrategyConfig {
   marketType: 'spot' | 'margin' | 'futures';

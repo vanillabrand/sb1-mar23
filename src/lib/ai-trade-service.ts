@@ -1,4 +1,4 @@
-import { EventEmitter } from 'events';
+import { EventEmitter } from './event-emitter';
 import { logService } from './log-service.js';
 import type { 
   TradeSignal, 
@@ -155,7 +155,7 @@ interface TradeAnalysis {
 
 class AITradeService {
   private static instance: AITradeService;
-  private static DEEPSEEK_API_KEY = process.env.VITE_DEEPSEEK_API_KEY;
+  private static DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
   private static DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
   // Use a stable key for each strategy rather than a unique timestamp per request
   private pendingRequests = new Map<string, Promise<TradeSignal[]>>();

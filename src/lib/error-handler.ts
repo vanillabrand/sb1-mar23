@@ -1,28 +1,59 @@
 import { logService } from './log-service';
 
+// Custom error classes should be defined before they're used
+export class ResourceNotFoundError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ResourceNotFoundError';
+  }
+}
+
+export class AuthenticationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthenticationError';
+  }
+}
+
+export class DatabaseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseError';
+  }
+}
+
+export class UnexpectedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'UnexpectedError';
+  }
+}
+
+interface ErrorDetails {
+  message: string;
+  code?: string;
+  details?: any;
+}
+
 export class ErrorHandler {
-  static handleDatabaseError(error: any, context: string): never {
-    const errorDetails = {
-      message: error?.message,
-      code: error?.code,
-      details: error?.details,
-      context
-    };
+  static handleDatabaseError(error: unknown, context: string): never {
+    const errorDetails = this.extractErrorDetails(error);
 
     if (this.isSupabaseError(error)) {
       if (this.isNotFoundError(error)) {
         logService.log('warn', `Resource not found in ${context}`, errorDetails, 'ErrorHandler');
-        throw new Error(`Resource not found: ${error.message}`);
+        throw new ResourceNotFoundError(errorDetails.message);
       }
       if (this.isAuthenticationError(error)) {
         logService.log('error', `Authentication error in ${context}`, errorDetails, 'ErrorHandler');
-        throw new Error('Authentication failed');
+        throw new AuthenticationError(errorDetails.message);
       }
       logService.log('error', `Database error in ${context}`, errorDetails, 'ErrorHandler');
-      throw new Error(`Database operation failed: ${error.message}`);
+      throw new DatabaseError(errorDetails.message);
     }
+
     logService.log('error', `Unexpected error in ${context}`, errorDetails, 'ErrorHandler');
-    throw error;
+    throw new UnexpectedError(errorDetails.message);
   }
 
   static handleNetworkError(error: any, context: string): never {
@@ -57,5 +88,20 @@ export class ErrorHandler {
     return error?.message?.includes('authentication') ||
            error?.code?.startsWith('AUTH') ||
            error?.code === 'PGRST301';
+  }
+
+  private static extractErrorDetails(error: unknown): ErrorDetails {
+    if (error instanceof Error) {
+      return {
+        message: error.message,
+        code: (error as any).code,
+        details: (error as any).details,
+      };
+    }
+    return {
+      message: String(error),
+      code: undefined,
+      details: undefined,
+    };
   }
 }

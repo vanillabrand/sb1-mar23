@@ -44,27 +44,23 @@ export function Auth() {
     setConfirmPassword('');
   };
 
-  const validateForm = () => {
-    if (!email || (mode !== 'forgot' && !password)) {
-      setState(prev => ({ ...prev, error: 'Please fill in all fields' }));
+  const validateForm = (): boolean => {
+    if (!email || !password) {
+      setState(prev => ({
+        ...prev,
+        error: 'Please fill in all required fields'
+      }));
       return false;
     }
-
-    if (!email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-      setState(prev => ({ ...prev, error: 'Please enter a valid email address' }));
+    
+    if (mode === 'signup' && password.length < 8) {
+      setState(prev => ({
+        ...prev,
+        error: 'Password must be at least 8 characters long'
+      }));
       return false;
     }
-
-    if (mode === 'signup' && password !== confirmPassword) {
-      setState(prev => ({ ...prev, error: 'Passwords do not match' }));
-      return false;
-    }
-
-    if ((mode === 'signup' || mode === 'login') && password.length < 6) {
-      setState(prev => ({ ...prev, error: 'Password must be at least 6 characters' }));
-      return false;
-    }
-
+    
     return true;
   };
 
@@ -76,6 +72,8 @@ export function Auth() {
     setState(prev => ({ ...prev, loading: true, error: null }));
     
     try {
+      let mounted = true;
+      
       switch (mode) {
         case 'login': {
           const { error: loginError } = await supabase.auth.signInWithPassword({
@@ -95,26 +93,29 @@ export function Auth() {
             }
           });
           if (signupError) throw signupError;
-          setState(prev => ({ ...prev, success: 'Account created! Please check your email to verify your account.' }));
-          break;
-        }
-
-        case 'forgot': {
-          const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${window.location.origin}/reset-password`
-          });
-          if (resetError) throw resetError;
-          setState(prev => ({ ...prev, success: 'Password reset instructions have been sent to your email.' }));
+          if (mounted) {
+            setState(prev => ({ 
+              ...prev, 
+              success: 'Account created! Please check your email to verify your account.' 
+            }));
+          }
           break;
         }
       }
     } catch (err) {
-      console.error('Auth error:', err);
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: err instanceof Error ? err.message : 'An error occurred during signup'
-      }));
+      if (err instanceof AuthError) {
+        setState(prev => ({
+          ...prev,
+          error: err.message
+        }));
+      } else {
+        setState(prev => ({
+          ...prev,
+          error: 'An unexpected error occurred'
+        }));
+      }
+    } finally {
+      setState(prev => ({ ...prev, loading: false }));
     }
   };
 

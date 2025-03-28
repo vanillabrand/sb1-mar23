@@ -3,13 +3,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:frontend": "vite",
-    "dev:backend": "cross-env NODE_ENV=development tsx backend/server.ts",
+    "dev": "vite",
     "build": "tsc && vite build",
-    "preview": "vite preview",
-    "analyze-bundle": "vite build --mode analyze",
-    "validate": "bash scripts/pre-deploy-check.sh"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@emailjs/browser": "^4.4.1",
@@ -21,13 +17,13 @@
     "cors": "^2.8.5",
     "cross-env": "^7.0.3",
     "crypto-js": "^4.2.0",
-    "decimal.js": "^10.4.3",
+    "decimal.js": "^10.5.0",
     "dotenv": "^16.4.7",
     "exponential-backoff": "^3.1.1",
-    "express": "^4.18.2",
+    "express": "^4.21.2",
     "framer-motion": "^12.6.2",
-    "http-proxy-agent": "^7.0.0",
-    "https-proxy-agent": "^7.0.2",
+    "http-proxy-agent": "^7.0.2",
+    "https-proxy-agent": "^7.0.6",
     "lucide-react": "^0.294.0",
     "papaparse": "^5.5.2",
     "react": "^18.2.0",
@@ -40,7 +36,8 @@
     "ts-node": "^10.9.2",
     "use-sound": "^5.0.0",
     "uuid": "^11.1.0",
-    "ws": "^8.16.0"
+    "ws": "^8.18.1",
+    "http-proxy-middleware": "^2.0.6"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.49.3",

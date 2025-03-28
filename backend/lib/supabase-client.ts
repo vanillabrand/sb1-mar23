@@ -1,34 +1,25 @@
 import { createClient } from '@supabase/supabase-js';
-import { HttpProxyAgent } from 'http-proxy-agent';
-import { HttpsProxyAgent } from 'https-proxy-agent';
+import { Database } from '../types/supabase';
 import { config } from '../config';
+import dotenv from 'dotenv';
 
-const { supabaseUrl, supabaseAnonKey } = config;
+// Load environment variables
+dotenv.config();
+
+const supabaseUrl = process.env.VITE_SUPABASE_URL || config.supabaseUrl;
+const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY || config.supabaseAnonKey;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables');
+  throw new Error('Missing Supabase credentials in environment variables');
 }
 
-// Configure proxy agents if needed
-const proxyUrl = process.env.PROXY_URL;
-const options = proxyUrl
-  ? {
-      auth: {
-        persistSession: false, // Changed to false for backend
-      },
-      global: {
-        headers: {
-          'X-Custom-Header': 'custom-value',
-        },
-        fetch: (url: string, options: RequestInit) => {
-          const agent = url.startsWith('https:')
-            ? new HttpsProxyAgent(proxyUrl)
-            : new HttpProxyAgent(proxyUrl);
-          return fetch(url, { ...options, agent });
-        },
-      },
+export const supabase = createClient<Database>(
+  supabaseUrl,
+  supabaseAnonKey,
+  {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true
     }
-  : undefined;
-
-// Create Supabase client with proxy support for backend
-export const supabaseServer = createClient(supabaseUrl, supabaseAnonKey, options);
+  }
+);

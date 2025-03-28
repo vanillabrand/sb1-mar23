@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Activity,
@@ -21,6 +21,18 @@ import { EmergencyStopButton } from './EmergencyStopButton';
 import { analyticsService } from '../lib/analytics-service';
 import { monitoringService } from '../lib/monitoring-service';
 import { StrategyAssetPanel } from './StrategyAssetPanel';
+import { ErrorBoundary } from './ErrorBoundary';
+import { WidgetError } from './WidgetError';
+
+interface MonitoringStatus {
+  status: 'active' | 'inactive' | 'error';
+  lastUpdate: Date;
+}
+
+interface DashboardProps {
+  strategies: Strategy[];
+  monitoringStatuses: Record<string, MonitoringStatus>;
+}
 
 const TIMEZONES = [
   { id: 'UTC', name: 'UTC', offset: 0 },
@@ -31,27 +43,27 @@ const TIMEZONES = [
   { id: 'Asia/Singapore', name: 'Singapore', offset: 8 }
 ];
 
-export default function Dashboard() {
-  const { strategies, setStrategies } = useStrategies();
+export default function Dashboard({ strategies, monitoringStatuses }: DashboardProps) {
   const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
   const [volatility, setVolatility] = useState(0);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [monitoringStatuses, setMonitoringStatuses] = useState({});
 
-  const activeStrategies = React.useMemo(() => 
+  const activeStrategies = useMemo(() => 
     strategies.filter(s => s.status === 'active'),
     [strategies]
   );
 
-  const allAssets = React.useMemo(() => {
+  const allAssets = useMemo(() => {
     const assets = new Set<string>();
     activeStrategies.forEach(strategy => {
       if (strategy.strategy_config?.assets) {
-        strategy.strategy_config.assets.forEach((asset: string) => assets.add(asset));
+        strategy.strategy_config.assets.forEach((asset: string) => {
+          if (asset) assets.add(asset);
+        });
       }
     });
-    return assets;
+    return Array.from(assets);
   }, [activeStrategies]);
 
   const newsAssets = React.useMemo(() => {
