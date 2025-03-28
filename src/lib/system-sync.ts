@@ -34,43 +34,33 @@ export class SystemSync extends EventEmitter {
     try {
       initializationProgress.reset();
       
-      // Core Services First
-      initializationProgress.startStep('exchange');
-      await this.initializeExchange();
-      initializationProgress.completeStep('exchange');
-
-      // Database Connection
+      // Initialize core services first (without exchange)
       initializationProgress.startStep('database');
       await this.initializeDatabase();
       initializationProgress.completeStep('database');
 
-      // WebSocket after exchange is ready
+      // WebSocket initialization
       initializationProgress.startStep('websocket');
       await this.initializeWebSocket();
       initializationProgress.completeStep('websocket');
 
-      // Market Data Services
+      // Market Data Services (without exchange dependency)
       initializationProgress.startStep('market');
-      await marketService.initialize();
+      await marketService.initializeBase();
       initializationProgress.completeStep('market');
 
-      // Trading Services
-      await Promise.all([
-        tradeManager.initialize(),
-        tradeGenerator.initialize(),
-        strategyMonitor.initialize()
-      ]);
-
-      // Final Sync
-      await this.performFullSync();
-      
-      // Start periodic sync
-      this.startPeriodicSync();
+      // Initialize UI-related services
+      await this.initializeUIServices();
       
     } catch (error) {
       await this.handleInitializationError(error);
       throw error;
     }
+  }
+
+  private async initializeUIServices(): Promise<void> {
+    // Initialize any UI-specific services here
+    // This should not include exchange-dependent services
   }
 
   private async initializeExchange(): Promise<void> {
@@ -354,7 +344,14 @@ export class SystemSync extends EventEmitter {
         reject(new Error('WebSocket connection timeout'));
       }, 10000);
 
-      websocketService.connect();
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const host = window.location.host;
+      const wsUrl = `${protocol}//${host}/ws`;
+
+      websocketService.connect({
+        url: wsUrl,
+        subscriptions: ['market', 'trades']
+      });
       
       websocketService.once('connected', () => {
         clearTimeout(timeout);

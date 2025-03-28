@@ -28,59 +28,52 @@ export class CCXTService extends EventEmitter {
 
   async initialize(config: ExchangeConfig): Promise<void> {
     try {
-      if (!this.isValidConfig(config)) {
-        throw new Error('Invalid exchange configuration');
-      }
-
-      const proxyUrl = import.meta.env.VITE_PROXY_URL;
+      const exchange = await this.createExchange(config);
       
-      const ExchangeClass = this.getExchangeClass(config.name);
-      this.exchange = new ExchangeClass({
-        apiKey: config.apiKey,
-        secret: config.secret,
-        password: config.memo,
-        enableRateLimit: true,
-        timeout: 10000,
-        proxy: proxyUrl || undefined,
-        options: {
-          defaultType: 'spot',
-          adjustForTimeDifference: true,
-          createMarketBuyOrderRequiresPrice: false,
-          fetchImplementation: async (url: string, options = {}) => {
-            const finalUrl = proxyUrl ? `${proxyUrl}${encodeURIComponent(url)}` : url;
-            return await fetch(finalUrl, {
-              ...options,
-              headers: {
-                ...options.headers,
-                'Origin': window.location.origin,
-              },
-            });
-          }
-        }
-      });
+      // Set default options
+      exchange.options = {
+        ...exchange.options,
+        defaultType: 'spot',
+        adjustForTimeDifference: true,
+        createMarketBuyOrderRequiresPrice: false,
+        warnOnFetchOHLCVLimitArgument: false,
+      };
 
-      await this.validateConnection();
-      this.exchangeId = config.name;
-      this.emit('initialized', { exchangeId: this.exchangeId });
+      // Direct API connection
+      exchange.urls = {
+        ...exchange.urls,
+        api: {
+          rest: 'https://api-cloud.bitmart.com',
+        }
+      };
+
+      exchange.enableRateLimit = true;
+      exchange.timeout = 10000;
+
+      await this.validateConnection(exchange);
+      this.exchange = exchange;
     } catch (error) {
       logService.log('error', 'Failed to initialize exchange', error, 'CCXTService');
       throw error;
     }
   }
 
-  private async validateConnection(): Promise<void> {
-    if (!this.exchange) {
-      throw new Error('Exchange not initialized');
-    }
-
+  private async validateConnection(exchange: ccxt.Exchange): Promise<void> {
     try {
-      // Test the connection by loading markets
-      await this.executeWithRetry(
-        () => this.exchange!.loadMarkets(),
-        'validate connection'
-      );
+      if (!exchange) {
+        throw new Error('Exchange instance is undefined');
+      }
+
+      // Test connection with a simple request
+      await exchange.loadMarkets();
+      
+      // Verify that we can fetch at least one ticker
+      const testSymbol = 'BTC/USDT';
+      await exchange.fetchTicker(testSymbol);
+      
     } catch (error) {
-      throw new Error(`Failed to validate exchange connection: ${error instanceof Error ? error.message : String(error)}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      throw new Error(`Failed to validate exchange connection: ${errorMessage}`);
     }
   }
 
@@ -138,25 +131,13 @@ export class CCXTService extends EventEmitter {
     return false;
   }
 
-  private getProxyUrl(): string {
-    // Check if we're running in Codespaces
-    const isCodespaces = window.location.hostname.includes('.github.dev') ||
-                        window.location.hostname.includes('.githubpreview.dev');
-    
-    if (isCodespaces) {
-      // Replace the port in the current URL from 5173 to 3000
-      const url = new URL(window.location.href);
-      url.port = '3000';
-      return `${url.origin}/api/proxy/`;
-    }
-    
-    // Default to environment variable or localhost
-    return import.meta.env.VITE_PROXY_URL || 'http://localhost:3000/api/proxy/';
-  }
-
   private async createExchange(config: ExchangeConfig): Promise<ccxt.Exchange> {
+    if (!this.isValidConfig(config)) {
+      throw new Error('Invalid exchange configuration');
+    }
+
     const ExchangeClass = this.getExchangeClass(config.name);
-    return new ExchangeClass({
+    const exchange = new ExchangeClass({
       apiKey: config.apiKey,
       secret: config.secret,
       password: config.memo,
@@ -168,6 +149,16 @@ export class CCXTService extends EventEmitter {
         createMarketBuyOrderRequiresPrice: false
       }
     });
+
+    // Ensure we're using the correct API endpoint
+    exchange.urls = {
+      ...exchange.urls,
+      api: {
+        rest: 'https://api-cloud.bitmart.com',
+      }
+    };
+
+    return exchange;
   }
 }
 

@@ -24,18 +24,31 @@ export class WebSocketService extends EventEmitter {
     return WebSocketService.instance;
   }
 
+  private getWebSocketUrl(): string {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.host;
+    return `${protocol}//${host}/ws`;
+  }
+
   async connect(config: WebSocketConfig): Promise<void> {
     try {
       if (this.socket) {
         await this.disconnect();
       }
 
-      this.socket = new ReconnectingWebSocket(config.url, [], {
+      // Use secure WebSocket if on HTTPS
+      const wsUrl = config.url || this.getWebSocketUrl();
+      
+      this.socket = new ReconnectingWebSocket(wsUrl, [], {
         WebSocket: WebSocket,
         connectionTimeout: 4000,
         maxRetries: this.MAX_RECONNECT_ATTEMPTS,
         maxReconnectionDelay: 10000,
         minReconnectionDelay: 1000,
+        // Add debug logging
+        debug: process.env.NODE_ENV === 'development',
+        // Use appropriate port based on protocol
+        wsPort: window.location.protocol === 'https:' ? 443 : 80
       });
 
       this.setupEventListeners();
@@ -46,7 +59,7 @@ export class WebSocketService extends EventEmitter {
       }
 
       logService.log('info', 'WebSocket connected successfully', 
-        { url: config.url }, 'WebSocketService');
+        { url: wsUrl }, 'WebSocketService');
     } catch (error) {
       logService.log('error', 'Failed to establish WebSocket connection', 
         error, 'WebSocketService');

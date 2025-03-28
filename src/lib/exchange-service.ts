@@ -264,13 +264,10 @@ class ExchangeService extends EventEmitter {
       this.isLiveMode = !config.testnet;
       this.useUSDX = config.useUSDX || false;
 
-      // Validate demo credentials if in demo mode
-      if (this.isDemoMode) {
-        if (!config.apiKey || !config.secret || !config.memo) {
-          throw new Error('Invalid demo credentials configuration');
-        }
-      }
+      // Store the current config
+      this.currentConfig = config;
 
+      // Initialize CCXT service
       await ccxtService.initialize(config);
       this.currentExchange = config.name;
       
@@ -278,9 +275,12 @@ class ExchangeService extends EventEmitter {
       const exchange = await ccxtService.getExchange();
       this.wsSupported = Boolean(exchange.has.ws);
       
-      await this.fetchExchangeCapabilities();
-      await this.initializeMarketPairs();
-      await this.initializeBalanceUpdates();
+      // Initialize core services
+      await Promise.all([
+        this.fetchExchangeCapabilities(),
+        this.initializeMarketPairs(),
+        this.initializeBalanceUpdates()
+      ]);
 
       // Store credentials only for non-demo mode
       if (!this.isDemoMode) {
@@ -296,7 +296,7 @@ class ExchangeService extends EventEmitter {
       this.emit('initialized');
       
       logService.log('info', 
-        `Exchange initialized in ${this.isDemoMode ? 'Bitmart demo' : 'live'} mode`, 
+        `Exchange initialized in ${this.isDemoMode ? 'demo' : 'live'} mode`, 
         null, 
         'ExchangeService'
       );

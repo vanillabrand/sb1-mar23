@@ -122,36 +122,26 @@ const ExchangeManager = () => {
     }
   };
 
-  const validateApiCredentials = async (apiKey: string, secret: string, memo: string): Promise<boolean> => {
+  const validateApiCredentials = async () => {
     try {
       setValidationStep('Validating API credentials...');
       
-      // Generate signature
-      const timestamp = Date.now().toString();
-      const signString = `${timestamp}#${memo}#balance`;
-      const signature = CryptoJS.HmacSHA256(signString, secret).toString();
-
-      // Test API endpoint with proper authentication
-      const response = await fetch('https://api-cloud.bitmart.com/spot/v1/wallet', {
-        headers: {
-          'X-BM-KEY': apiKey,
-          'X-BM-SIGN': signature,
-          'X-BM-TIMESTAMP': timestamp,
-          'Content-Type': 'application/json'
-        }
+      // Use CCXT service instead of direct API calls
+      const exchange = await ccxtService.createExchange({
+        name: 'bitmart',
+        apiKey: apiKey,
+        secret: apiSecret,
+        memo: memo
       });
 
-      const data = await response.json();
-      
+      // Test the connection by fetching account info
+      await exchange.fetchBalance();
+
       setApiStatus({
-        code: response.status,
-        message: data.message || response.statusText,
-        type: response.ok ? 'success' : 'error'
+        code: 200,
+        message: 'API credentials validated successfully',
+        type: 'success'
       });
-
-      if (!response.ok || data.code !== 1000) {
-        throw new Error(data.message || `API Error (${response.status}): ${response.statusText}`);
-      }
 
       setValidationStep('API credentials validated successfully');
       return true;
@@ -159,6 +149,11 @@ const ExchangeManager = () => {
       const errorMessage = error instanceof Error ? error.message : 'API validation failed';
       setError(errorMessage);
       setValidationStep('API validation failed');
+      setApiStatus({
+        code: 400,
+        message: errorMessage,
+        type: 'error'
+      });
       return false;
     }
   };

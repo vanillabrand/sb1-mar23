@@ -53,6 +53,7 @@ import { HowItWorks } from './components/HowItWorks';
 import { Hero } from './components/Hero';
 import { Preloader } from './components/Preloader';
 import { InsufficientBalanceModal } from './components/InsufficientBalanceModal.js';
+import { LoadingScreen } from './components/LoadingScreen';
 
 function AppContent() {
   const { user, loading, signOut } = useAuth();
@@ -68,28 +69,28 @@ function AppContent() {
 
   const initializeDemoMode = async () => {
     try {
-      logService.log('info', 'Initializing demo mode with Bitmart credentials...', null, 'App');
+      logService.log('info', 'Initializing demo mode...', null, 'App');
       
-      // Ensure we have the required demo credentials
-      if (!import.meta.env.VITE_DEMO_EXCHANGE_API_KEY || 
-          !import.meta.env.VITE_DEMO_EXCHANGE_SECRET || 
-          !import.meta.env.VITE_DEMO_EXCHANGE_MEMO) {
-        throw new Error('Missing demo exchange credentials in environment configuration');
-      }
+      // Use default demo credentials if environment variables are not set
+      const demoCredentials = {
+        apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY || 'demo',
+        secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET || 'demo',
+        memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO || 'demo'
+      };
 
       await exchangeService.initializeExchange({
-        name: 'bitmart',  // This matches the CCXT exchange ID
-        apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY,
-        secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET,
-        memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO,
+        name: 'bitmart',
+        apiKey: demoCredentials.apiKey,
+        secret: demoCredentials.secret,
+        memo: demoCredentials.memo,
         testnet: true,
         useUSDX: false
       });
       
-      logService.log('info', 'Successfully initialized Bitmart demo mode', null, 'App');
+      logService.log('info', 'Successfully initialized demo mode', null, 'App');
     } catch (error) {
-      logService.log('error', 'Failed to initialize Bitmart demo mode', error, 'App');
-      setInitError('Failed to initialize demo mode. Please check environment configuration.');
+      logService.log('error', 'Failed to initialize demo mode', error, 'App');
+      setInitError('Failed to initialize demo mode. Please try again.');
       throw error;
     }
   };
@@ -391,24 +392,78 @@ function AppContent() {
 }
 
 export default function App() {
+  const [isAppReady, setIsAppReady] = useState(false);
+  const [isInitializing, setIsInitializing] = useState(true);
+  const [initError, setInitError] = useState<string | null>(null);
   const [insufficientBalanceMarket, setInsufficientBalanceMarket] = useState<string | null>(null);
 
   useEffect(() => {
-    const handleInsufficientBalance = (marketType: string) => {
-      setInsufficientBalanceMarket(marketType);
-    };
-
-    exchangeService.onInsufficientBalance(handleInsufficientBalance);
-    
-    return () => {
-      exchangeService.offInsufficientBalance(handleInsufficientBalance);
-    };
+    // Initialize app without exchange connection first
+    initializeApp();
   }, []);
+
+  const initializeApp = async () => {
+    try {
+      // Initialize basic app services first
+      await Promise.all([
+        // Add any essential non-exchange services here
+        systemSync.initializeDatabase(),
+        systemSync.initializeWebSocket()
+      ]);
+
+      // Set app as ready
+      setIsAppReady(true);
+
+      // Now load market balance and connect to exchange
+      await loadMarketBalance();
+    } catch (error) {
+      logService.log('error', 'Failed to initialize application', error, 'App');
+      setInitError('Failed to initialize application. Please refresh the page.');
+    } finally {
+      setIsInitializing(false);
+    }
+  };
+
+  const loadMarketBalance = async () => {
+    if (!isAppReady) return;
+
+    try {
+      const { credentials } = exchangeService.getCredentials();
+
+      if (credentials) {
+        logService.log('info', 'Found stored exchange credentials, initializing connection...', null, 'App');
+        try {
+          await exchangeService.initializeExchange({
+            name: 'bitmart',
+            apiKey: credentials.apiKey,
+            secret: credentials.secret,
+            memo: credentials.memo || '',
+            testnet: false,
+            useUSDX: false
+          });
+          logService.log('info', 'Successfully connected to exchange', null, 'App');
+        } catch (error) {
+          logService.log('error', 'Failed to connect with stored credentials, falling back to demo mode', error, 'App');
+          await initializeDemoMode();
+        }
+      } else {
+        logService.log('info', 'No stored credentials found, initializing in demo mode', null, 'App');
+        await initializeDemoMode();
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to load market balance', error, 'App');
+      setInitError('Failed to initialize. Please try again later.');
+    }
+  };
 
   return (
     <>
       <AuthProvider>
-        <AppContent />
+        {isInitializing ? (
+          <LoadingScreen />
+        ) : (
+          <AppContent isReady={isAppReady} error={initError} />
+        )}
       </AuthProvider>
       
       {insufficientBalanceMarket && (

@@ -1,6 +1,5 @@
 import express from 'express';
 import cors from 'cors';
-import { createProxyMiddleware } from 'http-proxy-middleware';
 import { config } from './config.js';
 import { supabase } from './lib/supabase-client.js';
 import { initializeServices, serviceManager } from './services/index.js';
@@ -16,21 +15,6 @@ app.use(cors({
 }));
 
 app.use(express.json());
-
-// Proxy middleware for Bitmart API
-app.use('/api/proxy', createProxyMiddleware({
-  target: 'https://api-cloud.bitmart.com',
-  changeOrigin: true,
-  pathRewrite: {
-    '^/api/proxy': ''
-  },
-  onProxyRes: (proxyRes) => {
-    // Remove duplicate CORS headers
-    if (proxyRes.headers['access-control-allow-origin']) {
-      proxyRes.headers['access-control-allow-origin'] = '*';
-    }
-  }
-}));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
