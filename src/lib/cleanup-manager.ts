@@ -1,3 +1,9 @@
+import { logService } from './log-service';
+import { systemSync } from './system-sync';
+import { analyticsService } from './analytics-service';
+import { templateService } from './template-service';
+import { tradeEngine } from './trade-engine';
+
 export class CleanupManager {
   private static cleanupTasks: (() => Promise<void>)[] = [];
 
@@ -8,13 +14,20 @@ export class CleanupManager {
   static async cleanup() {
     try {
       await Promise.all(this.cleanupTasks.map(task => task()));
+      logService.log('info', 'Cleanup completed successfully', null, 'CleanupManager');
     } catch (error) {
-      console.error('Cleanup failed:', error);
+      logService.log('error', 'Cleanup failed', error, 'CleanupManager');
     }
   }
 }
 
 // Register cleanup handlers
-CleanupManager.register(() => marketService.cleanup());
-CleanupManager.register(() => tradeManager.cleanup());
-CleanupManager.register(() => backgroundProcessManager.cleanup());
+CleanupManager.register(() => systemSync.cleanup());
+CleanupManager.register(() => analyticsService.cleanup());
+CleanupManager.register(() => templateService.cleanup());
+CleanupManager.register(() => tradeEngine.cleanup());
+
+// Handle application shutdown
+window.addEventListener('beforeunload', () => {
+  CleanupManager.cleanup();
+});

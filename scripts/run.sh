@@ -73,9 +73,38 @@ build_frontend() {
     npm run build
 }
 
+# Function to check if proxy server is running
+check_proxy() {
+    curl -s http://localhost:3000/health > /dev/null
+    return $?
+}
+
 # Function to start development environment
 start_dev() {
     print_status "Starting development environment..."
+    
+    # Start proxy server
+    print_status "Starting proxy server..."
+    pm2 delete proxy-server &>/dev/null || true
+    pm2 start proxy-server.js --name proxy-server
+    
+    # Wait for proxy server to be ready
+    print_status "Waiting for proxy server to be ready..."
+    max_attempts=30
+    attempt=1
+    while ! check_proxy; do
+        if [ $attempt -ge $max_attempts ]; then
+            print_error "Proxy server failed to start after $max_attempts attempts"
+            exit 1
+        fi
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    
+    print_status "Proxy server is ready"
+    
+    # Start frontend in development mode
+    print_status "Starting frontend in development mode..."
     npm run dev
 }
 

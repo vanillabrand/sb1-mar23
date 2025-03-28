@@ -4,7 +4,7 @@ import { logService } from './log-service';
 import { ccxtService } from './ccxt-service';
 import CryptoJS from 'crypto-js';
 
-class ExchangeService extends EventEmitter {
+export class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
   private currentExchange: string | null = null;
   private initialized = false;
@@ -46,7 +46,7 @@ class ExchangeService extends EventEmitter {
     }
   }
 
-  static getInstance(): ExchangeService {
+  public static getInstance(): ExchangeService {
     if (!ExchangeService.instance) {
       ExchangeService.instance = new ExchangeService();
     }
@@ -260,72 +260,73 @@ class ExchangeService extends EventEmitter {
 
   async initializeExchange(config: ExchangeConfig): Promise<void> {
     try {
-      this.isDemoMode = config.testnet;
-      this.isLiveMode = !config.testnet;
-      this.useUSDX = config.useUSDX || false;
-
-      // Store the current config
-      this.currentConfig = config;
-
-      // Initialize CCXT service
-      await ccxtService.initialize(config);
-      this.currentExchange = config.name;
-      
-      // Check if exchange supports WebSocket
-      const exchange = await ccxtService.getExchange();
-      this.wsSupported = Boolean(exchange.has.ws);
-      
-      // Initialize core services
-      await Promise.all([
-        this.fetchExchangeCapabilities(),
-        this.initializeMarketPairs(),
-        this.initializeBalanceUpdates()
-      ]);
-
-      // Store credentials only for non-demo mode
-      if (!this.isDemoMode) {
-        this.setCredentials({
-          apiKey: config.apiKey,
-          secret: config.secret,
-          memo: config.memo,
-          password: config.password
-        }, config.name);
+      // Check proxy availability first
+      const isProxyAvailable = await ccxtService.checkProxyAvailability();
+      if (!isProxyAvailable) {
+        logService.log('warn', 'Proxy server unavailable, switching to offline demo mode', null, 'ExchangeService');
+        
+        // Set demo mode flags
+        this.isLiveMode = false;
+        this.isDemoMode = true;
+        this.currentExchange = 'bitmart';
+        
+        // Initialize market pairs with cached/default data
+        await this.initializeDemoMarketPairs();
+        
+        // Set up demo balance
+        const demoBalance = {
+          spot: { total: 10000, used: 0, free: 10000 },
+          margin: { total: 5000, used: 0, free: 5000 },
+          futures: { total: 5000, used: 0, free: 5000 }
+        };
+        
+        this.emit('balanceUpdate', demoBalance);
+        this.emit('exchangeInitialized', {
+          exchange: this.currentExchange,
+          isLive: false,
+          isDemo: true
+        });
+        
+        return;
       }
 
-      this.initialized = true;
-      this.emit('initialized');
+      await ccxtService.initialize(config);
       
-      logService.log('info', 
-        `Exchange initialized in ${this.isDemoMode ? 'demo' : 'live'} mode`, 
-        null, 
-        'ExchangeService'
-      );
+      this.currentExchange = config.name;
+      this.isLiveMode = !config.testnet;
+      this.isDemoMode = config.testnet;
+      this.useUSDX = config.useUSDX || false;
+
+      // Initialize market pairs
+      await this.initializeMarketPairs();
+      
+      this.emit('exchangeInitialized', {
+        exchange: config.name,
+        isLive: this.isLiveMode,
+        isDemo: this.isDemoMode
+      });
     } catch (error) {
       logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
-      this.initialized = false;
+      
+      // Fall back to offline demo mode
+      this.isLiveMode = false;
+      this.isDemoMode = true;
+      this.currentExchange = 'bitmart';
+      
       throw error;
     }
   }
 
-  private async fetchExchangeCapabilities(): Promise<void> {
-    const exchange = await ccxtService.getExchange();
-    this.capabilities = {
-      supportedWallets: ['spot'],
-      supportedOrderTypes: ['market', 'limit'],
-      supportedTimeInForce: ['GTC'],
-      supportsMarginTrading: exchange.has.margin,
-      supportsFuturesTrading: exchange.has.future,
-      supportsSpotTrading: exchange.has.spot
-    };
-
-    if (exchange.has.margin) {
-      this.capabilities.supportedWallets.push('margin');
-      this.capabilities.marginRequirements = await this.fetchMarginRequirements();
-    }
-
-    if (exchange.has.future) {
-      this.capabilities.supportedWallets.push('futures');
-    }
+  private async initializeDemoMarketPairs(): Promise<void> {
+    // Use cached or default market pairs for demo mode
+    const defaultPairs = [
+      { symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT' },
+      { symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT' },
+      { symbol: 'BNB/USDT', base: 'BNB', quote: 'USDT' },
+      // Add more default pairs as needed
+    ];
+    
+    this.marketPairs.set(this.currentExchange!, defaultPairs);
   }
 
   private async initializeMarketPairs(): Promise<void> {
@@ -664,4 +665,5 @@ class ExchangeService extends EventEmitter {
   }
 }
 
+// Export the singleton instance
 export const exchangeService = ExchangeService.getInstance();

@@ -1,52 +1,46 @@
-import React, { useState, useRef } from 'react';
-import { Send, Phone, Mail, MessageSquare, Check, Loader2 } from 'lucide-react';
+import React, { useRef, useState } from 'react';
 import emailjs from '@emailjs/browser';
+import { Mail, Loader2, CheckCircle, XCircle } from 'lucide-react';
+import { logService } from '../lib/log-service';
 
-// EmailJS configuration
-const EMAILJS_SERVICE_ID = 'service_gigantic';
-const EMAILJS_TEMPLATE_ID = 'template_gigantic';
-const EMAILJS_PUBLIC_KEY = 'your_public_key';
+interface ContactFormProps {
+  onSubmit?: () => void;
+  onError?: (error: Error) => void;
+}
 
-export function ContactForm() {
-  const form = useRef<HTMLFormElement>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    subject: '',
-    message: ''
-  });
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
-  const [error, setError] = useState<string | null>(null);
-
-  // This would be provided by your Twilio integration
-  const supportPhone = "+1 (555) 123-4567";
+export function ContactForm({ onSubmit, onError }: ContactFormProps) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [status, setStatus] = useState<'idle' | 'success' | 'error'>('idle');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setStatus('submitting');
-    setError(null);
+    
+    if (!formRef.current) return;
+    if (!import.meta.env.VITE_EMAILJS_PUBLIC_KEY) {
+      logService.log('error', 'EmailJS public key not configured', null, 'ContactForm');
+      setStatus('error');
+      onError?.(new Error('Email service not configured'));
+      return;
+    }
 
     try {
-      if (!form.current) return;
-
-      // Prepare email subject with GIGAntic prefix
-      const emailSubject = `GIGAntic: Customer Enquiry - ${formData.subject}`;
-      form.current.querySelector<HTMLInputElement>('[name="subject"]')!.value = emailSubject;
-
-      // Send email using EmailJS
+      setIsSubmitting(true);
       await emailjs.sendForm(
-        EMAILJS_SERVICE_ID,
-        EMAILJS_TEMPLATE_ID,
-        form.current,
-        EMAILJS_PUBLIC_KEY
+        import.meta.env.VITE_EMAILJS_SERVICE_ID,
+        import.meta.env.VITE_EMAILJS_TEMPLATE_ID,
+        formRef.current,
+        import.meta.env.VITE_EMAILJS_PUBLIC_KEY
       );
-      
       setStatus('success');
-      setFormData({ name: '', email: '', subject: '', message: '' });
-    } catch (err) {
-      console.error('Failed to send email:', err);
+      onSubmit?.();
+      formRef.current.reset();
+    } catch (error) {
       setStatus('error');
-      setError('Failed to send message. Please try again.');
+      logService.log('error', 'Failed to send email', error, 'ContactForm');
+      onError?.(error as Error);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -96,7 +90,7 @@ export function ContactForm() {
         </div>
 
         {/* Contact Form */}
-        <form ref={form} onSubmit={handleSubmit} className="space-y-6">
+        <form ref={formRef} onSubmit={handleSubmit} className="space-y-6">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               Your Name

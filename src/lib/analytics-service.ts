@@ -6,27 +6,12 @@ import { logService } from './log-service';
 import type { Strategy, StrategyTrade } from './supabase-types';
 
 interface AnalyticsData {
-  strategyId: string;
   timestamp: number;
+  strategyId: string;
   metrics: {
-    equity: number;
-    pnl: number;
+    performance: number;
     drawdown: number;
-    winRate: number;
-    volume: number;
-    exposure: number;
-    riskScore: number;
     volatility: number;
-    valueAtRisk: number;
-    maxDrawdown: number;
-    sharpeRatio: number;
-    beta: number;
-  };
-  marketState: {
-    trend: string;
-    sentiment: string;
-    volume: number;
-    momentum: number;
   };
   trades: {
     active: number;
@@ -34,20 +19,33 @@ interface AnalyticsData {
     profitable: number;
     avgDuration: number;
   };
-  portfolio: any; // Define specific type if needed
+  portfolio: any;
 }
 
 class AnalyticsService extends EventEmitter {
-  private static instance: AnalyticsService;
-  private analyticsData: Map<string, AnalyticsData[]> = new Map();
-  private updateInterval: NodeJS.Timeout | null = null;
-  private readonly STORAGE_KEY = 'stratgen_analytics';
-  private readonly UPDATE_INTERVAL = 60000; // 1 minute
-  private initialized = false;
-  private initializationPromise: Promise<void> | null = null;
+  private static instance: AnalyticsService | null = null;
+  private analyticsData: Map<string, AnalyticsData[]>;
+  private updateInterval: NodeJS.Timeout | null;
+  private readonly STORAGE_KEY: string;
+  private readonly UPDATE_INTERVAL: number;
+  private initialized: boolean;
+  private initializationPromise: Promise<void> | null;
 
   private constructor() {
     super();
+    this.analyticsData = new Map();
+    this.updateInterval = null;
+    this.STORAGE_KEY = 'stratgen_analytics';
+    this.UPDATE_INTERVAL = 60000; // 1 minute
+    this.initialized = false;
+    this.initializationPromise = null;
+
+    // Bind methods to instance
+    this.initialize = this.initialize.bind(this);
+    this.loadStoredData = this.loadStoredData.bind(this);
+    this.saveData = this.saveData.bind(this);
+    this.startPeriodicUpdates = this.startPeriodicUpdates.bind(this);
+    this.trackStrategy = this.trackStrategy.bind(this);
   }
 
   static getInstance(): AnalyticsService {
@@ -70,10 +68,12 @@ class AnalyticsService extends EventEmitter {
         this.startPeriodicUpdates();
 
         // Load active strategies
-        const { data: strategies } = await supabase
+        const { data: strategies, error } = await supabase
           .from('strategies')
           .select('*')
           .eq('status', 'active');
+
+        if (error) throw error;
 
         if (strategies) {
           // Initialize analytics for each active strategy
@@ -122,7 +122,9 @@ class AnalyticsService extends EventEmitter {
   }
 
   private startPeriodicUpdates(): void {
-    if (this.updateInterval) return;
+    if (this.updateInterval) {
+      clearInterval(this.updateInterval);
+    }
 
     this.updateInterval = setInterval(() => {
       this.analyticsData.forEach((_, strategyId) => {
@@ -186,24 +188,9 @@ class AnalyticsService extends EventEmitter {
         strategyId,
         timestamp: Date.now(),
         metrics: {
-          equity: metrics.equity,
-          pnl: metrics.pnl,
+          performance: metrics.performance,
           drawdown: metrics.drawdown,
-          winRate: (profitableTrades.length / closedTrades.length) * 100 || 0,
-          volume: metrics.volume,
-          exposure: metrics.exposure,
-          riskScore: metrics.riskScore,
-          volatility: metrics.volatility,
-          valueAtRisk: metrics.valueAtRisk,
-          maxDrawdown: metrics.maxDrawdown,
-          sharpeRatio: metrics.sharpeRatio,
-          beta: metrics.beta
-        },
-        marketState: {
-          trend: this.determineOverallTrend(assetMetrics),
-          sentiment: this.determineOverallSentiment(assetMetrics),
-          volume: this.determineVolumeLevel(assetMetrics),
-          momentum: metrics.momentum
+          volatility: metrics.volatility
         },
         trades: {
           active: activeTrades.length,
@@ -269,8 +256,7 @@ class AnalyticsService extends EventEmitter {
     const momentum = this.calculateMomentum(assetMetrics);
 
     return {
-      equity,
-      pnl,
+      performance: pnl,
       drawdown: currentDrawdown,
       maxDrawdown,
       volume,

@@ -3,7 +3,7 @@ import { logService } from './log-service';
 import { templateService } from './template-service';
 import type { StrategyTemplate } from './types';
 
-class TemplateSync extends EventEmitter {
+export class TemplateSync extends EventEmitter {
   private static instance: TemplateSync;
   private templates = new Map<string, StrategyTemplate>();
   private syncInProgress = false;

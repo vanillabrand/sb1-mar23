@@ -4,37 +4,28 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const app = express();
 
-// Helper function to validate Codespaces URLs
-const isValidCodespacesOrigin = (origin) => {
-  if (!origin) return false;
-  return (
-    origin.startsWith('https://') && (
-      origin.includes('.github.dev') ||
-      origin.includes('.app.github.dev') ||
-      origin.includes('.preview.app.github.dev') ||
-      origin.endsWith('.githubpreview.dev')
-    )
-  );
-};
-
 // CORS configuration
 app.use(cors({
   origin: (origin, callback) => {
     const allowedOrigins = [
       'http://localhost:5173',
-      'http://127.0.0.1:5173'
+      'http://127.0.0.1:5173',
+      'http://localhost:3000'
     ];
 
-    if (!origin || allowedOrigins.includes(origin) || isValidCodespacesOrigin(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, origin);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept']
+  credentials: true
 }));
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.json({ status: 'ok' });
+});
 
 // Proxy middleware configuration
 const proxyMiddleware = createProxyMiddleware({
@@ -44,31 +35,21 @@ const proxyMiddleware = createProxyMiddleware({
     '^/api/proxy': ''
   },
   onProxyRes: (proxyRes, req, res) => {
-    // Clean up CORS headers
-    const origin = req.headers.origin;
-    if (proxyRes.headers['access-control-allow-origin']) {
-      delete proxyRes.headers['access-control-allow-origin'];
-    }
-    proxyRes.headers['access-control-allow-origin'] = origin || '*';
+    proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
     proxyRes.headers['access-control-allow-credentials'] = 'true';
+    proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+    proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-Requested-With';
   },
   onError: (err, req, res) => {
     console.error('Proxy Error:', err);
-    res.status(500).send('Proxy Error');
+    res.status(500).json({ error: 'Proxy Error', message: err.message });
   }
 });
 
-// Apply proxy middleware
+// Apply proxy to all routes under /api/proxy
 app.use('/api/proxy', proxyMiddleware);
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
-// Get the port from environment or default to 3000
-const PORT = process.env.PORT || 3000;
-
+const PORT = 3000;
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Proxy server running on http://0.0.0.0:${PORT}`);
 });

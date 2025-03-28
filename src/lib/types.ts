@@ -67,11 +67,20 @@ export interface CreateStrategyData {
 
 export interface StrategyTemplate {
   id: string;
-  name: string;
+  title: string;
   description: string;
-  riskLevel: RiskLevel;
-  indicators: IndicatorConfig[];
-  parameters: Record<string, any>;
+  risk_level: 'Low' | 'Medium' | 'High';
+  metrics: {
+    winRate: number;
+    avgReturn: number;
+    sharpeRatio: number;
+  };
+  config?: {
+    timeframe: string;
+    marketType: 'spot' | 'futures';
+    indicators: string[];
+    validationRules: any;
+  };
 }
 
 export type RiskLevel = 'low' | 'medium' | 'high';
@@ -267,9 +276,16 @@ export interface TradeSignal {
 
 export interface Strategy {
   id: string;
-  status: string;
+  status: 'active' | 'inactive' | 'error';
   strategy_config: any; // Define proper type
   maxRiskScore: number;
+}
+
+export interface MonitoringStatus {
+  status: 'active' | 'inactive' | 'error';
+  lastUpdate: Date;
+  strategy_id: string;
+  // Add other monitoring status properties as needed
 }
 
 export interface TradeConfig {
@@ -352,4 +368,88 @@ export interface ProgressStatus {
   progress: number;
   currentStep: string;
   error?: string;
+}
+
+export interface AIStrategyConfig {
+  assets: string[];
+  timeframe: string;
+  marketType: 'spot' | 'futures';
+  marketRequirements: {
+    trendFilter: boolean;
+    volatilityFilter: boolean;
+    correlationFilter: boolean;
+    volumeFilter: boolean;
+  };
+  validationCriteria: {
+    minWinRate: number;
+    minProfitFactor: number;
+    maxDrawdown: number;
+    minTradeCount: number;
+  };
+  confirmationRules: {
+    timeframes: string[];
+    indicators: string[];
+    minConfidence: number;
+  };
+}
+
+export interface Trade {
+  id: string;
+  pair: string;
+  timestamp: number;
+  profit: number;
+}
+
+export interface MarketData {
+  symbol: string;
+  price: number;
+  volume24h: number;
+  change24h: number;
+}
+
+export interface Strategy {
+  id: string;
+  strategy_config?: {
+    assets?: string[];
+    indicators?: string[];
+    conditions?: {
+      entry: Array<{
+        indicator: string;
+        operator: string;
+        value: number;
+      }>;
+    };
+    trade_parameters?: {
+      confidence_factor: number;
+    };
+  };
+}
+
+export interface StrategyBudget {
+  amount: number;
+  currency: string;
+}
+
+export interface MonitoringStatus {
+  strategy_id: string;
+  status: 'active' | 'inactive';
+  metrics: {
+    lastTrade?: Trade;
+    exchange?: ExchangeMetrics;
+  };
+  alerts: Alert[];
+}
+
+export interface ExchangeMetrics {
+  connectionStatus: boolean;
+  apiLatency: number;
+  rateLimit: number;
+  lastSync: number;
+}
+
+export interface Alert {
+  type: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+  timestamp: number;
 }

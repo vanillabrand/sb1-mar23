@@ -1,0 +1,8 @@
+export { marketService } from './market-service';
+export { tradeService } from './trade-service';
+export { monitoringService } from './monitoring-service';
+export { logService } from './log-service';
+export { analyticsService } from './analytics-service';
+export { bitmartService } from './bitmart-service';
+export { ccxtService } from './ccxt-service';
+export { exchangeService } from './exchange-service';

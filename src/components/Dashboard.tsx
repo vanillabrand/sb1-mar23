@@ -1,53 +1,54 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import React from 'react';
 import { 
-  Activity,
-  Clock,
-  Globe,
-  AlertCircle
-} from 'lucide-react';
-import { useStrategies } from '../hooks/useStrategies';
-import { NewsWidget } from './NewsWidget';
-import { WorldClock } from './WorldClock';
-import { AIMarketInsight } from './AIMarketInsight';
-import { PortfolioPerformance } from './PortfolioPerformance';
-import { RiskExposure } from './RiskExposure';
-import { NetworkStatus } from './NetworkStatus';
-import { StrategyStatus } from './StrategyStatus';
-import { useScreenSize } from '../lib/hooks/useScreenSize';
-import { AssetDistribution } from './AssetDistribution';
-import { DefconMonitor } from './DefconMonitor';
-import { EmergencyStopButton } from './EmergencyStopButton';
-import { analyticsService } from '../lib/analytics-service';
-import { monitoringService } from '../lib/monitoring-service';
-import { StrategyAssetPanel } from './StrategyAssetPanel';
-import { ErrorBoundary } from './ErrorBoundary';
-import { WidgetError } from './WidgetError';
+  analyticsService,
+  monitoringService,
+  logService 
+} from '../lib/services';
+import { 
+  StrategyAssetPanel,
+  ErrorBoundary,
+  WidgetError 
+} from './index';
+import type { 
+  Strategy,
+  MonitoringStatus 
+} from '../lib/types';
+
+const TIMEZONES = [
+  { id: 'UTC', name: 'UTC' },
+  { id: 'America/New_York', name: 'New York (EST)' },
+  { id: 'America/Los_Angeles', name: 'Los Angeles (PST)' },
+  { id: 'Europe/London', name: 'London (GMT)' },
+  { id: 'Asia/Tokyo', name: 'Tokyo (JST)' },
+  { id: 'Asia/Shanghai', name: 'Shanghai (CST)' },
+  { id: 'Asia/Singapore', name: 'Singapore (SGT)' },
+  { id: 'Australia/Sydney', name: 'Sydney (AEST)' },
+  { id: 'Europe/Frankfurt', name: 'Frankfurt (CET)' },
+  { id: 'Asia/Dubai', name: 'Dubai (GST)' }
+];
 
 interface MonitoringStatus {
   status: 'active' | 'inactive' | 'error';
   lastUpdate: Date;
+  strategy_id: string;
 }
 
 interface DashboardProps {
-  strategies: Strategy[];
-  monitoringStatuses: Record<string, MonitoringStatus>;
+  strategies?: Strategy[];
+  monitoringStatuses?: Record<string, MonitoringStatus>;
 }
 
-const TIMEZONES = [
-  { id: 'UTC', name: 'UTC', offset: 0 },
-  { id: 'America/New_York', name: 'New York', offset: -4 },
-  { id: 'Europe/London', name: 'London', offset: 1 },
-  { id: 'Asia/Tokyo', name: 'Tokyo', offset: 9 },
-  { id: 'Asia/Shanghai', name: 'Shanghai', offset: 8 },
-  { id: 'Asia/Singapore', name: 'Singapore', offset: 8 }
-];
-
-export default function Dashboard({ strategies, monitoringStatuses }: DashboardProps) {
+export function Dashboard({ 
+  strategies: initialStrategies = [], 
+  monitoringStatuses: initialStatuses = {} 
+}: DashboardProps) {
   const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
   const [volatility, setVolatility] = useState(0);
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies);
+  const [monitoringStatuses, setMonitoringStatuses] = useState<Record<string, MonitoringStatus>>(initialStatuses);
+  const [error, setError] = useState<string | null>(null);
 
   const activeStrategies = useMemo(() => 
     strategies.filter(s => s.status === 'active'),
@@ -95,56 +96,58 @@ export default function Dashboard({ strategies, monitoringStatuses }: DashboardP
   }, []);
 
   useEffect(() => {
-    monitoringService.initialize().catch(error => {
-      console.error('Failed to initialize monitoring service:', error);
-    });
-    
-    const loadMonitoringStatuses = async () => {
+    const initializeMonitoring = async () => {
       try {
+        await monitoringService.initialize();
+        
         const statuses = await monitoringService.getAllMonitoringStatuses();
-        const statusMap = {};
+        const statusMap: Record<string, MonitoringStatus> = {};
         statuses.forEach(status => {
           statusMap[status.strategy_id] = status;
         });
         setMonitoringStatuses(statusMap);
+
+        monitoringService.on('strategyCreated', (strategy: Strategy) => {
+          setStrategies(prev => [...prev, strategy]);
+        });
+
+        monitoringService.on('strategyUpdated', (strategy: Strategy) => {
+          setStrategies(prev => prev.map(s => s.id === strategy.id ? strategy : s));
+        });
+
+        monitoringService.on('strategyDeleted', (strategy: Strategy) => {
+          setStrategies(prev => prev.filter(s => s.id !== strategy.id));
+        });
+
+        monitoringService.on('monitoringStatusUpdated', (status: MonitoringStatus) => {
+          setMonitoringStatuses(prev => ({
+            ...prev,
+            [status.strategy_id]: status
+          }));
+        });
       } catch (error) {
-        console.error('Failed to load monitoring statuses:', error);
+        const errorMessage = error instanceof Error ? error.message : 'Failed to initialize monitoring';
+        setError(errorMessage);
+        logService.log('error', 'Failed to initialize monitoring:', error, 'Dashboard');
       }
     };
-    
-    loadMonitoringStatuses();
-    
-    const handleStrategyCreated = (strategy) => {
-      setStrategies(prev => [...prev, strategy]);
-    };
-    
-    const handleStrategyUpdated = (strategy) => {
-      setStrategies(prev => prev.map(s => s.id === strategy.id ? strategy : s));
-    };
-    
-    const handleStrategyDeleted = (strategy) => {
-      setStrategies(prev => prev.filter(s => s.id !== strategy.id));
-    };
-    
-    const handleMonitoringStatusUpdated = (status) => {
-      setMonitoringStatuses(prev => ({
-        ...prev,
-        [status.strategy_id]: status
-      }));
-    };
-    
-    monitoringService.on('strategyCreated', handleStrategyCreated);
-    monitoringService.on('strategyUpdated', handleStrategyUpdated);
-    monitoringService.on('strategyDeleted', handleStrategyDeleted);
-    monitoringService.on('monitoringStatusUpdated', handleMonitoringStatusUpdated);
-    
+
+    initializeMonitoring();
+
     return () => {
-      monitoringService.off('strategyCreated', handleStrategyCreated);
-      monitoringService.off('strategyUpdated', handleStrategyUpdated);
-      monitoringService.off('strategyDeleted', handleStrategyDeleted);
-      monitoringService.off('monitoringStatusUpdated', handleMonitoringStatusUpdated);
+      monitoringService.removeAllListeners();
     };
-  }, [setStrategies]);
+  }, []);
+
+  if (error) {
+    return (
+      <div className="p-8">
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
+          <p className="text-red-400">{error}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-8">

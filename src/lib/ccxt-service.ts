@@ -3,6 +3,7 @@ import { backOff } from 'exponential-backoff';
 import { logService } from './log-service';
 import { EventEmitter } from './event-emitter';
 import type { ExchangeConfig } from './types';
+import axios from 'axios';
 
 export class CCXTService extends EventEmitter {
   private static instance: CCXTService;
@@ -14,7 +15,8 @@ export class CCXTService extends EventEmitter {
     timeMultiple: 2,
     maxDelay: 5000
   };
-
+  private proxyUrl = 'http://localhost:3000';
+  
   private constructor() {
     super();
   }
@@ -26,11 +28,26 @@ export class CCXTService extends EventEmitter {
     return CCXTService.instance;
   }
 
+  async checkProxyAvailability(): Promise<boolean> {
+    try {
+      const response = await axios.get(`${this.proxyUrl}/health`, { timeout: 5000 });
+      return response.data.status === 'ok';
+    } catch (error) {
+      return false;
+    }
+  }
+
   async initialize(config: ExchangeConfig): Promise<void> {
     try {
+      // Check if proxy is available
+      const isProxyAvailable = await this.checkProxyAvailability();
+      if (!isProxyAvailable) {
+        throw new Error('Proxy server is not available. Please ensure the proxy server is running.');
+      }
+
       const exchange = await this.createExchange(config);
       
-      // Set default options
+      // Configure the exchange instance
       exchange.options = {
         ...exchange.options,
         defaultType: 'spot',
@@ -39,16 +56,29 @@ export class CCXTService extends EventEmitter {
         warnOnFetchOHLCVLimitArgument: false,
       };
 
-      // Direct API connection
+      // Set the API URLs to use our proxy
+      const proxyUrl = `${this.proxyUrl}/api/proxy`;
       exchange.urls = {
         ...exchange.urls,
         api: {
-          rest: 'https://api-cloud.bitmart.com',
+          rest: proxyUrl,
+          public: proxyUrl,
+          private: proxyUrl,
+          v1: proxyUrl,
+          v2: proxyUrl
         }
       };
 
+      // Force all requests through proxy
+      exchange.proxy = proxyUrl;
       exchange.enableRateLimit = true;
       exchange.timeout = 10000;
+
+      // Add custom headers
+      exchange.headers = {
+        ...exchange.headers,
+        'Origin': window.location.origin,
+      };
 
       await this.validateConnection(exchange);
       this.exchange = exchange;
@@ -58,22 +88,14 @@ export class CCXTService extends EventEmitter {
     }
   }
 
-  private async validateConnection(exchange: ccxt.Exchange): Promise<void> {
+  private async validateConnection(exchange: any): Promise<void> {
     try {
-      if (!exchange) {
-        throw new Error('Exchange instance is undefined');
-      }
-
-      // Test connection with a simple request
-      await exchange.loadMarkets();
-      
-      // Verify that we can fetch at least one ticker
-      const testSymbol = 'BTC/USDT';
-      await exchange.fetchTicker(testSymbol);
-      
+      // Use fetchTime instead of direct API call
+      await exchange.fetchTime();
+      logService.log('info', 'Exchange connection validated', null, 'CCXTService');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      throw new Error(`Failed to validate exchange connection: ${errorMessage}`);
+      logService.log('error', 'Exchange connection validation failed', error, 'CCXTService');
+      throw new Error('Failed to validate exchange connection');
     }
   }
 
@@ -150,13 +172,8 @@ export class CCXTService extends EventEmitter {
       }
     });
 
-    // Ensure we're using the correct API endpoint
-    exchange.urls = {
-      ...exchange.urls,
-      api: {
-        rest: 'https://api-cloud.bitmart.com',
-      }
-    };
+    // Load markets immediately to ensure the exchange is properly initialized
+    await exchange.loadMarkets();
 
     return exchange;
   }

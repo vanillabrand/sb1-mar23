@@ -1,29 +1,36 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Newspaper, 
-  ExternalLink, 
-  Search,
-  Calendar,
-  Loader2,
-  AlertCircle
-} from 'lucide-react';
 import { newsService } from '../lib/news-service';
-import { Pagination } from './ui/Pagination';
-import { useScreenSize, ITEMS_PER_PAGE } from '../lib/hooks/useScreenSize';
+
+interface PanelWrapperProps {
+  children: React.ReactNode;
+  index: number;
+  className?: string;
+}
+
+const PanelWrapper: React.FC<PanelWrapperProps> = ({ children, index, className = '' }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.1 }}
+      className={`bg-gradient-to-br from-gunmetal-900/50 to-gunmetal-800/30 backdrop-blur-sm ${className}`}
+    >
+      {children}
+    </motion.div>
+  );
+};
 
 interface NewsWidgetProps {
-  assets?: string[];
+  assets: string[];
   limit?: number;
 }
 
-export function NewsWidget({ assets = [], limit = 10 }: NewsWidgetProps) {
+export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
   const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
-  const screenSize = useScreenSize();
-  const itemsPerPage = ITEMS_PER_PAGE[screenSize];
 
   // Memoize news fetching function
   const fetchNews = useCallback(async () => {
@@ -49,73 +56,40 @@ export function NewsWidget({ assets = [], limit = 10 }: NewsWidgetProps) {
     fetchNews();
   }, [fetchNews]);
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const now = new Date();
-    const diffMs = now.getTime() - date.getTime();
-    const diffMins = Math.floor(diffMs / (1000 * 60));
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffMins < 60) return `${diffMins}m ago`;
-    if (diffHours < 24) return `${diffHours}h ago`;
-    if (diffDays < 7) return `${diffDays}d ago`;
-    return date.toLocaleDateString();
-  };
-
   const getAssetColor = (asset: string): string => {
-    const assetColors: Record<string, string> = {
-      'BTC': 'text-neon-orange',
-      'ETH': 'text-neon-turquoise',
-      'SOL': 'text-neon-yellow',
-      'BNB': 'text-amber-400',
-      'XRP': 'text-blue-400',
-      'ADA': 'text-indigo-400',
-      'DOGE': 'text-yellow-300',
-      'MATIC': 'text-purple-400'
+    const colors: Record<string, string> = {
+      BTC: 'text-bitcoin',
+      ETH: 'text-ethereum',
+      SOL: 'text-solana',
+      BNB: 'text-binance',
+      XRP: 'text-ripple',
+      default: 'text-gray-400'
     };
-
-    for (const [key, color] of Object.entries(assetColors)) {
-      if (asset.includes(key)) {
-        return color;
-      }
-    }
-    return 'text-gray-300';
+    return colors[asset] || colors.default;
   };
 
-  // Calculate pagination
-  const totalPages = Math.ceil(news.length / itemsPerPage);
-  const displayedNews = news.slice(
-    currentPage * itemsPerPage,
-    (currentPage + 1) * itemsPerPage
-  );
+  const displayedNews = news.slice(currentPage * limit, (currentPage + 1) * limit);
 
   if (loading) {
     return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="w-8 h-8 text-neon-raspberry animate-spin" />
+      <div className="animate-pulse space-y-4">
+        {[...Array(limit)].map((_, i) => (
+          <div key={i} className="h-24 bg-gunmetal-800/30 rounded-lg" />
+        ))}
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-neon-pink/10 border border-neon-pink/20 rounded-lg p-4 flex items-center gap-3">
-        <AlertCircle className="w-5 h-5 text-neon-pink" />
-        <p>{error}</p>
+      <div className="text-center p-4">
+        <p className="text-red-400">{error}</p>
       </div>
     );
   }
 
   return (
-    <motion.div layout className="min-h-[400px]">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-2">
-          <Newspaper className="w-5 h-5 text-neon-yellow" />
-          <h3 className="text-lg font-semibold gradient-text">Market News</h3>
-        </div>
-      </div>
-
+    <div>
       <AnimatePresence mode="wait">
         <motion.div
           key={currentPage}
@@ -148,19 +122,12 @@ export function NewsWidget({ assets = [], limit = 10 }: NewsWidgetProps) {
                           </span>
                         ))}
                       </div>
-                      
-                      <h4 className="text-sm font-medium text-gray-200 mb-4">{item.title}</h4>
-                      
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-1 text-sm text-gray-400">
-                            <Calendar className="w-4 h-4" />
-                            {formatDate(item.publishedAt)}
-                          </div>
-                          <span className="text-sm text-gray-400">{item.source}</span>
-                        </div>
-                        <ExternalLink className="w-4 h-4 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </div>
+                      <h3 className="text-gray-200 group-hover:text-neon-blue transition-colors">
+                        {item.title}
+                      </h3>
+                      <p className="text-sm text-gray-400 mt-2">
+                        {item.summary}
+                      </p>
                     </div>
                   </div>
                 </a>
@@ -169,18 +136,6 @@ export function NewsWidget({ assets = [], limit = 10 }: NewsWidgetProps) {
           </div>
         </motion.div>
       </AnimatePresence>
-
-      {totalPages > 1 && (
-        <Pagination
-          currentPage={currentPage}
-          totalPages={totalPages}
-          onPageChange={setCurrentPage}
-          showPageNumbers={screenSize !== 'sm'}
-          itemsPerPage={itemsPerPage}
-          totalItems={news.length}
-          className="mt-4"
-        />
-      )}
-    </motion.div>
+    </div>
   );
 }

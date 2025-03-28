@@ -20,11 +20,11 @@ import {
   BarChart3,
   Loader2
 } from 'lucide-react';
-import { bitmartService } from '../lib/bitmart-service';
-import { marketMonitor } from '../lib/market-monitor';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
-import { logService } from '../lib/log-service';
-import type { Strategy } from '../lib/supabase-types';
+import { bitmartService } from '../lib/services';
+import { marketMonitor } from '../lib/market-monitor';
+import { logService } from '../lib/services';
+import type { Strategy } from '../lib/types';
 
 interface AssetPairMonitorProps {
   strategy: Strategy;

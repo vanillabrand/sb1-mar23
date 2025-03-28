@@ -1,477 +1,121 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Activity,
-  AlertCircle,
-  Brain,
-  Bug,
-  Clock,
-  Coins,
-  DollarSign,
-  Loader2,
-  LogOut,
-  Settings as SettingsIcon,
-  Shield,
-  Target,
-  Mail,
-  Phone,
-  MapPin,
-  Facebook,
-  Twitter,
-  Linkedin,
-  Instagram,
-  Youtube,
-  Globe,
-  AlertTriangle,
-  ChevronDown
-} from 'lucide-react';
-import { Auth } from './components/Auth';
-import Dashboard from './components/Dashboard';
-import StrategyManager from './components/StrategyManager';
-import Backtester from './components/Backtester';
-import TradeMonitor from './components/TradeMonitor';
-import RiskManager from './components/RiskManager';
-import ExchangeManager from './components/ExchangeManager';
-import BugTracker from './components/BugTracker';
-import { Settings } from './components/Settings';
-import { Footer } from './components/Footer';
-import { ContactForm } from './components/ContactForm';
-import { TermsAndConditions } from './components/TermsAndConditions';
-import { LogWindow } from './components/LogWindow';
-import { AuthProvider, useAuth } from './lib/auth-context';
-import { KilnLogo } from './components/KilnLogo';
-import { exchangeService } from './lib/exchange-service';
-import { logService } from './lib/log-service';
-import { ConnectionStatus } from './components/ConnectionStatus';
-import { Link, Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { PrivacyPolicy } from './components/PrivacyPolicy';
-import { CookiePolicy } from './components/CookiePolicy';
-import { ResponsibleTrading } from './components/ResponsibleTrading';
-import { Accessibility } from './components/Accessibility';
-import { CommunityGuidelines } from './components/CommunityGuidelines';
-import { HowItWorks } from './components/HowItWorks';
-import { Hero } from './components/Hero';
-import { Preloader } from './components/Preloader';
-import { InsufficientBalanceModal } from './components/InsufficientBalanceModal.js';
+import React, { useEffect, useState } from 'react';
+import { useAuth } from './lib/auth-context';
 import { LoadingScreen } from './components/LoadingScreen';
+import { AppContent } from './components/AppContent';
+import { logService } from './lib/log-service';
+import { systemSync } from './lib/system-sync';
+import { analyticsService } from './lib/analytics-service';
+import { templateService } from './lib/template-service';
+import { tradeEngine } from './lib/trade-engine';
+import { Preloader } from './components/Preloader';
 
-function AppContent() {
-  const { user, loading, signOut } = useAuth();
-  const [showSettings, setShowSettings] = useState(false);
-  const [showLogWindow, setShowLogWindow] = useState(false);
+function App() {
+  const { user } = useAuth();
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isAppReady, setIsAppReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
-  const [connectionClosed, setConnectionClosed] = useState(false);
-  const [selectedPath, setSelectedPath] = useState('/');
-  const [triggerShimmer, setTriggerShimmer] = useState(0);
-  const [showMobileMenu, setShowMobileMenu] = useState(false);
-  const location = useLocation();
+  const [initStep, setInitStep] = useState<string>('');
 
-  const initializeDemoMode = async () => {
-    try {
-      logService.log('info', 'Initializing demo mode...', null, 'App');
-      
-      // Use default demo credentials if environment variables are not set
-      const demoCredentials = {
-        apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY || 'demo',
-        secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET || 'demo',
-        memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO || 'demo'
-      };
-
-      await exchangeService.initializeExchange({
-        name: 'bitmart',
-        apiKey: demoCredentials.apiKey,
-        secret: demoCredentials.secret,
-        memo: demoCredentials.memo,
-        testnet: true,
-        useUSDX: false
-      });
-      
-      logService.log('info', 'Successfully initialized demo mode', null, 'App');
-    } catch (error) {
-      logService.log('error', 'Failed to initialize demo mode', error, 'App');
-      setInitError('Failed to initialize demo mode. Please try again.');
-      throw error;
-    }
-  };
-
-  useEffect(() => {
-    loadMarketBalance();
-  }, []);
-
-  useEffect(() => {
-    if (location.pathname !== selectedPath) {
-      setSelectedPath(location.pathname);
-      setTriggerShimmer(prev => prev + 1);
-      setShowMobileMenu(false);
-      window.scrollTo(0, 0);
-    }
-  }, [location.pathname]);
-
-  const loadMarketBalance = async () => {
+  const initializeApp = async () => {
     try {
       setIsInitializing(true);
-      const { credentials } = exchangeService.getCredentials();
+      setInitError(null);
 
-      if (credentials) {
-        logService.log('info', 'Found stored exchange credentials, initializing connection...', null, 'App');
-        try {
-          await exchangeService.initializeExchange({
-            name: 'bitmart',
-            apiKey: credentials.apiKey,
-            secret: credentials.secret,
-            memo: credentials.memo || '',
-            testnet: false,
-            useUSDX: false
-          });
-          logService.log('info', 'Successfully connected to exchange', null, 'App');
-        } catch (error) {
-          logService.log('error', 'Failed to connect with stored credentials, falling back to demo mode', error, 'App');
-          await initializeDemoMode();
-        }
-      } else {
-        logService.log('info', 'No stored credentials found, initializing in demo mode', null, 'App');
-        await initializeDemoMode();
+      // Initialize core services in sequence
+      const services = [
+        { name: 'database', fn: systemSync.initializeDatabase },
+        { name: 'websocket', fn: systemSync.initializeWebSocket },
+        { name: 'exchange', fn: systemSync.initializeExchange },
+        { name: 'analytics', fn: analyticsService.initialize },
+        { name: 'templates', fn: templateService.initialize },
+        { name: 'trading', fn: tradeEngine.initialize }
+      ];
+
+      for (const service of services) {
+        setInitStep(service.name);
+        await service.fn();
+        // Add a small delay between service initializations
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+
+      setIsAppReady(true);
     } catch (error) {
-      logService.log('error', 'Failed to load market balance', error, 'App');
-      setInitError('Failed to initialize. Please try again later.');
+      const errorMessage = error instanceof Error 
+        ? `${error.name} in ${initStep}: ${error.message}`
+        : `Failed to initialize ${initStep}`;
+      
+      setInitError(errorMessage);
+      logService.log('error', `Failed to initialize ${initStep}`, error, 'App');
+      
+      // Check if we should switch to demo mode
+      if (initStep === 'database' || initStep === 'exchange') {
+        try {
+          await systemSync.initializeDemoMode();
+          setIsAppReady(true);
+          setInitError(null);
+        } catch (demoError) {
+          setInitError(`Failed to initialize demo mode: ${demoError instanceof Error ? demoError.message : 'Unknown error'}`);
+        }
+      }
     } finally {
-      setTimeout(() => {
-        setIsInitializing(false);
-      }, 1500);
+      setIsInitializing(false);
     }
   };
 
-  const handleConnectionPanelClose = () => {
-    setConnectionClosed(true);
+  useEffect(() => {
+    if (user) {
+      initializeApp();
+    } else {
+      // If no user, we're still technically "ready" for the login screen
+      setIsInitializing(false);
+      setIsAppReady(true);
+    }
+  }, [user]);
+
+  const handleRetry = () => {
+    if (user) {
+      initializeApp();
+    }
   };
 
-  const menuItems = [
-    { path: '/', icon: Activity, name: 'Dashboard', color: 'neon-raspberry' },
-    { path: '/strategy', icon: Brain, name: 'Strategy Manager', color: 'neon-yellow' },
-    { path: '/backtest', icon: Clock, name: 'Backtester', color: 'neon-orange' },
-    { path: '/monitor', icon: Target, name: 'Trade Monitor', color: 'neon-turquoise' },
-    { path: '/risk', icon: Shield, name: 'Risk Manager', color: 'neon-pink' },
-    { path: '/wallet', icon: Coins, name: 'Exchange Manager', color: 'neon-turquoise' },
-    { path: '/bugs', icon: Bug, name: 'Bug Tracker', color: 'neon-raspberry' }
-  ];
-
-  const menuItemVariants = {
-    initial: { 
-      backgroundColor: 'rgba(31, 31, 35, 0)',
-      transition: { duration: 0 }
-    },
-    shimmer: (i: number) => ({
-      backgroundColor: [
-        'rgba(31, 31, 35, 0)',
-        'rgba(45, 212, 191, 0.1)',
-        'rgba(250, 204, 21, 0.1)',
-        'rgba(251, 146, 60, 0.1)',
-        'rgba(236, 72, 153, 0.1)',
-        'rgba(31, 31, 35, 0)'
-      ],
-      transition: {
-        delay: i * 0.1,
-        duration: 1,
-        ease: [0.455, 0.03, 0.515, 0.955],
-        times: [0, 0.2, 0.4, 0.6, 0.8, 1]
-      }
-    })
-  };
-
-  if (loading || isInitializing) {
+  // Show preloader while checking authentication
+  if (isInitializing) {
     return <Preloader />;
   }
 
-  if (!user) {
-    return <Hero />;
-  }
-
+  // Show error screen if initialization failed
   if (initError) {
+    const isProxyError = initError.includes('Proxy server is not available');
+    
     return (
       <div className="min-h-screen flex items-center justify-center bg-gunmetal-950">
-        <div className="text-center space-y-4">
-          <AlertCircle className="w-12 h-12 text-neon-pink mx-auto" />
-          <p className="text-neon-pink">{initError}</p>
+        <div className="text-center space-y-4 p-6 bg-gunmetal-900 rounded-xl border border-gunmetal-800 max-w-lg">
+          <h2 className="text-xl font-bold text-neon-pink">
+            {isProxyError ? 'Running in Offline Demo Mode' : 'Initialization Error'}
+          </h2>
+          <p className="text-gray-400 break-words">
+            {isProxyError 
+              ? 'The trading proxy server is currently unavailable. The application will run in offline demo mode.'
+              : initError}
+          </p>
+          <div className="text-sm text-gray-500 mt-2">
+            {isProxyError 
+              ? 'You can still explore the application features in demo mode.'
+              : `Failed during ${initStep} initialization. Please check your connection and credentials.`}
+          </div>
           <button
-            onClick={() => setIsInitializing(false)}
-            className="mt-4 px-4 py-2 bg-neon-yellow text-gunmetal-950 rounded-lg hover:bg-neon-orange transition-all"
+            onClick={handleRetry}
+            className="px-4 py-2 bg-neon-pink hover:bg-neon-pink/80 text-white rounded-lg transition-colors"
           >
-            Continue in Demo Mode
+            Retry
           </button>
         </div>
       </div>
     );
   }
 
-  return (
-    <div className="min-h-screen bg-gunmetal-950">
-      {/* Mobile Navigation */}
-      <div className="lg:hidden fixed top-0 left-0 right-0 z-30">
-        <div className="bg-gradient-to-br from-gunmetal-800 to-gunmetal-900 border-x border-b border-gunmetal-700/50 rounded-b-xl shadow-lg backdrop-blur-xl">
-          {/* Top Bar with Logo and Menu Toggle */}
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gunmetal-700/50">
-            <KilnLogo className="scale-75" />
-            <button
-              onClick={() => setShowMobileMenu(!showMobileMenu)}
-              className="p-2 rounded-lg text-gray-400 hover:text-gray-200 transition-colors"
-            >
-              <ChevronDown
-                className={`w-6 h-6 transition-transform duration-300 ${
-                  showMobileMenu ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Slide Down Menu */}
-          <AnimatePresence>
-            {showMobileMenu && (
-              <motion.div
-                initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
-                exit={{ height: 0, opacity: 0 }}
-                transition={{ duration: 0.3, ease: 'easeInOut' }}
-                className="overflow-hidden"
-              >
-                <div className="grid grid-cols-4 gap-2 p-4">
-                  {menuItems.map((item) => {
-                    const Icon = item.icon;
-                    const isActive = location.pathname === item.path;
-                    return (
-                      <Link
-                        key={item.path}
-                        to={item.path}
-                        className={`flex flex-col items-center gap-1 p-2 rounded-lg text-center transition-all duration-200 ${
-                          isActive 
-                            ? `bg-${item.color}/20 text-${item.color}` 
-                            : 'text-gray-400 hover:bg-gunmetal-800/30'
-                        }`}
-                      >
-                        <Icon className="w-6 h-6" />
-                        <span className="text-xs font-medium">{item.name}</span>
-                      </Link>
-                    );
-                  })}
-                  <button
-                    onClick={() => setShowLogWindow(true)}
-                    className="flex flex-col items-center gap-1 p-2 rounded-lg text-gray-400 hover:bg-gunmetal-800/30 transition-all duration-200"
-                  >
-                    <Bug className="w-6 h-6" />
-                    <span className="text-xs font-medium">Debug</span>
-                  </button>
-                  <button
-                    onClick={() => setShowSettings(true)}
-                    className="flex flex-col items-center gap-1 p-2 rounded-lg text-gray-400 hover:bg-gunmetal-800/30 transition-all duration-200"
-                  >
-                    <SettingsIcon className="w-6 h-6" />
-                    <span className="text-xs font-medium">Settings</span>
-                  </button>
-                  <button
-                    onClick={signOut}
-                    className="flex flex-col items-center gap-1 p-2 rounded-lg text-gray-400 hover:bg-neon-pink/20 hover:text-neon-pink transition-all duration-200"
-                  >
-                    <LogOut className="w-6 h-6" />
-                    <span className="text-xs font-medium">Sign Out</span>
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      {/* Desktop Sidebar */}
-      <div className="hidden lg:block fixed inset-y-0 left-0 z-30 w-64 bg-gunmetal-900/30 backdrop-blur-xl">
-        <div className="flex items-center justify-between p-6">
-          <KilnLogo />
-        </div>
-
-        {/* Connection Status */}
-        <div className="px-4 mb-4">
-          <ConnectionStatus onClose={handleConnectionPanelClose} />
-        </div>
-
-        <nav className="p-4 space-y-2">
-          {menuItems.map((item, index) => {
-            const Icon = item.icon;
-            const isActive = location.pathname === item.path;
-            return (
-              <motion.div
-                key={item.path}
-                variants={menuItemVariants}
-                initial="initial"
-                animate={triggerShimmer ? "shimmer" : "initial"}
-                custom={index}
-              >
-                <Link
-                  to={item.path}
-                  onClick={() => {
-                    setTriggerShimmer(prev => prev + 1);
-                    window.scrollTo(0, 0);
-                  }}
-                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left transition-all duration-200 ${
-                    isActive 
-                      ? `bg-${item.color}/20 text-${item.color}` 
-                      : 'text-gray-400 hover:bg-gunmetal-800/30'
-                  }`}
-                >
-                  <Icon className="w-5 h-5" />
-                  {item.name}
-                </Link>
-              </motion.div>
-            );
-          })}
-        </nav>
-
-        {/* Settings Section */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 space-y-2">
-          <button 
-            onClick={() => setShowLogWindow(!showLogWindow)}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-gray-400 hover:bg-gunmetal-800/30 transition-all duration-200 mb-2"
-          >
-            <Bug className="w-5 h-5 text-neon-yellow" />
-            Debug Logs
-          </button>
-          <button 
-            onClick={() => setShowSettings(true)}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-gray-400 hover:bg-gunmetal-800/30 transition-all duration-200"
-          >
-            <SettingsIcon className="w-5 h-5 text-neon-turquoise" />
-            Settings
-          </button>
-          <button 
-            onClick={signOut}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left text-gray-400 hover:bg-neon-pink/20 hover:text-neon-pink transition-all duration-200"
-          >
-            <LogOut className="w-5 h-5" />
-            Sign Out
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <motion.div
-        key={location.pathname}
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: -20 }}
-        className="lg:ml-64 min-h-screen pb-24 pt-20 lg:pt-0"
-      >
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/strategy" element={<StrategyManager />} />
-          <Route path="/backtest" element={<Backtester />} />
-          <Route path="/monitor" element={<TradeMonitor />} />
-          <Route path="/risk" element={<RiskManager />} />
-          <Route path="/wallet" element={<ExchangeManager />} />
-          <Route path="/bugs" element={<BugTracker />} />
-          <Route path="/contact" element={<ContactForm />} />
-          <Route path="/terms" element={<TermsAndConditions />} />
-          <Route path="/privacy" element={<PrivacyPolicy />} />
-          <Route path="/cookies" element={<CookiePolicy />} />
-          <Route path="/responsible-trading" element={<ResponsibleTrading />} />
-          <Route path="/accessibility" element={<Accessibility />} />
-          <Route path="/community" element={<CommunityGuidelines />} />
-          <Route path="/how-it-works" element={<HowItWorks />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </motion.div>
-
-      {/* Settings Modal */}
-      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
-
-      {/* Debug Log Window */}
-      {showLogWindow && <LogWindow onClose={() => setShowLogWindow(false)} />}
-
-      {/* Footer */}
-      <Footer />
-    </div>
-  );
+  // Render main app content
+  return <AppContent isReady={isAppReady} />;
 }
 
-export default function App() {
-  const [isAppReady, setIsAppReady] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [initError, setInitError] = useState<string | null>(null);
-  const [insufficientBalanceMarket, setInsufficientBalanceMarket] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Initialize app without exchange connection first
-    initializeApp();
-  }, []);
-
-  const initializeApp = async () => {
-    try {
-      // Initialize basic app services first
-      await Promise.all([
-        // Add any essential non-exchange services here
-        systemSync.initializeDatabase(),
-        systemSync.initializeWebSocket()
-      ]);
-
-      // Set app as ready
-      setIsAppReady(true);
-
-      // Now load market balance and connect to exchange
-      await loadMarketBalance();
-    } catch (error) {
-      logService.log('error', 'Failed to initialize application', error, 'App');
-      setInitError('Failed to initialize application. Please refresh the page.');
-    } finally {
-      setIsInitializing(false);
-    }
-  };
-
-  const loadMarketBalance = async () => {
-    if (!isAppReady) return;
-
-    try {
-      const { credentials } = exchangeService.getCredentials();
-
-      if (credentials) {
-        logService.log('info', 'Found stored exchange credentials, initializing connection...', null, 'App');
-        try {
-          await exchangeService.initializeExchange({
-            name: 'bitmart',
-            apiKey: credentials.apiKey,
-            secret: credentials.secret,
-            memo: credentials.memo || '',
-            testnet: false,
-            useUSDX: false
-          });
-          logService.log('info', 'Successfully connected to exchange', null, 'App');
-        } catch (error) {
-          logService.log('error', 'Failed to connect with stored credentials, falling back to demo mode', error, 'App');
-          await initializeDemoMode();
-        }
-      } else {
-        logService.log('info', 'No stored credentials found, initializing in demo mode', null, 'App');
-        await initializeDemoMode();
-      }
-    } catch (error) {
-      logService.log('error', 'Failed to load market balance', error, 'App');
-      setInitError('Failed to initialize. Please try again later.');
-    }
-  };
-
-  return (
-    <>
-      <AuthProvider>
-        {isInitializing ? (
-          <LoadingScreen />
-        ) : (
-          <AppContent isReady={isAppReady} error={initError} />
-        )}
-      </AuthProvider>
-      
-      {insufficientBalanceMarket && (
-        <InsufficientBalanceModal
-          marketType={insufficientBalanceMarket as 'spot' | 'margin' | 'futures'}
-          onClose={() => setInsufficientBalanceMarket(null)}
-        />
-      )}
-    </>
-  );
-}
+export default App;

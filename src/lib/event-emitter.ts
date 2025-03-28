@@ -14,6 +14,14 @@ export class EventEmitter {
     this.events.get(event)!.add(callback);
   }
 
+  once(event: string, callback: EventCallback): void {
+    const onceCallback = (...args: any[]) => {
+      this.off(event, onceCallback);
+      callback.apply(this, args);
+    };
+    this.on(event, onceCallback);
+  }
+
   off(event: string, callback: EventCallback): void {
     const callbacks = this.events.get(event);
     if (callbacks) {
@@ -43,5 +51,15 @@ export class EventEmitter {
     } else {
       this.events.clear();
     }
+  }
+
+  listenerCount(event: string): number {
+    const callbacks = this.events.get(event);
+    return callbacks ? callbacks.size : 0;
+  }
+
+  listeners(event: string): EventCallback[] {
+    const callbacks = this.events.get(event);
+    return callbacks ? Array.from(callbacks) : [];
   }
 }

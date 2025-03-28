@@ -12,8 +12,11 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
-import DOMPurify from 'dompurify';
+import createDOMPurify from 'dompurify';
 import { useAuth } from '../lib/auth-context';
+
+// Initialize DOMPurify
+const DOMPurify = createDOMPurify(window);
 
 interface Note {
   id: string;

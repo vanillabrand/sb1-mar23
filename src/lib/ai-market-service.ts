@@ -3,8 +3,8 @@ import type { MarketInsight } from './types';
 
 class AIMarketService {
   private static instance: AIMarketService;
-  private readonly API_URL = 'https://api.deepseek.com/v1';
-  private readonly MODEL = 'deepseek-v3-0324';
+  private readonly API_URL = 'https://api.deepseek.com/v1/completions';  // Changed endpoint
+  private readonly MODEL = 'deepseek-coder-33b-instruct';  // Updated model name
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000;
 
@@ -26,35 +26,66 @@ class AIMarketService {
     }
 
     try {
-      const response = await fetch(`${this.API_URL}/chat/completions`, {
+      const response = await fetch(this.API_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`
+          'Authorization': `Bearer ${API_KEY}`,
+          'Accept': 'application/json'
         },
         body: JSON.stringify({
           model: this.MODEL,
-          messages: [
-            {
-              role: 'system',
-              content: 'You are a crypto market analysis AI. Analyze market conditions and provide insights.'
-            },
-            {
-              role: 'user',
-              content: `Analyze market conditions for: ${assets.join(', ')}. Focus on key technical indicators, market sentiment, and potential trading opportunities.`
-            }
-          ],
+          prompt: `Analyze the following crypto assets and return a JSON response: ${assets.join(', ')}. Include technical indicators, market sentiment, and potential opportunities. Format the response as a valid JSON object with the following structure:
+{
+  "timestamp": number,
+  "assets": [{
+    "symbol": string,
+    "sentiment": "bullish" | "bearish" | "neutral",
+    "signals": string[],
+    "riskLevel": "low" | "medium" | "high"
+  }],
+  "marketConditions": {
+    "trend": "bullish" | "bearish" | "sideways",
+    "volatility": "low" | "medium" | "high",
+    "volume": "low" | "medium" | "high"
+  },
+  "recommendations": string[]
+}`,
+          max_tokens: 2000,
           temperature: 0.3,
-          max_tokens: 1000
+          stop: ["```"],
+          stream: false
         })
       });
 
       if (!response.ok) {
-        throw new Error(`DeepSeek API error: ${response.statusText}`);
+        const errorText = await response.text();
+        logService.log('error', `DeepSeek API error response: ${errorText}`, null, 'AIMarketService');
+        throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      return this.parseDeepSeekResponse(data, assets);
+      
+      if (!data.choices?.[0]?.text) {
+        throw new Error('Invalid response format from DeepSeek API');
+      }
+
+      const content = data.choices[0].text;
+      let parsedContent: MarketInsight;
+
+      try {
+        // Extract JSON from the response text
+        const jsonMatch = content.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error('No JSON object found in response');
+        }
+        parsedContent = JSON.parse(jsonMatch[0]);
+      } catch (e) {
+        logService.log('error', 'Failed to parse DeepSeek response', { content, error: e }, 'AIMarketService');
+        throw new Error('Failed to parse DeepSeek response as JSON');
+      }
+
+      return this.validateMarketInsight(parsedContent);
 
     } catch (error) {
       logService.log('error', 'Failed to generate insights with DeepSeek', error, 'AIMarketService');
@@ -62,109 +93,58 @@ class AIMarketService {
     }
   }
 
-  private parseDeepSeekResponse(data: any, assets: string[]): MarketInsight {
-    try {
-      const content = data.choices[0].message.content;
-      
-      // Parse the AI response and structure it into MarketInsight format
-      return {
-        timestamp: Date.now(),
-        assets: assets.map(asset => ({
-          symbol: asset,
-          sentiment: this.extractSentiment(content, asset),
-          signals: this.extractSignals(content, asset),
-          riskLevel: this.extractRiskLevel(content, asset)
-        })),
-        marketConditions: {
-          trend: this.extractTrend(content),
-          volatility: this.extractVolatility(content),
-          volume: this.extractVolume(content)
-        },
-        recommendations: this.extractRecommendations(content)
-      };
-    } catch (error) {
-      logService.log('error', 'Failed to parse DeepSeek response', error, 'AIMarketService');
-      return this.generateSyntheticInsights(assets);
+  private validateMarketInsight(insight: MarketInsight): MarketInsight {
+    if (typeof insight !== 'object' || insight === null) {
+      throw new Error('Invalid MarketInsight format');
     }
-  }
 
-  // Helper methods for parsing AI response
-  private extractSentiment(content: string, asset: string): 'bullish' | 'bearish' | 'neutral' {
-    // Implementation for sentiment extraction
-    // This is a simplified version - you might want to enhance this
-    const lowercaseContent = content.toLowerCase();
-    const assetMention = lowercaseContent.indexOf(asset.toLowerCase());
-    
-    if (assetMention === -1) return 'neutral';
-    
-    const context = lowercaseContent.substring(
-      Math.max(0, assetMention - 50),
-      Math.min(lowercaseContent.length, assetMention + 50)
-    );
-    
-    if (context.includes('bullish')) return 'bullish';
-    if (context.includes('bearish')) return 'bearish';
-    return 'neutral';
-  }
+    if (typeof insight.timestamp !== 'number') {
+      throw new Error('Invalid timestamp format');
+    }
 
-  private extractSignals(content: string, asset: string): string[] {
-    const signals: string[] = [];
-    const patterns = [
-      'golden cross', 'death cross', 'breakout',
-      'support', 'resistance', 'trend line',
-      'divergence', 'consolidation', 'momentum'
-    ];
+    if (!Array.isArray(insight.assets) || insight.assets.length === 0) {
+      throw new Error('Invalid assets format');
+    }
 
-    for (const pattern of patterns) {
-      if (content.toLowerCase().includes(pattern)) {
-        signals.push(pattern);
+    insight.assets.forEach(asset => {
+      if (typeof asset.symbol !== 'string' || !asset.symbol) {
+        throw new Error('Invalid asset symbol');
       }
-    }
 
-    return signals;
-  }
-
-  private extractRiskLevel(content: string, asset: string): 'low' | 'medium' | 'high' {
-    const lowercaseContent = content.toLowerCase();
-    if (lowercaseContent.includes('high risk')) return 'high';
-    if (lowercaseContent.includes('low risk')) return 'low';
-    return 'medium';
-  }
-
-  private extractTrend(content: string): 'uptrend' | 'downtrend' | 'sideways' {
-    const lowercaseContent = content.toLowerCase();
-    if (lowercaseContent.includes('uptrend')) return 'uptrend';
-    if (lowercaseContent.includes('downtrend')) return 'downtrend';
-    return 'sideways';
-  }
-
-  private extractVolatility(content: string): 'low' | 'medium' | 'high' {
-    const lowercaseContent = content.toLowerCase();
-    if (lowercaseContent.includes('high volatility')) return 'high';
-    if (lowercaseContent.includes('low volatility')) return 'low';
-    return 'medium';
-  }
-
-  private extractVolume(content: string): 'low' | 'medium' | 'high' {
-    const lowercaseContent = content.toLowerCase();
-    if (lowercaseContent.includes('high volume')) return 'high';
-    if (lowercaseContent.includes('low volume')) return 'low';
-    return 'medium';
-  }
-
-  private extractRecommendations(content: string): string[] {
-    const recommendations: string[] = [];
-    const sentences = content.split(/[.!?]+/);
-    
-    for (const sentence of sentences) {
-      if (sentence.toLowerCase().includes('recommend') || 
-          sentence.toLowerCase().includes('suggest') ||
-          sentence.toLowerCase().includes('consider')) {
-        recommendations.push(sentence.trim());
+      if (!['bullish', 'bearish', 'neutral'].includes(asset.sentiment)) {
+        throw new Error('Invalid asset sentiment');
       }
+
+      if (!Array.isArray(asset.signals)) {
+        throw new Error('Invalid asset signals format');
+      }
+
+      if (!['low', 'medium', 'high'].includes(asset.riskLevel)) {
+        throw new Error('Invalid asset risk level');
+      }
+    });
+
+    if (typeof insight.marketConditions !== 'object' || insight.marketConditions === null) {
+      throw new Error('Invalid market conditions format');
     }
 
-    return recommendations;
+    if (!['bullish', 'bearish', 'sideways'].includes(insight.marketConditions.trend)) {
+      throw new Error('Invalid market trend');
+    }
+
+    if (!['low', 'medium', 'high'].includes(insight.marketConditions.volatility)) {
+      throw new Error('Invalid market volatility');
+    }
+
+    if (!['low', 'medium', 'high'].includes(insight.marketConditions.volume)) {
+      throw new Error('Invalid market volume');
+    }
+
+    if (!Array.isArray(insight.recommendations)) {
+      throw new Error('Invalid recommendations format');
+    }
+
+    return insight;
   }
 
   private generateSyntheticInsights(assets: string[]): MarketInsight {

@@ -13,7 +13,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/supabase-client';
 import { logService } from '../lib/log-service';
 import { CircularProgress } from './CircularProgress';
 import { Pagination } from './ui/Pagination';

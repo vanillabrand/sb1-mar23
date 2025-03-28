@@ -17,10 +17,6 @@
     @apply bg-gradient-to-r from-neon-raspberry via-neon-orange to-neon-yellow bg-clip-text text-transparent;
   }
 
-  .gradient-text-strategy {
-    @apply bg-gradient-to-r from-lime-300 via-yellow-400 to-orange-500 bg-clip-text text-transparent;
-  }
-
   .panel {
     @apply bg-gunmetal-800 backdrop-blur-xl rounded-xl p-8;
   }
@@ -33,58 +29,14 @@
     @apply bg-gunmetal-700 backdrop-blur-xl rounded-xl p-8;
   }
 
-  .panel-fixed {
-    @apply max-h-[calc(100vh-16rem)] overflow-hidden flex flex-col;
-  }
-
-  .panel-content {
-    @apply overflow-y-auto flex-1;
-  }
-
-  .panel-footer {
-    @apply mt-4 pt-4 border-t border-gunmetal-700;
-  }
-
+  /* Remove the metallic panel effects but keep basic styling */
   .panel-metallic {
     @apply relative overflow-hidden;
     background: linear-gradient(
       135deg,
       rgba(24, 24, 27, 0.95) 0%,
-      rgba(39, 39, 42, 0.95) 49%,
-      rgba(24, 24, 27, 0.95) 100%
+      rgba(39, 39, 42, 0.95) 100%
     );
-  }
-
-  .panel-metallic::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      45deg,
-      transparent 0%,
-      rgba(152, 152, 152, 0.05) 50%,
-      transparent 100%
-    );
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  .panel-metallic::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(
-      circle at var(--mouse-x, 50%) var(--mouse-y, 50%),
-      rgba(255, 255, 255, 0.08) 0%,
-      transparent 50%
-    );
-    opacity: 0;
-    transition: opacity 0.3s ease;
-  }
-
-  .panel-metallic:hover::before,
-  .panel-metallic:hover::after {
-    opacity: 1;
   }
 }
 

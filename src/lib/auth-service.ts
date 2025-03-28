@@ -1,4 +1,4 @@
-import { supabase } from './supabase';
+import { supabase } from './supabase-client';
 import { logService } from './log-service';
 
 export class AuthService {

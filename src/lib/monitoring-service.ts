@@ -62,12 +62,10 @@ export class MonitoringService extends EventEmitter {
   private readonly HEALTH_CHECK_INTERVAL = 30000; // 30 seconds
   private readonly SYSTEM_METRICS_INTERVAL = 60000;
   private readonly EXCHANGE_METRICS_INTERVAL = 15000;
+  private initialized = false;
 
   private constructor() {
     super();
-    this.initializeHealthChecks();
-    this.initializeSystemMetrics();
-    this.initializeExchangeMetrics();
   }
 
   static getInstance(): MonitoringService {
@@ -77,23 +75,13 @@ export class MonitoringService extends EventEmitter {
     return MonitoringService.instance;
   }
 
-  async startMonitoring(strategy: Strategy): Promise<void> {
-    try {
-      // Initialize monitoring status with new metrics
-      this.status.set(strategy.id, {
-        strategyId: strategy.id,
-        status: 'active',
-        lastUpdate: Date.now(),
-        metrics: {
-          system: await this.getInitialSystemMetrics(),
-          exchange: await this.getInitialExchangeMetrics(),
-          ai: this.getInitialAIMetrics()
-        },
-        alerts: []
-      });
+  async initialize(): Promise<void> {
+    if (this.initialized) return;
 
-      // Set up alert configuration
-      this.alerts.set(strategy.id, this.createDefaultAlertConfig());
+    try {
+      this.initializeHealthChecks();
+      this.initializeSystemMetrics();
+      this.initializeExchangeMetrics();
 
       // Subscribe to market events
       marketMonitor.on('marketDataUpdate', this.handleMarketUpdate.bind(this));
@@ -106,18 +94,19 @@ export class MonitoringService extends EventEmitter {
       tradeService.on('tradeExecuted', this.handleTradeExecution.bind(this));
       tradeService.on('tradeError', this.handleTradeError.bind(this));
 
-      // Add new event subscriptions
+      // Subscribe to analytics events
       analyticsService.on('analyticsUpdate', this.handleAnalyticsUpdate.bind(this));
-      aiTradeService.on('predictionComplete', this.handleAIPrediction.bind(this));
-      exchangeService.on('connectionStatus', this.handleExchangeConnection.bind(this));
 
-      logService.log('info', `Started enhanced monitoring for strategy ${strategy.id}`, 
-        { strategy: strategy.id }, 'MonitoringService');
+      this.initialized = true;
+      logService.log('info', 'Monitoring service initialized successfully', null, 'MonitoringService');
     } catch (error) {
-      logService.log('error', `Failed to start monitoring`, 
-        { strategy: strategy.id, error }, 'MonitoringService');
+      logService.log('error', 'Failed to initialize monitoring service', error, 'MonitoringService');
       throw error;
     }
+  }
+
+  async getAllMonitoringStatuses(): Promise<MonitoringStatus[]> {
+    return Array.from(this.status.values());
   }
 
   private initializeHealthChecks(): void {

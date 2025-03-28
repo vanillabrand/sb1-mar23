@@ -1,12 +1,11 @@
 import { EventEmitter } from './event-emitter';
 import { marketMonitor } from './market-monitor';
-import { AIService } from './ai-service';
-import { logService } from './log-service';
+import { tradeManager } from './trade-manager';
 import { tradeService } from './trade-service';
-import { analyticsService } from './analytics-service';
 import { bitmartService } from './bitmart-service';
-import type { Strategy, MonitorState } from '@/lib/types';
-import type { TradeConfig } from './types';
+import { logService } from './log-service';
+import { technicalIndicators } from '@/lib/technical-indicators';
+import type { Strategy } from './supabase-types';
 
 interface IndicatorData {
   name: string;
@@ -17,13 +16,12 @@ interface IndicatorData {
 
 class TradeGenerator extends EventEmitter {
   private static instance: TradeGenerator;
+  private initialized: boolean = false;
+  private readonly CHECK_FREQUENCY = 60000; // 1 minute
+  private readonly LOOKBACK_PERIOD = 86400000; // 24 hours
   private activeStrategies: Map<string, Strategy> = new Map();
-  private monitorState: Map<string, MonitorState> = new Map();
+  private monitorState: Map<string, { isActive: boolean; lastCheckTime: number }> = new Map();
   private checkInterval: NodeJS.Timeout | null = null;
-  private initialized = false;
-  private readonly CHECK_FREQUENCY = 15000; // 15 seconds
-  private readonly LOOKBACK_PERIOD = 300000; // 5 minutes lookback for market data
-  private readonly DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
 
   private constructor() {
     super();

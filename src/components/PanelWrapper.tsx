@@ -6,28 +6,20 @@ interface PanelWrapperProps {
   index?: number;
   className?: string;
   delay?: number;
+  title?: string;
+  icon?: React.ReactNode;
 }
 
 export function PanelWrapper({ 
   children, 
   index = 0, 
   className = "",
-  delay = 0 
+  delay = 0,
+  title,
+  icon
 }: PanelWrapperProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const controls = useAnimation();
-
-  // Handle mouse move effect
-  const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!panelRef.current) return;
-    
-    const rect = panelRef.current.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 100;
-    const y = ((event.clientY - rect.top) / rect.height) * 100;
-    
-    panelRef.current.style.setProperty('--mouse-x', `${x}%`);
-    panelRef.current.style.setProperty('--mouse-y', `${y}%`);
-  };
 
   // Trigger entrance animation when component enters viewport
   useEffect(() => {
@@ -62,15 +54,14 @@ export function PanelWrapper({
       ref={panelRef}
       initial={{ opacity: 0, y: 20 }}
       animate={controls}
-      onMouseMove={handleMouseMove}
-      onMouseLeave={() => {
-        if (panelRef.current) {
-          panelRef.current.style.setProperty('--mouse-x', '50%');
-          panelRef.current.style.setProperty('--mouse-y', '50%');
-        }
-      }}
-      className={`panel-metallic ${className}`}
+      className={`bg-gunmetal-800/90 backdrop-blur-xl rounded-xl p-6 ${className}`}
     >
+      {title && (
+        <div className="flex items-center gap-3 mb-6">
+          {icon && <div className="text-neon-orange">{icon}</div>}
+          <h2 className="text-xl font-bold gradient-text">{title}</h2>
+        </div>
+      )}
       {children}
     </motion.div>
   );

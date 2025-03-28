@@ -156,7 +156,8 @@ interface TradeAnalysis {
 class AITradeService {
   private static instance: AITradeService;
   private static DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
-  private static DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+  private static DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/completions';
+  private static MODEL = 'deepseek-coder-33b-instruct';
   // Use a stable key for each strategy rather than a unique timestamp per request
   private pendingRequests = new Map<string, Promise<TradeSignal[]>>();
 

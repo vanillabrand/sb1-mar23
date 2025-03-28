@@ -1,40 +1,45 @@
+import React from 'react';
+import { Routes, Route } from 'react-router-dom';
+import { Sidebar } from './Sidebar';
+import { LoadingScreen } from './LoadingScreen';
+import { Dashboard } from './Dashboard';
+import { StrategyManager } from './StrategyManager';
+import { ExchangeManager } from './ExchangeManager';
+import { TradeMonitor } from './TradeMonitor';
+import { Backtester } from './Backtester';
+import { Analytics } from './Analytics';
+import { Documentation } from './Documentation';
+import { Notes } from './Notes';
+import { Settings } from './Settings';
+import { BugTracker } from './BugTracker';
+
 interface AppContentProps {
-  isReady: boolean;
-  error: string | null;
+  isReady?: boolean; // Made optional with default value
 }
 
-export const AppContent: React.FC<AppContentProps> = ({ isReady, error }) => {
-  if (error) {
-    return (
-      <div className="fixed inset-0 bg-gunmetal-900 flex items-center justify-center">
-        <div className="text-center p-8 bg-gunmetal-800 rounded-lg">
-          <h2 className="text-xl font-bold text-neon-red mb-4">Initialization Error</h2>
-          <p className="text-white mb-4">{error}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="px-4 py-2 bg-neon-blue hover:bg-neon-blue/80 rounded-lg"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+export const AppContent: React.FC<AppContentProps> = ({ isReady = true }) => { // Added default value
   if (!isReady) {
     return <LoadingScreen />;
   }
 
   return (
-    <div className="app-container">
-      <Router>
-        <Sidebar />
-        <div className="main-content">
-          <Routes>
-            {/* Your existing routes */}
-          </Routes>
-        </div>
-      </Router>
+    <div className="flex h-screen bg-gunmetal-950">
+      <Sidebar />
+      <main className="flex-1 overflow-auto">
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/strategy-manager" element={<StrategyManager />} />
+          <Route path="/exchange-manager" element={<ExchangeManager />} />
+          <Route path="/trade-monitor" element={<TradeMonitor />} />
+          <Route path="/backtest" element={<Backtester />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/documentation" element={<Documentation />} />
+          <Route path="/notes" element={<Notes />} />
+          <Route path="/settings" element={<Settings />} />
+          <Route path="/bug-tracker" element={<BugTracker />} />
+        </Routes>
+      </main>
     </div>
   );
 };

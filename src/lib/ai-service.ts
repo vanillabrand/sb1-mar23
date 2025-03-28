@@ -7,7 +7,8 @@ import { marketMonitor } from './market-monitor';
 class AIService extends EventEmitter {
   private static instance: AIService;
   private static DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
-  private static DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+  private static DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/completions';
+  private static MODEL = 'deepseek-coder-33b-instruct';
   private retryCount = 0;
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000;

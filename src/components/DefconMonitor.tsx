@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { AlertTriangle } from 'lucide-react';
 import useSound from 'use-sound';
-import { marketService } from '../lib/market-service';
-import { analyticsService } from '../lib/analytics-service';
-import { bitmartService } from '../lib/bitmart-service';
+import { 
+  marketService,
+  analyticsService,
+  bitmartService 
+} from '../lib/services';
 import { strategyMonitor } from '../lib/strategy-monitor';
+import type { Strategy } from '../lib/types';
 
 interface MarketMetrics {
   volatility: number;      // 0-100

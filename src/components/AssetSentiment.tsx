@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+simport React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Brain, 
@@ -9,12 +9,7 @@ import {
   Activity,
   Gauge,
   Scale,
-  AlertCircle,
-  Smile,
-  Frown,
-  Meh,
-  ArrowBigUp,
-  ArrowBigDown
+  AlertCircle
 } from 'lucide-react';
 import { bitmartService } from '../lib/bitmart-service';
 import { analyticsService } from '../lib/analytics-service';
@@ -50,11 +45,32 @@ const AssetSentiment: React.FC<AssetSentimentProps> = ({ assets }) => {
     }
   };
 
-  return (
-    <ErrorBoundary fallback={<div>Failed to load market sentiment</div>}>
+  useEffect(() => {
+    fetchInsights();
+  }, [assets]);
+
+  if (loading) {
+    return (
       <div className="flex items-center justify-center h-32">
         <Loader2 className="w-8 h-8 text-neon-turquoise animate-spin" />
       </div>
-    </ErrorBoundary>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center gap-2">
+        <AlertCircle className="w-5 h-5" />
+        {error}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid gap-4">
+      {/* Render sentiment data here */}
+    </div>
   );
-}
+};
+
+export default AssetSentiment;
