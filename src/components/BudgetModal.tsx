@@ -17,14 +17,14 @@ interface BudgetModalProps {
 export function BudgetModal({
   onConfirm,
   onCancel,
-  maxBudget,
+  maxBudget = 0, // Provide default value
   riskLevel,
   isSubmitting = false,
   initialBudget,
   isEditing = false
 }: BudgetModalProps) {
   const [totalBudget, setTotalBudget] = useState<number>(
-    initialBudget?.total || Math.min(maxBudget * 0.1, maxBudget)
+    initialBudget?.total || Math.min((maxBudget || 0) * 0.1, maxBudget || 0)
   );
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -50,12 +50,12 @@ export function BudgetModal({
           : 'spot';
       // Get balance for market type
       const balance = await exchangeService.fetchBalance(marketType);
-      const availableBalance = Number(balance.available.toFixed(2));
+      const availableBalance = Number((balance?.available || 0).toFixed(2));
       setMarketBalance(availableBalance);
       // Set initial budget if not editing
       if (!isEditing) {
         setTotalBudget(
-          Number(Math.min(availableBalance * 0.1, maxBudget).toFixed(2))
+          Number(Math.min(availableBalance * 0.1, maxBudget || 0).toFixed(2))
         );
       }
     } catch (error) {
@@ -65,9 +65,9 @@ export function BudgetModal({
         error,
         'BudgetModal'
       );
-      setMarketBalance(maxBudget);
+      setMarketBalance(maxBudget || 0);
       if (!isEditing) {
-        setTotalBudget(Number((maxBudget * 0.1).toFixed(2)));
+        setTotalBudget(Number(((maxBudget || 0) * 0.1).toFixed(2)));
       }
     } finally {
       setLoadingBalance(false);
@@ -160,7 +160,7 @@ export function BudgetModal({
               </div>
             ) : (
               <p className="text-2xl font-bold text-neon-turquoise">
-                ${marketBalance?.toLocaleString(undefined, {
+                ${(marketBalance || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
@@ -180,14 +180,14 @@ export function BudgetModal({
                 onChange={(e) => handleBudgetChange(e.target.value)}
                 className="pl-10 w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent"
                 min={0}
-                max={maxBudget}
+                max={maxBudget || 0}
                 step={0.01}
                 required
                 disabled={isSubmitting || isProcessing}
               />
             </div>
             <p className="mt-1 text-sm text-gray-400">
-              Maximum allowed: ${maxBudget.toLocaleString(undefined, {
+              Maximum allowed: ${(maxBudget || 0).toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
               })}

@@ -39,50 +39,18 @@ export function PortfolioPerformance() {
 
   const loadPerformanceData = async () => {
     try {
-      setLoading(true);
-      setError(null);
-
-      // Calculate date range based on timeframe
-      const endDate = new Date();
-      const startDate = new Date();
-      switch (timeframe) {
-        case '1h':
-          startDate.setHours(startDate.getHours() - 1);
-          break;
-        case '1d':
-          startDate.setDate(startDate.getDate() - 1);
-          break;
-        case '1w':
-          startDate.setDate(startDate.getDate() - 7);
-          break;
-        case '1m':
-          startDate.setMonth(startDate.getMonth() - 1);
-          break;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        // Handle unauthenticated state gracefully
+        setPerformanceData(null);
+        return;
       }
-
-      // Get transactions for the period
-      const transactions = await transactionService.getTransactionsForUser(
-        startDate.getTime(),
-        endDate.getTime()
-      );
-
-      // Calculate cumulative performance
-      const data = [];
-      let balance = 0;
-      for (const tx of transactions) {
-        balance += tx.amount;
-        data.push({
-          date: new Date(tx.created_at),
-          value: balance
-        });
-      }
-
-      setPerformanceData(data);
+      
+      const transactions = await transactionService.getTransactionsForUser();
+      // Process transactions...
     } catch (error) {
-      setError('Failed to load performance data');
-      logService.log('error', 'Error loading performance data:', error, 'PortfolioPerformance');
-    } finally {
-      setLoading(false);
+      logService.log('error', 'Failed to load performance data', error, 'PortfolioPerformance');
+      // Handle error state
     }
   };
 

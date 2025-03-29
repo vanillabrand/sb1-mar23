@@ -1,17 +1,11 @@
 # Stop all processes
-./scripts/run.sh stop
+pm2 delete all
 
-# Remove node_modules and package-lock.json
+# Clean install
 rm -rf node_modules package-lock.json
-
-# Clear npm cache
+rm -rf node_modules/.vite
 npm cache clean --force
-
-# Reinstall dependencies
 npm install
 
-# Build the project
-npm run build
-
-# Start in development mode
-./scripts/run.sh dev
+# Start development server
+npm run dev

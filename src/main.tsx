@@ -1,3 +1,4 @@
+import './lib/node-polyfills';  // This must be the first import
 import React, { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
@@ -23,6 +24,8 @@ const CriticalErrorScreen = ({ message }: { message: string }) => (
   </div>
 );
 
+let root: ReturnType<typeof createRoot> | null = null;
+
 const initApp = async () => {
   try {
     // Create root element if it doesn't exist
@@ -33,7 +36,10 @@ const initApp = async () => {
       document.body.appendChild(rootElement);
     }
 
-    const root = createRoot(rootElement);
+    // Only create root if it doesn't exist
+    if (!root) {
+      root = createRoot(rootElement);
+    }
 
     // Render loading state
     root.render(
@@ -62,7 +68,12 @@ const initApp = async () => {
             </div>
           }
         >
-          <BrowserRouter>
+          <BrowserRouter
+            future={{ 
+              v7_startTransition: true,
+              v7_relativeSplatPath: true 
+            }}
+          >
             <AuthProvider>
               <App />
             </AuthProvider>
@@ -73,10 +84,13 @@ const initApp = async () => {
   } catch (error) {
     console.error('Application initialization failed:', error);
     
-    // Render error screen
-    const rootElement = document.getElementById('root');
-    if (rootElement) {
-      createRoot(rootElement).render(
+    // Use existing root if available, otherwise create new one
+    if (!root && document.getElementById('root')) {
+      root = createRoot(document.getElementById('root')!);
+    }
+    
+    if (root) {
+      root.render(
         <CriticalErrorScreen 
           message={error instanceof Error ? error.message : 'Failed to initialize application'} 
         />

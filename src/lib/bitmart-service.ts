@@ -62,6 +62,7 @@ class BitmartService extends EventEmitter {
   private baseUrl = 'https://api-cloud.bitmart.com';
   private demoMode = false;
   private useUSDX = false;
+  private serverTimeOffset = 0;
   private assetData = new Map<string, AssetData>();
   private tradingPairs = new Map<string, TradingPair>();
   private subscriptions = new Set<string>();
@@ -172,8 +173,91 @@ class BitmartService extends EventEmitter {
     return data;
   }
 
-  // Rest of the BitmartService implementation...
-  // (Keep all existing methods and add getAssetData above them)
+  private async initializeServerTime(): Promise<void> {
+    try {
+      const response = await fetch(`${this.baseUrl}/system/time`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server time request failed: ${response.status}`);
+      }
+
+      const { server_time } = await response.json();
+      this.serverTimeOffset = server_time - Date.now();
+    } catch (error) {
+      // In demo mode, we can safely ignore server time sync errors
+      if (this.demoMode) {
+        logService.log('warn', 'Failed to sync server time in demo mode, using local time', error, 'BitmartService');
+        this.serverTimeOffset = 0;
+        return;
+      }
+      throw error;
+    }
+  }
+
+  async initialize(config: BitmartConfig): Promise<void> {
+    try {
+      this.config = config;
+      this.demoMode = config.testnet || false;
+      this.useUSDX = config.useUSDX || false;
+
+      if (this.demoMode) {
+        // In demo mode, initialize with default data
+        await this.initializeDemoData();
+        this.initialized = true;
+        this.emit('initialized');
+        return;
+      }
+
+      await this.initializeServerTime();
+      // ... rest of the initialization logic
+    } catch (error) {
+      logService.log('error', 'Failed to initialize Bitmart service', error, 'BitmartService');
+      throw error;
+    }
+  }
+
+  private async initializeDemoData(): Promise<void> {
+    try {
+      // Initialize demo market data
+      this.DEFAULT_ASSETS.forEach(symbol => {
+        const basePrice = this.getBasePriceForSymbol(symbol);
+        const demoData = this.generateDemoMarketData(symbol, basePrice);
+        this.assetData.set(symbol, demoData);
+      });
+
+      // Start demo data updates
+      if (this.updateInterval) {
+        clearInterval(this.updateInterval);
+      }
+
+      this.updateInterval = setInterval(() => {
+        this.updateDemoMarketData();
+      }, this.UPDATE_INTERVAL);
+
+    } catch (error) {
+      logService.log('error', 'Failed to initialize demo data', error, 'BitmartService');
+      throw error;
+    }
+  }
+
+  private getBasePriceForSymbol(symbol: string): number {
+    // Default base prices for demo mode
+    const basePrices: Record<string, number> = {
+      'BTC_USDT': 45000,
+      'ETH_USDT': 2500,
+      'SOL_USDT': 100,
+      'BNB_USDT': 300,
+      'XRP_USDT': 0.5
+    };
+    return basePrices[symbol] || 100;
+  }
+
+  getServerTime(): number {
+    return Date.now() + this.serverTimeOffset;
+  }
 }
 
 export const bitmartService = BitmartService.getInstance();

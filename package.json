@@ -42,7 +42,10 @@
     "ts-node": "^10.9.2",
     "use-sound": "^5.0.0",
     "uuid": "^11.1.0",
-    "ws": "^8.18.1"
+    "ws": "^8.18.1",
+    "clsx": "^2.0.0",
+    "tailwind-merge": "^2.0.0",
+    "cmdk": "^0.2.0"
   },
   "devDependencies": {
     "@supabase/supabase-js": "^2.49.3",

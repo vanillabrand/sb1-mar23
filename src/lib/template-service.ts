@@ -1,8 +1,16 @@
+import { EventEmitter } from './event-emitter';
 import { supabase } from './supabase';
-import { StrategyTemplate } from './types';
+import type { StrategyTemplate } from './types';
 import { logService } from './log-service';
 
-export const templateService = {
+class TemplateService extends EventEmitter {
+  private templates: Map<string, StrategyTemplate> = new Map();
+  private initialized: boolean = false;
+
+  constructor() {
+    super();
+  }
+
   async getTemplatesForUser(): Promise<StrategyTemplate[]> {
     try {
       const { data, error } = await supabase
@@ -16,7 +24,7 @@ export const templateService = {
       logService.log('error', 'Failed to fetch strategy templates', error);
       throw error;
     }
-  },
+  }
 
   async createStrategyFromTemplate(templateId: string): Promise<any> {
     try {
@@ -50,4 +58,42 @@ export const templateService = {
       throw error;
     }
   }
-};
+
+  async initializeDemoTemplates(): Promise<void> {
+    try {
+      // Load demo templates
+      const demoTemplates = this.getDefaultDemoTemplates();
+      
+      // Clear existing templates and set demo ones
+      this.templates.clear();
+      demoTemplates.forEach(template => {
+        this.templates.set(template.id, template);
+      });
+
+      this.initialized = true;
+      this.emit('initialized');
+    } catch (error) {
+      logService.log('error', 'Failed to initialize demo templates', error, 'TemplateService');
+      throw error;
+    }
+  }
+
+  private getDefaultDemoTemplates(): StrategyTemplate[] {
+    return [
+      {
+        id: 'demo-template-1',
+        name: 'Basic MACD Strategy',
+        description: 'A simple MACD-based trading strategy for demonstration',
+        type: 'technical',
+        config: {
+          indicators: ['MACD', 'EMA'],
+          timeframe: '1h',
+          assets: ['BTC_USDT', 'ETH_USDT']
+        }
+      },
+      // Add more demo templates as needed
+    ];
+  }
+}
+
+export const templateService = new TemplateService();

@@ -14,7 +14,11 @@ import { tradeManager } from '../lib/trade-manager';
 import { logService } from '../lib/log-service';
 import { useStrategies } from '../hooks/useStrategies';
 
-export function EmergencyStopButton() {
+interface EmergencyStopButtonProps {
+  className?: string;
+}
+
+export function EmergencyStopButton({ className = '' }: EmergencyStopButtonProps) {
   const { strategies, updateStrategy, refresh } = useStrategies();
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);

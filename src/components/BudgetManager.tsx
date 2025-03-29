@@ -163,7 +163,7 @@ const BudgetManager = () => {
             setSelectedStrategy(null);
             setPendingStrategy(null);
           }}
-          maxBudget={tradeService.calculateAvailableBudget()}
+          maxBudget={tradeService.calculateAvailableBudget() || 0} // Add fallback
           riskLevel={
             selectedStrategy 
               ? strategies.find(s => s.id === selectedStrategy)?.risk_level || 'Medium'

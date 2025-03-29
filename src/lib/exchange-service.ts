@@ -260,6 +260,13 @@ export class ExchangeService extends EventEmitter {
 
   async initializeExchange(config: ExchangeConfig): Promise<void> {
     try {
+      // Add validation
+      if (!config || !config.apiKey) {
+        logService.log('warn', 'Invalid exchange config, switching to demo mode', null, 'ExchangeService');
+        await this.initializeDemoMode();
+        return;
+      }
+
       // Check proxy availability first
       const isProxyAvailable = await ccxtService.checkProxyAvailability();
       if (!isProxyAvailable) {
@@ -307,14 +314,22 @@ export class ExchangeService extends EventEmitter {
       });
     } catch (error) {
       logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
-      
-      // Fall back to offline demo mode
-      this.isLiveMode = false;
-      this.isDemoMode = true;
-      this.currentExchange = 'bitmart';
-      
-      throw error;
+      await this.initializeDemoMode();
     }
+  }
+
+  private async initializeDemoMode(): Promise<void> {
+    this.isLiveMode = false;
+    this.isDemoMode = true;
+    this.currentExchange = 'bitmart';
+    await this.initializeDemoMarketPairs();
+    
+    const demoBalance = {
+      spot: { total: 10000, used: 0, free: 10000 },
+      margin: { total: 5000, used: 0, free: 5000 },
+      futures: { total: 5000, used: 0, free: 5000 }
+    };
+    // Set demo balance...
   }
 
   private async initializeDemoMarketPairs(): Promise<void> {

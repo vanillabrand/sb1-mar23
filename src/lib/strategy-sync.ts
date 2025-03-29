@@ -1,6 +1,6 @@
 import { EventEmitter } from './event-emitter';
-import { supabase } from './supabase';
 import { logService } from './log-service';
+import { supabase } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
 import { AIService } from './ai-service';
 import type { Strategy } from './supabase-types';

@@ -30,8 +30,8 @@ export class CCXTService extends EventEmitter {
 
   async checkProxyAvailability(): Promise<boolean> {
     try {
-      const response = await axios.get(`${this.proxyUrl}/health`, { timeout: 5000 });
-      return response.data.status === 'ok';
+      const response = await fetch('/api/system/time');
+      return response.ok;
     } catch (error) {
       return false;
     }

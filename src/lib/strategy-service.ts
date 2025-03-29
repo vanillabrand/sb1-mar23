@@ -369,6 +369,49 @@ class StrategyService {
   clearCache(): void {
     this.strategyCache.clear();
   }
+
+  async moveToBackend(id: string): Promise<void> {
+    try {
+      // Get the strategy
+      const strategy = await this.getStrategy(id);
+      if (!strategy) return;
+
+      // Update strategy status to indicate backend processing
+      const { error } = await supabase
+        .from('strategies')
+        .update({
+          status: 'backend_processing',
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+
+      if (error) throw error;
+
+      // Remove from local cache
+      this.strategyCache.delete(id);
+      
+      logService.log('info', `Moved strategy ${id} to backend processing`, null, 'StrategyService');
+    } catch (error) {
+      logService.log('error', `Failed to move strategy ${id} to backend`, error, 'StrategyService');
+      throw error;
+    }
+  }
+
+  async getActiveStrategies(): Promise<Strategy[]> {
+    try {
+      const { data, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('status', 'active');
+
+      if (error) throw error;
+
+      return data || [];
+    } catch (error) {
+      logService.log('error', 'Failed to get active strategies', error, 'StrategyService');
+      throw error;
+    }
+  }
 }
 
 export const strategyService = StrategyService.getInstance();

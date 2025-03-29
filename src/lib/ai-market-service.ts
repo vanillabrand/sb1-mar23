@@ -3,8 +3,8 @@ import type { MarketInsight } from './types';
 
 class AIMarketService {
   private static instance: AIMarketService;
-  private readonly API_URL = 'https://api.deepseek.com/v1/completions';  // Changed endpoint
-  private readonly MODEL = 'deepseek-coder-33b-instruct';  // Updated model name
+  private readonly API_URL = 'https://api.deepseek.com/v1/chat/completions';  // Updated endpoint
+  private readonly MODEL = 'deepseek-chat';  // Updated model name
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000;
 
@@ -35,7 +35,9 @@ class AIMarketService {
         },
         body: JSON.stringify({
           model: this.MODEL,
-          prompt: `Analyze the following crypto assets and return a JSON response: ${assets.join(', ')}. Include technical indicators, market sentiment, and potential opportunities. Format the response as a valid JSON object with the following structure:
+          messages: [{
+            role: 'user',
+            content: `Analyze the following crypto assets and return a JSON response: ${assets.join(', ')}. Include technical indicators, market sentiment, and potential opportunities. Format the response as a valid JSON object with the following structure:
 {
   "timestamp": number,
   "assets": [{
@@ -50,10 +52,10 @@ class AIMarketService {
     "volume": "low" | "medium" | "high"
   },
   "recommendations": string[]
-}`,
-          max_tokens: 2000,
+}`
+          }],
           temperature: 0.3,
-          stop: ["```"],
+          max_tokens: 2000,
           stream: false
         })
       });
@@ -66,11 +68,11 @@ class AIMarketService {
 
       const data = await response.json();
       
-      if (!data.choices?.[0]?.text) {
+      if (!data.choices?.[0]?.message?.content) {
         throw new Error('Invalid response format from DeepSeek API');
       }
 
-      const content = data.choices[0].text;
+      const content = data.choices[0].message.content;
       let parsedContent: MarketInsight;
 
       try {
@@ -168,6 +170,20 @@ class AIMarketService {
 
   async getMarketInsights(assets: string[]): Promise<MarketInsight> {
     return this.generateWithDeepSeek(assets);
+  }
+
+  private parseDeepSeekResponse(response: string): any {
+    try {
+      // Remove any potential non-JSON content before and after the JSON
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error('No valid JSON found in response');
+      }
+      return JSON.parse(jsonMatch[0]);
+    } catch (error) {
+      logService.log('error', 'Failed to parse DeepSeek response', { response, error }, 'AIMarketService');
+      return null;
+    }
   }
 }
 

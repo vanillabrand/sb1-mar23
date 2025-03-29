@@ -8,12 +8,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
   throw new Error('Missing Supabase environment variables. Please check your .env file.');
 }
 
+// Create a single instance of the Supabase client
 export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
   auth: {
     autoRefreshToken: true,
     persistSession: true,
+    storageKey: 'app-auth', // Add a unique storage key
+    storage: window.localStorage,
   }
 });
+
+// Prevent creating multiple instances
+Object.freeze(supabase);
 
 // Export a function to check if Supabase is properly initialized
 export const checkSupabaseConnection = async () => {

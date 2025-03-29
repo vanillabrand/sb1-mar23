@@ -1,6 +1,7 @@
 import { logService } from './log-service';
 import { supabase } from './supabase-client';
 import { exchangeService } from './exchange-service';
+import { templateService } from './template-service';
 
 class SystemSync {
   private initialized = false;
@@ -74,9 +75,9 @@ class SystemSync {
       try {
         await exchangeService.initializeExchange({
           name: 'bitmart',
-          apiKey: 'demo',
-          secret: 'demo',
-          memo: 'demo',
+          apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY,
+          secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET,
+          memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO,
           testnet: true
         });
         
@@ -116,13 +117,18 @@ class SystemSync {
     logService.log('info', 'Initializing offline demo mode', null, 'SystemSync');
     
     try {
+      // Initialize exchange with demo credentials from environment variables
       await exchangeService.initializeExchange({
         name: 'bitmart',
-        apiKey: 'demo',
-        secret: 'demo',
-        memo: 'demo',
-        testnet: true
+        apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY,
+        secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET,
+        memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO,
+        testnet: true,
+        useUSDX: false
       });
+
+      // Initialize templates with demo data
+      await templateService.initializeDemoTemplates();
       
       logService.log('info', 'Offline demo mode initialized successfully', null, 'SystemSync');
     } catch (error) {

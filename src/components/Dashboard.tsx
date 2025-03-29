@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Clock } from 'lucide-react';
 import { 
   analyticsService,
   monitoringService,
@@ -7,8 +8,19 @@ import {
 import { 
   StrategyAssetPanel,
   ErrorBoundary,
-  WidgetError 
+  WidgetError,
+  NetworkStatus,
+  StrategyStatus,
+  AIMarketInsight,
+  PortfolioPerformance,
+  RiskExposure,
+  EmergencyStopButton,
+  NewsWidget,
+  WorldClock,
+  DefconMonitor,
+  AssetDistribution
 } from './index';
+import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type { 
   Strategy,
   MonitoringStatus 
@@ -34,8 +46,8 @@ interface MonitoringStatus {
 }
 
 interface DashboardProps {
-  strategies?: Strategy[];
-  monitoringStatuses?: Record<string, MonitoringStatus>;
+  strategies: Strategy[];
+  monitoringStatuses: Record<string, MonitoringStatus>;
 }
 
 export function Dashboard({ 
