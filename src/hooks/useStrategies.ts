@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { marketService } from '../lib/market-service';
-import { useAuth } from '../lib/auth-context';
+import { useAuth } from './useAuth';
 import { logService } from '../lib/log-service';
 import { strategySync } from '../lib/strategy-sync';
 import { aiService } from '../lib/ai-service';
@@ -12,7 +12,7 @@ type Strategy = Database['public']['Tables']['strategies']['Row'];
 interface CreateStrategyData {
   title: string;
   description: string | null;
-  risk_level: RiskLevel;
+  risk_level: RiskLevel; // Changed from riskLevel
 }
 
 export function useStrategies() {
@@ -94,7 +94,9 @@ export function useStrategies() {
   }
 
   async function createStrategy(data: CreateStrategyData) {
-    if (!user) throw new Error('User not authenticated');
+    if (!user) {
+      throw new Error('Please sign in to create a strategy');
+    }
     
     try {
       setCreatingStrategy(true);
@@ -105,7 +107,9 @@ export function useStrategies() {
         user_id: user.id,
         type: 'custom',
         status: 'inactive',
-        performance: 0
+        performance: 0,
+        selected_pairs: [], // Add default empty array
+        strategy_config: {} // Add default empty config
       });
 
       logService.log('info', 'Created new strategy', strategy, 'useStrategies');

@@ -79,13 +79,21 @@ check_proxy() {
     return $?
 }
 
-# Function to start development environment
+# Stop all processes
+stop_all() {
+    print_status "Stopping all processes..."
+    pm2 delete all &>/dev/null || true
+}
+
+# Start development environment
 start_dev() {
     print_status "Starting development environment..."
     
+    # Stop any existing processes
+    stop_all
+    
     # Start proxy server
     print_status "Starting proxy server..."
-    pm2 delete proxy-server &>/dev/null || true
     pm2 start proxy-server.js --name proxy-server
     
     # Wait for proxy server to be ready
@@ -144,25 +152,19 @@ main() {
     fi
 }
 
-# Parse command line arguments
+# Usage
 case "$1" in
-    "dev")
-        export NODE_ENV=development
-        main
-        ;;
-    "prod")
-        export NODE_ENV=production
-        main
+    "start")
+        start_dev
         ;;
     "stop")
-        pm2 delete all
-        print_status "Stopped all processes"
+        stop_all
+        print_status "All processes stopped"
         ;;
     *)
-        echo "Usage: $0 {dev|prod|stop}"
-        echo "  dev  - Start development environment"
-        echo "  prod - Start production environment"
-        echo "  stop - Stop all processes"
+        echo "Usage: $0 {start|stop}"
+        echo "  start - Start development environment"
+        echo "  stop  - Stop all processes"
         exit 1
         ;;
 esac

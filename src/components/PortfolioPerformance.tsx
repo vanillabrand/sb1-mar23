@@ -10,6 +10,7 @@ import {
   X, 
   ChevronDown 
 } from 'lucide-react';
+import { supabase } from '../lib/supabase-client';
 import { transactionService } from '../lib/transaction-service';
 import { logService } from '../lib/log-service';
 import {
@@ -63,12 +64,12 @@ export function PortfolioPerformance() {
         throw new Error('Please select a date range');
       }
 
+      // Convert string dates to Date objects
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+
       // Get transactions for selected date range
-      const transactions = await transactionService.getTransactionsForUser(
-        new Date(startDate).getTime(),
-        new Date(endDate).getTime(),
-        transactionType
-      );
+      const transactions = await transactionService.getTransactionsForUser(start, end);
 
       if (transactions.length === 0) {
         throw new Error('No transactions found for the selected period');
@@ -110,9 +111,10 @@ export function PortfolioPerformance() {
       URL.revokeObjectURL(url);
 
       setShowTransactionModal(false);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to download transactions');
-      logService.log('error', 'Error downloading transactions:', error, 'PortfolioPerformance');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to download transactions';
+      setError(errorMessage);
+      logService.log('error', 'Failed to download CSV', err, 'PortfolioPerformance');
     } finally {
       setDownloadingCSV(false);
     }

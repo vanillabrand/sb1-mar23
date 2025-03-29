@@ -1,63 +1,32 @@
 import { createClient } from '@supabase/supabase-js';
-import type { Database } from '../types/supabase';
+import { config } from './config';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error('Missing Supabase environment variables. Please check your .env file.');
+if (!config.supabaseUrl || !config.supabaseAnonKey) {
+  throw new Error('Missing Supabase URL or Anon Key');
 }
 
-// Create a single instance of the Supabase client
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    autoRefreshToken: true,
-    persistSession: true,
-    storageKey: 'app-auth', // Add a unique storage key
-    storage: window.localStorage,
+export const supabase = createClient(
+  config.supabaseUrl,
+  config.supabaseAnonKey,
+  {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true
+    }
   }
-});
+);
 
-// Prevent creating multiple instances
-Object.freeze(supabase);
-
-// Export a function to check if Supabase is properly initialized
-export const checkSupabaseConnection = async () => {
-  try {
-    const { data, error } = await supabase.from('health_check').select('count').single();
-    if (error) throw error;
-    return true;
-  } catch (error) {
-    console.error('Supabase connection check failed:', error);
-    return false;
-  }
+// Utility function to get the current session
+export const getCurrentSession = async () => {
+  const { data: { session }, error } = await supabase.auth.getSession();
+  if (error) throw error;
+  return session;
 };
 
-export const getUser = async () => {
+// Utility function to get the current user
+export const getCurrentUser = async () => {
   const { data: { user }, error } = await supabase.auth.getUser();
   if (error) throw error;
   return user;
-};
-
-export const signOut = async () => {
-  const { error } = await supabase.auth.signOut();
-  if (error) throw error;
-};
-
-export const signInWithEmail = async (email: string, password: string) => {
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-  if (error) throw error;
-  return data;
-};
-
-export const signUpWithEmail = async (email: string, password: string) => {
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-  });
-  if (error) throw error;
-  return data;
 };

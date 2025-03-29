@@ -1,9 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 import { 
   AlertCircle, 
   Loader2, 
   RefreshCw, 
-  Search 
+  Search,
+  TrendingUp,
+  TrendingDown,
+  Clock,
+  DollarSign,
+  BarChart3,
+  ChevronDown
 } from 'lucide-react';
 import { 
   marketService,
@@ -28,10 +35,14 @@ import type {
 } from '../lib/types';
 
 interface TradeMonitorProps {
-  strategies?: Strategy[];
+  strategies: Strategy[];
+  className?: string;
 }
 
-export const TradeMonitor: React.FC<TradeMonitorProps> = ({ strategies = [] }) => {
+export const TradeMonitor: React.FC<TradeMonitorProps> = ({ 
+  strategies,
+  className = '' 
+}) => {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [marketData, setMarketData] = useState<MarketData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -43,7 +54,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({ strategies = [] }) =
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [pendingStrategy, setPendingStrategy] = useState<Strategy | null>(null);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
-  const [tradeStats, setTradeStats] = useState<any>(null);
+  const [tradeStats, setTradeStats] = useState<TradeStatsType | null>(null);
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
 
   useEffect(() => {
@@ -170,99 +181,182 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({ strategies = [] }) =
     .sort((a, b) => b.timestamp - a.timestamp);
 
   return (
-    <PanelWrapper>
-      <div className="space-y-4">
+    <div className="min-h-screen bg-gunmetal-900 p-6">
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="space-y-6"
+      >
+        {/* Header Section */}
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-100">Trade Monitor</h1>
+            <p className="text-gray-400 mt-1">Real-time trade monitoring and analysis</p>
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-gray-400 flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Last update: {new Date(lastUpdate).toLocaleTimeString()}
+            </span>
+            <button
+              onClick={refresh}
+              disabled={refreshing}
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
+            >
+              {refreshing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-red-500/10 border border-red-500/20 rounded-lg p-4"
+          >
+            <div className="flex items-center gap-2 text-red-400">
+              <AlertCircle className="w-5 h-5" />
+              <span>{error}</span>
+            </div>
+          </motion.div>
+        )}
+
         {isLoading ? (
-          <div className="flex justify-center py-8">
-            <Loader2 className="w-8 h-8 text-neon-raspberry animate-spin" />
+          <div className="flex justify-center py-12">
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           </div>
         ) : (
           <>
-            <div className="flex justify-between items-center">
-              <h1 className="text-2xl font-bold text-white">Trade Monitor</h1>
-              <button
-                onClick={refresh}
-                className="px-4 py-2 bg-neon-blue text-white rounded-md hover:bg-blue-600 transition-colors"
-                disabled={refreshing}
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                className="bg-gunmetal-800 rounded-lg p-6"
               >
-                {refreshing ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-5 h-5" />
-                )}
-              </button>
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-blue-500/10 rounded-lg">
+                    <BarChart3 className="w-6 h-6 text-blue-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">Total Trades</p>
+                    <p className="text-2xl font-bold text-gray-100">
+                      {tradeStats?.totalTrades || 0}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                className="bg-gunmetal-800 rounded-lg p-6"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-green-500/10 rounded-lg">
+                    <TrendingUp className="w-6 h-6 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">Profitable Trades</p>
+                    <p className="text-2xl font-bold text-gray-100">
+                      {tradeStats?.profitableTrades || 0}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                className="bg-gunmetal-800 rounded-lg p-6"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-purple-500/10 rounded-lg">
+                    <DollarSign className="w-6 h-6 text-purple-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">Total Profit</p>
+                    <p className="text-2xl font-bold text-gray-100">
+                      ${(tradeStats?.totalProfit || 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+
+              <motion.div
+                whileHover={{ scale: 1.02 }}
+                className="bg-gunmetal-800 rounded-lg p-6"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="p-3 bg-amber-500/10 rounded-lg">
+                    <TrendingDown className="w-6 h-6 text-amber-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-400">Average Profit</p>
+                    <p className="text-2xl font-bold text-gray-100">
+                      ${(tradeStats?.averageProfit || 0).toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
             </div>
 
-            {error && (
-              <div className="bg-red-500/10 border border-red-500 rounded-md p-4 text-red-500">
-                <div className="flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5" />
-                  <span>{error}</span>
+            {/* Chart and Filters */}
+            <div className="bg-gunmetal-800 rounded-lg p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-100">Trade Performance</h2>
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <input
+                      type="text"
+                      placeholder="Search trades..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-10 pr-4 py-2 bg-gunmetal-900 rounded-lg border border-gunmetal-700 text-gray-100 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+                    className="px-4 py-2 bg-gunmetal-900 rounded-lg border border-gunmetal-700 text-gray-100 focus:outline-none focus:border-blue-500"
+                  >
+                    <option value="all">All Trades</option>
+                    <option value="profit">Profitable</option>
+                    <option value="loss">Loss</option>
+                  </select>
                 </div>
               </div>
-            )}
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              <div className="lg:col-span-2">
+              <div className="h-[400px]">
                 <TradeChart trades={filteredTrades} />
               </div>
-              <div>
-                <TradeStats stats={tradeStats} />
-              </div>
             </div>
 
-            <div className="flex gap-4 items-center">
-              <div className="flex-1">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search trades..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 bg-gunmetal-800 rounded-lg text-white"
-                  />
-                </div>
-              </div>
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
-                className="px-4 py-2 bg-gunmetal-800 rounded-lg text-white"
-              >
-                <option value="all">All Trades</option>
-                <option value="profit">Profitable</option>
-                <option value="loss">Loss</option>
-              </select>
+            {/* Trade List */}
+            <div className="bg-gunmetal-800 rounded-lg p-6">
+              <TradeList 
+                trades={filteredTrades}
+                currentPage={currentPage}
+                onPageChange={setCurrentPage}
+              />
             </div>
-
-            <TradeList 
-              trades={filteredTrades}
-              currentPage={currentPage}
-              onPageChange={setCurrentPage}
-            />
-
-            {selectedStrategy && (
-              <AssetPairMonitor
-                strategy={selectedStrategy}
-                onTradeSignal={(signal) => {
-                  // Handle trade signal
-                }}
-              />
-            )}
-
-            {showBudgetModal && pendingStrategy && (
-              <BudgetModal
-                strategy={pendingStrategy}
-                onConfirm={handleBudgetConfirm}
-                onClose={() => {
-                  setShowBudgetModal(false);
-                  setPendingStrategy(null);
-                }}
-              />
-            )}
           </>
         )}
-      </div>
-    </PanelWrapper>
+      </motion.div>
+
+      {/* Modals */}
+      {showBudgetModal && pendingStrategy && (
+        <BudgetModal
+          strategy={pendingStrategy}
+          onConfirm={handleBudgetConfirm}
+          onClose={() => {
+            setShowBudgetModal(false);
+            setPendingStrategy(null);
+          }}
+        />
+      )}
+    </div>
   );
 };

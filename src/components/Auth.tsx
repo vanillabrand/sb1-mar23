@@ -13,6 +13,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { supabase } from '../lib/supabase-client';
+import { useAuth } from '../hooks/useAuth';
 import { Hero } from './Hero';
 import { Reviews } from './Reviews';
 import { Awards } from './Awards';

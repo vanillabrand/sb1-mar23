@@ -89,34 +89,30 @@ class TransactionService extends EventEmitter {
     }
   }
 
-  async getTransactionsForUser(
-    startDate: number,
-    endDate: number,
-    type: 'all' | 'trade' | 'deposit' | 'withdrawal' = 'all'
-  ): Promise<Transaction[]> {
+  async getTransactionsForUser(startDate?: Date, endDate?: Date): Promise<Transaction[]> {
     try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
+      // Ensure valid date range
+      const end = endDate ? new Date(endDate) : new Date();
+      const start = startDate ? new Date(startDate) : new Date(end.getTime() - (30 * 24 * 60 * 60 * 1000)); // Default to last 30 days
 
-      // Build query
-      let query = supabase
-        .from('transaction_history')
-        .select()
-        .eq('user_id', user.id)
-        .gte('created_at', new Date(startDate).toISOString())
-        .lte('created_at', new Date(endDate).toISOString())
-        .order('created_at', { ascending: false });
-
-      // Add type filter if specified
-      if (type !== 'all') {
-        query = query.eq('type', type);
+      // Validate dates
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        throw new Error('Invalid date range');
       }
 
-      const { data, error } = await query;
+      const { data: transactions, error } = await supabase
+        .from('transaction_history')  // Make sure this matches your actual table name
+        .select('*')
+        .gte('created_at', start.toISOString())
+        .lte('created_at', end.toISOString())
+        .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      return data || [];
+      if (error) {
+        logService.log('error', 'Supabase query error', error, 'TransactionService');
+        throw error;
+      }
+
+      return transactions || [];
     } catch (error) {
       logService.log('error', 'Failed to get transactions', error, 'TransactionService');
       return [];

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useAuth } from './lib/auth-context';
+import { useAuth } from './hooks/useAuth';
 import { LoadingScreen } from './components/LoadingScreen';
 import { AppContent } from './components/AppContent';
 import { logService } from './lib/log-service';
@@ -8,6 +8,9 @@ import { analyticsService } from './lib/analytics-service';
 import { templateService } from './lib/template-service';
 import { tradeEngine } from './lib/trade-engine';
 import { Preloader } from './components/Preloader';
+import { Toaster } from 'react-hot-toast';
+import { supabase } from './lib/supabase-client';
+import { useNavigate } from 'react-router-dom';
 
 function App() {
   const { user } = useAuth();
@@ -16,19 +19,30 @@ function App() {
   const [initError, setInitError] = useState<string | null>(null);
   const [initStep, setInitStep] = useState<string>('');
 
+  const navigate = useNavigate();
+
   const initializeApp = async () => {
     try {
       setIsInitializing(true);
       setInitError(null);
 
+      // Check authentication first
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError) throw authError;
+      
+      if (!session) {
+        navigate('/login');
+        return;
+      }
+
       // Initialize core services in sequence
       const services = [
-        { name: 'database', fn: systemSync.initializeDatabase },
-        { name: 'websocket', fn: systemSync.initializeWebSocket },
-        { name: 'exchange', fn: systemSync.initializeExchange },
-        { name: 'analytics', fn: analyticsService.initialize },
-        { name: 'templates', fn: templateService.initialize },
-        { name: 'trading', fn: tradeEngine.initialize }
+        { name: 'database', fn: () => systemSync.initializeDatabase() },
+        { name: 'websocket', fn: () => systemSync.initializeWebSocket() },
+        { name: 'exchange', fn: () => systemSync.initializeExchange() },
+        { name: 'analytics', fn: () => analyticsService.initialize() },
+        { name: 'templates', fn: () => templateService.initialize() },
+        { name: 'trading', fn: () => tradeEngine.initialize() }
       ];
 
       for (const service of services) {

@@ -11,45 +11,40 @@ export type ExchangeCredentials = {
 
 // Use string literal type instead of CCXT reference
 export type ExchangeId = 
-  | 'binance'
   | 'bitmart'
-  | 'kucoin'
-  | 'okx'
+  | 'bitget'
+  | 'coinbase'
+  | 'kraken'
+  | 'binance'
   | 'bybit'
-  | string;
+  | 'upbit'
+  | 'okx'
+  | 'mexc'
+  | 'gateio'
+  | 'kucoin'
+  | 'cryptocom'
+  | 'bitfinex'
+  | 'bitstamp'
+  | 'pionex';
 
 export interface ExchangeConfig {
-  name: string;       // The exchange identifier (e.g., 'bitmart')
-  apiKey: string;     // API key
-  secret: string;     // API secret
-  memo?: string;      // Memo/password (used by some exchanges like Bitmart)
-  testnet?: boolean;  // Whether to use testnet
-  useUSDX?: boolean;  // Whether to use USDX
+  name: string;
+  apiKey: string;
+  secret: string;
+  memo?: string;
+  testnet?: boolean;
+  useUSDX?: boolean;
 }
 
 export interface Exchange {
   id: string;
-  name: string;
-  logo: string;
-  description: string;
-  features: string[];
-  fields: {
-    name: string;
-    key: 'apiKey' | 'secret' | 'memo';
-    required: boolean;
-    type: 'text' | 'password';
-    placeholder: string;
-    description: string;
-  }[];
-  docs: {
-    setup: string[];
-    permissions: string[];
-    restrictions: string[];
-  };
-  testnetSupported: boolean;
-  marginSupported: boolean;
-  futuresSupported: boolean;
-  spotSupported: boolean;
+  credentials: ExchangeCredentials;
+}
+
+export interface ExchangeCredentials {
+  apiKey: string;
+  secret: string;
+  memo?: string;
 }
 
 export type RiskLevel = 'Low' | 'Medium' | 'High';
@@ -156,56 +151,20 @@ export interface MarketConditions {
 }
 
 // Dynamic exchange configuration based on CCXT
-export const SUPPORTED_EXCHANGES: Array<{
-  id: string;
-  name: string;
-  logo: string;
-  description: string;
-  features: string[];
-  fields: Array<{
-    name: string;
-    key: string;
-    required: boolean;
-    type: string;
-    placeholder: string;
-    description: string;
-  }>;
-  testnetSupported: boolean;
-  marginSupported: boolean;
-  futuresSupported: boolean;
-  spotSupported: boolean;
-}> = [
+export const SUPPORTED_EXCHANGES: Exchange[] = [
   {
-    id: 'binance',
-    name: 'Binance',
-    logo: 'path/to/exchange/logos/binance.png',
-    description: 'Trade on Binance',
-    features: ['Spot Trading', 'Margin Trading', 'Futures Trading', 'API Trading'],
-    fields: [
-      {
-        name: 'API Key',
-        key: 'apiKey',
-        required: true,
-        type: 'text',
-        placeholder: 'Enter your API key',
-        description: 'Your Binance API key'
-      },
-      {
-        name: 'Secret Key',
-        key: 'secret',
-        required: true,
-        type: 'password',
-        placeholder: 'Enter your Secret key',
-        description: 'Your Binance Secret key'
-      }
-    ],
-    testnetSupported: true,
+    id: 'bitmart',
+    name: 'BitMart',
+    logo: '/exchange-logos/bitmart.png',
+    description: 'Global digital asset trading platform',
+    spotSupported: true,
     marginSupported: true,
-    futuresSupported: true,
-    spotSupported: true
+    futuresSupported: true
   },
-  // Add other exchanges as needed
+  // Add other supported exchanges here
 ];
+
+export type SupportedExchange = typeof SUPPORTED_EXCHANGES[number];
 
 interface StrategyConfig {
   marketType: 'spot' | 'margin' | 'futures';
@@ -223,9 +182,8 @@ interface Strategy {
 
 export interface WalletBalance {
   total: number;
-  available: number;
+  free: number;
   used: number;
-  updateTime: number;
 }
 
 export interface ExchangeWallets {
@@ -276,9 +234,25 @@ export interface TradeSignal {
 
 export interface Strategy {
   id: string;
-  status: 'active' | 'inactive' | 'error';
-  strategy_config: any; // Define proper type
-  maxRiskScore: number;
+  title: string;
+  description: string | null;
+  risk_level: string;
+  strategy_config: any;
+  status: 'active' | 'inactive' | 'backend_processing';
+  user_id: string;
+  type: 'custom' | 'template';
+  performance: number;
+  selected_pairs: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export type SortOption = 'performance' | 'risk' | 'name';
+
+export interface FilterOptions {
+  status: 'all' | 'active' | 'inactive' | 'paused';
+  riskLevel: 'all' | 'low' | 'medium' | 'high';
+  performance: 'all' | 'positive' | 'negative';
 }
 
 export interface MonitoringStatus {

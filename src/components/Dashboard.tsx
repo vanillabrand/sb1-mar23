@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Clock } from 'lucide-react';
+import { Clock, Calendar } from 'lucide-react';
 import { 
   analyticsService,
   monitoringService,
@@ -50,21 +50,18 @@ interface DashboardProps {
   monitoringStatuses: Record<string, MonitoringStatus>;
 }
 
-export function Dashboard({ 
-  strategies: initialStrategies = [], 
-  monitoringStatuses: initialStatuses = {} 
-}: DashboardProps) {
+export function Dashboard({ strategies: initialStrategies, monitoringStatuses: initialStatuses }: DashboardProps) {
   const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
   const [volatility, setVolatility] = useState(0);
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies);
-  const [monitoringStatuses, setMonitoringStatuses] = useState<Record<string, MonitoringStatus>>(initialStatuses);
+  const [localStrategies, setLocalStrategies] = useState<Strategy[]>(initialStrategies);
+  const [localMonitoringStatuses, setLocalMonitoringStatuses] = useState<Record<string, MonitoringStatus>>(initialStatuses);
   const [error, setError] = useState<string | null>(null);
 
   const activeStrategies = useMemo(() => 
-    strategies.filter(s => s.status === 'active'),
-    [strategies]
+    localStrategies.filter(s => s.status === 'active'),
+    [localStrategies]
   );
 
   const allAssets = useMemo(() => {
@@ -117,22 +114,22 @@ export function Dashboard({
         statuses.forEach(status => {
           statusMap[status.strategy_id] = status;
         });
-        setMonitoringStatuses(statusMap);
+        setLocalMonitoringStatuses(statusMap);
 
         monitoringService.on('strategyCreated', (strategy: Strategy) => {
-          setStrategies(prev => [...prev, strategy]);
+          setLocalStrategies(prev => [...prev, strategy]);
         });
 
         monitoringService.on('strategyUpdated', (strategy: Strategy) => {
-          setStrategies(prev => prev.map(s => s.id === strategy.id ? strategy : s));
+          setLocalStrategies(prev => prev.map(s => s.id === strategy.id ? strategy : s));
         });
 
         monitoringService.on('strategyDeleted', (strategy: Strategy) => {
-          setStrategies(prev => prev.filter(s => s.id !== strategy.id));
+          setLocalStrategies(prev => prev.filter(s => s.id !== strategy.id));
         });
 
         monitoringService.on('monitoringStatusUpdated', (status: MonitoringStatus) => {
-          setMonitoringStatuses(prev => ({
+          setLocalMonitoringStatuses(prev => ({
             ...prev,
             [status.strategy_id]: status
           }));
@@ -164,13 +161,16 @@ export function Dashboard({
   return (
     <div className="p-8 space-y-8">
       <div className="flex items-center justify-between">
-        <div className="text-2xl font-bold text-gray-200">
-          {currentDate.toLocaleDateString(undefined, { 
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          })}
+        <div className="flex items-center gap-2">
+          <Calendar className="w-6 h-6 text-neon-yellow" />
+          <h1 className="text-2xl font-bold gradient-text">
+            {currentDate.toLocaleDateString(undefined, { 
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric'
+            })}
+          </h1>
         </div>
         <NetworkStatus />
       </div>
@@ -178,7 +178,7 @@ export function Dashboard({
       <div className={`grid grid-cols-12 gap-8 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-8`}>
           <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
-            <StrategyStatus strategies={strategies} monitoringStatuses={monitoringStatuses} />
+            <StrategyStatus strategies={localStrategies} monitoringStatuses={localMonitoringStatuses} />
           </div>
 
           <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">

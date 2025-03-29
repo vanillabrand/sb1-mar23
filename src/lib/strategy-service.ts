@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { AIService } from './ai-service';
+import { aiService } from './ai-service';
 import { logService } from './log-service';
 import { tradeService } from './trade-service';
 import { marketService } from './market-service';
@@ -57,7 +57,7 @@ class StrategyService {
       const strategyId = uuidv4();
       
       // Generate strategy configuration using AI
-      const strategyConfig = await AIService.generateStrategy(
+      const strategyConfig = await aiService.generateStrategy(
         data.description || data.title,
         data.risk_level
       );
@@ -71,7 +71,7 @@ class StrategyService {
         performance: 0,
         risk_level: data.risk_level,
         user_id: data.user_id,
-        strategy_config: strategyConfig,
+        strategy_config: strategyConfig, // Changed from config
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString()
       };
@@ -104,55 +104,56 @@ class StrategyService {
 
   async activateStrategy(id: string): Promise<Strategy> {
     try {
-      const strategy = await this.getStrategy(id);
-      if (!strategy) {
+      // Get current strategy
+      const { data: strategy, error: fetchError } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (fetchError || !strategy) {
         throw new Error('Strategy not found');
       }
 
-      // Validate strategy before activation
-      const validationError = await this.validateStrategy(strategy);
-      if (validationError) {
-        throw new Error(validationError);
-      }
-
       // Check if budget is configured
-      const budget = tradeService.getBudget(id);
-      if (!budget) {
-        throw new Error('Strategy budget not configured');
+      const budget = await tradeService.getBudget(id);
+      if (!budget || budget.amount <= 0) {
+        throw new Error('Strategy budget must be configured before activation');
       }
 
-      // Update strategy status in database
-      const { data: updatedStrategy, error } = await supabase
+      // Validate market requirements
+      const marketValidation = await marketService.validateStrategyMarkets(strategy);
+      if (!marketValidation.isValid) {
+        throw new Error(`Market validation failed: ${marketValidation.error}`);
+      }
+
+      // Update strategy status
+      const { data: updatedStrategy, error: updateError } = await supabase
         .from('strategies')
         .update({
           status: 'active',
+          activated_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
         .select()
         .single();
 
-      if (error) {
-        // Handle 406 errors for non-existent strategies
-        if (error.code === 'PGRST116') {
-          this.strategyCache.delete(id);
-          throw new Error('Strategy not found');
-        }
-        throw error;
+      if (updateError || !updatedStrategy) {
+        throw new Error('Failed to activate strategy');
       }
 
-      if (!updatedStrategy) throw new Error('Failed to activate strategy');
-
-      // Start market monitoring
+      // Initialize market monitoring
       await marketService.startStrategyMonitoring(updatedStrategy);
 
       // Update cache
       this.strategyCache.set(id, updatedStrategy);
 
-      logService.log('info', `Strategy ${id} activated`, updatedStrategy, 'StrategyService');
+      logService.log('info', `Strategy ${id} activated successfully`, updatedStrategy);
       return updatedStrategy;
+
     } catch (error) {
-      logService.log('error', `Failed to activate strategy ${id}`, error, 'StrategyService');
+      logService.log('error', `Failed to activate strategy ${id}`, error);
       throw error;
     }
   }

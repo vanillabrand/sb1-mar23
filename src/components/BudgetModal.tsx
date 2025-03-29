@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, AlertCircle, Loader2, Coins, Wallet } from 'lucide-react';
 import { exchangeService } from '../lib/exchange-service';
 import { logService } from '../lib/log-service';
-import type { StrategyBudget } from '../lib/types';
+import type { StrategyBudget, RiskLevel } from '../lib/types';
 
 interface BudgetModalProps {
   onConfirm: (budget: StrategyBudget) => Promise<void>;
   onCancel: () => void;
   maxBudget: number;
-  riskLevel: string;
+  riskLevel: RiskLevel;
   isSubmitting?: boolean;
   initialBudget?: StrategyBudget;
   isEditing?: boolean;

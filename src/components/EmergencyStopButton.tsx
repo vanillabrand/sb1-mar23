@@ -140,14 +140,13 @@ export function EmergencyStopButton({ className = '' }: EmergencyStopButtonProps
 
       {/* Emergency Stop Button */}
       <div className="relative aspect-square w-full max-w-[200px] mx-auto">
-        {/* Rotating text - moved to top layer */}
-        <div className="absolute inset-0 z-20">
+        {/* Rotating text - moved to top layer but with pointer-events-none */}
+        <div className="absolute inset-0 z-20 pointer-events-none">
           <div className="absolute inset-0 animate-spin-slow">
             {Array.from('PRESS TO STOP ').map((char, i) => {
-              const angle = (i * 360) / 14; // 13 characters
+              const angle = (i * 360) / 14;
               const radian = (angle * Math.PI) / 180;
-              // Calculate position on the circle
-              const x = 50 + 45 * Math.cos(radian - Math.PI / 2); // 45 is radius
+              const x = 50 + 45 * Math.cos(radian - Math.PI / 2);
               const y = 50 + 45 * Math.sin(radian - Math.PI / 2);
               return (
                 <div

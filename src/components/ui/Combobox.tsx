@@ -1,80 +1,78 @@
-import React from 'react';
-import { Check, ChevronsUpDown } from 'lucide-react';
-import { cn } from '../../lib/utils';
-import { Button } from './Button';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-} from './Command';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from './Popover';
-import { useClick } from '@floating-ui/react';
-import { FloatingFocusManager, FloatingPortal } from '@floating-ui/react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Search } from 'lucide-react';
 
 interface ComboboxProps {
-  options: { value: string; label: string }[];
-  value?: string;
-  onChange: (value: string) => void;
+  options: { value: string; label: string; popular?: boolean }[];
+  selectedValues: string[];
+  onSelect: (value: string) => void;
   placeholder?: string;
-  emptyMessage?: string;
 }
 
-export const Combobox: React.FC<ComboboxProps> = ({
+export function Combobox({
   options,
-  value,
-  onChange,
-  placeholder = 'Select option...',
-  emptyMessage = 'No results found.',
-}) => {
-  const [open, setOpen] = React.useState(false);
+  selectedValues,
+  onSelect,
+  placeholder = "Search trading pairs..."
+}: ComboboxProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const filteredOptions = options.filter(option =>
+    option.value.toLowerCase().includes(searchTerm.toLowerCase()) &&
+    !selectedValues.includes(option.value)
+  );
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          role="combobox"
-          aria-expanded={open}
-          className="w-full justify-between"
-        >
-          {value
-            ? options.find((option) => option.value === value)?.label
-            : placeholder}
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-full p-0">
-        <Command>
-          <CommandInput placeholder={placeholder} />
-          <CommandEmpty>{emptyMessage}</CommandEmpty>
-          <CommandGroup>
-            {options.map((option) => (
-              <CommandItem
-                key={option.value}
-                value={option.value}
-                onSelect={(currentValue) => {
-                  onChange(currentValue === value ? '' : currentValue);
-                  setOpen(false);
-                }}
-              >
-                <Check
-                  className={cn(
-                    'mr-2 h-4 w-4',
-                    value === option.value ? 'opacity-100' : 'opacity-0'
-                  )}
-                />
-                {option.label}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-        </Command>
-      </PopoverContent>
-    </Popover>
+    <div className="relative" ref={dropdownRef}>
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={searchTerm}
+          onChange={(e) => {
+            setSearchTerm(e.target.value);
+            setIsOpen(true);
+          }}
+          onFocus={() => setIsOpen(true)}
+          placeholder={placeholder}
+          className="w-full pl-10 pr-4 py-2 bg-gunmetal-900 border border-gunmetal-700 rounded-lg text-gray-200 placeholder-gray-400 focus:outline-none focus:border-pink-500"
+        />
+      </div>
+
+      {isOpen && filteredOptions.length > 0 && (
+        <div className="absolute z-50 w-full mt-1 bg-gunmetal-900 border border-gunmetal-700 rounded-lg shadow-lg max-h-[300px] overflow-y-auto">
+          {filteredOptions.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => {
+                onSelect(option.value);
+                setSearchTerm('');
+                inputRef.current?.focus();
+              }}
+              className="w-full px-4 py-2 text-left hover:bg-gunmetal-800 flex justify-between items-center"
+            >
+              <span className="text-gray-200">{option.value}</span>
+              {option.popular && (
+                <span className="text-xs text-yellow-500">Popular</span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
-};
+}

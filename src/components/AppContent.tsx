@@ -1,8 +1,10 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
+import { AuthGuard } from './AuthGuard';
 import { Sidebar } from './Sidebar';
-import { LoadingScreen } from './LoadingScreen';
-import { Dashboard } from '../components/Dashboard';
+import { Hero } from './Hero';
+import { Dashboard } from './Dashboard';
 import { StrategyManager } from './StrategyManager';
 import { ExchangeManager } from './ExchangeManager';
 import { TradeMonitor } from './TradeMonitor';
@@ -10,26 +12,72 @@ import { Backtester } from './Backtester';
 import { Analytics } from './Analytics';
 import { Documentation } from './Documentation';
 import { Notes } from './Notes';
-import { Settings } from './Settings';
-import { BugTracker } from './BugTracker';
 
 export const AppContent = () => {
+  const { user } = useAuth();
+
+  // If user is not authenticated, show public routes
+  if (!user) {
+    return (
+      <Routes>
+        <Route path="/" element={<Hero />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    );
+  }
+
+  // If user is authenticated, show protected routes with sidebar
   return (
     <div className="flex h-screen bg-gunmetal-950">
       <Sidebar />
       <main className="flex-1 overflow-auto">
         <Routes>
-          <Route path="/" element={<Dashboard strategies={[]} monitoringStatuses={{}} />} />
-          <Route path="/dashboard" element={<Dashboard strategies={[]} monitoringStatuses={{}} />} />
-          <Route path="/strategy-manager" element={<StrategyManager />} />
-          <Route path="/exchange-manager" element={<ExchangeManager />} />
-          <Route path="/trade-monitor" element={<TradeMonitor />} />
-          <Route path="/backtest" element={<Backtester />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/documentation" element={<Documentation />} />
-          <Route path="/notes" element={<Notes />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="/bug-tracker" element={<BugTracker />} />
+          <Route path="/" element={
+            <AuthGuard>
+              <Dashboard strategies={[]} monitoringStatuses={{}} />
+            </AuthGuard>
+          } />
+          <Route path="/dashboard" element={
+            <AuthGuard>
+              <Dashboard strategies={[]} monitoringStatuses={{}} />
+            </AuthGuard>
+          } />
+          <Route path="/strategy-manager" element={
+            <AuthGuard>
+              <StrategyManager />
+            </AuthGuard>
+          } />
+          <Route path="/exchange-manager" element={
+            <AuthGuard>
+              <ExchangeManager />
+            </AuthGuard>
+          } />
+          <Route path="/trade-monitor" element={
+            <AuthGuard>
+              <TradeMonitor />
+            </AuthGuard>
+          } />
+          <Route path="/backtest" element={
+            <AuthGuard>
+              <Backtester />
+            </AuthGuard>
+          } />
+          <Route path="/analytics" element={
+            <AuthGuard>
+              <Analytics />
+            </AuthGuard>
+          } />
+          <Route path="/documentation" element={
+            <AuthGuard>
+              <Documentation />
+            </AuthGuard>
+          } />
+          <Route path="/notes" element={
+            <AuthGuard>
+              <Notes />
+            </AuthGuard>
+          } />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>
     </div>

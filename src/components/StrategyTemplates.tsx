@@ -10,7 +10,7 @@ import {
   SortAsc,
   SortDesc
 } from 'lucide-react';
-import { useAuth } from '../lib/auth-context';
+import { useAuth } from '../hooks/useAuth';
 import { templateService } from '../lib/template-service';
 import { logService } from '../lib/log-service';
 import type { StrategyTemplate } from '../lib/types';
@@ -138,44 +138,42 @@ export function StrategyTemplates({ onStrategyCreated, className = "" }: Strateg
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {filteredTemplates.map((template) => (
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filteredTemplates.map((template, index) => (
           <motion.div
             key={template.id}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-gunmetal-800/30 rounded-lg p-6 hover:bg-gunmetal-800/50 transition-all duration-300"
+            className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700 hover:bg-gunmetal-800/50 transition-all duration-300"
           >
-            <div className="flex flex-col h-full">
-              <h3 className="text-lg font-semibold text-gray-200 mb-2">{template.title}</h3>
-              <p className="text-sm text-gray-400 mb-4 flex-grow">{template.description}</p>
-              
-              <div className="grid grid-cols-2 gap-3 mb-4">
-                <div className="bg-gunmetal-900/30 p-3 rounded-lg">
-                  <p className="text-xs text-gray-400">Win Rate</p>
-                  <p className="text-lg font-semibold text-neon-turquoise">
-                    {template.metrics.winRate}%
-                  </p>
-                </div>
-                <div className="bg-gunmetal-900/30 p-3 rounded-lg">
-                  <p className="text-xs text-gray-400">Avg Return</p>
-                  <p className="text-lg font-semibold text-neon-yellow">
-                    {template.metrics.avgReturn}%
-                  </p>
-                </div>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-gunmetal-900/50 text-neon-raspberry">
+                <Brain className="w-5 h-5" />
               </div>
-
+              <div>
+                <h3 className="font-semibold text-gray-200">{template.title}</h3>
+                <span className="text-sm text-neon-raspberry">AI Generated</span>
+              </div>
+            </div>
+            
+            <p className="text-sm text-gray-400 mb-4">{template.description}</p>
+            
+            <div className="flex items-center justify-between mt-4">
+              <div className="text-sm">
+                <span className="text-gray-400">Performance: </span>
+                <span className="text-neon-turquoise">{template.performance}%</span>
+              </div>
               <button
                 onClick={() => handleUseTemplate(template)}
-                disabled={creatingStrategy === template.id}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-gradient-to-r from-green-400 to-orange-400 text-white rounded-lg hover:from-green-500 hover:to-orange-500 transition-all duration-300 disabled:opacity-50"
+                disabled={creatingStrategy === index}
+                className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300"
               >
-                {creatingStrategy === template.id ? (
+                {creatingStrategy === index ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
                 ) : (
                   <>
                     <Plus className="w-4 h-4" />
-                    add
+                    Use Template
                   </>
                 )}
               </button>

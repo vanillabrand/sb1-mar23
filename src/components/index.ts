@@ -13,6 +13,7 @@ export { StrategyStatus } from './StrategyStatus';
 export { AIMarketInsight } from './AIMarketInsight';
 export { PortfolioPerformance } from './PortfolioPerformance';
 export { RiskExposure } from './RiskExposure';
+export { StrategyStats } from './StrategyStats';
 export { EmergencyStopButton } from './EmergencyStopButton';
 export { NewsWidget } from './NewsWidget';
 export { WorldClock } from './WorldClock';

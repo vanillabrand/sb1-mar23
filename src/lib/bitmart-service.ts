@@ -59,7 +59,8 @@ interface TradingPair {
 class BitmartService extends EventEmitter {
   private static instance: BitmartService;
   private config: BitmartConfig | null = null;
-  private baseUrl = 'https://api-cloud.bitmart.com';
+  // Change this to use the proxy URL instead of direct BitMart API
+  private baseUrl = '/api'; // Changed from 'https://api-cloud.bitmart.com'
   private demoMode = false;
   private useUSDX = false;
   private serverTimeOffset = 0;
@@ -173,21 +174,38 @@ class BitmartService extends EventEmitter {
     return data;
   }
 
+  private async fetchWithCORS(url: string, options: RequestInit = {}): Promise<Response> {
+    const defaultOptions: RequestInit = {
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      mode: 'cors'
+    };
+
+    // Don't rewrite the URL since we're using relative paths now
+    const finalOptions = {
+      ...defaultOptions,
+      ...options,
+      headers: {
+        ...defaultOptions.headers,
+        ...options.headers
+      }
+    };
+
+    const response = await fetch(url, finalOptions);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    return response;
+  }
+
   private async initializeServerTime(): Promise<void> {
     try {
-      const response = await fetch(`${this.baseUrl}/system/time`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
-      });
-
-      if (!response.ok) {
-        throw new Error(`Server time request failed: ${response.status}`);
-      }
-
+      const response = await this.fetchWithCORS(`${this.baseUrl}/system/time`);
       const { server_time } = await response.json();
       this.serverTimeOffset = server_time - Date.now();
     } catch (error) {
-      // In demo mode, we can safely ignore server time sync errors
       if (this.demoMode) {
         logService.log('warn', 'Failed to sync server time in demo mode, using local time', error, 'BitmartService');
         this.serverTimeOffset = 0;
@@ -257,6 +275,22 @@ class BitmartService extends EventEmitter {
 
   getServerTime(): number {
     return Date.now() + this.serverTimeOffset;
+  }
+
+  private getDemoData(url: string): any {
+    // Return mock data based on the URL
+    if (url.includes('/contract/public/details')) {
+      return {
+        code: 200,
+        data: {
+          symbols: [
+            { symbol: 'BTC_USDT', price: '50000.00', volume_24h: '1000000' },
+            { symbol: 'ETH_USDT', price: '3000.00', volume_24h: '500000' }
+          ]
+        }
+      };
+    }
+    return {};
   }
 }
 

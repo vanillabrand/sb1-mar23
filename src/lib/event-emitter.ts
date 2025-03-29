@@ -1,7 +1,11 @@
 type EventCallback = (...args: any[]) => void;
 
 export class EventEmitter {
-  private events: Map<string, EventCallback[]> = new Map();
+  private events: Map<string, EventCallback[]>;
+
+  constructor() {
+    this.events = new Map();
+  }
 
   on(event: string, callback: EventCallback): void {
     if (!this.events.has(event)) {
@@ -31,17 +35,17 @@ export class EventEmitter {
       try {
         callback(...args);
       } catch (error) {
-        console.error(`Error in event ${event} callback:`, error);
+        console.error(`Error in event handler for ${event}:`, error);
       }
     });
   }
 
   once(event: string, callback: EventCallback): void {
-    const onceWrapper = (...args: any[]) => {
-      this.off(event, onceWrapper);
-      callback.apply(this, args);
+    const onceCallback = (...args: any[]) => {
+      this.off(event, onceCallback);
+      callback(...args);
     };
-    this.on(event, onceWrapper);
+    this.on(event, onceCallback);
   }
 
   removeAllListeners(event?: string): void {

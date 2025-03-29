@@ -1,485 +1,270 @@
 import { EventEmitter } from './event-emitter';
-import { ExchangeConfig, ExchangeCredentials, ExchangeHealth, MarketPair } from '../types';
-import { logService } from './log-service';
-import { ccxtService } from './ccxt-service';
 import CryptoJS from 'crypto-js';
+import { supabase } from './supabase';
+import { logService } from './log-service';
+import type { 
+  Exchange, 
+  ExchangeConfig, 
+  ExchangeCredentials,
+  WalletBalance,
+  ExchangeId 
+} from './types';
+import { ccxtService } from './ccxt-service';
 
-export class ExchangeService extends EventEmitter {
+class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
-  private currentExchange: string | null = null;
+  private activeExchange: Exchange | null = null;
+  private readonly ENCRYPTION_KEY: string;
   private initialized = false;
-  private initializationPromise: Promise<void> | null = null;
-  private isLiveMode = false;
-  private isDemoMode = false;
-  private useUSDX = false;
-  private credentials: ExchangeCredentials | null = null;
-  private readonly MAX_RETRIES = 3;
-  private readonly RETRY_DELAY = 1000;
-  private healthCheckInterval: NodeJS.Timeout | null = null;
-  private readonly HEALTH_CHECK_INTERVAL = 30000;
-  private lastHealthCheck: ExchangeHealth = { ok: true, degraded: false };
-  private readonly ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY;
-  private retryAttempts = 0;
-  private marketPairs = new Map<string, MarketPair[]>();
-  private capabilities: ExchangeCapabilities | null = null;
-  private readonly RECONNECT_DELAY = 5000;
-  private readonly CONNECTION_TIMEOUT = 10000;
-  private static readonly HEALTH_CHECK_TIMEOUT = 5000;
-  private static readonly MIN_REQUIRED_BALANCE = 10;
-  private insufficientBalanceCallbacks = new Set<(marketType: string) => void>();
+  private exchangeInstances: Map<string, any> = new Map();
+  private demoMode = false;
 
-  private connectionState: {
-    isConnected: boolean;
-    lastHealthCheck: Date;
-    reconnectAttempts: number;
-    degradedSince?: Date;
-  } = {
-    isConnected: false,
-    lastHealthCheck: new Date(),
-    reconnectAttempts: 0
-  };
-
-  constructor() {
+  private constructor() {
     super();
+    this.ENCRYPTION_KEY = import.meta.env.VITE_ENCRYPTION_KEY;
     if (!this.ENCRYPTION_KEY) {
       throw new Error('Missing encryption key in environment variables');
     }
   }
 
-  public static getInstance(): ExchangeService {
+  static getInstance(): ExchangeService {
     if (!ExchangeService.instance) {
       ExchangeService.instance = new ExchangeService();
     }
     return ExchangeService.instance;
   }
 
-  private startHealthCheck() {
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-    }
-
-    this.healthCheckInterval = setInterval(async () => {
-      try {
-        const health = await this.checkHealth();
-        this.lastHealthCheck = health;
-        this.emit('healthUpdate', health);
-      } catch (error) {
-        logService.log('error', 'Health check failed', error, 'ExchangeService');
-        this.lastHealthCheck = { ok: false, degraded: true, message: 'Health check failed' };
-        this.emit('healthUpdate', this.lastHealthCheck);
-      }
-    }, this.HEALTH_CHECK_INTERVAL);
-  }
-
-  async checkHealth(): Promise<ExchangeHealth> {
-    try {
-      if (!this.connectionState.isConnected) {
-        return this.createHealthStatus(false, true, 'Exchange disconnected');
-      }
-
-      const [ticker, balances] = await Promise.all([
-        this.executeWithTimeout(
-          () => this.fetchTicker('BTC/USDT'),
-          ExchangeService.HEALTH_CHECK_TIMEOUT,
-          'Health check timeout'
-        ),
-        this.checkBalances()
-      ]);
-
-      const isHealthy = this.validateTickerData(ticker);
-      if (!isHealthy) {
-        this.handleDegradedState();
-      }
-
-      return this.createHealthStatus(isHealthy, false);
-    } catch (error) {
-      this.handleDegradedState();
-      logService.log('error', 'Exchange health check failed', error, 'ExchangeService');
-      return this.createHealthStatus(
-        false, 
-        true, 
-        error instanceof Error ? error.message : 'Unknown error'
-      );
-    }
-  }
-
-  private createHealthStatus(ok: boolean, degraded: boolean, message?: string): ExchangeHealth {
-    return {
-      ok,
-      degraded,
-      message: message || (ok ? 'Exchange connection healthy' : 'Exchange connection degraded'),
-      timestamp: new Date().toISOString()
-    };
-  }
-
-  private handleDegradedState(): void {
-    if (!this.connectionState.degradedSince) {
-      this.connectionState.degradedSince = new Date();
-      this.emit('degraded');
-    }
-
-    if (this.shouldAttemptRecovery()) {
-      void this.reconnect();
-    }
-  }
-
-  private shouldAttemptRecovery(): boolean {
-    if (!this.connectionState.degradedSince) return false;
-    
-    const degradedDuration = Date.now() - this.connectionState.degradedSince.getTime();
-    return degradedDuration > this.HEALTH_CHECK_INTERVAL * 2;
-  }
-
-  private async initializeConnection(config: ExchangeConfig): Promise<void> {
-    try {
-      await this.executeWithTimeout(
-        () => ccxtService.initialize(config),
-        this.CONNECTION_TIMEOUT,
-        'Exchange initialization timeout'
-      );
-
-      this.connectionState.isConnected = true;
-      this.connectionState.reconnectAttempts = 0;
-      this.emit('connected');
-
-      this.startHealthCheck();
-    } catch (error) {
-      await this.handleConnectionError(error);
-    }
-  }
-
-  private async handleConnectionError(error: unknown): Promise<void> {
-    this.connectionState.isConnected = false;
-    this.connectionState.reconnectAttempts++;
-
-    logService.log('error', 'Exchange connection error', error, 'ExchangeService');
-    this.emit('connectionError', error);
-
-    if (this.connectionState.reconnectAttempts <= this.MAX_RETRIES) {
-      await this.reconnect();
-    } else {
-      this.emit('connectionFailed');
-      throw new Error('Failed to establish exchange connection after maximum retries');
-    }
-  }
-
-  private async reconnect(): Promise<void> {
-    const delay = this.calculateBackoff(this.connectionState.reconnectAttempts);
-    await new Promise(resolve => setTimeout(resolve, delay));
-
-    try {
-      await this.initializeConnection(this.currentConfig);
-    } catch (error) {
-      logService.log('error', 'Reconnection attempt failed', error, 'ExchangeService');
-    }
-  }
-
-  private calculateBackoff(attempt: number): number {
-    return Math.min(
-      this.RETRY_DELAY * Math.pow(2, attempt - 1),
-      30000
-    );
-  }
-
-  private async executeWithTimeout<T>(
-    operation: () => Promise<T>,
-    timeout: number,
-    timeoutMessage: string
-  ): Promise<T> {
-    return Promise.race([
-      operation(),
-      new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error(timeoutMessage)), timeout);
-      })
-    ]);
-  }
-
-  private validateTickerData(ticker: any): boolean {
-    return (
-      ticker &&
-      typeof ticker.last === 'number' &&
-      typeof ticker.bid === 'number' &&
-      typeof ticker.ask === 'number' &&
-      ticker.last > 0 &&
-      ticker.bid > 0 &&
-      ticker.ask > 0
-    );
-  }
-
-  private async initializeDefaultExchange(): Promise<void> {
-    if (this.initialized || this.initializationPromise) return;
-
-    const savedUseUSDX = localStorage.getItem('useUSDX') === 'true';
-    const savedCredentials = this.getCredentials();
-
-    
-    this.initializationPromise = (async () => {
-      try {
-        if (savedCredentials) {
-          // Initialize with stored credentials
-          await this.initializeExchange({
-            name: 'bitmart',
-            apiKey: savedCredentials.credentials!.apiKey,
-            secret: savedCredentials.credentials!.secret,
-            memo: savedCredentials.credentials!.memo,
-            testnet: false,
-            useUSDX: savedUseUSDX
-          });
-        } else {
-          // Initialize in demo mode
-          await this.initializeExchange({
-            name: 'bitmart',
-            apiKey: 'demo',
-            secret: 'demo',
-            memo: 'demo',
-            testnet: true,
-            useUSDX: savedUseUSDX
-          });
-        }
-        
-        this.initialized = true;
-        this.emit('initialized');
-      } catch (error) {
-        logService.log('error', 'Failed to initialize default exchange', error, 'ExchangeService');
-        // Fall back to demo mode
-        await this.initializeExchange({
-          name: 'bitmart',
-          apiKey: 'demo',
-          secret: 'demo',
-          memo: 'demo',
-          testnet: true,
-          useUSDX: false
-        });
-      } finally {
-        this.initializationPromise = null;
-      }
-    })();
-
-    return this.initializationPromise;
-  }
-
-  async initializeExchange(config: ExchangeConfig): Promise<void> {
-    try {
-      // Add validation
-      if (!config || !config.apiKey) {
-        logService.log('warn', 'Invalid exchange config, switching to demo mode', null, 'ExchangeService');
-        await this.initializeDemoMode();
-        return;
-      }
-
-      // Check proxy availability first
-      const isProxyAvailable = await ccxtService.checkProxyAvailability();
-      if (!isProxyAvailable) {
-        logService.log('warn', 'Proxy server unavailable, switching to offline demo mode', null, 'ExchangeService');
-        
-        // Set demo mode flags
-        this.isLiveMode = false;
-        this.isDemoMode = true;
-        this.currentExchange = 'bitmart';
-        
-        // Initialize market pairs with cached/default data
-        await this.initializeDemoMarketPairs();
-        
-        // Set up demo balance
-        const demoBalance = {
-          spot: { total: 10000, used: 0, free: 10000 },
-          margin: { total: 5000, used: 0, free: 5000 },
-          futures: { total: 5000, used: 0, free: 5000 }
-        };
-        
-        this.emit('balanceUpdate', demoBalance);
-        this.emit('exchangeInitialized', {
-          exchange: this.currentExchange,
-          isLive: false,
-          isDemo: true
-        });
-        
-        return;
-      }
-
-      await ccxtService.initialize(config);
-      
-      this.currentExchange = config.name;
-      this.isLiveMode = !config.testnet;
-      this.isDemoMode = config.testnet;
-      this.useUSDX = config.useUSDX || false;
-
-      // Initialize market pairs
-      await this.initializeMarketPairs();
-      
-      this.emit('exchangeInitialized', {
-        exchange: config.name,
-        isLive: this.isLiveMode,
-        isDemo: this.isDemoMode
-      });
-    } catch (error) {
-      logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
-      await this.initializeDemoMode();
-    }
-  }
-
-  private async initializeDemoMode(): Promise<void> {
-    this.isLiveMode = false;
-    this.isDemoMode = true;
-    this.currentExchange = 'bitmart';
-    await this.initializeDemoMarketPairs();
-    
-    const demoBalance = {
-      spot: { total: 10000, used: 0, free: 10000 },
-      margin: { total: 5000, used: 0, free: 5000 },
-      futures: { total: 5000, used: 0, free: 5000 }
-    };
-    // Set demo balance...
-  }
-
-  private async initializeDemoMarketPairs(): Promise<void> {
-    // Use cached or default market pairs for demo mode
-    const defaultPairs = [
-      { symbol: 'BTC/USDT', base: 'BTC', quote: 'USDT' },
-      { symbol: 'ETH/USDT', base: 'ETH', quote: 'USDT' },
-      { symbol: 'BNB/USDT', base: 'BNB', quote: 'USDT' },
-      // Add more default pairs as needed
-    ];
-    
-    this.marketPairs.set(this.currentExchange!, defaultPairs);
-  }
-
-  private async initializeMarketPairs(): Promise<void> {
-    try {
-      // Even in demo mode, fetch real market pairs from Bitmart
-      const exchange = await ccxtService.getExchange();
-      const markets = await exchange.loadMarkets();
-      const pairs = this.processMarketPairs(markets);
-      this.marketPairs.set(this.currentExchange!, pairs);
-    } catch (error) {
-      logService.log('error', 'Failed to initialize market pairs', error, 'ExchangeService');
-      throw error;
-    }
-  }
-
-  private async initializeBalanceUpdates(): Promise<void> {
-    try {
-      if (this.isDemoMode) {
-        // Set up demo balance but still use real market data
-        const demoBalance = {
-          spot: { total: 10000, used: 0, free: 10000 },
-          margin: { total: 5000, used: 0, free: 5000 },
-          futures: { total: 5000, used: 0, free: 5000 }
-        };
-        
-        this.emit('balanceUpdate', demoBalance);
-        return;
-      }
-      
-      // Normal balance update initialization for live mode
-      if (this.wsSupported) {
-        await this.subscribeToBalanceUpdates();
-      } else {
-        this.startPollingBalances();
-      }
-    } catch (error) {
-      logService.log('error', 'Failed to initialize balance updates', error, 'ExchangeService');
-      throw error;
-    }
-  }
-
-  private async subscribeToBalanceUpdates(): Promise<void> {
-    try {
-      // Clear any existing subscriptions
-      if (this.balanceUpdateInterval) {
-        clearInterval(this.balanceUpdateInterval);
-      }
-      
-      await websocketService.connect();
-      
-      // Subscribe to different wallet types based on capabilities
-      const subscriptions = ['spot/balance'];
-      if (this.capabilities?.supportsMarginTrading) {
-        subscriptions.push('margin/balance');
-      }
-      if (this.capabilities?.supportsFuturesTrading) {
-        subscriptions.push('futures/balance');
-      }
-
-      for (const channel of subscriptions) {
-        await websocketService.subscribe(channel, this.handleBalanceUpdate.bind(this));
-        this.wsSubscriptions.add(channel);
-      }
-
-      // Fetch initial balances
-      await this.updateAllBalances();
-
-      // Set up a fallback polling with longer interval
-      this.balanceUpdateInterval = setInterval(async () => {
-        await this.updateAllBalances();
-      }, 60000); // Fallback update every minute
-
-    } catch (error) {
-      logService.log('error', 'Failed to subscribe to balance updates', error, 'ExchangeService');
-      // Fallback to polling if WebSocket subscription fails
-      this.startPollingBalances();
-    }
-  }
-
-  private startPollingBalances(): void {
-    if (this.balanceUpdateInterval) {
-      clearInterval(this.balanceUpdateInterval);
-    }
-
-    this.balanceUpdateInterval = setInterval(async () => {
-      await this.updateAllBalances();
-    }, 10000); // Poll every 10 seconds when WebSocket not available
-  }
-
-  private handleBalanceUpdate(data: any): void {
-    try {
-      const walletType = data.channel.split('/')[0] as keyof ExchangeWallets;
-      const currentBalances = this.walletBalances.get(this.currentExchange) || {};
-      
-      // Update specific wallet balance
-      if (currentBalances[walletType]) {
-        currentBalances[walletType] = {
-          total: parseFloat(data.total) || 0,
-          available: parseFloat(data.free) || 0,
-          used: parseFloat(data.used) || 0,
-          updateTime: Date.now()
-        };
-
-        this.walletBalances.set(this.currentExchange, currentBalances);
-        this.emit('balancesUpdated', currentBalances);
-      }
-    } catch (error) {
-      logService.log('error', 'Error processing balance update', error, 'ExchangeService');
-    }
-  }
-
-  async ensureInitialized(): Promise<void> {
+  async initialize(): Promise<void> {
     if (this.initialized) return;
-    if (this.initializationPromise) return this.initializationPromise;
-    return this.initializeDefaultExchange();
+
+    try {
+      // Load last active exchange from local storage
+      const savedExchange = localStorage.getItem('activeExchange');
+      if (savedExchange) {
+        const exchange = JSON.parse(savedExchange);
+        await this.connect(exchange);
+      }
+
+      this.initialized = true;
+    } catch (error) {
+      logService.log('error', 'Failed to initialize exchange service', error, 'ExchangeService');
+      throw error;
+    }
   }
 
-  async fetchTicker(symbol: string): Promise<any> {
-    await this.ensureInitialized();
-    return this.executeWithRetry(() => ccxtService.fetchTicker(symbol));
+  async getUserExchanges(): Promise<Exchange[]> {
+    try {
+      const { data: userExchanges, error } = await supabase
+        .from('user_exchanges')
+        .select('*');
+
+      if (error) throw error;
+
+      return userExchanges.map(exchange => ({
+        ...exchange,
+        credentials: this.decryptCredentials(exchange.encrypted_credentials)
+      }));
+    } catch (error) {
+      logService.log('error', 'Failed to fetch user exchanges', error, 'ExchangeService');
+      throw new Error('Failed to fetch exchanges');
+    }
   }
 
-  async fetchBalance(type: 'spot' | 'margin' | 'futures' = 'spot'): Promise<any> {
-    await this.ensureInitialized();
-    return this.executeWithRetry(() => ccxtService.fetchBalance(type));
+  async getActiveExchange(): Promise<Exchange | null> {
+    return this.activeExchange;
   }
 
-  async createOrder(
-    symbol: string,
-    type: 'market' | 'limit',
-    side: 'buy' | 'sell',
-    amount: number,
-    price?: number
-  ): Promise<any> {
-    await this.ensureInitialized();
-    return this.executeWithRetry(() => 
-      ccxtService.createOrder(symbol, type, side, amount, price)
-    );
+  async connect(exchange: Exchange): Promise<void> {
+    try {
+      // Initialize CCXT exchange instance if not already created
+      if (!this.exchangeInstances.has(exchange.id)) {
+        const credentials = exchange.credentials;
+        if (!credentials) {
+          throw new Error('Exchange credentials not found');
+        }
+
+        const ccxtInstance = await ccxtService.createExchange(
+          exchange.id as ExchangeId,
+          credentials
+        );
+        this.exchangeInstances.set(exchange.id, ccxtInstance);
+      }
+
+      const ccxtInstance = this.exchangeInstances.get(exchange.id);
+      await ccxtInstance.loadMarkets();
+
+      this.activeExchange = exchange;
+      localStorage.setItem('activeExchange', JSON.stringify(exchange));
+      
+      this.emit('exchange:connected', exchange);
+      
+    } catch (error) {
+      logService.log('error', 'Failed to connect to exchange', error, 'ExchangeService');
+      this.emit('exchange:error', error);
+      throw new Error('Failed to connect to exchange');
+    }
+  }
+
+  async disconnect(): Promise<void> {
+    this.activeExchange = null;
+    localStorage.removeItem('activeExchange');
+    this.emit('exchange:disconnected');
+  }
+
+  async testConnection(config: ExchangeConfig): Promise<void> {
+    try {
+      const testInstance = await ccxtService.createExchange(
+        config.name as ExchangeId,
+        {
+          apiKey: config.apiKey,
+          secret: config.secret,
+          memo: config.memo
+        }
+      );
+
+      // Test basic API functionality
+      await testInstance.loadMarkets();
+      await testInstance.fetchBalance();
+
+      // Additional checks based on exchange capabilities
+      if (testInstance.has.fetchOHLCV) {
+        await testInstance.fetchOHLCV(testInstance.symbols[0], '1m', undefined, 1);
+      }
+
+    } catch (error) {
+      logService.log('error', 'Exchange connection test failed', error, 'ExchangeService');
+      throw new Error(`Connection test failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async addExchange(config: ExchangeConfig): Promise<void> {
+    try {
+      const encryptedCredentials = this.encryptCredentials({
+        apiKey: config.apiKey,
+        secret: config.secret,
+        memo: config.memo
+      });
+
+      const { error } = await supabase
+        .from('user_exchanges')
+        .insert({
+          name: config.name,
+          encrypted_credentials: encryptedCredentials,
+          testnet: config.testnet,
+          use_usdx: config.useUSDX
+        });
+
+      if (error) throw error;
+
+      // Initialize exchange instance
+      const ccxtInstance = await ccxtService.createExchange(
+        config.name as ExchangeId,
+        {
+          apiKey: config.apiKey,
+          secret: config.secret,
+          memo: config.memo
+        }
+      );
+
+      this.exchangeInstances.set(config.name, ccxtInstance);
+      this.emit('exchange:added', config.name);
+
+    } catch (error) {
+      logService.log('error', 'Failed to add exchange', error, 'ExchangeService');
+      throw new Error('Failed to add exchange');
+    }
+  }
+
+  getExchangeInstance(exchangeId: string): ccxt.Exchange | undefined {
+    return this.exchangeInstances.get(exchangeId);
+  }
+
+  async executeExchangeOperation<T>(
+    exchangeId: string,
+    operation: (exchange: ccxt.Exchange) => Promise<T>
+  ): Promise<T> {
+    const exchange = this.getExchangeInstance(exchangeId);
+    if (!exchange) {
+      throw new Error('Exchange not initialized');
+    }
+
+    try {
+      return await operation(exchange);
+    } catch (error) {
+      logService.log('error', 'Exchange operation failed', error, 'ExchangeService');
+      throw error;
+    }
+  }
+
+  async removeExchange(exchangeId: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('user_exchanges')
+        .delete()
+        .eq('id', exchangeId);
+
+      if (error) throw error;
+
+      if (this.activeExchange?.id === exchangeId) {
+        await this.disconnect();
+      }
+
+      this.exchangeInstances.delete(exchangeId);
+      this.emit('exchange:removed', exchangeId);
+    } catch (error) {
+      logService.log('error', 'Failed to remove exchange', error, 'ExchangeService');
+      throw new Error('Failed to remove exchange');
+    }
+  }
+
+  async fetchAllWalletBalances(): Promise<{
+    spot?: WalletBalance;
+    margin?: WalletBalance;
+    futures?: WalletBalance;
+  }> {
+    if (!this.activeExchange) {
+      throw new Error('No active exchange');
+    }
+
+    try {
+      const ccxtInstance = this.exchangeInstances.get(this.activeExchange.id);
+      const balances: {
+        spot?: WalletBalance;
+        margin?: WalletBalance;
+        futures?: WalletBalance;
+      } = {};
+
+      // Fetch spot balances
+      if (this.activeExchange.spotSupported) {
+        const spotBalance = await ccxtInstance.fetchBalance({ type: 'spot' });
+        balances.spot = this.normalizeBalance(spotBalance);
+      }
+
+      // Fetch margin balances
+      if (this.activeExchange.marginSupported) {
+        const marginBalance = await ccxtInstance.fetchBalance({ type: 'margin' });
+        balances.margin = this.normalizeBalance(marginBalance);
+      }
+
+      // Fetch futures balances
+      if (this.activeExchange.futuresSupported) {
+        const futuresBalance = await ccxtInstance.fetchBalance({ type: 'future' });
+        balances.futures = this.normalizeBalance(futuresBalance);
+      }
+
+      return balances;
+    } catch (error) {
+      logService.log('error', 'Failed to fetch wallet balances', error, 'ExchangeService');
+      throw new Error('Failed to fetch wallet balances');
+    }
+  }
+
+  private normalizeBalance(ccxtBalance: any): WalletBalance {
+    return {
+      total: parseFloat(ccxtBalance.total.USDT || 0),
+      free: parseFloat(ccxtBalance.free.USDT || 0),
+      used: parseFloat(ccxtBalance.used.USDT || 0)
+    };
   }
 
   private encryptCredentials(credentials: ExchangeCredentials): string {
@@ -494,9 +279,9 @@ export class ExchangeService extends EventEmitter {
     }
   }
 
-  private decryptCredentials(encrypted: string): ExchangeCredentials {
+  private decryptCredentials(encryptedData: string): ExchangeCredentials {
     try {
-      const bytes = CryptoJS.AES.decrypt(encrypted, this.ENCRYPTION_KEY);
+      const bytes = CryptoJS.AES.decrypt(encryptedData, this.ENCRYPTION_KEY);
       return JSON.parse(bytes.toString(CryptoJS.enc.Utf8));
     } catch (error) {
       logService.log('error', 'Failed to decrypt credentials', error, 'ExchangeService');
@@ -504,181 +289,66 @@ export class ExchangeService extends EventEmitter {
     }
   }
 
-  setCredentials(credentials: ExchangeCredentials | null, exchangeId: string) {
-    if (credentials) {
-      const encrypted = this.encryptCredentials(credentials);
-      localStorage.setItem('current_exchange', exchangeId);
-      localStorage.setItem(`exchange_credentials_${exchangeId}`, encrypted);
-    } else {
-      localStorage.removeItem('current_exchange');
-      localStorage.removeItem(`exchange_credentials_${this.currentExchange}`);
-    }
-  }
-
-  getCredentials(): { credentials: ExchangeCredentials | null, exchangeId: string | null } {
-    const exchangeId = localStorage.getItem('current_exchange');
-    if (!exchangeId) return { credentials: null, exchangeId: null };
-
-    const encrypted = localStorage.getItem(`exchange_credentials_${exchangeId}`);
-    if (!encrypted) return { credentials: null, exchangeId: null };
-
+  async initializeExchange(config: ExchangeConfig): Promise<void> {
     try {
-      const credentials = this.decryptCredentials(encrypted);
-      return { credentials, exchangeId };
+      if (config.testnet) {
+        this.demoMode = true;
+        await this.initializeDemoExchange(config);
+        return;
+      }
+
+      const exchange = await this.createExchangeInstance(config);
+      await this.connect({
+        id: config.name,
+        credentials: {
+          apiKey: config.apiKey,
+          secret: config.secret,
+          memo: config.memo
+        }
+      });
+
+      this.initialized = true;
+      this.emit('exchange:initialized');
     } catch (error) {
-      logService.log('error', 'Failed to decrypt credentials', error, 'ExchangeService');
-      return { credentials: null, exchangeId: null };
+      logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
+      throw error;
     }
   }
 
-  getCurrentExchange(): string | null {
-    return this.currentExchange;
-  }
+  private async initializeDemoExchange(config: ExchangeConfig): Promise<void> {
+    try {
+      const demoExchange = await ccxtService.createExchange(
+        config.name as ExchangeId,
+        {
+          apiKey: config.apiKey,
+          secret: config.secret,
+          memo: config.memo
+        }
+      );
 
-  isInitialized(): boolean {
-    return this.initialized;
-  }
-
-  isLive(): boolean {
-    return this.isLiveMode;
+      this.exchangeInstances.set(config.name, demoExchange);
+      this.initialized = true;
+      this.emit('exchange:initialized');
+    } catch (error) {
+      logService.log('error', 'Failed to initialize demo exchange', error, 'ExchangeService');
+      throw error;
+    }
   }
 
   isDemo(): boolean {
-    return this.isDemoMode;
+    return this.demoMode;
   }
 
-  isUsingUSDX(): boolean {
-    return this.useUSDX;
-  }
-
-  hasCredentials(): boolean {
-    return this.credentials !== null;
-  }
-
-  async switchMode(live: boolean): Promise<void> {
-    const credentials = this.getCredentials();
-    if (live && !credentials) {
-      throw new Error('No credentials available for live mode');
-    }
-
-    await this.initializeExchange({
-      name: 'bitmart',
-      apiKey: live ? credentials.credentials!.apiKey : 'demo',
-      secret: live ? credentials.credentials!.secret : 'demo',
-      memo: live ? credentials.credentials!.memo : 'demo',
-      testnet: !live,
-      useUSDX: this.useUSDX
-    });
-  }
-
-  cleanup() {
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-      this.healthCheckInterval = null;
-    }
-    ccxtService.cleanup();
-    this.currentExchange = null;
-    this.initialized = false;
-    this.isLiveMode = false;
-    this.isDemoMode = true;
-    this.credentials = null;
-    this.retryAttempts = 0;
-  }
-
-  private async executeWithRetry<T>(operation: () => Promise<T>): Promise<T> {
-    for (let attempt = 0; attempt < this.MAX_RETRIES; attempt++) {
-      try {
-        return await operation();
-      } catch (error) {
-        if (attempt === this.MAX_RETRIES - 1) throw error;
-        
-        this.retryAttempts++;
-        await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
-        
-        logService.log('warn', 
-          `Retry attempt ${attempt + 1} of ${this.MAX_RETRIES}`, 
-          error, 
-          'ExchangeService'
-        );
+  private async createExchangeInstance(config: ExchangeConfig): Promise<ccxt.Exchange> {
+    return await ccxtService.createExchange(
+      config.name as ExchangeId,
+      {
+        apiKey: config.apiKey,
+        secret: config.secret,
+        memo: config.memo
       }
-    }
-    throw new Error('Max retries exceeded');
-  }
-
-  getAvailableMarketPairs(): MarketPair[] {
-    return this.marketPairs.get(this.currentExchange) || [];
-  }
-
-  getExchangeCapabilities(): ExchangeCapabilities | null {
-    return this.capabilities;
-  }
-
-  async disconnect(): Promise<void> {
-    // Clean up WebSocket subscriptions
-    for (const channel of this.wsSubscriptions) {
-      await websocketService.unsubscribe(channel);
-    }
-    this.wsSubscriptions.clear();
-
-    // Clear polling interval
-    if (this.balanceUpdateInterval) {
-      clearInterval(this.balanceUpdateInterval);
-      this.balanceUpdateInterval = null;
-    }
-  }
-
-  async initializeBalanceMonitoring(): Promise<void> {
-    if (this.balanceCheckInterval) {
-      clearInterval(this.balanceCheckInterval);
-    }
-
-    this.balanceCheckInterval = setInterval(async () => {
-      await this.checkBalances();
-    }, 30000); // Check every 30 seconds
-
-    // Initial check
-    await this.checkBalances();
-  }
-
-  private async checkBalances(): Promise<void> {
-    if (this.isDemoMode) {
-      return; // Skip balance checks in demo mode
-    }
-
-    const wallets = await this.fetchWalletBalances();
-    
-    // Check each market type
-    ['spot', 'margin', 'futures'].forEach(marketType => {
-      const wallet = wallets[marketType as keyof ExchangeWallets];
-      if (wallet && wallet.available < ExchangeService.MIN_REQUIRED_BALANCE) {
-        this.emit('insufficientBalance', marketType);
-        this.insufficientBalanceCallbacks.forEach(cb => cb(marketType));
-      }
-    });
-  }
-
-  onInsufficientBalance(callback: (marketType: string) => void): void {
-    this.insufficientBalanceCallbacks.add(callback);
-  }
-
-  offInsufficientBalance(callback: (marketType: string) => void): void {
-    this.insufficientBalanceCallbacks.delete(callback);
-  }
-
-  getExchangeDepositUrl(): string {
-    return this.exchange?.urls?.deposit || this.exchange?.urls?.www || '';
-  }
-
-  async destroy(): Promise<void> {
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-    }
-    this.removeAllListeners();
-    this.initialized = false;
-    this.currentExchange = null;
-    this.credentials = null;
+    );
   }
 }
 
-// Export the singleton instance
 export const exchangeService = ExchangeService.getInstance();

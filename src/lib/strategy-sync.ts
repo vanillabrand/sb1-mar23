@@ -236,6 +236,7 @@ class StrategySync extends EventEmitter {
           status: data.status || 'inactive',
           performance: data.performance || 0,
           strategy_config: data.strategy_config,
+          selected_pairs: [], // Add default empty array for selected pairs
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         })
@@ -245,11 +246,10 @@ class StrategySync extends EventEmitter {
       if (error) throw error;
       if (!strategy) throw new Error('Failed to create strategy');
 
-      // Add to local cache
+      // Update local cache
       this.strategies.set(strategy.id, strategy);
-      this.emit('strategyUpdated', strategy);
+      this.emit('strategyCreated', strategy);
 
-      logService.log('info', 'Created new strategy', strategy, 'StrategySync');
       return strategy;
     } catch (error) {
       logService.log('error', 'Failed to create strategy', error, 'StrategySync');

@@ -4,52 +4,61 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 
 const app = express();
 
-// CORS configuration
-app.use(cors({
+const corsOptions = {
   origin: (origin, callback) => {
     const allowedOrigins = [
       'http://localhost:5173',
       'http://127.0.0.1:5173',
-      'http://localhost:3000'
+      'http://localhost:3000',
+      'https://fluffy-disco-vj9rwppxw2x97q-5173.app.github.dev'
     ];
-
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, origin);
+      callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
   credentials: true
-}));
+};
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
+app.use(cors(corsOptions));
 
-// Proxy middleware configuration
+// Add OPTIONS handling for preflight requests
+app.options('*', cors(corsOptions));
+
 const proxyMiddleware = createProxyMiddleware({
-  target: 'https://api-cloud.bitmart.com',
+  target: 'https://api-cloud-v2.bitmart.com',
   changeOrigin: true,
   pathRewrite: {
-    '^/api/proxy': ''
+    '^/api': ''
+  },
+  onProxyReq: (proxyReq, req, res) => {
+    // Remove origin header to prevent CORS issues
+    proxyReq.removeHeader('origin');
+    if (req.headers.authorization) {
+      proxyReq.setHeader('Authorization', req.headers.authorization);
+    }
   },
   onProxyRes: (proxyRes, req, res) => {
+    // Remove ALL existing CORS headers
+    Object.keys(proxyRes.headers).forEach(key => {
+      if (key.toLowerCase().startsWith('access-control-')) {
+        delete proxyRes.headers[key];
+      }
+    });
+
+    // Add our own CORS headers
     proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
     proxyRes.headers['access-control-allow-credentials'] = 'true';
     proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-    proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-Requested-With';
-  },
-  onError: (err, req, res) => {
-    console.error('Proxy Error:', err);
-    res.status(500).json({ error: 'Proxy Error', message: err.message });
+    proxyRes.headers['access-control-allow-headers'] = '*';
   }
 });
 
-// Apply proxy to all routes under /api/proxy
-app.use('/api/proxy', proxyMiddleware);
+// Apply the proxy middleware to all /api routes
+app.use('/api', proxyMiddleware);
 
-const PORT = 3000;
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Proxy server running on http://0.0.0.0:${PORT}`);
+const PORT = process.env.PROXY_PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`Proxy server running on port ${PORT}`);
 });

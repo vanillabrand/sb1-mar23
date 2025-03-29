@@ -1,6 +1,6 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-import { CCXTService } from './ccxt-service';
+import { ccxtService, CCXTService } from './ccxt-service';
 import { indicatorService } from './indicators';
 import type { MarketData, Strategy, MarketCondition } from './types';
 

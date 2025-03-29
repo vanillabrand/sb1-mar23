@@ -15,7 +15,8 @@ import {
   Gauge,
   Crown
 } from 'lucide-react';
-import { useAuth } from '../lib/auth-context';
+import { useAuth } from '../hooks/useAuth';
+import { supabase } from '../lib/supabase';
 import { templateService } from '../lib/template-service';
 import { logService } from '../lib/log-service';
 import { BudgetModal } from './BudgetModal';
@@ -41,6 +42,7 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [pendingTemplate, setPendingTemplate] = useState<StrategyTemplate | null>(null);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
+  const [isCreating, setIsCreating] = useState(false);
   const screenSize = useScreenSize();
 
   useEffect(() => {
@@ -64,24 +66,42 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
     }
   };
 
-  const handleUseTemplate = async (template: StrategyTemplate) => {
+  const handleCreateFromTemplate = async (template: StrategyTemplate) => {
+    if (!user) {
+      setError('Please sign in to create a strategy');
+      return;
+    }
+
     try {
-      setPendingTemplate(template);
-      setShowBudgetModal(true);
-    } catch (error) {
-      logService.log('error', `Failed to use template: ${template.title}`, error, 'StrategyLibrary');
-      setError('Failed to use template');
+      setIsCreating(true);
+      setError(null);
+
+      const strategy = await templateService.createStrategyFromTemplate(template.id);
+      
+      if (!strategy) {
+        throw new Error('Failed to create strategy from template');
+      }
+
+      // Notify parent component or trigger refresh
+      onStrategyCreated?.();
+      
+      logService.log('info', 'Strategy created from template', { strategy }, 'StrategyLibrary');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create strategy from template';
+      setError(errorMessage);
+      logService.log('error', 'Failed to create strategy from template', err, 'StrategyLibrary');
+    } finally {
+      setIsCreating(false);
     }
   };
 
-  const handleBudgetConfirm = async (budget: any) => {
+  const handleSubmitBudget = async (budget: number) => {
     if (!pendingTemplate) return;
 
     try {
       setIsSubmittingBudget(true);
       setError(null);
 
-      // Create strategy from template
       const strategy = await templateService.createStrategyFromTemplate(pendingTemplate.id);
       
       if (!strategy) {
@@ -96,10 +116,11 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
       setPendingTemplate(null);
       onStrategyCreated?.();
 
-      logService.log('info', `Strategy created from template with budget`, { strategy, budget }, 'StrategyLibrary');
-    } catch (error) {
-      logService.log('error', 'Failed to create strategy with budget', error, 'StrategyLibrary');
-      setError('Failed to create strategy. Please try again.');
+      logService.log('info', 'Strategy created from template with budget', { strategy, budget }, 'StrategyLibrary');
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to create strategy with budget';
+      setError(errorMessage);
+      logService.log('error', 'Failed to create strategy with budget', err, 'StrategyLibrary');
     } finally {
       setIsSubmittingBudget(false);
     }
@@ -118,7 +139,7 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
 
   // Limit number of displayed templates based on screen size
   const displayLimit = screenSize === 'sm' ? 3 : 6;
-  const displayedTemplates = filteredTemplates.slice(0, displayLimit);
+  const displayedTemplates = filteredTemplates.slice(0, 10);
 
   const getRiskIcon = (risk: RiskLevel) => {
     switch (risk) {
@@ -255,14 +276,14 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
                 </div>
 
                 <button
-                  onClick={() => handleUseTemplate(template)}
-                  disabled={selectedTemplate === template.id}
+                  onClick={() => handleCreateFromTemplate(template)}
+                  disabled={isCreating}
                   className="w-32 flex items-center justify-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 disabled:opacity-50"
                 >
-                  {selectedTemplate === template.id ? (
+                  {isCreating ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
-                      Copying...
+                      Creating...
                     </>
                   ) : (
                     <>
@@ -280,7 +301,7 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
       {/* Budget Modal */}
       {showBudgetModal && pendingTemplate && (
         <BudgetModal
-          onConfirm={handleBudgetConfirm}
+          onConfirm={handleSubmitBudget}
           onCancel={() => {
             setShowBudgetModal(false);
             setPendingTemplate(null);

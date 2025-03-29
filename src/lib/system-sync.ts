@@ -91,9 +91,10 @@ class SystemSync {
       } catch (error) {
         retryCount++;
         
-        // If proxy is unavailable, switch to demo mode immediately
-        if (error instanceof Error && error.message.includes('Proxy server is not available')) {
-          logService.log('info', 'Proxy unavailable, switching to offline demo mode', null, 'SystemSync');
+        // Check for network or proxy errors
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        if (errorMessage.includes('fetch failed') || errorMessage.includes('NetworkError')) {
+          logService.log('warn', 'Network error, switching to offline demo mode', error, 'SystemSync');
           return this.initializeDemoMode();
         }
 

@@ -13,7 +13,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 import createDOMPurify from 'dompurify';
-import { useAuth } from '../lib/auth-context';
+import { useAuth } from '../hooks/useAuth';
 
 // Initialize DOMPurify
 const DOMPurify = createDOMPurify(window);
