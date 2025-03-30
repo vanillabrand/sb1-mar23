@@ -1,81 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { DollarSign, AlertCircle, Loader2, Coins, Wallet } from 'lucide-react';
-import { exchangeService } from '../lib/exchange-service';
+import React, { useState } from 'react';
+import { DollarSign, AlertCircle, Loader2, Wallet } from 'lucide-react';
 import { logService } from '../lib/log-service';
-import type { StrategyBudget, RiskLevel } from '../lib/types';
+import type { StrategyBudget, Strategy, RiskLevel } from '../lib/types';
 
 interface BudgetModalProps {
-  onConfirm: (budget: StrategyBudget) => Promise<void>;
+  onConfirm: (budgetAmount: number) => Promise<void>;
   onCancel: () => void;
   maxBudget: number;
-  riskLevel: RiskLevel;
   isSubmitting?: boolean;
   initialBudget?: StrategyBudget;
-  isEditing?: boolean;
+  strategy?: Strategy;
+  riskLevel?: RiskLevel;
 }
 
-export function BudgetModal({
-  onConfirm,
-  onCancel,
-  maxBudget = 0, // Provide default value
-  riskLevel,
-  isSubmitting = false,
-  initialBudget,
-  isEditing = false
-}: BudgetModalProps) {
+export function BudgetModal({ onConfirm, onCancel, maxBudget = 10000, isSubmitting = false, initialBudget, strategy, riskLevel = 'Medium' }: BudgetModalProps) {
   const [totalBudget, setTotalBudget] = useState<number>(
     initialBudget?.total || Math.min((maxBudget || 0) * 0.1, maxBudget || 0)
   );
   const [error, setError] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [marketBalance, setMarketBalance] = useState<number | null>(null);
-  const [loadingBalance, setLoadingBalance] = useState(true);
+  // Use maxBudget as the market balance for simplicity
+  const marketBalance = maxBudget;
 
-  useEffect(() => {
-    loadMarketBalance();
-  }, []);
-
-  const loadMarketBalance = async () => {
-    try {
-      setLoadingBalance(true);
-      // Determine market type based on risk level
-      const marketType =
-        riskLevel === 'High' ||
-        riskLevel === 'Ultra High' ||
-        riskLevel === 'Extreme' ||
-        riskLevel === 'God Mode'
-          ? 'futures'
-          : riskLevel === 'Medium'
-          ? 'margin'
-          : 'spot';
-      // Get balance for market type
-      const balance = await exchangeService.fetchBalance(marketType);
-      const availableBalance = Number((balance?.available || 0).toFixed(2));
-      setMarketBalance(availableBalance);
-      // Set initial budget if not editing
-      if (!isEditing) {
-        setTotalBudget(
-          Number(Math.min(availableBalance * 0.1, maxBudget || 0).toFixed(2))
-        );
-      }
-    } catch (error) {
-      logService.log(
-        'error',
-        'Failed to load market balance',
-        error,
-        'BudgetModal'
-      );
-      setMarketBalance(maxBudget || 0);
-      if (!isEditing) {
-        setTotalBudget(Number(((maxBudget || 0) * 0.1).toFixed(2)));
-      }
-    } finally {
-      setLoadingBalance(false);
-    }
-  };
-
-  const handleBudgetChange = (value: string) => {
-    const parsedValue = parseFloat(value);
+  const handleBudgetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const parsedValue = parseFloat(e.target.value);
     if (!isNaN(parsedValue)) {
       setTotalBudget(Number(parsedValue.toFixed(2)));
     }
@@ -83,17 +31,14 @@ export function BudgetModal({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError(null);
-    
-    try {
-      setIsProcessing(true);
-      logService.log('info', 'Submitting budget form', { totalBudget, riskLevel }, 'BudgetModal');
 
-      if (isNaN(totalBudget) || totalBudget <= 0) {
-        throw new Error('Budget must be greater than 0');
-      }
-      if (totalBudget > maxBudget) {
-        throw new Error(`Budget cannot exceed ${maxBudget}`);
+    try {
+      setError(null);
+      setIsProcessing(true);
+
+      const budgetAmount = totalBudget;
+      if (isNaN(budgetAmount) || budgetAmount <= 0) {
+        throw new Error('Please enter a valid budget amount');
       }
 
       // Calculate position sizing based on risk level
@@ -115,17 +60,16 @@ export function BudgetModal({
         maxPositionSize: Number((totalBudget * positionSizeMultiplier).toFixed(2))
       };
 
-      logService.log('info', 'Confirming budget', { budget }, 'BudgetModal');
-      await onConfirm(budget);
-      logService.log('info', 'Budget confirmed successfully', { budget }, 'BudgetModal');
-      
-      // Close modal after successful confirmation
-      onCancel();
+      logService.log('info', 'Confirming budget', { budgetAmount }, 'BudgetModal');
+
+      // Call onConfirm and immediately close the modal by calling onCancel
+      // This ensures the modal closes even if there's an error in the subsequent processing
+      await onConfirm(budgetAmount);
+      onCancel(); // Close the modal immediately after confirming
+
+      logService.log('info', 'Budget confirmed successfully', { budgetAmount }, 'BudgetModal');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Invalid configuration';
-      setError(errorMessage);
-      logService.log('error', 'Budget confirmation error', error, 'BudgetModal');
-    } finally {
+      setError(error instanceof Error ? error.message : 'Failed to set budget');
       setIsProcessing(false);
     }
   };
@@ -134,7 +78,7 @@ export function BudgetModal({
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]">
       <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-lg p-6 w-full max-w-md border border-gunmetal-800">
         <h2 className="text-xl font-bold gradient-text mb-4">
-          {isEditing ? 'Edit Strategy Budget' : 'Set Strategy Budget'}
+          Set Strategy Budget
         </h2>
 
         {error && (
@@ -153,19 +97,13 @@ export function BudgetModal({
                 Available Balance
               </h3>
             </div>
-            {loadingBalance ? (
-              <div className="flex items-center gap-2 text-gray-400">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Loading balance...
-              </div>
-            ) : (
+
               <p className="text-2xl font-bold text-neon-turquoise">
                 ${(marketBalance || 0).toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
               </p>
-            )}
           </div>
 
           <div>
@@ -177,7 +115,7 @@ export function BudgetModal({
               <input
                 type="number"
                 value={totalBudget}
-                onChange={(e) => handleBudgetChange(e.target.value)}
+                onChange={handleBudgetChange}
                 className="pl-10 w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent"
                 min={0}
                 max={maxBudget || 0}
@@ -211,7 +149,7 @@ export function BudgetModal({
               {isSubmitting || isProcessing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  {isEditing ? 'Updating Budget...' : 'Starting Strategy...'}
+                  Starting Strategy...
                 </>
               ) : (
                 'Confirm Budget'

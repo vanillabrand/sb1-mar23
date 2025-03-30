@@ -2,7 +2,7 @@ import React from 'react';
 import { Brain, Power, TrendingUp, BarChart3 } from 'lucide-react';
 
 interface StrategyStatsProps {
-  stats: {
+  stats?: {
     total: number;
     active: number;
     profitable: number;
@@ -10,7 +10,12 @@ interface StrategyStatsProps {
   };
 }
 
-export function StrategyStats({ stats }: StrategyStatsProps) {
+export function StrategyStats({ stats = { 
+  total: 0, 
+  active: 0, 
+  profitable: 0, 
+  avgPerformance: 0 
+}}: StrategyStatsProps) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">

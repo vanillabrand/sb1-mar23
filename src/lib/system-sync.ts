@@ -2,6 +2,7 @@ import { logService } from './log-service';
 import { supabase } from './supabase-client';
 import { exchangeService } from './exchange-service';
 import { templateService } from './template-service';
+import { demoService } from './demo-service';
 
 class SystemSync {
   private initialized = false;
@@ -10,7 +11,7 @@ class SystemSync {
 
   async initializeDatabase(): Promise<void> {
     let retryCount = 0;
-    
+
     while (retryCount < this.MAX_RETRIES) {
       try {
         // First check if Supabase is available
@@ -25,7 +26,7 @@ class SystemSync {
 
         // Then check auth session
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        
+
         if (sessionError) {
           throw new Error(`Session check failed: ${sessionError.message}`);
         }
@@ -40,9 +41,9 @@ class SystemSync {
 
       } catch (error) {
         retryCount++;
-        logService.log('warn', 
-          `Database initialization attempt ${retryCount} failed`, 
-          error, 
+        logService.log('warn',
+          `Database initialization attempt ${retryCount} failed`,
+          error,
           'SystemSync'
         );
 
@@ -74,23 +75,22 @@ class SystemSync {
     while (retryCount < this.MAX_RETRIES) {
       try {
         await exchangeService.initializeExchange({
-          name: 'bitmart',
-          apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY,
-          secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET,
-          memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO,
+          name: 'binance',
+          apiKey: import.meta.env.BINANCE_TEST_API_KEY,
+          secret: import.meta.env.BINANCE_TEST_API_SECRET,
           testnet: true
         });
-        
-        logService.log('info', 
-          `Exchange initialized in ${exchangeService.isDemo() ? 'demo' : 'live'} mode`, 
-          null, 
+
+        logService.log('info',
+          `Exchange initialized in ${exchangeService.isDemo() ? 'testnet' : 'live'} mode`,
+          null,
           'SystemSync'
         );
         return;
 
       } catch (error) {
         retryCount++;
-        
+
         // Check for network or proxy errors
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         if (errorMessage.includes('fetch failed') || errorMessage.includes('NetworkError')) {
@@ -98,9 +98,9 @@ class SystemSync {
           return this.initializeDemoMode();
         }
 
-        logService.log('warn', 
-          `Exchange initialization attempt ${retryCount} failed`, 
-          error, 
+        logService.log('warn',
+          `Exchange initialization attempt ${retryCount} failed`,
+          error,
           'SystemSync'
         );
 
@@ -116,21 +116,24 @@ class SystemSync {
 
   async initializeDemoMode(): Promise<void> {
     logService.log('info', 'Initializing offline demo mode', null, 'SystemSync');
-    
+
     try {
       // Initialize exchange with demo credentials from environment variables
       await exchangeService.initializeExchange({
-        name: 'bitmart',
-        apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY,
-        secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET,
-        memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO,
-        testnet: true,
-        useUSDX: false
+        name: 'bitmart', // Use BitMart for demo mode
+        apiKey: 'demo-api-key',
+        secret: 'demo-secret',
+        testnet: true
       });
 
       // Initialize templates with demo data
       await templateService.initializeDemoTemplates();
-      
+
+      // Ensure demo service is initialized
+      if (demoService.isInDemoMode()) {
+        logService.log('info', 'Demo service initialized successfully', null, 'SystemSync');
+      }
+
       logService.log('info', 'Offline demo mode initialized successfully', null, 'SystemSync');
     } catch (error) {
       logService.log('error', 'Demo mode initialization failed', error, 'SystemSync');

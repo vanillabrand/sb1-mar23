@@ -164,7 +164,7 @@ export function Notes() {
 
       {/* Notes List */}
       <div className="space-y-4">
-        <AnimatePresence mode="popLayout">
+        <AnimatePresence mode="sync"> {/* Changed from popLayout to sync */}
           {notes.map(note => (
             <motion.div
               key={note.id}

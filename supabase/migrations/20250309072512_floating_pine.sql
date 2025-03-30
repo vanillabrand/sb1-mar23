@@ -56,6 +56,7 @@ CREATE TABLE strategy_templates (
   title text NOT NULL,
   description text,
   risk_level text NOT NULL,
+  type text NOT NULL DEFAULT 'user_template',  -- Added type column
   metrics jsonb NOT NULL DEFAULT '{"winRate": 0, "avgReturn": 0}'::jsonb,
   config jsonb,
   user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -63,8 +64,14 @@ CREATE TABLE strategy_templates (
   updated_at timestamptz DEFAULT now(),
   CONSTRAINT valid_risk_level CHECK (
     risk_level = ANY (ARRAY['Ultra Low', 'Low', 'Medium', 'High', 'Ultra High', 'Extreme', 'God Mode'])
+  ),
+  CONSTRAINT valid_type CHECK (
+    type = ANY (ARRAY['system_template', 'user_template'])
   )
 );
+
+-- Create index on type column
+CREATE INDEX idx_strategy_templates_type ON strategy_templates(type);
 
 -- Create strategy_budgets table
 CREATE TABLE strategy_budgets (

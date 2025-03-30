@@ -14,6 +14,23 @@ class TradeManager extends EventEmitter {
     super();
   }
 
+  getActiveTradesForStrategy(strategyId: string): any[] {
+    try {
+      const activeTrades = Array.from(this.activeOrders.entries())
+        .filter(([_, status]) => status.status === 'pending')
+        .map(([orderId, status]) => ({
+          id: orderId,
+          ...status
+        }));
+
+      return activeTrades.filter(trade => trade.strategyId === strategyId);
+    } catch (error) {
+      logService.log('error', `Failed to get active trades for strategy ${strategyId}`, 
+        error, 'TradeManager');
+      return [];
+    }
+  }
+
   async executeTrade(options: TradeOptions): Promise<TradeResult> {
     const tradeId = this.generateTradeId(options);
     

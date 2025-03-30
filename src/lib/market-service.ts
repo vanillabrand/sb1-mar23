@@ -1,12 +1,11 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-import { ccxtService, CCXTService } from './ccxt-service';
+import { ccxtService } from './ccxt-service';
 import { indicatorService } from './indicators';
 import type { MarketData, Strategy, MarketCondition } from './types';
 
 export class MarketService extends EventEmitter {
   private static instance: MarketService;
-  private ccxtService: CCXTService;
   private marketData: Map<string, MarketData> = new Map();
   private monitoredStrategies: Set<string> = new Set();
   private intervalIds: Map<string, NodeJS.Timer> = new Map();
@@ -16,7 +15,6 @@ export class MarketService extends EventEmitter {
 
   private constructor() {
     super();
-    this.ccxtService = CCXTService.getInstance();
   }
 
   static getInstance(): MarketService {
@@ -161,4 +159,4 @@ export class MarketService extends EventEmitter {
   }
 }
 
-export const marketService = new MarketService();
+export const marketService = MarketService.getInstance();

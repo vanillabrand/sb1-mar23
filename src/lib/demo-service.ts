@@ -1,0 +1,144 @@
+import { ccxtService } from './ccxt-service';
+import { logService } from './log-service';
+import { v4 as uuidv4 } from 'uuid';
+
+/**
+ * DemoService provides mock data and functionality for demo mode
+ * It initializes the ccxtService with mock data to prevent errors
+ */
+class DemoService {
+  private static instance: DemoService;
+  private isDemoMode: boolean = false;
+  private mockExchangeId: string = 'bitmart';
+  
+  private constructor() {
+    // Initialize demo mode
+    this.initializeDemoMode();
+  }
+  
+  static getInstance(): DemoService {
+    if (!DemoService.instance) {
+      DemoService.instance = new DemoService();
+    }
+    return DemoService.instance;
+  }
+  
+  /**
+   * Initialize demo mode by setting up mock exchange
+   */
+  private async initializeDemoMode(): Promise<void> {
+    try {
+      // Create a mock exchange instance
+      await ccxtService.createExchange(
+        this.mockExchangeId as any,
+        {
+          apiKey: 'demo-api-key',
+          secret: 'demo-secret',
+        },
+        true // Use testnet/sandbox mode
+      );
+      
+      // Override the executeWithRetry method to provide mock data
+      this.overrideCcxtMethods();
+      
+      this.isDemoMode = true;
+      logService.log('info', 'Demo mode initialized successfully', null, 'DemoService');
+    } catch (error) {
+      logService.log('error', 'Failed to initialize demo mode', error, 'DemoService');
+    }
+  }
+  
+  /**
+   * Override ccxt methods to provide mock data
+   */
+  private overrideCcxtMethods(): void {
+    // Store the original method
+    const originalExecuteWithRetry = ccxtService.executeWithRetry.bind(ccxtService);
+    
+    // Override the method
+    (ccxtService as any).executeWithRetry = async <T>(
+      operation: () => Promise<T>,
+      operationName: string,
+      maxRetries: number = 3
+    ): Promise<T> => {
+      try {
+        // Try to execute the original operation
+        return await originalExecuteWithRetry(operation, operationName, maxRetries);
+      } catch (error) {
+        // If it fails, return mock data based on the operation name
+        logService.log('info', `Providing mock data for ${operationName}`, null, 'DemoService');
+        
+        if (operationName.includes('fetchMarketData')) {
+          return this.getMockMarketData(operationName) as unknown as T;
+        }
+        
+        // For other operations, return a basic mock object
+        return {} as T;
+      }
+    };
+  }
+  
+  /**
+   * Generate mock market data
+   */
+  private getMockMarketData(operationName: string): any {
+    const now = Date.now();
+    const basePrice = 50000 + Math.random() * 1000;
+    
+    return {
+      timestamp: now,
+      symbol: 'BTC/USDT',
+      price: basePrice,
+      volume: 100 + Math.random() * 50,
+      high24h: basePrice * 1.05,
+      low24h: basePrice * 0.95,
+      orderBook: {
+        asks: Array.from({ length: 10 }, (_, i) => [basePrice + (i * 10), 1 - (i * 0.05)]),
+        bids: Array.from({ length: 10 }, (_, i) => [basePrice - (i * 10), 1 - (i * 0.05)]),
+      },
+      recentTrades: Array.from({ length: 20 }, (_, i) => ({
+        id: uuidv4(),
+        timestamp: now - (i * 60000),
+        price: basePrice + (Math.random() * 200 - 100),
+        amount: Math.random() * 2,
+        side: Math.random() > 0.5 ? 'buy' : 'sell',
+      })),
+    };
+  }
+  
+  /**
+   * Check if demo mode is active
+   */
+  isInDemoMode(): boolean {
+    return this.isDemoMode;
+  }
+  
+  /**
+   * Generate synthetic trade data for demo mode
+   */
+  generateSyntheticTrade(strategyId: string, symbol: string = 'BTC/USDT'): any {
+    const now = Date.now();
+    const basePrice = 50000 + Math.random() * 1000;
+    const isBuy = Math.random() > 0.5;
+    
+    return {
+      id: uuidv4(),
+      strategy_id: strategyId,
+      symbol: symbol,
+      side: isBuy ? 'buy' : 'sell',
+      type: 'market',
+      amount: Math.random() * 0.1,
+      price: basePrice,
+      cost: basePrice * (Math.random() * 0.1),
+      fee: {
+        cost: basePrice * 0.001,
+        currency: 'USDT',
+      },
+      timestamp: now,
+      datetime: new Date(now).toISOString(),
+      status: 'closed',
+    };
+  }
+}
+
+export const demoService = DemoService.getInstance();

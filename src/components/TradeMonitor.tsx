@@ -15,9 +15,9 @@ import {
 import { 
   marketService,
   tradeService, 
-  monitoringService,
   logService 
 } from '../lib/services';
+import { MonitoringService } from '../lib/monitoring-service';
 import { 
   TradeChart,
   TradeStats, 
@@ -33,6 +33,9 @@ import type {
   StrategyBudget,
   TradeStats as TradeStatsType 
 } from '../lib/types';
+
+// Get the singleton instance
+const monitoringService = MonitoringService.getInstance();
 
 interface TradeMonitorProps {
   strategies: Strategy[];
@@ -58,55 +61,40 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
 
   useEffect(() => {
-    let mounted = true;
-    const unsubscribers: (() => void)[] = [];
+    const subscription = supabase
+      .channel('trade_monitor_updates')
+      .on('postgres_changes', { 
+        event: '*', 
+        schema: 'public', 
+        table: 'strategies' 
+      }, () => {
+        refreshTradeData();
+      })
+      .subscribe();
 
-    const initializeData = async () => {
-      try {
-        setIsLoading(true);
-        
-        // Subscribe to market data updates
-        const unsubMarket = marketService.subscribe((data) => {
-          if (mounted) setMarketData(data);
-        });
-        unsubscribers.push(unsubMarket);
+    // Subscribe to strategy events
+    const unsubscribe = eventBus.subscribe('strategy:created', () => {
+      refreshTradeData();
+    });
 
-        // Subscribe to trade updates
-        const unsubTrades = tradeService.subscribe((updatedTrades) => {
-          if (mounted) {
-            setTrades(updatedTrades);
-            updateTradeStats(updatedTrades);
-          }
-        });
-        unsubscribers.push(unsubTrades);
-
-        if (mounted) setIsLoading(false);
-      } catch (error) {
-        logService.log('error', 'Failed to initialize trade monitoring', error, 'TradeMonitor');
-        if (mounted) {
-          setError('Failed to initialize monitoring');
-          setIsLoading(false);
-        }
-      }
-    };
-
-    initializeData();
-
-    // Cleanup subscriptions
     return () => {
-      mounted = false;
-      unsubscribers.forEach(unsub => unsub());
+      subscription.unsubscribe();
+      unsubscribe();
     };
   }, []);
 
-  // Auto-refresh timer
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setLastUpdate(Date.now());
-    }, 5000);
-    
-    return () => clearInterval(interval);
-  }, []);
+  const refreshTradeData = async () => {
+    try {
+      setLoading(true);
+      await Promise.all([
+        loadActiveStrategies(),
+        loadActiveTrades(),
+        tradeManager.syncTrades()
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const updateTradeStats = (currentTrades: Trade[]) => {
     const stats = {

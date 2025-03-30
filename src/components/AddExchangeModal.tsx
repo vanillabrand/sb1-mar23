@@ -3,7 +3,7 @@ import { Dialog } from './ui/Dialog';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Select } from './ui/Select';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, RefreshCw } from 'lucide-react';
 import type { ExchangeConfig } from '../lib/types';
 
 interface AddExchangeModalProps {

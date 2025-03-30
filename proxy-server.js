@@ -32,14 +32,14 @@ const proxyMiddleware = createProxyMiddleware({
   pathRewrite: {
     '^/api': ''
   },
-  onProxyReq: (proxyReq, req, res) => {
+  onProxyReq: (proxyReq, req, _res) => {
     // Remove origin header to prevent CORS issues
     proxyReq.removeHeader('origin');
     if (req.headers.authorization) {
       proxyReq.setHeader('Authorization', req.headers.authorization);
     }
   },
-  onProxyRes: (proxyRes, req, res) => {
+  onProxyRes: (proxyRes, req, _res) => {
     // Remove ALL existing CORS headers
     Object.keys(proxyRes.headers).forEach(key => {
       if (key.toLowerCase().startsWith('access-control-')) {
@@ -55,10 +55,15 @@ const proxyMiddleware = createProxyMiddleware({
   }
 });
 
+// Health check endpoint
+app.get('/health', (_req, res) => {
+  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Apply the proxy middleware to all /api routes
 app.use('/api', proxyMiddleware);
 
-const PORT = process.env.PROXY_PORT || 3000;
+const PORT = process.env.PROXY_PORT || 3001;
 app.listen(PORT, () => {
   console.log(`Proxy server running on port ${PORT}`);
 });

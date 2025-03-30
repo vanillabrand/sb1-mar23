@@ -68,11 +68,12 @@ export function Pagination({
           <ChevronLeft className="w-5 h-5" />
         </button>
 
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="sync">
           {showPageNumbers ? (
             <motion.div 
               className="hidden sm:flex gap-2"
               layout
+              key="page-numbers"
             >
               {getVisiblePages().map((pageNum, index) => 
                 pageNum === -1 ? (
@@ -98,6 +99,7 @@ export function Pagination({
             <motion.div 
               className="flex gap-2"
               layout
+              key="dots"
             >
               {Array.from({ length: totalPages }).map((_, index) => (
                 <motion.button

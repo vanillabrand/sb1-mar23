@@ -230,13 +230,14 @@ export function MarketTrendsPanel({ className = "" }: MarketTrendsPanelProps) {
       </div>
 
       <div className="space-y-6">
-        <AnimatePresence mode="wait">
+        <AnimatePresence mode="sync">
           {displayedTrends.map((trend) => (
             <motion.div
               key={trend.symbol}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
               className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-800/50 relative overflow-hidden"
             >
               {/* Background Chart */}

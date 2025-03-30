@@ -21,9 +21,11 @@ import {
   Loader2
 } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
-import { bitmartService } from '../lib/services';
-import { marketMonitor } from '../lib/market-monitor';
-import { logService } from '../lib/services';
+import { 
+  bitmartService,
+  logService,
+  marketMonitor 
+} from '../lib/services';
 import type { Strategy } from '../lib/types';
 
 interface AssetPairMonitorProps {

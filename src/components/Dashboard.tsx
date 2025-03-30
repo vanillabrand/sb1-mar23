@@ -5,6 +5,8 @@ import {
   monitoringService,
   logService 
 } from '../lib/services';
+import { supabase } from '../lib/supabase-client';
+import { useAuth } from '../hooks/useAuth';
 import { 
   StrategyAssetPanel,
   ErrorBoundary,
@@ -51,6 +53,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ strategies: initialStrategies, monitoringStatuses: initialStatuses }: DashboardProps) {
+  const { user } = useAuth();
   const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
   const [volatility, setVolatility] = useState(0);
@@ -148,6 +151,62 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
     };
   }, []);
 
+  const loadStrategies = async () => {
+    if (!user) return;
+    
+    try {
+      const { data, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setLocalStrategies(data || []);
+    } catch (error) {
+      logService.log('error', 'Failed to load strategies:', error, 'Dashboard');
+    }
+  };
+
+  useEffect(() => {
+    loadStrategies();
+    
+    if (!user) return;
+
+    const subscription = supabase
+      .channel('dashboard_strategies')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'strategies',
+          filter: `user_id=eq.${user.id}`
+        },
+        () => {
+          loadStrategies();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [user]);
+
+  const loadDashboardData = async () => {
+    try {
+      setLoading(true);
+      await Promise.all([
+        loadStrategies(),
+        loadPerformanceMetrics(),
+        loadActiveTrades()
+      ]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="p-8">
@@ -178,7 +237,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
       <div className={`grid grid-cols-12 gap-8 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-8`}>
           <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
-            <StrategyStatus strategies={localStrategies} monitoringStatuses={localMonitoringStatuses} />
+            <StrategyStatus strategies={activeStrategies} />
           </div>
 
           <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">

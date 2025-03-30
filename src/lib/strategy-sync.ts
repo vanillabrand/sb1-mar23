@@ -1,6 +1,8 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { supabase } from './supabase';
+import { strategyService } from './strategy-service';
+import { eventBus } from './event-bus';
 import { v4 as uuidv4 } from 'uuid';
 import { AIService } from './ai-service';
 import type { Strategy } from './supabase-types';
@@ -55,8 +57,16 @@ class StrategySync extends EventEmitter {
                 }
                 break;
               case 'UPDATE':
+                if (payload.new) {
+                  this.strategies.set(payload.new.id, payload.new);
+                  this.emit('strategyUpdated', payload.new);
+                }
+                break;
               case 'INSERT':
-                await this.initialize(); // Full sync
+                if (payload.new) {
+                  this.strategies.set(payload.new.id, payload.new);
+                  this.emit('strategyCreated', payload.new);
+                }
                 break;
             }
           } catch (error) {
@@ -213,43 +223,50 @@ class StrategySync extends EventEmitter {
     }
   }
 
-  async createStrategy(data: {
-    title: string;
-    description: string | null;
-    risk_level: string;
-    user_id: string;
-    type?: string;
-    status?: string;
-    performance?: number;
-    strategy_config?: any;
-  }): Promise<Strategy> {
+  async createStrategy(data: CreateStrategyData): Promise<Strategy> {
     try {
-      const strategyId = uuidv4();
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError || !session?.user?.id) {
+        throw new Error('No authenticated user found');
+      }
 
-      // Create strategy in database
       const { data: strategy, error } = await supabase
         .from('strategies')
         .insert({
           ...data,
-          id: strategyId,
-          type: data.type || 'custom',
-          status: data.status || 'inactive',
-          performance: data.performance || 0,
-          strategy_config: data.strategy_config,
-          selected_pairs: [], // Add default empty array for selected pairs
+          user_id: session.user.id,
+          type: data.type || 'custom',  // Add default type if not provided
           created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          updated_at: new Date().toISOString(),
+          status: data.status || 'inactive',
+          performance: 0,
+          selected_pairs: data.selected_pairs || [],
+          strategy_config: data.strategy_config || {}
         })
         .select()
         .single();
 
-      if (error) throw error;
-      if (!strategy) throw new Error('Failed to create strategy');
+      if (error) {
+        logService.log('error', 'Failed to create strategy in database', {
+          error,
+          userId: session.user.id,
+          data
+        }, 'StrategySync');
+        throw error;
+      }
+
+      if (!strategy) {
+        throw new Error('Strategy creation failed - no data returned');
+      }
 
       // Update local cache
       this.strategies.set(strategy.id, strategy);
+      
+      // Emit events
       this.emit('strategyCreated', strategy);
-
+      eventBus.emit('strategy:created', strategy);
+      
       return strategy;
     } catch (error) {
       logService.log('error', 'Failed to create strategy', error, 'StrategySync');

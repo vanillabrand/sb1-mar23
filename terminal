@@ -6,6 +6,7 @@ rm -rf node_modules package-lock.json
 rm -rf node_modules/.vite
 npm cache clean --force
 npm install
+npm install lucide-react
 
 # Start development server
 npm run dev

@@ -76,13 +76,24 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
       setIsCreating(true);
       setError(null);
 
+      // Create strategy from template with formatted config
       const strategy = await templateService.createStrategyFromTemplate(template.id);
       
       if (!strategy) {
         throw new Error('Failed to create strategy from template');
       }
 
-      // Notify parent component or trigger refresh
+      // Force refresh all views that display strategies
+      await Promise.all([
+        strategySync.initialize(), // Refresh strategy sync
+        marketService.syncStrategies(), // Refresh market data
+        tradeManager.syncTrades() // Refresh trades
+      ]);
+
+      // Emit event for real-time updates
+      eventBus.emit('strategy:created', strategy);
+      
+      // Notify parent component
       onStrategyCreated?.();
       
       logService.log('info', 'Strategy created from template', { strategy }, 'StrategyLibrary');

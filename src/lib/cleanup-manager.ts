@@ -1,7 +1,7 @@
 import { logService } from './log-service';
 import { systemSync } from './system-sync';
 import { analyticsService } from './analytics-service';
-import { templateService } from './template-service';
+import { templateManager } from './lib/template-manager';
 import { tradeEngine } from './trade-engine';
 
 export class CleanupManager {
@@ -24,7 +24,7 @@ export class CleanupManager {
 // Register cleanup handlers
 CleanupManager.register(() => systemSync.cleanup());
 CleanupManager.register(() => analyticsService.cleanup());
-CleanupManager.register(() => templateService.cleanup());
+CleanupManager.register(() => templateManager.cleanup());
 CleanupManager.register(() => tradeEngine.cleanup());
 
 // Handle application shutdown

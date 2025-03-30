@@ -1,6 +1,6 @@
 import { logService } from './log-service';
 
-class TechnicalIndicators {
+export class TechnicalIndicators {
   async calculateRSI(prices: number[], period: number = 14): Promise<number> {
     try {
       if (prices.length < period + 1) {

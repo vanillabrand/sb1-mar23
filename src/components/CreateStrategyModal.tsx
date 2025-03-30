@@ -27,25 +27,25 @@ interface CreateStrategyModalProps {
 interface CreateStrategyData {
   title: string;
   description: string;
-  selectedPairs: string[];
   risk_level: string;
+  selected_pairs: string[];
 }
 
 export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategyModalProps) {
   const [formData, setFormData] = useState<CreateStrategyData>({
     title: '',
     description: '',
-    selectedPairs: [],
-    risk_level: 'Medium'
+    risk_level: 'Medium',
+    selected_pairs: []
   });
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handlePairSelect = (pair: string) => {
-    if (!formData.selectedPairs.includes(pair)) {
+    if (!formData.selected_pairs.includes(pair)) {
       setFormData(prev => ({
         ...prev,
-        selectedPairs: [...prev.selectedPairs, pair]
+        selected_pairs: [...prev.selected_pairs, pair]
       }));
     }
   };
@@ -53,7 +53,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
   const handlePairRemove = (pair: string) => {
     setFormData(prev => ({
       ...prev,
-      selectedPairs: prev.selectedPairs.filter(p => p !== pair)
+      selected_pairs: prev.selected_pairs.filter(p => p !== pair)
     }));
   };
 
@@ -65,7 +65,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
       return;
     }
 
-    if (formData.selectedPairs.length === 0) {
+    if (formData.selected_pairs.length === 0) {
       setError('Please select at least one trading pair');
       return;
     }
@@ -85,7 +85,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
   if (!open) return null;
 
   return (
-    <AnimatePresence>
+    <AnimatePresence mode="wait">
       <motion.div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center"
         initial={{ opacity: 0 }}
@@ -163,14 +163,14 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
               <div className="space-y-4">
                 <Combobox
                   options={TRADING_PAIRS}
-                  selectedValues={formData.selectedPairs}
+                  selectedValues={formData.selected_pairs}
                   onSelect={handlePairSelect}
                   placeholder="Search trading pairs..."
                 />
                 
-                {formData.selectedPairs.length > 0 && (
+                {formData.selected_pairs.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-3">
-                    {formData.selectedPairs.map((pair) => (
+                    {formData.selected_pairs.map((pair) => (
                       <div
                         key={pair}
                         className="flex items-center gap-1.5 bg-gunmetal-800 text-gray-200 px-3 py-1.5 rounded-full text-sm"
@@ -188,7 +188,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
                   </div>
                 )}
 
-                {formData.selectedPairs.length === 0 && (
+                {formData.selected_pairs.length === 0 && (
                   <p className="text-sm text-gray-400">
                     Select at least one trading pair for your strategy
                   </p>

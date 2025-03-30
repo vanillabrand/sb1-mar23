@@ -11,13 +11,13 @@ class StrategyMonitor extends EventEmitter {
     try {
       // Load active strategies
       await this.loadActiveStrategies();
-      
+
       // Start monitoring
       this.startMonitoring();
-      
+
       // Setup realtime updates
       this.setupRealtimeUpdates();
-      
+
       logService.log('info', 'Strategy monitor initialized successfully', null, 'StrategyMonitor');
     } catch (error) {
       logService.log('error', 'Failed to initialize strategy monitor', error, 'StrategyMonitor');
@@ -122,6 +122,44 @@ class StrategyMonitor extends EventEmitter {
         }
       )
       .subscribe();
+  }
+
+  async addStrategy(strategy: any): Promise<void> {
+    try {
+      logService.log('info', `Adding strategy ${strategy.id} to monitor`, null, 'StrategyMonitor');
+
+      // Add to active strategies
+      this.activeStrategies.set(strategy.id, strategy);
+
+      // Subscribe to markets for this strategy
+      await this.subscribeToMarkets(strategy);
+
+      // Immediately evaluate the strategy
+      await this.evaluateStrategy(strategy);
+
+      logService.log('info', `Strategy ${strategy.id} added to monitor successfully`, null, 'StrategyMonitor');
+    } catch (error) {
+      logService.log('error', `Failed to add strategy ${strategy.id} to monitor`, error, 'StrategyMonitor');
+      throw error;
+    }
+  }
+
+  async removeStrategy(strategyId: string): Promise<void> {
+    try {
+      if (!this.activeStrategies.has(strategyId)) {
+        return;
+      }
+
+      logService.log('info', `Removing strategy ${strategyId} from monitor`, null, 'StrategyMonitor');
+
+      // Remove from active strategies
+      this.activeStrategies.delete(strategyId);
+
+      logService.log('info', `Strategy ${strategyId} removed from monitor successfully`, null, 'StrategyMonitor');
+    } catch (error) {
+      logService.log('error', `Failed to remove strategy ${strategyId} from monitor`, error, 'StrategyMonitor');
+      throw error;
+    }
   }
 
   stop(): void {

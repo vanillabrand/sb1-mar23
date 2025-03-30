@@ -1,10 +1,11 @@
+
 import { EventEmitter } from './event-emitter';
 import { marketMonitor } from './market-monitor';
 import { tradeManager } from './trade-manager';
 import { tradeService } from './trade-service';
 import { bitmartService } from './bitmart-service';
 import { logService } from './log-service';
-import { technicalIndicators } from '@/lib/technical-indicators';
+import { indicatorService } from './indicators'; // Updated to use indicatorService instead
 import type { Strategy } from './supabase-types';
 
 interface IndicatorData {
@@ -214,20 +215,34 @@ class TradeGenerator extends EventEmitter {
     try {
       // Calculate RSI
       if (strategy.strategy_config?.indicators?.includes('RSI')) {
-        const rsi = await technicalIndicators.calculateRSI(closes, 14);
+        const rsiConfig = {
+          type: 'RSI',
+          period: 14,
+          parameters: {}
+        };
+        const rsi = await indicatorService.calculateIndicator(rsiConfig, closes);
         indicators.push({
           name: 'RSI',
-          value: rsi,
+          value: rsi.value,
           timeframe: '5m'
         });
       }
 
       // Calculate MACD
       if (strategy.strategy_config?.indicators?.includes('MACD')) {
-        const macd = await technicalIndicators.calculateMACD(closes, 12, 26, 9);
+        const macdConfig = {
+          type: 'MACD',
+          period: null,
+          parameters: {
+            fast_period: 12,
+            slow_period: 26,
+            signal_period: 9
+          }
+        };
+        const macd = await indicatorService.calculateIndicator(macdConfig, closes);
         indicators.push({
           name: 'MACD',
-          value: macd.macd,
+          value: macd.value,
           signal: macd.signal,
           timeframe: '5m'
         });
@@ -406,21 +421,24 @@ Return ONLY a JSON object with this structure:
       this.activeStrategies.set(strategy.id, strategy);
       this.monitorState.set(strategy.id, {
         isActive: true,
-        lastCheckTime: 0 // Force immediate check
+        lastCheckTime: 0, // Force immediate check
+        lastSignalTime: 0,
+        pendingSignals: []
       });
       
       // Subscribe to market data for each asset
       for (const symbol of strategy.strategy_config.assets) {
-        bitmartService.subscribeToSymbol(symbol);
+        await bitmartService.subscribeToSymbol(symbol);
         await marketMonitor.addAsset(symbol);
       }
-      
-      // Force immediate trade check for new strategies
+
+      // Force immediate check for trade opportunities
       await this.checkStrategyForTrades(strategy);
       
-      logService.log('info', `Strategy ${strategy.id} added to trade generator`, null, 'TradeGenerator');
+      logService.log('info', `Strategy ${strategy.id} added to trade generator`, 
+        { strategy }, 'TradeGenerator');
     } catch (error) {
-      logService.log('error', `Failed to add strategy ${strategy.id} to trade generator`, error, 'TradeGenerator');
+      logService.log('error', `Failed to add strategy ${strategy.id}`, error, 'TradeGenerator');
       throw error;
     }
   }

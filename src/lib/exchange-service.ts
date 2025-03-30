@@ -16,6 +16,8 @@ class ExchangeService extends EventEmitter {
   private activeExchange: Exchange | null = null;
   private readonly ENCRYPTION_KEY: string;
   private initialized = false;
+  private ready = false;
+  private initializationPromise: Promise<void> | null = null;
   private exchangeInstances: Map<string, any> = new Map();
   private demoMode = false;
 
@@ -289,48 +291,98 @@ class ExchangeService extends EventEmitter {
     }
   }
 
-  async initializeExchange(config: ExchangeConfig): Promise<void> {
-    try {
-      if (config.testnet) {
-        this.demoMode = true;
-        await this.initializeDemoExchange(config);
-        return;
-      }
+  isInitialized(): boolean {
+    return this.initialized;
+  }
 
-      const exchange = await this.createExchangeInstance(config);
-      await this.connect({
-        id: config.name,
-        credentials: {
-          apiKey: config.apiKey,
-          secret: config.secret,
-          memo: config.memo
-        }
-      });
-
-      this.initialized = true;
-      this.emit('exchange:initialized');
-    } catch (error) {
-      logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
-      throw error;
+  async waitForReady(): Promise<void> {
+    if (this.ready) return;
+    if (this.initializationPromise) {
+      await this.initializationPromise;
     }
+    return new Promise((resolve) => {
+      const checkReady = () => {
+        if (this.ready) {
+          resolve();
+        } else {
+          setTimeout(checkReady, 100);
+        }
+      };
+      checkReady();
+    });
+  }
+
+  async initializeExchange(config: ExchangeConfig): Promise<void> {
+    if (this.initializationPromise) {
+      return this.initializationPromise;
+    }
+
+    this.initializationPromise = (async () => {
+      try {
+        if (config.testnet) {
+          this.demoMode = true;
+          await this.initializeDemoExchange(config);
+        } else {
+          const exchange = await ccxtService.createExchange(
+            config.name as ExchangeId,
+            {
+              apiKey: config.apiKey,
+              secret: config.secret,
+              memo: config.memo
+            },
+            config.testnet
+          );
+
+          this.exchangeInstances.set(config.name, exchange);
+          await exchange.loadMarkets();
+        }
+
+        this.initialized = true;
+        this.ready = true;
+        this.activeExchange = {
+          id: config.name,
+          credentials: {
+            apiKey: config.apiKey,
+            secret: config.secret,
+            memo: config.memo
+          }
+        };
+        
+        this.emit('exchange:initialized');
+      } catch (error) {
+        logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
+        throw error;
+      } finally {
+        this.initializationPromise = null;
+      }
+    })();
+
+    return this.initializationPromise;
   }
 
   private async initializeDemoExchange(config: ExchangeConfig): Promise<void> {
     try {
-      const demoExchange = await ccxtService.createExchange(
-        config.name as ExchangeId,
+      const testnetExchange = await ccxtService.createExchange(
+        'binance',
         {
-          apiKey: config.apiKey,
-          secret: config.secret,
-          memo: config.memo
-        }
+          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY,
+          secret: import.meta.env.VITE_BINANCE_TEST_SECRET,
+        },
+        true
       );
 
-      this.exchangeInstances.set(config.name, demoExchange);
-      this.initialized = true;
-      this.emit('exchange:initialized');
+      this.exchangeInstances.set('binance', testnetExchange);
+      await testnetExchange.loadMarkets();
+      
+      this.activeExchange = {
+        id: 'binance',
+        credentials: {
+          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY,
+          secret: import.meta.env.VITE_BINANCE_TEST_SECRET,
+        }
+      };
     } catch (error) {
-      logService.log('error', 'Failed to initialize demo exchange', error, 'ExchangeService');
+      logService.log('error', 'Failed to initialize testnet exchange', error, 'ExchangeService');
       throw error;
     }
   }
@@ -346,8 +398,45 @@ class ExchangeService extends EventEmitter {
         apiKey: config.apiKey,
         secret: config.secret,
         memo: config.memo
-      }
+      },
+      config.testnet
     );
+  }
+
+  async getCandles(
+    symbol: string,
+    timeframe: string,
+    limit: number = 100
+  ): Promise<any[]> {
+    try {
+      if (!this.activeExchange) {
+        throw new Error('No active exchange');
+      }
+
+      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      if (!exchange) {
+        throw new Error('Exchange instance not found');
+      }
+
+      if (!exchange.has['fetchOHLCV']) {
+        throw new Error('Exchange does not support OHLCV data');
+      }
+
+      const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
+      
+      return candles.map(candle => ({
+        timestamp: candle[0],
+        open: candle[1],
+        high: candle[2],
+        low: candle[3],
+        close: candle[4],
+        volume: candle[5]
+      }));
+
+    } catch (error) {
+      logService.log('error', `Failed to fetch candles for ${symbol}`, error, 'ExchangeService');
+      throw new Error(`Failed to fetch candles: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 }
 

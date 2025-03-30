@@ -300,90 +300,81 @@ export function StrategyLeaderboard() {
           })}
         </div>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={currentPage}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="grid gap-4"
-          >
-            {displayedEntries.map((entry, index) => {
-              const rank = currentPage * itemsPerPage + index + 1;
-              
-              return (
-                <motion.div
-                  key={entry.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="bg-gunmetal-800/30 rounded-xl p-6 hover:bg-gunmetal-800/50 transition-all duration-300"
-                >
-                  <div className="grid grid-cols-12 gap-6 items-center">
-                    {/* Rank */}
-                    <div className="col-span-1 flex items-center justify-center">
-                      <div className="relative">
-                        {getRankIcon(index)}
-                        <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-xs font-medium text-gray-400">
-                          #{rank}
-                        </span>
-                      </div>
+        <div className="grid gap-4">
+          {displayedEntries.map((entry, index) => {
+            const rank = currentPage * itemsPerPage + index + 1;
+            return (
+              <motion.div
+                key={entry.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="bg-gunmetal-800/30 rounded-xl p-6 hover:bg-gunmetal-800/50 transition-all duration-300"
+              >
+                <div className="grid grid-cols-12 gap-6 items-center">
+                  {/* Rank */}
+                  <div className="col-span-1 flex items-center justify-center">
+                    <div className="relative">
+                      {getRankIcon(index)}
+                      <span className="absolute -bottom-4 left-1/2 -translate-x-1/2 text-xs font-medium text-gray-400">
+                        #{rank}
+                      </span>
                     </div>
+                  </div>
 
-                    {/* Strategy Info */}
-                    <div className="col-span-4">
-                      <h3 className="text-lg font-semibold text-gray-200">{entry.title}</h3>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="text-sm text-gray-400">{entry.user_name}</span>
-                        <span className={`text-xs px-2 py-0.5 rounded-full bg-gunmetal-900/50 ${
-                          entry.risk_level === 'High' ? 'text-neon-pink' :
-                          entry.risk_level === 'Medium' ? 'text-neon-yellow' :
-                          'text-neon-turquoise'
-                        }`}>
-                          {entry.risk_level}
-                        </span>
-                      </div>
+                  {/* Strategy Info */}
+                  <div className="col-span-4">
+                    <h3 className="text-lg font-semibold text-gray-200">{entry.title}</h3>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-sm text-gray-400">{entry.user_name}</span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full bg-gunmetal-900/50 ${
+                        entry.risk_level === 'High' ? 'text-neon-pink' :
+                        entry.risk_level === 'Medium' ? 'text-neon-yellow' :
+                        'text-neon-turquoise'
+                      }`}>
+                        {entry.risk_level}
+                      </span>
                     </div>
+                  </div>
 
-                    {/* Performance */}
-                    <div className="col-span-3 flex items-center gap-6">
-                      <CircularProgress
-                        value={entry.performance}
-                        size={50}
-                        color={entry.performance >= 0 ? '#2dd4bf' : '#ec4899'}
-                        className="flex-shrink-0"
-                      />
-                      <div>
-                        <p className="text-sm text-gray-400">Performance</p>
-                        <p className={`text-lg font-bold ${
-                          entry.performance >= 0 ? 'text-neon-turquoise' : 'text-neon-pink'
-                        }`}>
-                          {entry.performance >= 0 ? '+' : ''}{entry.performance.toFixed(2)}%
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Win Rate */}
-                    <div className="col-span-2">
-                      <p className="text-sm text-gray-400">Win Rate</p>
-                      <p className="text-lg font-bold text-neon-yellow">
-                        {entry.win_rate.toFixed(1)}%
-                      </p>
-                    </div>
-
-                    {/* Trade Count */}
-                    <div className="col-span-2">
-                      <p className="text-sm text-gray-400">Total Trades</p>
-                      <p className="text-lg font-bold text-gray-200">
-                        {entry.trades_count}
+                  {/* Performance */}
+                  <div className="col-span-3 flex items-center gap-6">
+                    <CircularProgress
+                      value={entry.performance}
+                      size={50}
+                      color={entry.performance >= 0 ? '#2dd4bf' : '#ec4899'}
+                      className="flex-shrink-0"
+                    />
+                    <div>
+                      <p className="text-sm text-gray-400">Performance</p>
+                      <p className={`text-lg font-bold ${
+                        entry.performance >= 0 ? 'text-neon-turquoise' : 'text-neon-pink'
+                      }`}>
+                        {entry.performance >= 0 ? '+' : ''}{entry.performance.toFixed(2)}%
                       </p>
                     </div>
                   </div>
-                </motion.div>
-              );
-            })}
-          </motion.div>
-        </AnimatePresence>
+
+                  {/* Win Rate */}
+                  <div className="col-span-2">
+                    <p className="text-sm text-gray-400">Win Rate</p>
+                    <p className="text-lg font-bold text-neon-yellow">
+                      {entry.win_rate.toFixed(1)}%
+                    </p>
+                  </div>
+
+                  {/* Trade Count */}
+                  <div className="col-span-2">
+                    <p className="text-sm text-gray-400">Total Trades</p>
+                    <p className="text-lg font-bold text-gray-200">
+                      {entry.trades_count}
+                    </p>
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })}
+        </div>
 
         <Pagination
           currentPage={currentPage}
