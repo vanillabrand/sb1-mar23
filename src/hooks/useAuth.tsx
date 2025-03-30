@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { type User, type AuthError } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { logService } from '../lib/log-service';
 
@@ -92,8 +92,8 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
 
   const signUp = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signUp({ 
-        email, 
+      const { error } = await supabase.auth.signUp({
+        email,
         password,
         options: {
           emailRedirectTo: `${window.location.origin}/auth/callback`

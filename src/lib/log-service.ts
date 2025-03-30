@@ -2,11 +2,11 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 interface LogService {
   initialize(): Promise<void>;
-  log(level: LogLevel, message: string, error?: Error | null, component?: string): void;
-  debug(message: string, component?: string): void;
-  info(message: string, component?: string): void;
-  warn(message: string, error?: Error, component?: string): void;
-  error(message: string, error?: Error, component?: string): void;
+  log(level: LogLevel, message: string, error?: Error | null | any, component?: string): void;
+  debug(message: string, metadata?: any, component?: string): void;
+  info(message: string, metadata?: any, component?: string): void;
+  warn(message: string, error?: Error | any, component?: string): void;
+  error(message: string, error?: Error | any, component?: string): void;
 }
 
 class LogServiceImpl implements LogService {
@@ -17,7 +17,7 @@ class LogServiceImpl implements LogService {
 
     try {
       console.log('[LogService] Initializing logging service...');
-      
+
       // Add any additional initialization logic here
       // For example, setting up remote logging, configuring log levels, etc.
 
@@ -32,32 +32,37 @@ class LogServiceImpl implements LogService {
   log(
     level: LogLevel,
     message: string,
-    error: Error | null = null,
+    error: Error | null | any = null,
     component: string = 'General'
   ): void {
     const timestamp = new Date().toISOString();
     const prefix = `[${timestamp}] [${level.toUpperCase()}] ${component}:`;
-    
+
     if (error) {
-      console.log(prefix, message, error);
+      // Check if it's an Error object or just metadata
+      if (error instanceof Error) {
+        console.log(prefix, message, error);
+      } else {
+        console.log(prefix, message, error);
+      }
     } else {
       console.log(prefix, message);
     }
   }
 
-  debug(message: string, component?: string): void {
-    this.log('debug', message, null, component);
+  debug(message: string, metadata?: any, component?: string): void {
+    this.log('debug', message, metadata, component);
   }
 
-  info(message: string, component?: string): void {
-    this.log('info', message, null, component);
+  info(message: string, metadata?: any, component?: string): void {
+    this.log('info', message, metadata, component);
   }
 
-  warn(message: string, error?: Error, component?: string): void {
+  warn(message: string, error?: Error | any, component?: string): void {
     this.log('warn', message, error, component);
   }
 
-  error(message: string, error?: Error, component?: string): void {
+  error(message: string, error?: Error | any, component?: string): void {
     this.log('error', message, error, component);
   }
 }

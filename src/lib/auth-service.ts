@@ -1,4 +1,4 @@
-import { supabase } from './supabase-client';
+import { supabase } from './supabase';
 import { logService } from './log-service';
 
 export class AuthService {
@@ -8,9 +8,9 @@ export class AuthService {
   async checkSession() {
     try {
       const { data: { session }, error } = await supabase.auth.getSession();
-      
+
       if (error) throw error;
-      
+
       if (!session) {
         this.handleSessionExpired();
         return false;

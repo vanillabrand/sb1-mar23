@@ -10,7 +10,7 @@ import { tradeEngine } from './lib/trade-engine';
 import { demoService } from './lib/demo-service';
 import { Preloader } from './components/Preloader';
 import { Toaster } from 'react-hot-toast';
-import { supabase } from './lib/supabase-client';
+import { supabase } from './lib/supabase';
 import { useNavigate } from 'react-router-dom';
 
 function App() {

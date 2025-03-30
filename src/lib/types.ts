@@ -53,14 +53,17 @@ export interface StrategyTemplate {
   id: string;
   title: string;
   description: string;
-  riskLevel: RiskLevel;
+  riskLevel?: RiskLevel;
+  risk_level?: RiskLevel; // Database uses snake_case
   type: 'system_template' | 'user_template';
   user_id?: string;
   created_at: string;
   updated_at: string;
-  performance: number;
-  selected_pairs: string[];
-  strategy_config: any;
+  performance?: number; // Not in the database schema
+  selected_pairs?: string[]; // Not in the database schema, stored in strategy_config
+  strategy_config?: any; // Contains selected_pairs and other config
+  config?: any; // Alternative field name that might be in the database
+  data?: any; // Alternative field name that might be in the database
   metrics?: {
     winRate: number;
     profitFactor: number;

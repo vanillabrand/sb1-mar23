@@ -9,52 +9,69 @@ import { v4 as uuidv4 } from 'uuid';
 class DemoService {
   private static instance: DemoService;
   private isDemoMode: boolean = false;
-  private mockExchangeId: string = 'bitmart';
-  
+  private mockExchangeId: string = 'binance';
+
   private constructor() {
-    // Initialize demo mode
-    this.initializeDemoMode();
+    // Set demo mode to true immediately to prevent initialization issues
+    this.isDemoMode = true;
+
+    // Initialize demo mode asynchronously
+    setTimeout(() => {
+      this.initializeDemoMode().catch(error => {
+        logService.log('error', 'Failed to initialize demo mode', error, 'DemoService');
+      });
+    }, 0);
   }
-  
+
   static getInstance(): DemoService {
     if (!DemoService.instance) {
       DemoService.instance = new DemoService();
     }
     return DemoService.instance;
   }
-  
+
   /**
    * Initialize demo mode by setting up mock exchange
    */
   private async initializeDemoMode(): Promise<void> {
     try {
-      // Create a mock exchange instance
-      await ccxtService.createExchange(
-        this.mockExchangeId as any,
-        {
-          apiKey: 'demo-api-key',
-          secret: 'demo-secret',
-        },
-        true // Use testnet/sandbox mode
-      );
-      
-      // Override the executeWithRetry method to provide mock data
+      // Override the executeWithRetry method to provide mock data first
+      // This ensures we have mock data even if exchange initialization fails
       this.overrideCcxtMethods();
-      
+
+      try {
+        // Try to create a mock exchange instance with Binance TestNet
+        await ccxtService.createExchange(
+          this.mockExchangeId as any,
+          {
+            apiKey: 'demo-api-key',
+            secret: 'demo-secret',
+          },
+          true // Use testnet/sandbox mode
+        );
+
+        logService.log('info', 'Demo mode initialized successfully with Binance TestNet', null, 'DemoService');
+      } catch (exchangeError) {
+        // If we can't initialize with Binance TestNet, just continue with mock data
+        logService.log('warn', 'Failed to initialize exchange in demo mode, using mock data only', exchangeError, 'DemoService');
+      }
+
+      // Ensure demo mode is set to true
       this.isDemoMode = true;
-      logService.log('info', 'Demo mode initialized successfully', null, 'DemoService');
     } catch (error) {
-      logService.log('error', 'Failed to initialize demo mode', error, 'DemoService');
+      // If anything fails, ensure demo mode is still set to true
+      this.isDemoMode = true;
+      logService.log('error', 'Error in demo mode initialization, but continuing with basic mock data', error, 'DemoService');
     }
   }
-  
+
   /**
    * Override ccxt methods to provide mock data
    */
   private overrideCcxtMethods(): void {
     // Store the original method
     const originalExecuteWithRetry = ccxtService.executeWithRetry.bind(ccxtService);
-    
+
     // Override the method
     (ccxtService as any).executeWithRetry = async <T>(
       operation: () => Promise<T>,
@@ -67,24 +84,24 @@ class DemoService {
       } catch (error) {
         // If it fails, return mock data based on the operation name
         logService.log('info', `Providing mock data for ${operationName}`, null, 'DemoService');
-        
+
         if (operationName.includes('fetchMarketData')) {
           return this.getMockMarketData(operationName) as unknown as T;
         }
-        
+
         // For other operations, return a basic mock object
         return {} as T;
       }
     };
   }
-  
+
   /**
    * Generate mock market data
    */
   private getMockMarketData(operationName: string): any {
     const now = Date.now();
     const basePrice = 50000 + Math.random() * 1000;
-    
+
     return {
       timestamp: now,
       symbol: 'BTC/USDT',
@@ -105,14 +122,14 @@ class DemoService {
       })),
     };
   }
-  
+
   /**
    * Check if demo mode is active
    */
   isInDemoMode(): boolean {
     return this.isDemoMode;
   }
-  
+
   /**
    * Generate synthetic trade data for demo mode
    */
@@ -120,7 +137,7 @@ class DemoService {
     const now = Date.now();
     const basePrice = 50000 + Math.random() * 1000;
     const isBuy = Math.random() > 0.5;
-    
+
     return {
       id: uuidv4(),
       strategy_id: strategyId,

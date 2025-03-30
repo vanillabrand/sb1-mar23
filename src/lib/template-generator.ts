@@ -67,6 +67,14 @@ export class TemplateGenerator {
 
   private async initialize(): Promise<void> {
     try {
+      // Check if user is logged in before generating templates
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        logService.log('info', 'Skipping template generation - no logged-in user', null, 'TemplateGenerator');
+        return;
+      }
+
       // Check if we need to generate templates on startup
       const templates = await templateService.getTemplates();
       const systemTemplates = templates.filter(t => t.type === 'system_template');
@@ -99,6 +107,14 @@ export class TemplateGenerator {
 
   public async generateTemplates(): Promise<void> {
     try {
+      // Check if user is logged in before generating templates
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        logService.log('info', 'Skipping template generation - no logged-in user', null, 'TemplateGenerator');
+        return;
+      }
+
       const now = Date.now();
 
       // Only generate templates once per hour
@@ -118,7 +134,7 @@ export class TemplateGenerator {
       }
 
       // Generate 6 new templates
-      const templates: StrategyTemplate[] = [];
+      const templates: Partial<StrategyTemplate>[] = [];
 
       for (let i = 0; i < 6; i++) {
         const template = await this.createRandomTemplate(i);
@@ -135,13 +151,13 @@ export class TemplateGenerator {
       // Schedule next generation
       setTimeout(() => this.generateTemplates(), this.GENERATION_INTERVAL);
 
-      logService.log('info', 'Template generation completed successfully', { count: templates.length }, 'TemplateGenerator');
+      logService.log('info', 'Template generation completed successfully', null, 'TemplateGenerator');
     } catch (error) {
       logService.log('error', 'Failed to generate templates', error, 'TemplateGenerator');
     }
   }
 
-  private async createRandomTemplate(index: number): Promise<StrategyTemplate> {
+  private async createRandomTemplate(index: number): Promise<Partial<StrategyTemplate>> {
     // Use modulo to ensure we don't go out of bounds if we have fewer names than needed
     const nameIndex = index % TEMPLATE_NAMES.length;
     const descIndex = index % TEMPLATE_DESCRIPTIONS.length;
@@ -150,9 +166,6 @@ export class TemplateGenerator {
 
     // Get current market data for the selected pair
     const pair = TRADING_PAIRS[pairIndex];
-
-    // Generate random performance between -5% and +25%
-    const performance = Math.round((Math.random() * 30 - 5) * 10) / 10;
 
     // Generate random win rate between 40% and 75%
     const winRate = Math.round((Math.random() * 35 + 40) * 10) / 10;
@@ -169,24 +182,31 @@ export class TemplateGenerator {
     // Create strategy config based on the template type
     const strategyConfig = this.generateStrategyConfig(nameIndex, riskIndex);
 
-    return {
+    // Add metrics to strategy config to avoid database schema issues
+    strategyConfig.metrics = {
+      winRate,
+      profitFactor,
+      averageProfit,
+      maxDrawdown
+    };
+
+    // Get current user ID
+    const { data: { session } } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+
+    // Create a minimal template with only essential fields
+    const template: any = {
       id: uuidv4(),
       title: TEMPLATE_NAMES[nameIndex],
       description: TEMPLATE_DESCRIPTIONS[descIndex],
-      riskLevel: RISK_LEVELS[riskIndex],
+      risk_level: RISK_LEVELS[riskIndex],
       type: 'system_template',
+      user_id: userId,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      performance,
-      selected_pairs: [pair],
-      strategy_config: strategyConfig,
-      metrics: {
-        winRate,
-        profitFactor,
-        averageProfit,
-        maxDrawdown
-      }
+      updated_at: new Date().toISOString()
     };
+
+    return template;
   }
 
   private generateStrategyConfig(templateIndex: number, riskIndex: number): any {
@@ -302,15 +322,22 @@ export class TemplateGenerator {
         throw new Error(`Template with ID ${templateId} not found`);
       }
 
+      // Get the risk level from template
+      const riskLevel = template.riskLevel || template.risk_level || 'Medium';
+
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
         description: template.description,
-        riskLevel: template.riskLevel,
+        riskLevel: riskLevel as any,
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
-        selected_pairs: template.selected_pairs,
-        strategy_config: template.strategy_config
+        selected_pairs: ['BTC/USDT'],
+        strategy_config: {
+          indicatorType: 'momentum',
+          entryConditions: {},
+          exitConditions: {}
+        }
       });
 
       logService.log('info', `Created strategy from template ${templateId}`, { strategyId: strategy.id, userId }, 'TemplateGenerator');
@@ -340,15 +367,22 @@ export class TemplateGenerator {
         throw new Error('No authenticated session found');
       }
 
+      // Get the risk level from template
+      const riskLevel = template.riskLevel || template.risk_level || 'Medium';
+
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
         description: template.description,
-        riskLevel: template.riskLevel,
+        riskLevel: riskLevel as any,
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
-        selected_pairs: template.selected_pairs,
-        strategy_config: template.strategy_config
+        selected_pairs: ['BTC/USDT'],
+        strategy_config: {
+          indicatorType: 'momentum',
+          entryConditions: {},
+          exitConditions: {}
+        }
       });
 
       logService.log('info', `Created strategy from template ${templateId}`,
