@@ -114,7 +114,7 @@ class BitmartService extends EventEmitter {
 
       // Update price history
       const newHistory = [...existingData.priceHistory];
-      
+
       // Remove data points older than 1 hour
       const hourAgo = now - 3600000;
       while (newHistory.length > 0 && newHistory[0].timestamp < hourAgo) {
@@ -275,6 +275,207 @@ class BitmartService extends EventEmitter {
 
   getServerTime(): number {
     return Date.now() + this.serverTimeOffset;
+  }
+
+  /**
+   * Subscribe to updates for a specific trading symbol
+   * @param symbol The trading symbol to subscribe to (e.g., 'BTC_USDT')
+   */
+  async subscribeToSymbol(symbol: string): Promise<void> {
+    try {
+      // Normalize the symbol format if needed
+      const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
+
+      // Check if already subscribed
+      if (this.subscriptions.has(normalizedSymbol)) {
+        logService.log('info', `Already subscribed to ${normalizedSymbol}`, null, 'BitmartService');
+        return;
+      }
+
+      // Add to subscriptions set
+      this.subscriptions.add(normalizedSymbol);
+
+      if (this.demoMode) {
+        // In demo mode, just generate synthetic data
+        const basePrice = this.getBasePriceForSymbol(normalizedSymbol);
+        const demoData = this.generateDemoMarketData(normalizedSymbol, basePrice);
+        this.assetData.set(normalizedSymbol, demoData);
+        logService.log('info', `Subscribed to ${normalizedSymbol} in demo mode`, null, 'BitmartService');
+        return;
+      }
+
+      // In real mode, subscribe via WebSocket
+      try {
+        await websocketService.subscribe(`spot/ticker:${normalizedSymbol}`);
+        logService.log('info', `Subscribed to ${normalizedSymbol}`, null, 'BitmartService');
+      } catch (wsError) {
+        logService.log('error', `Failed to subscribe to ${normalizedSymbol} via WebSocket`, wsError, 'BitmartService');
+        // Fall back to polling if WebSocket fails
+        this.pollSymbol(normalizedSymbol);
+      }
+    } catch (error) {
+      logService.log('error', `Failed to subscribe to symbol ${symbol}`, error, 'BitmartService');
+      throw error;
+    }
+  }
+
+  /**
+   * Poll for updates for a symbol when WebSocket is not available
+   * @param symbol The symbol to poll for
+   */
+  private pollSymbol(symbol: string): void {
+    // Set up polling for this symbol
+    const pollInterval = setInterval(async () => {
+      try {
+        // Fetch latest ticker data
+        const response = await this.fetchWithCORS(`${this.baseUrl}/spot/v1/ticker?symbol=${symbol}`);
+        const data = await response.json();
+
+        if (data && data.data && data.data.length > 0) {
+          const ticker = data.data[0];
+          // Process the ticker data similar to WebSocket
+          websocketService.emit('ticker', {
+            symbol: ticker.symbol,
+            last_price: ticker.last_price,
+            quote_volume_24h: ticker.quote_volume_24h,
+            base_volume_24h: ticker.base_volume_24h,
+            high_24h: ticker.high_24h,
+            low_24h: ticker.low_24h,
+            open_24h: ticker.open_24h,
+            timestamp: Date.now()
+          });
+        }
+      } catch (error) {
+        logService.log('error', `Failed to poll symbol ${symbol}`, error, 'BitmartService');
+      }
+    }, 5000); // Poll every 5 seconds
+
+    // Store the interval ID for cleanup
+    // (You might want to add a map to store these intervals)
+  }
+
+  /**
+   * Unsubscribe from updates for a specific trading symbol
+   * @param symbol The trading symbol to unsubscribe from (e.g., 'BTC_USDT')
+   */
+  async unsubscribeFromSymbol(symbol: string): Promise<void> {
+    try {
+      // Normalize the symbol format if needed
+      const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
+
+      // Check if subscribed
+      if (!this.subscriptions.has(normalizedSymbol)) {
+        logService.log('info', `Not subscribed to ${normalizedSymbol}, nothing to unsubscribe`, null, 'BitmartService');
+        return;
+      }
+
+      // Remove from subscriptions set
+      this.subscriptions.delete(normalizedSymbol);
+
+      if (this.demoMode) {
+        // In demo mode, just log the unsubscription
+        logService.log('info', `Unsubscribed from ${normalizedSymbol} in demo mode`, null, 'BitmartService');
+        return;
+      }
+
+      // In real mode, unsubscribe via WebSocket
+      try {
+        // Check if websocketService has an unsubscribe method
+        if (typeof websocketService.unsubscribe === 'function') {
+          await websocketService.unsubscribe(`spot/ticker:${normalizedSymbol}`);
+          logService.log('info', `Unsubscribed from ${normalizedSymbol}`, null, 'BitmartService');
+        } else {
+          logService.log('info', `WebSocket unsubscribe not available for ${normalizedSymbol}`, null, 'BitmartService');
+        }
+      } catch (wsError) {
+        logService.log('error', `Failed to unsubscribe from ${normalizedSymbol} via WebSocket`, wsError, 'BitmartService');
+      }
+    } catch (error) {
+      logService.log('error', `Failed to unsubscribe from symbol ${symbol}`, error, 'BitmartService');
+    }
+  }
+
+  /**
+   * Generate demo market data for a symbol
+   * @param symbol The trading symbol
+   * @param basePrice The base price to use for generating data
+   * @returns Synthetic asset data
+   */
+  private generateDemoMarketData(symbol: string, basePrice: number): AssetData {
+    const now = Date.now();
+    const priceVariance = basePrice * 0.01; // 1% variance
+    const price = basePrice + (Math.random() * priceVariance * 2 - priceVariance);
+
+    // Generate price history for the last hour
+    const priceHistory = [];
+    for (let i = 0; i < 60; i++) {
+      const historyPrice = basePrice * (1 + (Math.random() - 0.5) * 0.02); // 2% variance
+      priceHistory.push({
+        timestamp: now - (60 - i) * 60000, // 1 minute intervals
+        price: historyPrice
+      });
+    }
+
+    return {
+      symbol,
+      price,
+      change24h: (Math.random() * 10) - 5, // -5% to +5%
+      volume24h: Math.random() * 1000000 + 500000,
+      high24h: basePrice * 1.02, // 2% higher than base
+      low24h: basePrice * 0.98, // 2% lower than base
+      lastUpdate: now,
+      priceHistory
+    };
+  }
+
+  /**
+   * Update demo market data for all subscribed symbols
+   */
+  private updateDemoMarketData(): void {
+    try {
+      // Update all subscribed symbols
+      this.subscriptions.forEach(symbol => {
+        const existingData = this.assetData.get(symbol);
+        if (!existingData) return;
+
+        const basePrice = existingData.price;
+        const priceVariance = basePrice * 0.002; // 0.2% variance for updates
+        const newPrice = basePrice + (Math.random() * priceVariance * 2 - priceVariance);
+        const now = Date.now();
+
+        // Update price history
+        const newHistory = [...existingData.priceHistory];
+
+        // Remove data points older than 1 hour
+        const hourAgo = now - 3600000;
+        while (newHistory.length > 0 && newHistory[0].timestamp < hourAgo) {
+          newHistory.shift();
+        }
+
+        // Add new price point if enough time has passed
+        if (newHistory.length === 0 || now - newHistory[newHistory.length - 1].timestamp >= this.HISTORY_INTERVAL) {
+          newHistory.push({ timestamp: now, price: newPrice });
+        }
+
+        // Calculate 24h change
+        const open24h = newHistory.length > 0 ? newHistory[0].price : basePrice;
+        const change24h = ((newPrice - open24h) / open24h) * 100;
+
+        // Update asset data
+        const updatedData: AssetData = {
+          ...existingData,
+          price: newPrice,
+          change24h,
+          lastUpdate: now,
+          priceHistory: newHistory
+        };
+
+        this.assetData.set(symbol, updatedData);
+        this.emit('priceUpdate', updatedData);
+      });
+    } catch (error) {
+      logService.log('error', 'Failed to update demo market data', error, 'BitmartService');
+    }
   }
 
   private getDemoData(url: string): any {

@@ -54,7 +54,7 @@ export const AppContent = () => {
           } />
           <Route path="/trade-monitor" element={
             <AuthGuard>
-              <TradeMonitor />
+              <TradeMonitor strategies={[]} />
             </AuthGuard>
           } />
           <Route path="/backtest" element={

@@ -1,17 +1,6 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-
-export interface NewsItem {
-  id: string;
-  title: string;
-  description: string;
-  url: string;
-  source: string;
-  imageUrl?: string;
-  publishedAt: string;
-  relatedAssets?: string[];
-  sentiment?: 'positive' | 'negative' | 'neutral';
-}
+import type { NewsItem } from './types';
 
 class NewsService extends EventEmitter {
   private static instance: NewsService;
@@ -33,15 +22,15 @@ class NewsService extends EventEmitter {
 
   async getNewsForAsset(asset: string): Promise<NewsItem[]> {
     const normalizedAsset = asset.replace(/_/g, '').replace(/USDT/g, '');
-    
+
     // Check cache first
     const cachedNews = this.newsCache.get(normalizedAsset);
     const lastFetch = this.lastFetchTime.get(normalizedAsset) || 0;
-    
+
     if (cachedNews && Date.now() - lastFetch < this.CACHE_DURATION) {
       return cachedNews;
     }
-    
+
     try {
       const news = await this.fetchNewsForAsset(normalizedAsset);
       this.newsCache.set(normalizedAsset, news);
@@ -57,10 +46,10 @@ class NewsService extends EventEmitter {
     if (!assets || assets.length === 0) {
       assets = this.DEFAULT_ASSETS;
     }
-    
+
     const allNews: NewsItem[] = [];
     const fetchPromises: Promise<void>[] = [];
-    
+
     for (const asset of assets) {
       fetchPromises.push(
         this.getNewsForAsset(asset)
@@ -70,10 +59,10 @@ class NewsService extends EventEmitter {
           })
       );
     }
-    
+
     // Wait for all fetches to complete
     await Promise.all(fetchPromises);
-    
+
     // Remove duplicates and sort by published date (newest first)
     return this.deduplicateAndSortNews(allNews);
   }
@@ -83,9 +72,9 @@ class NewsService extends EventEmitter {
     const uniqueNews = Array.from(
       new Map(news.map(item => [item.title, item])).values()
     );
-    
+
     // Sort by published date (newest first)
-    return uniqueNews.sort((a, b) => 
+    return uniqueNews.sort((a, b) =>
       new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
     );
   }
@@ -100,7 +89,7 @@ class NewsService extends EventEmitter {
       `${asset} Development Update: New Features Coming`,
       `Institutional Interest in ${asset} Growing`
     ];
-    
+
     return headlines.map((title, index) => ({
       id: `${asset}-${index}`,
       title,
@@ -116,4 +105,3 @@ class NewsService extends EventEmitter {
 }
 
 export const newsService = NewsService.getInstance();
-export type { NewsItem };

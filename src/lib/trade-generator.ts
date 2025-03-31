@@ -5,6 +5,8 @@ import { tradeManager } from './trade-manager';
 import { tradeService } from './trade-service';
 import { bitmartService } from './bitmart-service';
 import { logService } from './log-service';
+import { eventBus } from './event-bus';
+import { demoService } from './demo-service';
 import { indicatorService } from './indicators'; // Updated to use indicatorService instead
 import type { Strategy } from './supabase-types';
 
@@ -37,13 +39,13 @@ class TradeGenerator extends EventEmitter {
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
-    
+
     try {
       logService.log('info', 'Initializing trade generator', null, 'TradeGenerator');
-      
+
       // Start periodic check for trading opportunities
       this.startPeriodicCheck();
-      
+
       this.initialized = true;
       logService.log('info', 'Trade generator initialized', null, 'TradeGenerator');
     } catch (error) {
@@ -60,24 +62,24 @@ class TradeGenerator extends EventEmitter {
     this.checkInterval = setInterval(() => {
       this.checkTradingOpportunities();
     }, this.CHECK_FREQUENCY);
-    
+
     logService.log('info', `Started checking for trading opportunities (every ${this.CHECK_FREQUENCY / 1000}s)`, null, 'TradeGenerator');
   }
 
   private async checkTradingOpportunities() {
     if (this.activeStrategies.size === 0) return;
-    
+
     logService.log('debug', `Checking trading opportunities for ${this.activeStrategies.size} strategies`, null, 'TradeGenerator');
-    
+
     for (const [strategyId, strategy] of this.activeStrategies.entries()) {
       try {
         const state = this.monitorState.get(strategyId);
         if (!state || !state.isActive) continue;
-        
+
         // Skip if checked too recently
         const now = Date.now();
         if (now - state.lastCheckTime < this.CHECK_FREQUENCY) continue;
-        
+
         // Update last check time
         state.lastCheckTime = now;
         this.monitorState.set(strategyId, state);
@@ -97,7 +99,7 @@ class TradeGenerator extends EventEmitter {
       if (!strategy.strategy_config?.assets) {
         throw new Error('Strategy has no configured trading pairs');
       }
-      
+
       // Check each asset for trading opportunities
       for (const symbol of strategy.strategy_config.assets) {
         try {
@@ -108,7 +110,7 @@ class TradeGenerator extends EventEmitter {
           // Get current market data
           const ticker = await bitmartService.getTicker(symbol);
           const currentPrice = parseFloat(ticker.last_price);
-          
+
           // Get market state
           const marketState = marketMonitor.getMarketState(symbol);
           if (!marketState) continue;
@@ -138,23 +140,77 @@ class TradeGenerator extends EventEmitter {
               signal.confidence
             );
 
-            // Emit trade opportunity
-            this.emit('tradeOpportunity', {
-              strategy,
-              signal: {
-                ...signal,
-                entry: {
-                  price: currentPrice,
-                  type: 'market',
-                  amount: positionSize
-                }
-              }
-            });
+            // Create a real trade instead of just emitting an event
+            try {
+              // Import dynamically to avoid circular dependencies
+              const { tradeManager } = await import('./trade-manager');
 
-            logService.log('info', `Generated trade signal for ${symbol}`, {
-              strategy: strategy.id,
-              signal
-            }, 'TradeGenerator');
+              // Execute the trade
+              const tradeOptions = {
+                strategy_id: strategy.id,
+                symbol: symbol,
+                side: signal.direction === 'Long' ? 'buy' : 'sell',
+                type: 'market',
+                entry_price: currentPrice,
+                amount: positionSize,
+                stop_loss: signal.stopLoss,
+                take_profit: signal.takeProfit,
+                trailing_stop: signal.trailingStop,
+                testnet: demoService.isInDemoMode() // Use TestNet in demo mode
+              };
+
+              // Execute the trade
+              const tradeResult = await tradeManager.executeTrade(tradeOptions);
+
+              // Emit trade created event
+              this.emit('tradeCreated', {
+                strategy,
+                trade: tradeResult,
+                signal: {
+                  ...signal,
+                  entry: {
+                    price: currentPrice,
+                    type: 'market',
+                    amount: positionSize
+                  }
+                }
+              });
+
+              // Also emit to the event bus for UI components to listen
+              eventBus.emit('trade:created', {
+                strategy,
+                trade: tradeResult,
+                signal: {
+                  ...signal,
+                  entry: {
+                    price: currentPrice,
+                    type: 'market',
+                    amount: positionSize
+                  }
+                }
+              });
+
+              logService.log('info', `Created trade for ${symbol}`, {
+                strategy: strategy.id,
+                trade: tradeResult,
+                signal
+              }, 'TradeGenerator');
+            } catch (tradeError) {
+              logService.log('error', `Failed to create trade for ${symbol}`, tradeError, 'TradeGenerator');
+
+              // Still emit the opportunity for monitoring purposes
+              this.emit('tradeOpportunity', {
+                strategy,
+                signal: {
+                  ...signal,
+                  entry: {
+                    price: currentPrice,
+                    type: 'market',
+                    amount: positionSize
+                  }
+                }
+              });
+            }
           }
         } catch (error) {
           logService.log('error', `Error processing ${symbol} for strategy ${strategy.id}`, error, 'TradeGenerator');
@@ -173,7 +229,7 @@ class TradeGenerator extends EventEmitter {
       isActive: false,
       lastCheckTime: 0
     };
-    
+
     this.monitorState.set(strategyId, {
       ...currentState,
       ...update
@@ -182,7 +238,7 @@ class TradeGenerator extends EventEmitter {
 
   private async evaluateConditions(strategy: Strategy, indicators: any[], marketState: any) {
     const conditions = [];
-    
+
     // Evaluate RSI conditions
     if (indicators.RSI) {
       conditions.push({
@@ -192,7 +248,7 @@ class TradeGenerator extends EventEmitter {
         met: indicators.RSI < 30 || indicators.RSI > 70
       });
     }
-    
+
     // Evaluate MACD conditions
     if (indicators.MACD && indicators.signal) {
       conditions.push({
@@ -202,9 +258,9 @@ class TradeGenerator extends EventEmitter {
         met: Math.abs(indicators.MACD - indicators.signal) > 0
       });
     }
-    
+
     // Add more conditions based on strategy configuration...
-    
+
     return conditions;
   }
 
@@ -355,7 +411,7 @@ Return ONLY a JSON object with this structure:
       // Extract JSON from response
       const jsonStart = content.indexOf('{');
       const jsonEnd = content.lastIndexOf('}');
-      
+
       if (jsonStart === -1 || jsonEnd === -1) {
         throw new Error('No valid JSON found in response');
       }
@@ -410,13 +466,25 @@ Return ONLY a JSON object with this structure:
       if (!this.initialized) {
         await this.initialize();
       }
-      
-      if (!strategy.strategy_config?.assets) {
-        throw new Error('Strategy has no assets configured');
+
+      // Ensure strategy has assets configured
+      if (!strategy.strategy_config) {
+        strategy.strategy_config = {};
       }
-      
+
+      if (!strategy.strategy_config.assets) {
+        // Try to get assets from selected_pairs
+        if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+          strategy.strategy_config.assets = strategy.selected_pairs;
+        } else {
+          // Default to BTC/USDT if no assets are found
+          strategy.strategy_config.assets = ['BTC/USDT'];
+          logService.log('warn', `No assets found for strategy ${strategy.id}, defaulting to BTC/USDT`, null, 'TradeGenerator');
+        }
+      }
+
       logService.log('info', `Adding strategy ${strategy.id} to trade generator`, null, 'TradeGenerator');
-      
+
       // Add to active strategies and initialize monitoring state
       this.activeStrategies.set(strategy.id, strategy);
       this.monitorState.set(strategy.id, {
@@ -425,17 +493,31 @@ Return ONLY a JSON object with this structure:
         lastSignalTime: 0,
         pendingSignals: []
       });
-      
+
       // Subscribe to market data for each asset
       for (const symbol of strategy.strategy_config.assets) {
-        await bitmartService.subscribeToSymbol(symbol);
-        await marketMonitor.addAsset(symbol);
+        try {
+          // Try to subscribe via bitmartService if available
+          if (typeof bitmartService.subscribeToSymbol === 'function') {
+            await bitmartService.subscribeToSymbol(symbol);
+            logService.log('info', `Subscribed to ${symbol} via bitmartService`, null, 'TradeGenerator');
+          } else {
+            // Fall back to market monitor if bitmartService subscription is not available
+            logService.log('info', `bitmartService.subscribeToSymbol not available, using marketMonitor for ${symbol}`, null, 'TradeGenerator');
+          }
+
+          // Always add to market monitor
+          await marketMonitor.addAsset(symbol);
+        } catch (subscribeError) {
+          logService.log('warn', `Failed to subscribe to ${symbol}, continuing with other assets`, subscribeError, 'TradeGenerator');
+          // Continue with other assets
+        }
       }
 
       // Force immediate check for trade opportunities
       await this.checkStrategyForTrades(strategy);
-      
-      logService.log('info', `Strategy ${strategy.id} added to trade generator`, 
+
+      logService.log('info', `Strategy ${strategy.id} added to trade generator`,
         { strategy }, 'TradeGenerator');
     } catch (error) {
       logService.log('error', `Failed to add strategy ${strategy.id}`, error, 'TradeGenerator');

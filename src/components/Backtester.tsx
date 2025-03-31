@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Play, 
+import {
+  Play,
   Brain,
   Filter,
   Search,
@@ -19,7 +19,8 @@ import {
   TrendingUp,
   ChevronRight,
   ChevronLeft,
-  Upload
+  Upload,
+  X
 } from 'lucide-react';
 import { useStrategies } from '../hooks/useStrategies';
 import { backtestService } from '../lib/backtest-service';
@@ -27,6 +28,7 @@ import { BacktestConfigModal } from './BacktestConfigModal';
 import { BacktestProgress } from './BacktestProgress';
 import { BacktestResults } from './BacktestResults';
 import { PanelWrapper } from './PanelWrapper';
+import { logService } from '../lib/log-service';
 import Papa from 'papaparse';
 import type { Strategy } from '../lib/supabase-types';
 import type { BacktestConfig, BacktestProgress as BacktestProgressType, BacktestResults as BacktestResultsType } from '../lib/backtest-service';
@@ -90,9 +92,62 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 export function Backtester() {
   const [showConfig, setShowConfig] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
-  const [progress, setProgress] = useState<BacktestProgress | null>(null);
-  const [latestUpdate, setLatestUpdate] = useState<BacktestUpdate | null>(null);
+  const [progress, setProgress] = useState<BacktestProgressType | null>(null);
+  const [latestUpdate, setLatestUpdate] = useState<any | null>(null);
+  const [results, setResults] = useState<BacktestResultsType | null>(null);
+  const [showResults, setShowResults] = useState(false);
   const { strategies } = useStrategies();
+
+  useEffect(() => {
+    // Set up event listeners for backtest progress and updates
+    const progressHandler = (data: BacktestProgressType) => {
+      setProgress(data);
+
+      if (data.status === 'completed' && data.results) {
+        setResults(data.results);
+        setShowResults(true);
+        setProgress(null);
+      }
+    };
+
+    const updateHandler = (data: any) => {
+      setLatestUpdate(data);
+    };
+
+    backtestService.on('progress', progressHandler);
+    backtestService.on('update', updateHandler);
+
+    return () => {
+      backtestService.off('progress', progressHandler);
+      backtestService.off('update', updateHandler);
+    };
+  }, []);
+
+  const handleStartBacktest = async (config: BacktestConfig) => {
+    try {
+      setShowConfig(false);
+      setProgress({
+        status: 'running',
+        progress: 0,
+        currentStep: 'Initializing backtest...'
+      });
+
+      await backtestService.runBacktest(config);
+    } catch (error) {
+      logService.log('error', 'Failed to start backtest', error, 'Backtester');
+      setProgress({
+        status: 'error',
+        progress: 0,
+        currentStep: 'Error',
+        error: error instanceof Error ? error.message : 'Failed to start backtest'
+      });
+    }
+  };
+
+  const handleCancelBacktest = () => {
+    backtestService.cancelBacktest();
+    setProgress(null);
+  };
 
   return (
     <PanelWrapper title="Backtester" icon={<BarChart3 className="w-5 h-5" />}>

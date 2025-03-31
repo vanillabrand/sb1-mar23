@@ -47,8 +47,25 @@ class StrategyMonitor extends EventEmitter {
   }
 
   private extractSymbols(strategy: any): string[] {
-    // Extract trading pairs from strategy config
-    return strategy.config.pairs || [];
+    // Extract trading pairs from various possible locations
+    if (strategy.config && strategy.config.pairs) {
+      return strategy.config.pairs;
+    }
+
+    if (strategy.strategy_config && strategy.strategy_config.config && strategy.strategy_config.config.pairs) {
+      return strategy.strategy_config.config.pairs;
+    }
+
+    if (strategy.strategy_config && strategy.strategy_config.assets) {
+      return strategy.strategy_config.assets;
+    }
+
+    if (strategy.selected_pairs) {
+      return strategy.selected_pairs;
+    }
+
+    // Default to BTC/USDT if no pairs are found
+    return ['BTC/USDT'];
   }
 
   private startMonitoring(): void {

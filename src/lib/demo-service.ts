@@ -44,8 +44,8 @@ class DemoService {
         await ccxtService.createExchange(
           this.mockExchangeId as any,
           {
-            apiKey: 'demo-api-key',
-            secret: 'demo-secret',
+            apiKey: import.meta.env.BINANCE_TESTNET_API_KEY || process.env.BINANCE_TESTNET_API_KEY || 'demo-api-key',
+            secret: import.meta.env.BINANCE_TESTNET_SECRET || process.env.BINANCE_TESTNET_SECRET || 'demo-secret',
           },
           true // Use testnet/sandbox mode
         );
@@ -128,6 +128,25 @@ class DemoService {
    */
   isInDemoMode(): boolean {
     return this.isDemoMode;
+  }
+
+  /**
+   * Get the TestNet exchange instance for demo mode
+   */
+  async getTestNetExchange(): Promise<any> {
+    try {
+      return await ccxtService.createExchange(
+        this.mockExchangeId as any,
+        {
+          apiKey: import.meta.env.BINANCE_TESTNET_API_KEY || process.env.BINANCE_TESTNET_API_KEY || 'demo-api-key',
+          secret: import.meta.env.BINANCE_TESTNET_SECRET || process.env.BINANCE_TESTNET_SECRET || 'demo-secret',
+        },
+        true // Enable TestNet mode
+      );
+    } catch (error) {
+      logService.log('error', 'Failed to get TestNet exchange instance', error, 'DemoService');
+      throw error;
+    }
   }
 
   /**

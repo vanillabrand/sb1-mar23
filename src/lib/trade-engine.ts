@@ -23,7 +23,7 @@ class TradeEngine extends EventEmitter {
 
   private constructor() {
     super();
-    
+
     // Initialize all properties
     this.activeStrategies = new Map();
     this.monitoringInterval = null;
@@ -269,9 +269,80 @@ class TradeEngine extends EventEmitter {
     }
   }
 
-  removeStrategy(strategyId: string): void {
-    this.activeStrategies.delete(strategyId);
-    logService.log('info', `Removed strategy ${strategyId} from trade engine`, null, 'TradeEngine');
+  async removeStrategy(strategyId: string): Promise<void> {
+    try {
+      // Get all active trades for this strategy
+      const activeTrades = tradeManager.getActiveTradesForStrategy(strategyId);
+
+      // Close any active trades
+      if (activeTrades && activeTrades.length > 0) {
+        for (const trade of activeTrades) {
+          try {
+            await this.closeTrade(trade.id, 'Strategy removed');
+          } catch (tradeError) {
+            logService.log('warn', `Failed to close trade ${trade.id} during strategy removal`, tradeError, 'TradeEngine');
+          }
+        }
+      }
+
+      // Remove strategy from active strategies
+      this.activeStrategies.delete(strategyId);
+      logService.log('info', `Removed strategy ${strategyId} from trade engine`, null, 'TradeEngine');
+    } catch (error) {
+      logService.log('error', `Error removing strategy ${strategyId}`, error, 'TradeEngine');
+      // Still remove the strategy even if there was an error closing trades
+      this.activeStrategies.delete(strategyId);
+    }
+  }
+
+  /**
+   * Close a trade and release the allocated budget
+   * @param tradeId The ID of the trade to close
+   * @param reason The reason for closing the trade
+   */
+  async closeTrade(tradeId: string, reason: string): Promise<void> {
+    try {
+      // Execute the trade closure with retry logic
+      await this.executeTradeOperation(async () => {
+        // 1. Get the trade details
+        const { data: trade, error: tradeError } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('id', tradeId)
+          .single();
+
+        if (tradeError) throw tradeError;
+        if (!trade) throw new Error(`Trade ${tradeId} not found`);
+
+        // 2. Close the trade through the exchange
+        try {
+          // Close the position through the trade manager
+          await tradeManager.closePosition(tradeId);
+        } catch (closeError) {
+          logService.log('warn', `Error closing position for trade ${tradeId}, marking as closed anyway`, closeError, 'TradeEngine');
+        }
+
+        // 3. Update the trade status in the database
+        const { error: updateError } = await supabase
+          .from('trades')
+          .update({
+            status: 'closed',
+            close_reason: reason,
+            closed_at: new Date().toISOString()
+          })
+          .eq('id', tradeId);
+
+        if (updateError) throw updateError;
+
+        // 4. Release the budget allocation
+        await tradeService.releaseBudget(trade.strategy_id, trade.allocated_budget);
+
+        logService.log('info', `Closed trade ${tradeId} for reason: ${reason}`, null, 'TradeEngine');
+      }, `close trade ${tradeId}`);
+    } catch (error) {
+      logService.log('error', `Failed to close trade ${tradeId}`, error, 'TradeEngine');
+      throw error;
+    }
   }
 
   cleanup() {
@@ -292,16 +363,16 @@ class TradeEngine extends EventEmitter {
     context: string
   ): Promise<T> {
     let lastError: Error | null = null;
-    
+
     for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
       try {
         return await operation();
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
-        
+
         if (this.isRetryableError(error)) {
           const delay = this.calculateBackoff(attempt);
-          logService.log('warn', 
+          logService.log('warn',
             `Retry attempt ${attempt} for ${context}. Waiting ${delay}ms`,
             error,
             'TradeEngine'
@@ -309,11 +380,11 @@ class TradeEngine extends EventEmitter {
           await new Promise(resolve => setTimeout(resolve, delay));
           continue;
         }
-        
+
         throw error;
       }
     }
-    
+
     throw new Error(`Max retries exceeded for ${context}: ${lastError?.message}`);
   }
 

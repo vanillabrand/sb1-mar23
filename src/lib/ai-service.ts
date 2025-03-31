@@ -1,7 +1,7 @@
 import { EventEmitter } from './event-emitter';
-import { ccxtService } from './ccxt-service';
 import { marketMonitor } from './market-monitor';
 import { logService } from './log-service';
+import { exchangeService } from './exchange-service';
 
 export class AIService extends EventEmitter {
   private static instance: AIService;
@@ -29,22 +29,37 @@ export class AIService extends EventEmitter {
   ): Promise<any> {
     try {
       this.emit('progress', { step: 'Analyzing strategy description...', progress: 10 });
-      
+
       const assets = options?.assets || this.extractAssetPairs(description);
-      
+
       this.emit('progress', { step: 'Detected trading pairs: ' + assets.join(', '), progress: 20 });
 
       // Gather market data for better strategy generation
       const marketData = await Promise.all(
         assets.map(async (asset) => {
-          const ticker = await ccxtService.fetchTicker(asset);
-          const historicalData = await marketMonitor.getHistoricalData(asset, 100);
-          return {
-            asset,
-            currentPrice: ticker.last_price,
-            volume24h: ticker.quote_volume_24h,
-            priceHistory: historicalData
-          };
+          try {
+            // Try to get ticker data from exchange service
+            const ticker = await exchangeService.fetchTicker(asset);
+            const historicalData = await marketMonitor.getHistoricalData(asset, 100);
+            return {
+              asset,
+              currentPrice: ticker.last || 0,
+              volume24h: ticker.baseVolume || ticker.quoteVolume || 0,
+              priceHistory: historicalData
+            };
+          } catch (error) {
+            // If ticker fetch fails, use mock data
+            logService.log('warn', `Failed to fetch ticker for ${asset}, using mock data`, error, 'AIService');
+            const historicalData = await marketMonitor.getHistoricalData(asset, 100);
+            // Use the last close price from historical data as current price
+            const currentPrice = historicalData.length > 0 ? historicalData[historicalData.length - 1].close : 0;
+            return {
+              asset,
+              currentPrice,
+              volume24h: 1000000, // Mock volume
+              priceHistory: historicalData
+            };
+          }
         })
       );
 
@@ -70,7 +85,7 @@ export class AIService extends EventEmitter {
 
   private extractAssetPairs(description: string): string[] {
     const pairs = new Set<string>();
-    
+
     // Check for "top N" pattern
     const topNMatch = description.match(/top\s+(\d+)/i);
     if (topNMatch) {

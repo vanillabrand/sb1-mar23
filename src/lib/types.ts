@@ -22,12 +22,57 @@ export interface Strategy {
 
 export interface Trade {
   id: string;
-  price: number;
-  quantity: number;
-  timestamp: number;
-  side: 'buy' | 'sell';
   symbol: string;
+  side: 'buy' | 'sell';
   status: 'pending' | 'executed' | 'cancelled' | 'failed';
+  entryPrice?: number;
+  exitPrice?: number;
+  profit?: number;
+  timestamp: number;
+  strategyId?: string;
+  createdAt?: string;
+  executedAt?: string | null;
+}
+
+export interface TradeOptions {
+  symbol: string;
+  side: 'buy' | 'sell';
+  amount: number;
+  strategy_id?: string;
+  entry_price?: number;
+  stop_loss?: number;
+  take_profit?: number;
+  trailing_stop?: number;
+  demo?: boolean;
+  testnet?: boolean;
+  type?: 'market' | 'limit';
+  // Add aliases for camelCase properties
+  strategyId?: string;
+  entryPrice?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  trailingStop?: number;
+}
+
+export interface TradeResult {
+  id: string;
+  status: string;
+  timestamp: number;
+  details: any;
+}
+
+export interface TradeStatus {
+  status: string;
+  lastUpdate: number;
+  timestamp?: number;
+  symbol?: string;
+  side?: 'buy' | 'sell';
+  entryPrice?: number;
+  exitPrice?: number;
+  profit?: number;
+  strategyId?: string;
+  createdAt?: string;
+  executedAt?: string | null;
 }
 
 export interface IndicatorConfig {
@@ -47,6 +92,23 @@ export interface StrategyBudget {
   allocated: number;
   available: number;
   maxPositionSize: number;
+}
+
+export type ExchangeId = 'binance' | 'bitmart' | 'kucoin' | 'coinbase' | 'kraken' | string;
+
+export interface ExchangeCredentials {
+  apiKey: string;
+  secret: string;
+  memo?: string;
+}
+
+export interface ExchangeConfig {
+  name: string;
+  apiKey: string;
+  secret: string;
+  memo?: string;
+  testnet?: boolean;
+  useUSDX?: boolean;
 }
 
 export interface StrategyTemplate {
@@ -100,4 +162,33 @@ export interface MarketCondition {
     score: number;
     signals: string[];
   };
+}
+
+export interface MarketInsight {
+  timestamp: number;
+  assets: {
+    symbol: string;
+    sentiment: 'bullish' | 'bearish' | 'neutral';
+    signals: string[];
+    riskLevel: 'low' | 'medium' | 'high';
+  }[];
+  marketConditions: {
+    trend: 'bullish' | 'bearish' | 'sideways';
+    volatility: 'low' | 'medium' | 'high';
+    volume: 'low' | 'medium' | 'high';
+  };
+  recommendations: string[];
+}
+
+export interface NewsItem {
+  id: string;
+  title: string;
+  description: string;
+  url: string;
+  source: string;
+  imageUrl?: string;
+  publishedAt: string;
+  relatedAssets?: string[];
+  sentiment?: 'positive' | 'negative' | 'neutral';
+  summary?: string;
 }

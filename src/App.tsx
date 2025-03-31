@@ -8,6 +8,7 @@ import { analyticsService } from './lib/analytics-service';
 import { templateManager } from './lib/template-manager';
 import { tradeEngine } from './lib/trade-engine';
 import { demoService } from './lib/demo-service';
+import { walletBalanceService } from './lib/wallet-balance-service';
 import { Preloader } from './components/Preloader';
 import { Toaster } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
@@ -27,13 +28,24 @@ function App() {
       setIsInitializing(true);
       setInitError(null);
 
-      // Check authentication first
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
-      if (authError) throw authError;
+      console.log('App: Starting initialization process');
 
-      if (!session) {
-        navigate('/login');
-        return;
+      // Check authentication first
+      try {
+        const { data: { session }, error: authError } = await supabase.auth.getSession();
+        if (authError) throw authError;
+
+        if (!session) {
+          console.log('App: No session found, navigating to login');
+          navigate('/login');
+          return;
+        }
+
+        console.log('App: Authentication check passed');
+      } catch (authCheckError) {
+        console.error('App: Authentication check failed', authCheckError);
+        // Continue with initialization even if auth check fails
+        // This allows the app to initialize in demo mode
       }
 
       // Initialize core services in sequence
@@ -44,16 +56,52 @@ function App() {
         { name: 'analytics', fn: () => analyticsService.initialize() },
         { name: 'templates', fn: () => templateManager.initialize() },
         { name: 'trading', fn: () => tradeEngine.initialize() },
+        { name: 'wallet', fn: () => walletBalanceService.initialize() },
         { name: 'demo', fn: () => Promise.resolve(demoService.isInDemoMode()) }
       ];
 
       for (const service of services) {
         setInitStep(service.name);
-        await service.fn();
+        console.log(`App: Initializing ${service.name}`);
+
+        try {
+          // Special handling for analytics service which is causing issues
+          if (service.name === 'analytics') {
+            try {
+              // Set a timeout to prevent hanging
+              const analyticsPromise = service.fn();
+              const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error('Analytics initialization timed out')), 5000);
+              });
+
+              await Promise.race([analyticsPromise, timeoutPromise]);
+              console.log(`App: ${service.name} initialized successfully`);
+            } catch (analyticsError) {
+              console.warn(`App: Analytics service initialization timed out or failed, continuing without it`, analyticsError);
+              // Don't throw, just continue without analytics
+            }
+          } else {
+            // Normal initialization for other services
+            await service.fn();
+            console.log(`App: ${service.name} initialized successfully`);
+          }
+        } catch (serviceError) {
+          console.error(`App: Failed to initialize ${service.name}`, serviceError);
+
+          // If a critical service fails, throw the error to trigger demo mode
+          if (['database', 'exchange'].includes(service.name)) {
+            throw serviceError;
+          }
+
+          // For non-critical services, just log and continue
+          logService.log('warn', `Non-critical service ${service.name} failed to initialize, continuing`, serviceError, 'App');
+        }
+
         // Add a small delay between service initializations
         await new Promise(resolve => setTimeout(resolve, 100));
       }
 
+      console.log('App: All services initialized successfully');
       setIsAppReady(true);
     } catch (error) {
       const errorMessage = error instanceof Error
@@ -62,23 +110,28 @@ function App() {
 
       setInitError(errorMessage);
       logService.log('error', `Failed to initialize ${initStep}`, error, 'App');
+      console.error(`App: Critical error during initialization of ${initStep}`, error);
 
       // Check if we should switch to demo mode
       if (initStep === 'database' || initStep === 'exchange') {
+        console.log('App: Attempting to switch to demo mode');
         try {
           await systemSync.initializeDemoMode();
           // Ensure demo service is initialized
           if (demoService.isInDemoMode()) {
+            console.log('App: Demo mode initialized successfully');
             logService.log('info', 'Demo mode initialized successfully', null, 'App');
           }
           setIsAppReady(true);
           setInitError(null);
         } catch (demoError) {
+          console.error('App: Failed to initialize demo mode', demoError);
           setInitError(`Failed to initialize demo mode: ${demoError instanceof Error ? demoError.message : 'Unknown error'}`);
         }
       }
     } finally {
       setIsInitializing(false);
+      console.log('App: Initialization process completed');
     }
   };
 

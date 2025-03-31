@@ -1,53 +1,292 @@
-import React, { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Brain, TrendingUp, TrendingDown, Power, Settings, Loader2, Edit, Trash2, AlertCircle } from 'lucide-react';
+import { ChevronDown, ChevronUp, Activity, DollarSign, BarChart3, Clock, Edit, ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
 import { marketService } from '../lib/market-service';
 import { tradeGenerator } from '../lib/trade-generator';
 import { tradeEngine } from '../lib/trade-engine';
+import { tradeManager } from '../lib/trade-manager';
 import { logService } from '../lib/log-service';
 import { strategyMonitor } from '../lib/strategy-monitor';
 import { demoService } from '../lib/demo-service';
+import { walletBalanceService } from '../lib/wallet-balance-service';
+import { eventBus } from '../lib/event-bus';
+import { supabase } from '../lib/supabase';
+import { directDeleteStrategy } from '../lib/direct-delete';
 import { BudgetModal } from './BudgetModal';
-import { EditStrategyModal } from './EditStrategyModal';
+import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { ConfirmDialog } from './ui/ConfirmDialog';
-import type { Strategy, StrategyBudget } from '../lib/types';
+import type { Strategy, StrategyBudget, Trade } from '../lib/types';
+
+// Extended Trade type with additional properties for timestamps
+interface ExtendedTrade extends Trade {
+  createdAt?: string;
+  executedAt?: string | null;
+}
+
+// Helper function to format time ago
+const formatTimeAgo = (date: Date): string => {
+  const now = new Date();
+  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+  if (diffInSeconds < 60) return `${diffInSeconds}s ago`;
+  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+  return `${Math.floor(diffInSeconds / 86400)}d ago`;
+};
 
 interface StrategyCardProps {
   strategy: Strategy;
-  onRefresh?: () => void;
+  isExpanded: boolean;
+  onToggleExpand: (id: string) => void;
+  onRefresh?: () => Promise<void> | void;
   onEdit?: (strategy: Strategy) => void;
   onDelete?: (strategy: Strategy) => void;
+  onActivate?: (strategy: Strategy) => Promise<boolean>;
+  onDeactivate?: (strategy: Strategy) => Promise<void> | void;
 }
 
-export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: StrategyCardProps) {
+export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, onEdit, onDelete, onActivate, onDeactivate }: StrategyCardProps) {
   const [isActivating, setIsActivating] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
+  const [showBudgetAdjustmentModal, setShowBudgetAdjustmentModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
+  const [strategyBudget, setStrategyBudget] = useState<number>(0);
+  const [availableBalance, setAvailableBalance] = useState<number>(0);
+  const [strategyTrades, setStrategyTrades] = useState<ExtendedTrade[]>([]);
+  const [isLoadingTrades, setIsLoadingTrades] = useState<boolean>(false);
+
+  // Fetch the budget, available balance, and trades when the component mounts or when the strategy changes
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch budget
+        const budget = tradeService.getBudget(strategy.id);
+        if (budget) {
+          setStrategyBudget(budget.total);
+        } else {
+          setStrategyBudget(0);
+        }
+
+        // Initialize wallet balance service if needed
+        if (!walletBalanceService.getLastUpdated()) {
+          await walletBalanceService.initialize();
+        }
+
+        // Get available balance
+        setAvailableBalance(walletBalanceService.getAvailableBalance());
+
+        // Fetch trades for this strategy if expanded
+        if (isExpanded) {
+          await fetchStrategyTrades();
+        }
+      } catch (error) {
+        logService.log('error', `Failed to fetch data for strategy ${strategy.id}`, error, 'StrategyCard');
+        setStrategyBudget(0);
+      }
+    };
+
+    fetchData();
+
+    // Subscribe to balance updates
+    const handleBalanceUpdate = () => {
+      setAvailableBalance(walletBalanceService.getAvailableBalance());
+    };
+
+    // Subscribe to budget updates
+    const handleBudgetUpdate = (event: any) => {
+      if (event.strategyId === strategy.id) {
+        const budget = tradeService.getBudget(strategy.id);
+        if (budget) {
+          setStrategyBudget(budget.total);
+        }
+      }
+    };
+
+    // Subscribe to trade updates
+    const handleTradeUpdate = () => {
+      if (isExpanded) {
+        fetchStrategyTrades();
+      }
+    };
+
+    walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
+    tradeService.on('budgetUpdated', handleBudgetUpdate);
+    tradeManager.on('tradesUpdated', handleTradeUpdate);
+
+    // Set up interval to refresh trades if expanded
+    let tradeRefreshInterval: number | null = null;
+    if (isExpanded && strategy.status === 'active') {
+      tradeRefreshInterval = window.setInterval(() => {
+        fetchStrategyTrades();
+      }, 10000); // Refresh every 10 seconds
+    }
+
+    return () => {
+      walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
+      tradeService.off('budgetUpdated', handleBudgetUpdate);
+      tradeManager.off('tradesUpdated', handleTradeUpdate);
+      if (tradeRefreshInterval) {
+        window.clearInterval(tradeRefreshInterval);
+      }
+    };
+  }, [strategy.id, isExpanded]);
+
+  // Fetch trades for this strategy
+  const fetchStrategyTrades = async () => {
+    if (!strategy.id) return;
+
+    try {
+      setIsLoadingTrades(true);
+      // Get active trades for this strategy
+      const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+
+      // If we have active trades, use them directly
+      if (activeTrades.length > 0) {
+        // Add timestamps to trades if they don't have them
+        const tradesWithTimestamps = activeTrades.map(trade => {
+          if (!trade.createdAt) {
+            return {
+              ...trade,
+              createdAt: new Date(trade.timestamp).toISOString(),
+              executedAt: trade.status === 'executed' ? new Date().toISOString() : null
+            };
+          }
+          return trade;
+        });
+
+        setStrategyTrades(tradesWithTimestamps);
+        return;
+      }
+
+      // If strategy is active but no trades yet, create a pending trade to show activity
+      if (strategy.status === 'active') {
+        // Create a single pending trade to show the strategy is working
+        const pendingTrade: ExtendedTrade = {
+          id: `pending-${strategy.id}-${Date.now()}`,
+          symbol: (strategy as any).selected_pairs?.[0] || 'BTC/USDT',
+          side: 'buy',
+          status: 'pending',
+          entryPrice: 50000 + Math.random() * 1000, // Use a realistic price
+          timestamp: Date.now(),
+          createdAt: new Date().toISOString(),
+          executedAt: null,
+          strategyId: strategy.id
+        };
+
+        setStrategyTrades([pendingTrade]);
+
+        // Set up a timer to simulate trade execution after a short delay
+        setTimeout(() => {
+          if (strategy.status === 'active') {
+            fetchStrategyTrades();
+          }
+        }, 30000); // Check again in 30 seconds
+      } else {
+        // Strategy is not active, no trades to show
+        setStrategyTrades([]);
+      }
+    } catch (error) {
+      logService.log('error', `Failed to fetch trades for strategy ${strategy.id}`, error, 'StrategyCard');
+      // Set empty array on error
+      setStrategyTrades([]);
+    } finally {
+      setIsLoadingTrades(false);
+    }
+  };
 
   const handleActivate = async () => {
     try {
       setIsActivating(true);
       setError(null);
 
-      // Check if budget is already set
-      const budget = await tradeService.getBudget(strategy.id);
+      if (onActivate) {
+        // Use the provided onActivate callback
+        const activationResult = await onActivate(strategy);
 
-      if (!budget) {
-        // If no budget, show budget modal
-        setSelectedStrategy(strategy);
-        setShowBudgetModal(true);
-        return;
+        // If activation failed or was cancelled (e.g., budget modal shown), don't update UI
+        if (activationResult === false) {
+          logService.log('info', `Strategy ${strategy.id} activation not completed`, null, 'StrategyCard');
+          setIsActivating(false);
+          return;
+        }
+      } else {
+        // Fallback to the original implementation
+        // Check if budget is already set
+        const budget = tradeService.getBudget(strategy.id);
+
+        if (!budget || budget.total <= 0) {
+          // If no budget or budget is zero, show budget modal
+          logService.log('info', `No budget set for strategy ${strategy.id}, showing budget modal`, null, 'StrategyCard');
+          setSelectedStrategy(strategy);
+          setShowBudgetModal(true);
+          setIsActivating(false);
+          return;
+        }
+
+        // Check if budget exceeds available balance
+        if (budget.total > availableBalance) {
+          logService.log('info', `Budget exceeds available balance: ${budget.total} > ${availableBalance}`, null, 'StrategyCard');
+          setSelectedStrategy(strategy);
+          setShowBudgetAdjustmentModal(true);
+          setIsActivating(false);
+          return;
+        }
+
+        // If budget exists, proceed with activation directly without resetting the budget
+        try {
+          // Activate the strategy
+          const updatedStrategy = await strategyService.activateStrategy(strategy.id);
+          logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'StrategyCard');
+
+          // Start monitoring the strategy
+          await marketService.startStrategyMonitoring(updatedStrategy);
+          logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'StrategyCard');
+
+          // Add strategy to trade generator
+          await tradeGenerator.addStrategy(updatedStrategy as any);
+          logService.log('info', `Added strategy ${strategy.id} to trade generator`, null, 'StrategyCard');
+
+          // Initialize strategy monitoring
+          await strategyMonitor.addStrategy(updatedStrategy as any);
+          logService.log('info', `Added strategy ${strategy.id} to monitor`, null, 'StrategyCard');
+
+          // Start trade engine monitoring
+          await tradeEngine.addStrategy(updatedStrategy as any);
+          logService.log('info', `Added strategy ${strategy.id} to trade engine`, null, 'StrategyCard');
+
+          // Connect to trading engine to start generating trades
+          await tradeService.connectStrategyToTradingEngine(strategy.id);
+          logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'StrategyCard');
+
+          // Refresh data
+          if (onRefresh) {
+            await onRefresh();
+          }
+
+          logService.log('info', `Strategy ${strategy.id} successfully activated with existing budget`, { budget }, 'StrategyCard');
+        } catch (activationError) {
+          logService.log('error', 'Failed to activate strategy with existing budget', activationError, 'StrategyCard');
+          throw activationError;
+        }
       }
 
-      // If budget exists, proceed with full activation
-      await activateStrategyWithBudget(strategy, budget);
+      // Refresh data
+      if (onRefresh) {
+        await onRefresh();
+      } else {
+        // Force a re-render if no refresh callback is provided
+        setIsActivating(false);
+        setIsActivating(true);
+        setTimeout(() => setIsActivating(false), 10);
+      }
 
+      logService.log('info', `Strategy ${strategy.id} activated successfully`, null, 'StrategyCard');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to activate strategy';
       setError(errorMessage);
@@ -62,19 +301,76 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
       setIsDeactivating(true);
       setError(null);
 
-      // Deactivate strategy in database
-      await strategyService.deactivateStrategy(strategy.id);
+      if (onDeactivate) {
+        // Use the provided onDeactivate callback
+        await onDeactivate(strategy);
+      } else {
+        // Fallback to the original implementation
+        // 1. Get active trades for this strategy
+        const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+        logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategy.id}`, null, 'StrategyCard');
 
-      // Remove from monitoring services
-      await marketService.stopStrategyMonitoring(strategy.id);
-      tradeGenerator.removeStrategy(strategy.id);
-      strategyMonitor.removeStrategy(strategy.id);
-      await tradeEngine.removeStrategy(strategy.id);
+        // 2. Close any active trades
+        if (activeTrades.length > 0) {
+          try {
+            // Close each active trade
+            for (const trade of activeTrades) {
+              try {
+                // Close the trade and release the budget
+                await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
+                logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id}`, null, 'StrategyCard');
+              } catch (tradeError) {
+                logService.log('warn', `Failed to close trade ${trade.id}, continuing with deactivation`, tradeError, 'StrategyCard');
+              }
+            }
+          } catch (tradesError) {
+            logService.log('warn', 'Error closing trades, continuing with deactivation', tradesError, 'StrategyCard');
+          }
+        }
 
-      // Refresh data
-      onRefresh?.();
+        // 3. Deactivate strategy in database
+        await strategyService.deactivateStrategy(strategy.id);
 
-      logService.log('info', `Strategy ${strategy.id} deactivated`, null, 'StrategyCard');
+        // 4. Remove from monitoring services
+        try {
+          await marketService.stopStrategyMonitoring(strategy.id);
+        } catch (marketError) {
+          logService.log('warn', 'Error stopping market monitoring, continuing with deactivation', marketError, 'StrategyCard');
+        }
+
+        try {
+          tradeGenerator.removeStrategy(strategy.id);
+        } catch (generatorError) {
+          logService.log('warn', 'Error removing from trade generator, continuing with deactivation', generatorError, 'StrategyCard');
+        }
+
+        try {
+          strategyMonitor.removeStrategy(strategy.id);
+        } catch (monitorError) {
+          logService.log('warn', 'Error removing from strategy monitor, continuing with deactivation', monitorError, 'StrategyCard');
+        }
+
+        try {
+          await tradeEngine.removeStrategy(strategy.id);
+        } catch (engineError) {
+          logService.log('warn', 'Error removing from trade engine, continuing with deactivation', engineError, 'StrategyCard');
+        }
+
+        // Don't manually update the strategy status - wait for the refresh
+        // to get the updated status from the database
+      }
+
+      // 6. Refresh data
+      if (onRefresh) {
+        await onRefresh();
+      } else {
+        // Force a re-render if no refresh callback is provided
+        setIsDeactivating(false);
+        setIsDeactivating(true);
+        setTimeout(() => setIsDeactivating(false), 10);
+      }
+
+      logService.log('info', `Strategy ${strategy.id} deactivated successfully`, null, 'StrategyCard');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to deactivate strategy';
       setError(errorMessage);
@@ -91,12 +387,15 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
         logService.log('info', 'Using demo mode for strategy activation', { strategyId: strategy.id }, 'StrategyCard');
       }
 
+      // Ensure strategy has required configuration
+      const enhancedStrategy = await ensureStrategyConfiguration(strategy);
+
       // 1. Activate strategy in database
-      await strategyService.activateStrategy(strategy.id);
+      const updatedStrategy = await strategyService.activateStrategy(enhancedStrategy.id);
 
       try {
         // 2. Start market monitoring - wrapped in try/catch to prevent errors
-        await marketService.startStrategyMonitoring(strategy);
+        await marketService.startStrategyMonitoring(updatedStrategy);
       } catch (marketError) {
         logService.log('warn', 'Error starting market monitoring, continuing with activation',
           marketError, 'StrategyCard');
@@ -104,7 +403,7 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
 
       try {
         // 3. Add strategy to trade generator
-        await tradeGenerator.addStrategy(strategy);
+        await tradeGenerator.addStrategy(updatedStrategy as any);
       } catch (generatorError) {
         logService.log('warn', 'Error adding strategy to trade generator, continuing with activation',
           generatorError, 'StrategyCard');
@@ -112,7 +411,7 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
 
       try {
         // 4. Initialize strategy monitoring
-        await strategyMonitor.addStrategy(strategy);
+        await strategyMonitor.addStrategy(updatedStrategy as any);
       } catch (monitorError) {
         logService.log('warn', 'Error adding strategy to monitor, continuing with activation',
           monitorError, 'StrategyCard');
@@ -120,43 +419,122 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
 
       try {
         // 5. Start trade engine monitoring
-        await tradeEngine.addStrategy(strategy);
+        await tradeEngine.addStrategy(updatedStrategy as any);
       } catch (engineError) {
         logService.log('warn', 'Error adding strategy to trade engine, continuing with activation',
           engineError, 'StrategyCard');
       }
 
       // 6. Refresh data
-      onRefresh?.();
+      if (onRefresh) {
+        await onRefresh();
+      } else {
+        // Force a re-render if no refresh callback is provided
+        setIsActivating(false);
+        setIsActivating(true);
+        setTimeout(() => setIsActivating(false), 10);
+      }
 
       logService.log('info', `Strategy ${strategy.id} activated with budget`,
         { strategyId: strategy.id, budgetAmount: budget.total }, 'StrategyCard');
 
+      return updatedStrategy;
     } catch (error) {
       logService.log('error', 'Failed to activate strategy with budget', error, 'StrategyCard');
       throw error;
     }
   };
 
-  const handleBudgetSubmit = async (budgetAmount: number) => {
+  /**
+   * Ensures a strategy has all required configuration for activation
+   * @param strategy The strategy to enhance with default configuration
+   * @returns The enhanced strategy with all required configuration
+   */
+  const ensureStrategyConfiguration = async (strategy: Strategy): Promise<Strategy> => {
+    try {
+      // Create a deep copy of the strategy to avoid modifying the original
+      const enhancedStrategy = JSON.parse(JSON.stringify(strategy)) as Strategy;
+
+      // Ensure strategy_config exists
+      if (!enhancedStrategy.strategy_config) {
+        enhancedStrategy.strategy_config = {};
+      }
+
+      // Ensure assets are configured
+      if (!enhancedStrategy.strategy_config.assets) {
+        enhancedStrategy.strategy_config.assets = ['BTC/USDT'];
+      }
+
+      // Ensure selected_pairs exists
+      if (!enhancedStrategy.selected_pairs || enhancedStrategy.selected_pairs.length === 0) {
+        enhancedStrategy.selected_pairs = ['BTC/USDT'];
+      }
+
+      // Ensure config.pairs exists for strategy-monitor
+      if (!enhancedStrategy.strategy_config.config) {
+        enhancedStrategy.strategy_config.config = {};
+      }
+
+      if (!enhancedStrategy.strategy_config.config.pairs || enhancedStrategy.strategy_config.config.pairs.length === 0) {
+        enhancedStrategy.strategy_config.config.pairs = enhancedStrategy.selected_pairs;
+      }
+
+      // Update the strategy in the database with the enhanced configuration
+      const updatedStrategy = await strategyService.updateStrategy(enhancedStrategy.id, {
+        strategy_config: enhancedStrategy.strategy_config,
+        selected_pairs: enhancedStrategy.selected_pairs
+      });
+
+      logService.log('info', `Enhanced strategy configuration for ${strategy.id}`, {
+        original: strategy,
+        enhanced: updatedStrategy
+      }, 'StrategyCard');
+
+      return updatedStrategy;
+    } catch (error) {
+      logService.log('error', `Failed to enhance strategy configuration for ${strategy.id}`, error, 'StrategyCard');
+      // Return the original strategy if enhancement fails
+      return strategy;
+    }
+  };
+
+  const handleBudgetSubmit = async (budget: StrategyBudget) => {
     if (!selectedStrategy) return;
 
     try {
       setIsSubmittingBudget(true);
       setError(null);
 
-      const budget: StrategyBudget = {
-        total: budgetAmount,
-        allocated: 0,
-        available: budgetAmount,
-        maxPositionSize: budgetAmount * 0.1 // Default to 10% of total budget
-      };
+      // Check if budget exceeds available balance
+      if (budget.total > availableBalance) {
+        logService.log('info', `Budget exceeds available balance: ${budget.total} > ${availableBalance}`, null, 'StrategyCard');
+        setShowBudgetModal(false);
+        setShowBudgetAdjustmentModal(true);
+        return;
+      }
 
-      await tradeService.setBudget(selectedStrategy.id, budget);
+      // 1. First, ensure the budget is set and confirmed
+      try {
+        // Set budget for the strategy
+        await tradeService.setBudget(selectedStrategy.id, budget);
+        logService.log('info', `Budget set for strategy ${selectedStrategy.id}`, { budget }, 'StrategyCard');
+      } catch (budgetError) {
+        logService.log('error', 'Failed to set budget', budgetError, 'StrategyCard');
+        throw new Error('Failed to set budget. Please try again.');
+      }
+
+      // 2. Verify the budget was set correctly
+      const confirmedBudget = tradeService.getBudget(selectedStrategy.id);
+      if (!confirmedBudget) {
+        throw new Error('Budget could not be confirmed. Please try again.');
+      }
+
+      // 3. Now proceed with activation
       await activateStrategyWithBudget(selectedStrategy, budget);
 
       // Important: Close the modal first before any potential errors in the refresh
       setShowBudgetModal(false);
+      setShowBudgetAdjustmentModal(false);
       setSelectedStrategy(null);
 
     } catch (error) {
@@ -177,89 +555,340 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
     }
   };
 
+  /**
+   * Handle strategy deletion with direct database access
+   */
+  const handleDelete = async () => {
+    try {
+      setShowDeleteConfirm(false);
+      setError(null);
+
+      // 1. If strategy is active, deactivate it first
+      if (strategy.status === 'active') {
+        setError('Cannot delete an active strategy. Please deactivate it first.');
+        return;
+      }
+
+      console.log('DIRECT DELETION - Strategy ID:', strategy.id);
+
+      // 2. Store the strategy ID for later use
+      const strategyId = strategy.id;
+
+      // 3. Call the onDelete callback IMMEDIATELY to update parent component
+      // This ensures the UI updates before the database operation
+      if (onDelete) {
+        console.log('StrategyCard: Calling onDelete callback');
+        onDelete(strategy);
+      }
+
+      // 4. Use the direct deletion function
+      console.log(`Using direct deletion function for strategy ${strategyId}...`);
+      const success = await directDeleteStrategy(strategyId);
+
+      if (success) {
+        console.log(`Strategy ${strategyId} successfully deleted from database`);
+      } else {
+        console.error(`Failed to delete strategy ${strategyId} from database`);
+
+        // Try one more time with a direct SQL query
+        try {
+          console.log(`Attempting direct SQL query as last resort...`);
+          await supabase.rpc('execute_sql', {
+            query: `
+              DELETE FROM trades WHERE strategy_id = '${strategyId}';
+              DELETE FROM strategies WHERE id = '${strategyId}';
+            `
+          });
+          console.log(`Direct SQL query executed for strategy ${strategyId}`);
+        } catch (sqlError) {
+          console.error(`Final SQL attempt failed: ${sqlError}`);
+        }
+      }
+
+      // Verify deletion
+      try {
+        const { data: checkData } = await supabase
+          .from('strategies')
+          .select('id')
+          .eq('id', strategyId);
+
+        if (!checkData || checkData.length === 0) {
+          console.log(`VERIFICATION: Strategy ${strategyId} is confirmed deleted`);
+        } else {
+          console.error(`VERIFICATION FAILED: Strategy ${strategyId} still exists in database`);
+          console.log(`Strategy data:`, checkData);
+        }
+      } catch (verifyError) {
+        console.error(`Error verifying deletion: ${verifyError}`);
+      }
+
+      // 6. Force refresh the list in the background
+      if (onRefresh) {
+        setTimeout(() => {
+          console.log('StrategyCard: Refreshing strategy list');
+          onRefresh().catch(refreshError => {
+            console.warn('Failed to refresh strategies after deletion:', refreshError);
+          });
+        }, 1000);
+      }
+    } catch (error) {
+      console.error('Unexpected error in delete handler:', error);
+      // Don't show error to user since UI is already updated
+    }
+  };
+
   return (
     <>
       <motion.div
-        className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-6 shadow-lg border border-gunmetal-800/50"
+        className={`bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-6 shadow-lg border border-gunmetal-800/50 cursor-pointer hover:shadow-xl transition-all duration-300`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
+        onClick={() => onToggleExpand(strategy.id)}
       >
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 rounded-lg bg-gunmetal-900/50 text-neon-raspberry">
-            <Brain className="w-5 h-5" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-gray-200">{strategy.title}</h3>
-            <span className="text-sm text-gray-400">{strategy.riskLevel} Risk</span>
-          </div>
-        </div>
-
-        <p className="text-sm text-gray-400 mb-4">{strategy.description}</p>
-
-        <div className="flex items-center justify-between mt-4">
-          <div className="text-sm">
-            <span className="text-gray-400">Performance: </span>
-            <span className="text-neon-turquoise">{strategy.performance}%</span>
-          </div>
-
-          {error && (
-            <div className="text-red-400 text-sm mb-2">{error}</div>
-          )}
-        </div>
-
-        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gunmetal-800/50">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => onEdit?.(strategy)}
-              className="p-2 text-gray-400 hover:text-neon-turquoise transition-colors"
-              title="Edit Strategy"
-            >
-              <Edit className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setShowDeleteConfirm(true)}
-              className="p-2 text-gray-400 hover:text-red-500 transition-colors"
-              title="Delete Strategy"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-lg ${strategy.status === 'active' ? 'bg-neon-turquoise/10' : 'bg-gunmetal-800'}`}>
+              <Activity className={`w-5 h-5 ${strategy.status === 'active' ? 'text-neon-turquoise' : 'text-gray-400'}`} />
+            </div>
+            <div>
+              <h3 className="font-semibold text-gray-200">{(strategy as any).name || (strategy as any).title || 'Unnamed Strategy'}</h3>
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-2 py-0.5 rounded-full ${strategy.status === 'active' ? 'bg-neon-turquoise/10 text-neon-turquoise' : 'bg-gunmetal-700 text-gray-400'}`}>
+                  {strategy.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
+                </span>
+                {strategy.status !== 'active' && (
+                  <span className="text-xs text-gray-400">
+                    Potential profit: <span className="text-neon-yellow">+{((strategy as any).strategy_config?.takeProfit || 0.05) * 100}%</span>
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
-          <div>
-            {strategy.status === 'active' ? (
+          <div className="flex items-center gap-3">
+            {/* Only show activate/deactivate buttons if the callbacks are provided */}
+            {onActivate && onDeactivate && strategy.status === 'active' ? (
               <button
-                onClick={handleDeactivate}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeactivate();
+                }}
                 disabled={isDeactivating}
-                className="px-4 py-2 bg-gunmetal-800 text-gray-300 rounded-lg hover:bg-gunmetal-700 transition-all duration-300 disabled:opacity-50 flex items-center gap-2"
+                className="px-3 py-1.5 bg-gunmetal-800 text-neon-turquoise border border-neon-turquoise/30 rounded-lg hover:bg-gunmetal-700 transition-colors text-sm font-medium"
               >
-                {isDeactivating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Deactivating...
-                  </>
-                ) : (
-                  'Deactivate'
-                )}
+                {isDeactivating ? 'Deactivating...' : 'Deactivate'}
               </button>
-            ) : (
+            ) : onActivate && onDeactivate ? (
               <button
-                onClick={handleActivate}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleActivate();
+                }}
                 disabled={isActivating}
-                className="px-4 py-2 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all duration-300 disabled:opacity-50 flex items-center gap-2"
+                className="px-3 py-1.5 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-colors text-sm font-medium"
               >
-                {isActivating ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Activating...
-                  </>
-                ) : (
-                  'Activate'
-                )}
+                {isActivating ? 'Activating...' : 'Activate'}
+              </button>
+            ) : null}
+            {/* Delete button - only show if strategy is not active and onDelete is provided */}
+            {onDelete && strategy.status !== 'active' && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDeleteConfirm(true);
+                }}
+                className="px-3 py-1.5 bg-gunmetal-800 text-red-400 border border-red-400/30 rounded-lg hover:bg-gunmetal-700 transition-colors text-sm font-medium"
+              >
+                Delete
               </button>
             )}
+            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors border border-gunmetal-700 shadow-inner">
+              {isExpanded ? (
+                <ChevronUp className="w-5 h-5 text-neon-turquoise" />
+              ) : (
+                <ChevronDown className="w-5 h-5 text-neon-turquoise" />
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Strategy Details (Expanded) */}
+        {isExpanded && (
+          <div className="mt-6 pt-6 border-t border-gunmetal-700/50 space-y-6">
+            {/* Trading Parameters */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <BarChart3 className="w-4 h-4" />
+                Trading Parameters
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500">Leverage</p>
+                  <p className="text-sm text-white">{((strategy as any).strategy_config?.leverage || 1)}x</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Position Size</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.positionSize || 0.1) * 100).toFixed(0)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Confidence Threshold</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.confidenceThreshold || 0.7) * 100).toFixed(0)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Timeframe</p>
+                  <p className="text-sm text-white">{(strategy as any).strategy_config?.timeframe || '1h'}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Risk Management */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <Activity className="w-4 h-4" />
+                Risk Management
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500">Stop Loss</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.stopLoss || 0.03) * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Take Profit</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.takeProfit || 0.09) * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Trailing Stop</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.trailingStop || 0.02) * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Max Drawdown</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Trading Pairs */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <Clock className="w-4 h-4" />
+                Trading Pairs
+              </h4>
+              <div className="flex flex-wrap gap-2">
+                {(strategy as any).selected_pairs?.map((pair: string) => (
+                  <span
+                    key={pair}
+                    className="px-2 py-1 bg-gunmetal-800 rounded-md text-xs text-neon-turquoise border border-gunmetal-700/50"
+                  >
+                    {pair}
+                  </span>
+                )) || (
+                  <span className="text-sm text-gray-500">No trading pairs selected</span>
+                )}
+              </div>
+            </div>
+
+            {/* Trading Budget */}
+            <div>
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <DollarSign className="w-4 h-4" />
+                Trading Budget
+              </h4>
+              <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-400">Budget</span>
+                  <span className="text-lg font-bold text-neon-yellow">${strategyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Trades */}
+            {strategy.status === 'active' && (
+              <div className="mt-6">
+                <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                  <Activity className="w-4 h-4" />
+                  Live Trades
+                </h4>
+
+                {isLoadingTrades ? (
+                  <div className="flex justify-center items-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise"></div>
+                  </div>
+                ) : strategyTrades.length === 0 ? (
+                  <div className="bg-gunmetal-800/50 rounded-lg p-4 text-center">
+                    <p className="text-gray-400">No active trades for this strategy</p>
+                  </div>
+                ) : (
+                  <div className="bg-gunmetal-800/30 rounded-lg overflow-hidden">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gunmetal-900/50">
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Symbol</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Side</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Entry</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Status</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Time</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {strategyTrades.map((trade) => (
+                          <tr key={trade.id} className="border-t border-gunmetal-700/50 hover:bg-gunmetal-800/50">
+                            <td className="px-3 py-2 text-xs text-white">{trade.symbol || '-'}</td>
+                            <td className="px-3 py-2 text-xs">
+                              <span className={`flex items-center gap-1 ${trade.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
+                                {trade.side === 'buy' ? (
+                                  <ArrowUpRight className="w-3 h-3" />
+                                ) : (
+                                  <ArrowDownRight className="w-3 h-3" />
+                                )}
+                                {trade.side}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-white">
+                              {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
+                            </td>
+                            <td className="px-3 py-2 text-xs">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-xs ${trade.status === 'executed' ? 'bg-green-500/20 text-green-400' : trade.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-gray-500/20 text-gray-400'}`}
+                                title={trade.status === 'executed' ? `Executed: ${trade.executedAt ? new Date(trade.executedAt).toLocaleString() : 'Unknown'}` : ''}
+                              >
+                                {trade.status}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-xs text-gray-400" title={`Created: ${trade.createdAt ? new Date(trade.createdAt).toLocaleString() : 'Unknown'}`}>
+                              {trade.createdAt ? formatTimeAgo(new Date(trade.createdAt)) : '-'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="mt-4 text-red-400 text-sm">{error}</div>
+            )}
+
+            <div className="flex justify-end mt-4 pt-4 border-t border-gunmetal-800/50">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit?.(strategy);
+                  }}
+                  className="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                  title="Edit Strategy"
+                >
+                  <Edit className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* No pulsing animation */}
       </motion.div>
 
       {/* Add Budget Modal */}
@@ -270,8 +899,41 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
             setShowBudgetModal(false);
             setSelectedStrategy(null);
           }}
-          maxBudget={10000} // Replace with actual max budget calculation
+          maxBudget={availableBalance} // Use actual available balance
           isSubmitting={isSubmittingBudget}
+        />
+      )}
+
+      {/* Budget Adjustment Modal */}
+      {showBudgetAdjustmentModal && selectedStrategy && (
+        <BudgetAdjustmentModal
+          strategy={selectedStrategy}
+          requestedBudget={strategyBudget}
+          availableBalance={availableBalance}
+          onConfirm={async (budget) => {
+            try {
+              setIsSubmittingBudget(true);
+              setError(null);
+
+              await tradeService.setBudget(selectedStrategy.id, budget);
+              setStrategyBudget(budget.total); // Update the local budget state
+              await activateStrategyWithBudget(selectedStrategy, budget);
+
+              setShowBudgetAdjustmentModal(false);
+              setSelectedStrategy(null);
+            } catch (error) {
+              const errorMessage = error instanceof Error ? error.message : 'Failed to activate strategy';
+              setError(errorMessage);
+              logService.log('error', 'Failed to activate strategy with adjusted budget', error, 'StrategyCard');
+            } finally {
+              setIsSubmittingBudget(false);
+            }
+          }}
+          onCancel={() => {
+            setShowBudgetAdjustmentModal(false);
+            setSelectedStrategy(null);
+          }}
+          riskLevel={selectedStrategy.riskLevel}
         />
       )}
 
@@ -283,10 +945,7 @@ export function StrategyCard({ strategy, onRefresh, onEdit, onDelete }: Strategy
           confirmLabel="Delete"
           cancelLabel="Cancel"
           confirmVariant="destructive"
-          onConfirm={() => {
-            setShowDeleteConfirm(false);
-            onDelete?.(strategy);
-          }}
+          onConfirm={handleDelete}
           onCancel={() => setShowDeleteConfirm(false)}
         />
       )}

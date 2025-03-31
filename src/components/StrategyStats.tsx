@@ -1,23 +1,56 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { Brain, Power, TrendingUp, BarChart3 } from 'lucide-react';
+import type { Strategy } from '../lib/types';
 
 interface StrategyStatsProps {
-  stats?: {
-    total: number;
-    active: number;
-    profitable: number;
-    avgPerformance: number;
-  };
+  strategies: Strategy[];
+  className?: string;
 }
 
-export function StrategyStats({ stats = { 
-  total: 0, 
-  active: 0, 
-  profitable: 0, 
-  avgPerformance: 0 
-}}: StrategyStatsProps) {
+export function StrategyStats({ strategies = [], className = '' }: StrategyStatsProps) {
+  // Calculate statistics from strategies array
+  const stats = useMemo(() => {
+    if (!strategies || strategies.length === 0) {
+      return {
+        total: 0,
+        active: 0,
+        profitable: 0,
+        avgPerformance: 0
+      };
+    }
+
+    const total = strategies.length;
+    const active = strategies.filter(s => s.status === 'active').length;
+
+    // Count strategies with positive performance
+    const profitable = strategies.filter(s => {
+      const performance = typeof s.performance === 'number'
+        ? s.performance
+        : parseFloat(String(s.performance || '0'));
+      return performance > 0;
+    }).length;
+
+    // Calculate average performance
+    const totalPerformance = strategies.reduce((sum, s) => {
+      const performance = typeof s.performance === 'number'
+        ? s.performance
+        : parseFloat(String(s.performance || '0'));
+      return sum + (isNaN(performance) ? 0 : performance);
+    }, 0);
+
+    const avgPerformance = total > 0
+      ? parseFloat((totalPerformance / total).toFixed(2))
+      : 0;
+
+    return {
+      total,
+      active,
+      profitable,
+      avgPerformance
+    };
+  }, [strategies]);
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 ${className}`}>
       <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-3 bg-gunmetal-800/50 rounded-xl">
@@ -27,7 +60,7 @@ export function StrategyStats({ stats = {
         </div>
         <p className="text-3xl font-bold text-white">{stats.total}</p>
       </div>
-      
+
       <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">
         <div className="flex items-center gap-3 mb-4">
           <div className="p-3 bg-gunmetal-800/50 rounded-xl">

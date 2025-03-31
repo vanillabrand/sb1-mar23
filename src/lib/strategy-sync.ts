@@ -9,8 +9,8 @@ import type { Strategy } from './supabase-types';
 
 /**
  * Manages synchronization of trading strategies with a remote database.
- * 
- * Provides a singleton class for handling real-time strategy updates, 
+ *
+ * Provides a singleton class for handling real-time strategy updates,
  * including creating, updating, deleting, and tracking strategies.
  * Maintains a local cache of strategies and handles periodic synchronization.
  */
@@ -48,7 +48,7 @@ class StrategySync extends EventEmitter {
                 if (payload.old?.id) {
                   this.strategies.delete(payload.old.id);
                   this.emit('strategyDeleted', payload.old.id);
-                  
+
                   // Force sync all components
                   await Promise.all([
                     marketService.syncStrategies(),
@@ -142,15 +142,26 @@ class StrategySync extends EventEmitter {
 
   async initialize(): Promise<void> {
     if (this.initialized || this.syncInProgress) return;
-    
+
     try {
       this.syncInProgress = true;
       logService.log('info', 'Initializing strategy sync', null, 'StrategySync');
 
-      // Get all strategies
+      // Get current user session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user?.id) {
+        throw new Error('No authenticated user found');
+      }
+
+      const userId = session.user.id;
+      logService.log('info', `Fetching strategies for user ${userId}`, null, 'StrategySync');
+
+      // Get all strategies for the current user
       const { data: strategies, error } = await supabase
         .from('strategies')
         .select('*')
+        .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -161,6 +172,9 @@ class StrategySync extends EventEmitter {
         strategies.forEach(strategy => {
           this.strategies.set(strategy.id, strategy);
         });
+        logService.log('info', `Loaded ${strategies.length} strategies for user ${userId}`, null, 'StrategySync');
+      } else {
+        logService.log('info', `No strategies found for user ${userId}`, null, 'StrategySync');
       }
 
       this.lastSyncTime = Date.now();
@@ -192,14 +206,26 @@ class StrategySync extends EventEmitter {
 
   async syncAll(): Promise<void> {
     if (this.syncInProgress) return;
-    
+
     try {
       this.syncInProgress = true;
       logService.log('info', 'Starting full strategy sync', null, 'StrategySync');
 
+      // Get current user session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user?.id) {
+        throw new Error('No authenticated user found');
+      }
+
+      const userId = session.user.id;
+      logService.log('info', `Syncing strategies for user ${userId}`, null, 'StrategySync');
+
+      // Get all strategies for the current user
       const { data: strategies, error } = await supabase
         .from('strategies')
         .select('*')
+        .eq('user_id', userId)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -210,6 +236,9 @@ class StrategySync extends EventEmitter {
         strategies.forEach(strategy => {
           this.strategies.set(strategy.id, strategy);
         });
+        logService.log('info', `Synced ${strategies.length} strategies for user ${userId}`, null, 'StrategySync');
+      } else {
+        logService.log('info', `No strategies found for user ${userId}`, null, 'StrategySync');
       }
 
       this.lastSyncTime = Date.now();
@@ -226,7 +255,7 @@ class StrategySync extends EventEmitter {
   async createStrategy(data: CreateStrategyData): Promise<Strategy> {
     try {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
+
       if (sessionError || !session?.user?.id) {
         throw new Error('No authenticated user found');
       }
@@ -262,11 +291,11 @@ class StrategySync extends EventEmitter {
 
       // Update local cache
       this.strategies.set(strategy.id, strategy);
-      
+
       // Emit events
       this.emit('strategyCreated', strategy);
       eventBus.emit('strategy:created', strategy);
-      
+
       return strategy;
     } catch (error) {
       logService.log('error', 'Failed to create strategy', error, 'StrategySync');
@@ -313,6 +342,14 @@ class StrategySync extends EventEmitter {
 
   async deleteStrategy(id: string): Promise<void> {
     try {
+      // First, remove from local cache immediately for responsive UI
+      this.strategies.delete(id);
+
+      // Emit event to update UI
+      this.emit('strategyDeleted', id);
+      eventBus.emit('strategy:deleted', { strategyId: id });
+
+      // Then delete from database
       const { error } = await supabase
         .from('strategies')
         .delete()
@@ -320,18 +357,20 @@ class StrategySync extends EventEmitter {
 
       // Handle 406 errors silently for non-existent strategies
       if (error?.code === 'PGRST116') {
-        this.strategies.delete(id);
         logService.log('info', `Strategy ${id} already deleted`, null, 'StrategySync');
         return;
       }
 
       if (error) throw error;
 
-      // Remove from local cache
-      this.strategies.delete(id);
-      this.emit('strategyDeleted', id);
-
       logService.log('info', `Deleted strategy ${id}`, null, 'StrategySync');
+
+      // Force a full sync to ensure consistency
+      setTimeout(() => {
+        this.syncAll().catch(syncError => {
+          logService.log('error', 'Failed to sync after deletion', syncError, 'StrategySync');
+        });
+      }, 500);
     } catch (error) {
       logService.log('error', `Failed to delete strategy ${id}`, error, 'StrategySync');
       throw error;
@@ -372,6 +411,41 @@ class StrategySync extends EventEmitter {
 
   isSyncing(): boolean {
     return this.syncInProgress;
+  }
+
+  /**
+   * Pause the strategy sync process
+   * This is useful when making direct database changes to prevent sync conflicts
+   */
+  pauseSync(): void {
+    if (this.syncIntervalId) {
+      clearInterval(this.syncIntervalId);
+      this.syncIntervalId = null;
+    }
+    this.syncInProgress = true; // Set to true to prevent new syncs from starting
+    console.log('Strategy sync paused');
+  }
+
+  /**
+   * Resume the strategy sync process
+   */
+  resumeSync(): void {
+    this.syncInProgress = false;
+    this.startPeriodicSync();
+    console.log('Strategy sync resumed');
+  }
+
+  /**
+   * Remove a strategy from the local cache
+   * @param id The ID of the strategy to remove
+   */
+  removeFromCache(id: string): void {
+    if (this.strategies.has(id)) {
+      this.strategies.delete(id);
+      console.log(`Strategy ${id} removed from cache`);
+    } else {
+      console.log(`Strategy ${id} not found in cache`);
+    }
   }
 
   cleanup() {

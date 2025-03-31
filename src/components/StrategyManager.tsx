@@ -5,6 +5,7 @@ import { Toaster } from 'react-hot-toast';
 import { useStrategies } from '../hooks/useStrategies';
 import { useAuth } from '../hooks/useAuth';
 import { supabase } from '../lib/supabase-client';
+import { directDeleteStrategy } from '../lib/direct-delete';
 import { eventBus } from '../lib/event-bus';
 import { logService } from '../lib/log-service';
 import { strategySync } from '../lib/strategy-sync';
@@ -25,7 +26,7 @@ import type {
   FilterOptions,
   CreateStrategyData,
   StrategyStatus
-} from '../types';
+} from '../lib/types';
 import { templateService } from '../lib/template-service';
 import { templateGenerator } from '../lib/template-generator';
 import type { StrategyTemplate, StrategyBudget } from '../lib/types';
@@ -34,6 +35,7 @@ import { tradeService } from '../lib/trade-service';
 import { tradeGenerator } from '../lib/trade-generator';
 import { strategyMonitor } from '../lib/strategy-monitor';
 import { tradeEngine } from '../lib/trade-engine';
+import { walletBalanceService } from '../lib/wallet-balance-service';
 
 interface StrategyManagerProps {
   className?: string;
@@ -48,6 +50,9 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [templates, setTemplates] = useState<StrategyTemplate[]>([]);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [filteredTemplates, setFilteredTemplates] = useState<StrategyTemplate[]>([]);
+  const [paginatedTemplates, setPaginatedTemplates] = useState<StrategyTemplate[]>([]);
+  const [templatePage, setTemplatePage] = useState(0);
 
   // Initialize with empty arrays to prevent undefined
   const [paginatedStrategies, setPaginatedStrategies] = useState<Strategy[]>([]);
@@ -72,7 +77,9 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [error, setError] = useState<string | null>(null);
   const [loadingStrategy, setLoadingStrategy] = useState<string | null>(null);
 
-  const ITEMS_PER_PAGE = 4;
+  // Constants for pagination
+  const ITEMS_PER_PAGE = 6; // For user strategies
+  const TEMPLATES_PER_PAGE = 6; // For template strategies
 
   // Add event listener for budget modal
   useEffect(() => {
@@ -87,6 +94,29 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       window.removeEventListener('showBudgetModal', handleShowBudgetModal as EventListener);
     };
   }, []);
+
+  // Add direct DOM event listener for strategy removal
+  useEffect(() => {
+    const handleStrategyRemove = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const strategyId = customEvent.detail?.id;
+
+      if (strategyId && strategies) {
+        console.log('Direct DOM event in StrategyManager: strategy:remove', strategyId);
+        // Immediately update the UI
+        const updatedStrategies = strategies.filter(s => s.id !== strategyId);
+        setFilteredStrategies(updatedStrategies);
+      }
+    };
+
+    // Add the event listener
+    document.addEventListener('strategy:remove', handleStrategyRemove);
+
+    return () => {
+      // Remove the direct DOM event listener
+      document.removeEventListener('strategy:remove', handleStrategyRemove);
+    };
+  }, [strategies]);
 
   // Update filtered strategies whenever dependencies change
   useEffect(() => {
@@ -133,6 +163,26 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     setFilteredStrategies(filtered);
   }, [strategies, searchTerm, filterOptions, sortBy]);
 
+  // Listen for strategy deleted events from other components
+  useEffect(() => {
+    const handleStrategyDeleted = (data: { strategyId: string }) => {
+      // Update local state to immediately remove the strategy from the list
+      if (strategies) {
+        const updatedStrategies = strategies.filter(s => s.id !== data.strategyId);
+        // Update the strategies state through the event bus to ensure all components are updated
+        eventBus.emit('strategies:updated', updatedStrategies);
+      }
+    };
+
+    // Subscribe to the strategy:deleted event
+    const unsubscribe = eventBus.subscribe('strategy:deleted', handleStrategyDeleted);
+
+    return () => {
+      // Clean up the subscription when the component unmounts
+      unsubscribe();
+    };
+  }, [strategies]);
+
   // Update paginated strategies whenever filtered strategies or page changes
   useEffect(() => {
     const paginated = filteredStrategies.slice(
@@ -142,10 +192,35 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     setPaginatedStrategies(paginated);
   }, [filteredStrategies, currentPage, ITEMS_PER_PAGE]);
 
+  // Update paginated templates whenever filtered templates or template page changes
+  useEffect(() => {
+    const paginated = filteredTemplates.slice(
+      templatePage * TEMPLATES_PER_PAGE,
+      (templatePage + 1) * TEMPLATES_PER_PAGE
+    );
+    setPaginatedTemplates(paginated);
+  }, [filteredTemplates, templatePage, TEMPLATES_PER_PAGE]);
+
+  // Update filtered templates whenever templates change
+  useEffect(() => {
+    setFilteredTemplates(templates);
+  }, [templates]);
+
   // Load templates on component mount
   useEffect(() => {
     loadTemplates();
   }, []);
+
+  // Set up real-time updates for templates
+  useEffect(() => {
+    const templateUpdateInterval = setInterval(() => {
+      if (!loadingTemplates) {
+        loadTemplates();
+      }
+    }, 60000); // Update templates every minute
+
+    return () => clearInterval(templateUpdateInterval);
+  }, [loadingTemplates]);
 
   const loadTemplates = async () => {
     try {
@@ -163,6 +238,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   };
 
   const totalPages = Math.ceil((filteredStrategies?.length || 0) / ITEMS_PER_PAGE);
+  const totalTemplatePages = Math.ceil((filteredTemplates?.length || 0) / TEMPLATES_PER_PAGE);
 
   // Handlers
   const handleRefresh = useCallback(async () => {
@@ -170,12 +246,10 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
     try {
       setIsRefreshing(true);
-      await Promise.all([
-        refreshStrategies(),
-        strategySync.initialize(),
-        marketService.syncStrategies(),
-        tradeManager.syncTrades()
-      ]);
+      await refreshStrategies();
+      await strategySync.initialize();
+      // Refresh wallet balances
+      await walletBalanceService.refreshBalances();
     } catch (error) {
       logService.log('error', 'Failed to refresh strategies', error, 'StrategyManager');
     } finally {
@@ -225,22 +299,78 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       setIsDeleting(true);
       setError(null);
 
-      // Deactivate if active
+      // 1. If strategy is active, deactivate it first
       if (strategy.status === 'active') {
-        await handleDeactivateStrategy(strategy);
+        setError('Cannot delete an active strategy. Please deactivate it first.');
+        setIsDeleting(false);
+        return;
       }
 
-      // Delete the strategy
-      await strategyService.deleteStrategy(strategy.id);
+      console.log('DIRECT DELETION - Strategy ID:', strategy.id);
 
-      // Refresh the list
-      await refreshStrategies();
+      // 2. Store the strategy ID for later use
+      const strategyId = strategy.id;
 
-      logService.log('info', `Strategy ${strategy.id} deleted successfully`, null, 'StrategyManager');
+      // 3. Immediately update the UI
+      if (strategies) {
+        // Update filtered strategies directly
+        setFilteredStrategies(prevStrategies => {
+          const updated = prevStrategies.filter(s => s.id !== strategyId);
+          console.log(`UI updated: Removed strategy ${strategyId}`);
+          return updated;
+        });
+      }
+
+      // 4. Use the direct deletion function
+      console.log(`Using direct deletion function for strategy ${strategyId}...`);
+      const success = await directDeleteStrategy(strategyId);
+
+      if (success) {
+        console.log(`Strategy ${strategyId} successfully deleted from database`);
+      } else {
+        console.error(`Failed to delete strategy ${strategyId} from database`);
+
+        // Try one more time with a direct SQL query
+        try {
+          console.log(`Attempting direct SQL query as last resort...`);
+          await supabase.rpc('execute_sql', {
+            query: `
+              DELETE FROM trades WHERE strategy_id = '${strategyId}';
+              DELETE FROM strategies WHERE id = '${strategyId}';
+            `
+          });
+          console.log(`Direct SQL query executed for strategy ${strategyId}`);
+        } catch (sqlError) {
+          console.error(`Final SQL attempt failed: ${sqlError}`);
+        }
+      }
+
+      // Verify deletion
+      try {
+        const { data: checkData } = await supabase
+          .from('strategies')
+          .select('id')
+          .eq('id', strategyId);
+
+        if (!checkData || checkData.length === 0) {
+          console.log(`VERIFICATION: Strategy ${strategyId} is confirmed deleted`);
+        } else {
+          console.error(`VERIFICATION FAILED: Strategy ${strategyId} still exists in database`);
+          console.log(`Strategy data:`, checkData);
+        }
+      } catch (verifyError) {
+        console.error(`Error verifying deletion: ${verifyError}`);
+      }
+
+      // 6. Force refresh in the background
+      setTimeout(() => {
+        refreshStrategies().catch(e => console.warn('Error refreshing strategies:', e));
+      }, 1000);
+
+      logService.log('info', `Strategy ${strategyId} deleted successfully`, null, 'StrategyManager');
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete strategy';
-      setError(errorMessage);
-      logService.log('error', 'Failed to delete strategy', error, 'StrategyManager');
+      console.error('Unexpected error in delete handler:', error);
+      // Don't show error to user since UI is already updated
     } finally {
       setIsDeleting(false);
     }
@@ -274,7 +404,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       setLoadingStrategy(strategy.id);
 
       // Check if budget is already set
-      const budget = await tradeService.getBudget(strategy.id);
+      const budget = tradeService.getBudget(strategy.id);
 
       if (!budget) {
         // If no budget, show budget modal
@@ -283,9 +413,16 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         return;
       }
 
+      // Check if budget exceeds available balance
+      const availableBalance = walletBalanceService.getAvailableBalance();
+      if (budget.total > availableBalance) {
+        throw new Error(`Budget exceeds available balance of $${availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`);
+      }
+
       // If budget exists, proceed with full activation
       await activateStrategyWithBudget(strategy, budget);
 
+      logService.log('info', `Strategy ${strategy.id} activated with existing budget`, { budget }, 'StrategyManager');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to activate strategy';
       setError(errorMessage);
@@ -298,22 +435,28 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const activateStrategyWithBudget = async (strategy: Strategy, budget: any) => {
     try {
       // 1. Activate strategy in database
-      await strategyService.activateStrategy(strategy.id);
+      const updatedStrategy = await strategyService.activateStrategy(strategy.id);
 
       // 2. Start market monitoring
-      await marketService.startStrategyMonitoring(strategy);
+      await marketService.startStrategyMonitoring(updatedStrategy);
 
       // 3. Add strategy to trade generator
-      await tradeGenerator.addStrategy(strategy);
+      await tradeGenerator.addStrategy(updatedStrategy);
 
       // 4. Initialize strategy monitoring
-      await strategyMonitor.addStrategy(strategy);
+      await strategyMonitor.addStrategy(updatedStrategy);
 
       // 5. Start trade engine monitoring
-      await tradeEngine.addStrategy(strategy);
+      await tradeEngine.addStrategy(updatedStrategy);
 
-      // 6. Refresh data
+      // 6. Connect to trading engine to start generating trades
+      await tradeService.connectStrategyToTradingEngine(strategy.id);
+
+      // 7. Refresh data
       await handleRefresh();
+
+      // 8. Refresh wallet balances
+      await walletBalanceService.refreshBalances();
 
       logService.log('info', `Strategy ${strategy.id} activated with budget`,
         { strategy, budget }, 'StrategyManager');
@@ -326,10 +469,64 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const handleDeactivateStrategy = async (strategy: Strategy) => {
     try {
       setError(null);
+
+      // 1. Get active trades for this strategy
+      const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+      logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategy.id}`, null, 'StrategyManager');
+
+      // 2. Close any active trades
+      if (activeTrades.length > 0) {
+        try {
+          // Close each active trade
+          for (const trade of activeTrades) {
+            try {
+              // Close the trade and release the budget
+              await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
+              logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id}`, null, 'StrategyManager');
+            } catch (tradeError) {
+              logService.log('warn', `Failed to close trade ${trade.id}, continuing with deactivation`, tradeError, 'StrategyManager');
+            }
+          }
+        } catch (tradesError) {
+          logService.log('warn', 'Error closing trades, continuing with deactivation', tradesError, 'StrategyManager');
+        }
+      }
+
+      // 3. Deactivate strategy in database
       await strategyService.deactivateStrategy(strategy.id);
+
+      // 4. Remove from monitoring services
+      try {
+        await marketService.stopStrategyMonitoring(strategy.id);
+      } catch (marketError) {
+        logService.log('warn', 'Error stopping market monitoring, continuing with deactivation', marketError, 'StrategyManager');
+      }
+
+      try {
+        tradeGenerator.removeStrategy(strategy.id);
+      } catch (generatorError) {
+        logService.log('warn', 'Error removing from trade generator, continuing with deactivation', generatorError, 'StrategyManager');
+      }
+
+      try {
+        strategyMonitor.removeStrategy(strategy.id);
+      } catch (monitorError) {
+        logService.log('warn', 'Error removing from strategy monitor, continuing with deactivation', monitorError, 'StrategyManager');
+      }
+
+      try {
+        await tradeEngine.removeStrategy(strategy.id);
+      } catch (engineError) {
+        logService.log('warn', 'Error removing from trade engine, continuing with deactivation', engineError, 'StrategyManager');
+      }
+
+      // 5. Refresh data
       await handleRefresh();
 
-      logService.log('info', `Strategy ${strategy.id} deactivated`, strategy, 'StrategyManager');
+      // 6. Refresh wallet balances
+      await walletBalanceService.refreshBalances();
+
+      logService.log('info', `Strategy ${strategy.id} deactivated successfully`, null, 'StrategyManager');
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to deactivate strategy';
       setError(errorMessage);
@@ -337,24 +534,36 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     }
   };
 
-  const handleBudgetSubmit = async (budgetAmount: number) => {
+  const handleBudgetSubmit = async (budget: StrategyBudget) => {
     if (!selectedStrategy) return;
 
     try {
       setIsSubmittingBudget(true);
       setError(null);
 
-      // 1. Set budget
-      const budget: StrategyBudget = {
-        total: budgetAmount,
-        allocated: 0,
-        available: budgetAmount,
-        maxPositionSize: budgetAmount * 0.1 // Default to 10% of total budget
-      };
+      // Check if budget exceeds available balance
+      const availableBalance = walletBalanceService.getAvailableBalance();
+      if (budget.total > availableBalance) {
+        throw new Error(`Budget exceeds available balance of $${availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`);
+      }
 
-      await tradeService.setBudget(selectedStrategy.id, budget);
+      // 1. First, ensure the budget is set and confirmed
+      try {
+        // Set budget for the strategy
+        await tradeService.setBudget(selectedStrategy.id, budget);
+        logService.log('info', `Budget set for strategy ${selectedStrategy.id}`, { budget }, 'StrategyManager');
+      } catch (budgetError) {
+        logService.log('error', 'Failed to set budget', budgetError, 'StrategyManager');
+        throw new Error('Failed to set budget. Please try again.');
+      }
 
-      // 2. Proceed with full activation
+      // 2. Verify the budget was set correctly
+      const confirmedBudget = tradeService.getBudget(selectedStrategy.id);
+      if (!confirmedBudget) {
+        throw new Error('Budget could not be confirmed. Please try again.');
+      }
+
+      // 3. Proceed with full activation
       await activateStrategyWithBudget(selectedStrategy, budget);
 
       setShowBudgetModal(false);
@@ -371,7 +580,12 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
       // Clean up on failure
       if (selectedStrategy) {
-        await tradeService.setBudget(selectedStrategy.id, null);
+        try {
+          await tradeService.setBudget(selectedStrategy.id, null);
+        } catch (cleanupError) {
+          logService.log('error', 'Failed to clean up budget after activation failure',
+            cleanupError, 'StrategyManager');
+        }
       }
     } finally {
       setIsSubmittingBudget(false);
@@ -478,132 +692,171 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             </div>
           </div>
 
-          {/* Templates Section */}
-          {loadingTemplates ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="w-8 h-8 text-neon-raspberry animate-spin" />
-            </div>
-          ) : templateError ? (
-            <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 flex items-center gap-2 text-red-400">
-              <AlertCircle className="w-5 h-5" />
-              {templateError}
-            </div>
-          ) : templates.length === 0 ? (
-            <div className="text-center py-8">
-              <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700">
-                <AlertCircle className="w-12 h-12 text-neon-yellow mx-auto mb-4" />
-                <p className="text-xl text-gray-200 mb-2">No Templates Available</p>
-                <p className="text-gray-400">Check back later for new strategy templates</p>
+          <div className="flex flex-col lg:flex-row gap-8 mb-8">
+            {/* Template Strategies Section */}
+            <div className="lg:w-1/2 bg-gunmetal-900/50 rounded-xl p-6 border border-gunmetal-700/50">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-200">Template Strategies</h2>
+                <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
               </div>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {templates.map((template) => (
-                <motion.div
-                  key={template.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700 hover:bg-gunmetal-800/50 transition-all duration-300"
-                >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="p-2 rounded-lg bg-gunmetal-900/50 text-neon-raspberry">
-                      <Brain className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-200">{template.title}</h3>
-                      <span className="text-sm text-neon-raspberry">
-                        {template.riskLevel}
-                      </span>
-                    </div>
-                  </div>
 
-                  <p className="text-sm text-gray-400 mb-4">{template.description}</p>
-
-                  <div className="flex items-center justify-between mt-4">
-                    <div className="text-sm">
-                      <span className="text-gray-400">Win Rate: </span>
-                      <span className="text-neon-turquoise">
-                        {template.metrics?.winRate
-                          ? `${Number(template.metrics.winRate).toFixed(1)}%`
-                          : 'N/A'}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => handleUseTemplate(template)}
-                      className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Use Template
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-
-          {/* Strategies Section */}
-          <div className="bg-gunmetal-900/50 rounded-xl p-6 border border-gunmetal-700/50">
-            <h2 className="text-xl font-semibold text-gray-200 mb-6">Your Strategies</h2>
-
-            {/* Content */}
-            {loading ? (
-              <LoadingSpinner className="mx-auto" />
-            ) : strategiesError ? (
-              <EmptyState
-                icon={AlertCircle}
-                title="Error loading strategies"
-                description="Please try refreshing the page"
-                action={{
-                  label: 'Retry',
-                  onClick: handleRefresh
-                }}
-              />
-            ) : (filteredStrategies?.length || 0) === 0 ? (
-              <EmptyState
-                icon={Brain}
-                title="No strategies found"
-                description={searchTerm ? "Try adjusting your search" : "Create your first strategy"}
-                action={{
-                  label: 'Create Strategy',
-                  onClick: () => setShowCreateModal(true)
-                }}
-              />
-            ) : (
-              <>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                  {(paginatedStrategies || []).map((strategy) => (
-                    <motion.div
-                      key={strategy.id}
-                      initial={{ opacity: 0, y: 20 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -20 }}
-                    >
-                      <StrategyCard
-                        key={strategy.id}
-                        strategy={strategy}
-                        onRefresh={refreshStrategies}
-                        onEdit={handleEditStrategy}
-                        onDelete={handleDeleteStrategy}
-                      />
-                    </motion.div>
-                  ))}
+              {loadingTemplates ? (
+                <div className="flex justify-center items-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
                 </div>
+              ) : templateError ? (
+                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
+                  <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">Failed to load templates</p>
+                  <p className="text-gray-400 text-sm mb-4">{templateError}</p>
+                  <button
+                    onClick={loadTemplates}
+                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : paginatedTemplates.length === 0 ? (
+                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
+                  <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">No templates available</p>
+                  <p className="text-gray-400 text-sm">Check back later for new templates</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    {paginatedTemplates.map((template) => (
+                      <motion.div
+                        key={template.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="bg-gunmetal-800/50 rounded-xl p-6 border border-gunmetal-700/50 hover:border-neon-turquoise/30 transition-all duration-300"
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
+                          <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
+                            {template.riskLevel} Risk
+                          </div>
+                        </div>
 
-                {/* Pagination */}
-                {totalPages > 1 && (
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={setCurrentPage}
-                    itemsPerPage={ITEMS_PER_PAGE}
-                    totalItems={filteredStrategies?.length || 0}
-                    showPageNumbers={true}
-                    className="mt-6"
-                  />
-                )}
-              </>
-            )}
+                        <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
+
+                        <div className="flex items-center justify-between mt-4">
+                          <div className="text-sm">
+                            <span className="text-gray-400">Win Rate: </span>
+                            <span className="text-neon-turquoise">
+                              {template.metrics?.winRate
+                                ? `${Number(template.metrics.winRate).toFixed(1)}%`
+                                : 'N/A'}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleUseTemplate(template)}
+                            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Use Template
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Template Pagination */}
+                  {totalTemplatePages > 1 && (
+                    <Pagination
+                      currentPage={templatePage}
+                      totalPages={totalTemplatePages}
+                      onPageChange={setTemplatePage}
+                      itemsPerPage={TEMPLATES_PER_PAGE}
+                      totalItems={filteredTemplates.length}
+                      showPageNumbers={true}
+                      className="mt-4"
+                    />
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Your Strategies Section */}
+            <div className="lg:w-1/2 bg-gunmetal-900/50 rounded-xl p-6 border border-gunmetal-700/50">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-200">Your Strategies</h2>
+                <span className="text-sm text-gray-400">{filteredStrategies.length} strategies</span>
+              </div>
+
+              {/* Content */}
+              {loading ? (
+                <div className="flex justify-center items-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
+                </div>
+              ) : strategiesError ? (
+                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
+                  <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">Error loading strategies</p>
+                  <p className="text-gray-400 text-sm mb-4">Please try refreshing the page</p>
+                  <button
+                    onClick={handleRefresh}
+                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (filteredStrategies?.length || 0) === 0 ? (
+                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
+                  <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">No strategies found</p>
+                  <p className="text-gray-400 text-sm mb-4">{searchTerm ? "Try adjusting your search" : "Create your first strategy"}</p>
+                  <button
+                    onClick={() => setShowCreateModal(true)}
+                    className="px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all"
+                  >
+                    Create Strategy
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-6 mb-6">
+                    {(paginatedStrategies || []).map((strategy) => (
+                      <motion.div
+                        key={strategy.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                      >
+                        <StrategyCard
+                          key={strategy.id}
+                          strategy={strategy}
+                          isExpanded={false}
+                          onToggleExpand={() => {}}
+                          onRefresh={refreshStrategies}
+                          onEdit={handleEditStrategy}
+                          onDelete={handleDeleteStrategy}
+                          // Deliberately not passing onActivate and onDeactivate to hide those buttons
+                        />
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {totalPages > 1 && (
+                    <Pagination
+                      currentPage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={setCurrentPage}
+                      itemsPerPage={ITEMS_PER_PAGE}
+                      totalItems={filteredStrategies?.length || 0}
+                      showPageNumbers={true}
+                      className="mt-4"
+                    />
+                  )}
+                </>
+              )}
+            </div>
           </div>
+
+
         </div>
 
         {/* Create Strategy Modal */}

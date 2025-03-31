@@ -32,7 +32,17 @@ class CCXTService {
         secret: credentials.secret,
         enableRateLimit: true,
         timeout: 30000,
+        recvWindow: 10000, // Increase receive window for Binance
       };
+
+      // Add proxy support if available
+      if (import.meta.env.VITE_PROXY_URL) {
+        config.proxy = import.meta.env.VITE_PROXY_URL;
+        logService.log('info', `Using proxy for exchange: ${import.meta.env.VITE_PROXY_URL}`, null, 'CCXTService');
+      }
+
+      // Add user agent to avoid some blocks
+      config.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
 
       if (credentials.memo) {
         config.password = credentials.memo;
@@ -40,8 +50,25 @@ class CCXTService {
 
       const exchange = new ExchangeClass(config);
 
+      // Configure testnet/sandbox mode if requested
       if (testnet) {
         exchange.setSandboxMode(true);
+        logService.log('info', `Using testnet/sandbox mode for ${exchangeId}`, null, 'CCXTService');
+      }
+
+      // For Binance specifically, add some additional options
+      if (exchangeId === 'binance') {
+        // Adjust options for better reliability
+        exchange.options = {
+          ...exchange.options,
+          adjustForTimeDifference: true,
+          recvWindow: 10000,
+          warnOnFetchOpenOrdersWithoutSymbol: false,
+        };
+
+        // Log the endpoint being used
+        const endpoint = testnet ? 'testnet.binance.vision' : 'api.binance.com';
+        logService.log('info', `Binance endpoint: ${endpoint}`, null, 'CCXTService');
       }
 
       // Store the instance
@@ -54,8 +81,57 @@ class CCXTService {
     }
   }
 
-  getExchange(): ccxt.Exchange | null {
+  /**
+   * Get the current exchange instance
+   * @returns The current exchange instance
+   */
+  getCurrentExchange(): ccxt.Exchange | null {
     return this.exchange;
+  }
+
+  /**
+   * Get or create an exchange instance
+   * @param exchangeId The exchange ID (e.g., 'binance')
+   * @param testnet Whether to use testnet
+   * @returns The exchange instance
+   */
+  async getExchange(exchangeId: ExchangeId, testnet: boolean = false): Promise<ccxt.Exchange | null> {
+    try {
+      // If we already have an exchange instance, return it
+      if (this.exchange) {
+        return this.exchange;
+      }
+
+      // Get credentials based on whether we're using testnet or not
+      let credentials: ExchangeCredentials;
+
+      if (testnet) {
+        // Use TestNet credentials from environment variables
+        credentials = {
+          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY || '',
+          secret: import.meta.env.VITE_BINANCE_TEST_API_SECRET || '',
+          memo: ''
+        };
+
+        // Log the credentials (without the actual values for security)
+        logService.log('info', `Using Binance TestNet credentials`,
+          { hasApiKey: !!credentials.apiKey, hasSecret: !!credentials.secret },
+          'CCXTService');
+      } else {
+        // Use demo exchange credentials
+        credentials = {
+          apiKey: import.meta.env.VITE_DEMO_EXCHANGE_API_KEY || '',
+          secret: import.meta.env.VITE_DEMO_EXCHANGE_SECRET || '',
+          memo: import.meta.env.VITE_DEMO_EXCHANGE_MEMO || ''
+        };
+      }
+
+      // Create the exchange
+      return await this.createExchange(exchangeId, credentials, testnet);
+    } catch (error) {
+      logService.log('error', `Failed to get exchange ${exchangeId}`, error, 'CCXTService');
+      return null;
+    }
   }
 
   async loadMarkets(): Promise<void> {
@@ -74,7 +150,10 @@ class CCXTService {
 
   async fetchOrderBook(symbol: string) {
     try {
-      const exchange = this.getExchange();
+      const exchange = this.getCurrentExchange();
+      if (!exchange) {
+        throw new Error('Exchange not initialized');
+      }
       return await exchange.fetchOrderBook(symbol);
     } catch (error) {
       logService.log('error', `Failed to fetch order book for ${symbol}`, error, 'CCXTService');
@@ -84,7 +163,10 @@ class CCXTService {
 
   async fetchRecentTrades(symbol: string, limit: number = 100) {
     try {
-      const exchange = this.getExchange();
+      const exchange = this.getCurrentExchange();
+      if (!exchange) {
+        throw new Error('Exchange not initialized');
+      }
       return await exchange.fetchTrades(symbol, undefined, limit);
     } catch (error) {
       logService.log('error', `Failed to fetch recent trades for ${symbol}`, error, 'CCXTService');
@@ -94,7 +176,10 @@ class CCXTService {
 
   async checkConnection(): Promise<boolean> {
     try {
-      const exchange = this.getExchange();
+      const exchange = this.getCurrentExchange();
+      if (!exchange) {
+        return false;
+      }
       await exchange.loadMarkets();
       return true;
     } catch (error) {
@@ -104,7 +189,10 @@ class CCXTService {
   }
 
   getRateLimit(): number {
-    const exchange = this.getExchange();
+    const exchange = this.getCurrentExchange();
+    if (!exchange) {
+      return 1000; // Default rate limit
+    }
     return exchange.rateLimit;
   }
 

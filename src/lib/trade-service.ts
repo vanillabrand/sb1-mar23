@@ -84,7 +84,7 @@ class TradeService extends EventEmitter {
       }
       this.budgets.set(strategyId, formattedBudget);
     }
-    
+
     this.saveBudgets();
     this.emit('budgetUpdated', { strategyId, budget });
     logService.log('info', `Budget ${budget ? 'set' : 'removed'} for strategy ${strategyId}`, budget, 'TradeService');
@@ -120,7 +120,7 @@ class TradeService extends EventEmitter {
     // Sum the total budgets of all strategies.
     const totalAllocated = Array.from(this.budgets.values())
       .reduce((sum, budget) => sum + budget.total, 0);
-    
+
     // In demo mode, use a fixed total balance.
     const totalBalance = this.isDemo ? 100000 : this.DEFAULT_BUDGET;
     return Number((Math.max(0, totalBalance - totalAllocated)).toFixed(2));
@@ -141,12 +141,15 @@ class TradeService extends EventEmitter {
       logService.log('warn', `Insufficient budget for trade: ${amount} (available: ${budget?.available || 0})`, null, 'TradeService');
       return false;
     }
-    
+
     const formattedAmount = Number(amount.toFixed(2));
     budget.available = Number((budget.available - formattedAmount).toFixed(2));
     budget.allocated = Number((budget.allocated + formattedAmount).toFixed(2));
     this.budgets.set(strategyId, budget);
     this.saveBudgets();
+
+    // Emit budget updated event
+    this.emit('budgetUpdated', { strategyId, budget });
     logService.log('info', `Reserved ${formattedAmount} for strategy ${strategyId}`, budget, 'TradeService');
     return true;
   }
@@ -158,18 +161,28 @@ class TradeService extends EventEmitter {
       logService.log('warn', `No budget found for strategy ${strategyId}`, null, 'TradeService');
       return;
     }
-    
+
     const formattedAmount = Number(amount.toFixed(2));
     const formattedProfit = Number(profit.toFixed(2));
-    
+
     // Update budget: decrease allocated, increase available and total by profit.
     budget.allocated = Number((budget.allocated - formattedAmount).toFixed(2));
     budget.available = Number((budget.available + formattedAmount + formattedProfit).toFixed(2));
     budget.total = Number((budget.total + formattedProfit).toFixed(2));
-    
+
     this.budgets.set(strategyId, budget);
     this.saveBudgets();
     logService.log('info', `Released ${formattedAmount} (profit: ${formattedProfit}) for strategy ${strategyId}`, budget, 'TradeService');
+  }
+
+  /**
+   * Release budget for a trade when closing it
+   * @param strategyId The ID of the strategy
+   * @param amount The amount to release
+   */
+  releaseBudget(strategyId: string, amount: number): void {
+    // Just call releaseBudgetFromTrade with 0 profit
+    this.releaseBudgetFromTrade(strategyId, amount, 0);
   }
 
   clearAllBudgets(): void {
@@ -190,6 +203,109 @@ class TradeService extends EventEmitter {
       available: Number(this.DEFAULT_BUDGET.toFixed(2)),
       maxPositionSize: Number((this.DEFAULT_BUDGET * 0.1).toFixed(2))
     };
+  }
+
+  // Connect a strategy to the trading engine to start generating trades
+  async connectStrategyToTradingEngine(strategyId: string): Promise<boolean> {
+    try {
+      // Import dynamically to avoid circular dependencies
+      const { tradeEngine } = await import('./trade-engine');
+      const { tradeGenerator } = await import('./trade-generator');
+
+      // Add strategy to trade engine
+      await tradeEngine.addStrategy(strategyId);
+
+      // Get the strategy from the database
+      const { data: strategy } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('id', strategyId)
+        .single();
+
+      if (!strategy) {
+        throw new Error(`Strategy ${strategyId} not found`);
+      }
+
+      // Add strategy to trade generator
+      await tradeGenerator.addStrategy(strategy);
+
+      logService.log('info', `Strategy ${strategyId} connected to trading engine`, null, 'TradeService');
+      return true;
+    } catch (error) {
+      logService.log('error', `Failed to connect strategy ${strategyId} to trading engine`, error, 'TradeService');
+      return false;
+    }
+  }
+
+  /**
+   * Remove all trades for a specific strategy
+   * @param strategyId The ID of the strategy to remove trades for
+   */
+  async removeTradesByStrategy(strategyId: string): Promise<boolean> {
+    try {
+      console.log(`TradeService: Removing trades for strategy ${strategyId}`);
+
+      // First, close any active trades
+      try {
+        const { data: activeTrades, error: fetchError } = await supabase
+          .from('trades')
+          .select('id, status')
+          .eq('strategy_id', strategyId)
+          .in('status', ['pending', 'open']);
+
+        if (fetchError) {
+          console.warn(`Error fetching active trades for strategy ${strategyId}:`, fetchError);
+        } else if (activeTrades && activeTrades.length > 0) {
+          console.log(`Found ${activeTrades.length} active trades to close for strategy ${strategyId}`);
+
+          // Update active trades to closed status
+          const { error: updateError } = await supabase
+            .from('trades')
+            .update({
+              status: 'closed',
+              close_reason: 'Strategy deleted',
+              closed_at: new Date().toISOString()
+            })
+            .eq('strategy_id', strategyId)
+            .in('status', ['pending', 'open']);
+
+          if (updateError) {
+            console.warn(`Error closing active trades for strategy ${strategyId}:`, updateError);
+          } else {
+            console.log(`Successfully closed ${activeTrades.length} trades for strategy ${strategyId}`);
+          }
+        }
+      } catch (closeError) {
+        console.error(`Error in closing trades for strategy ${strategyId}:`, closeError);
+        // Continue with deletion even if closing fails
+      }
+
+      // Then delete all trades for this strategy
+      try {
+        const { error: deleteError } = await supabase
+          .from('trades')
+          .delete()
+          .eq('strategy_id', strategyId);
+
+        if (deleteError) {
+          console.error(`Error deleting trades for strategy ${strategyId}:`, deleteError);
+          logService.log('error', `Failed to delete trades for strategy ${strategyId}`, deleteError, 'TradeService');
+          return false;
+        }
+
+        console.log(`Successfully deleted all trades for strategy ${strategyId}`);
+        logService.log('info', `Removed all trades for strategy ${strategyId}`, null, 'TradeService');
+        return true;
+      } catch (deleteError) {
+        console.error(`Unexpected error deleting trades for strategy ${strategyId}:`, deleteError);
+        logService.log('error', `Unexpected error deleting trades for strategy ${strategyId}`, deleteError, 'TradeService');
+        return false;
+      }
+    } catch (error) {
+      console.error(`Failed to remove trades for strategy ${strategyId}:`, error);
+      logService.log('error', `Failed to remove trades for strategy ${strategyId}`, error, 'TradeService');
+      return false;
+    }
   }
 }
 

@@ -3,7 +3,7 @@ import { Dialog } from './ui/Dialog';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Select } from './ui/Select';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, RefreshCw, Info } from 'lucide-react';
 import type { ExchangeConfig } from '../lib/types';
 
 interface AddExchangeModalProps {
@@ -14,23 +14,24 @@ interface AddExchangeModalProps {
   supportedExchanges: string[];
 }
 
-export function AddExchangeModal({ 
-  open, 
-  onClose, 
-  onAdd, 
-  isTesting, 
-  supportedExchanges 
+export function AddExchangeModal({
+  open,
+  onClose,
+  onAdd,
+  isTesting,
+  supportedExchanges
 }: AddExchangeModalProps) {
   const [selectedExchange, setSelectedExchange] = useState('');
   const [apiKey, setApiKey] = useState('');
   const [secret, setSecret] = useState('');
   const [memo, setMemo] = useState('');
+  const [useTestnet, setUseTestnet] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedExchange || !apiKey || !secret) {
       setError('Please fill in all required fields');
       return;
@@ -45,7 +46,7 @@ export function AddExchangeModal({
         apiKey,
         secret,
         memo: memo || '',
-        testnet: false,
+        testnet: useTestnet,
         useUSDX: false
       });
 
@@ -63,10 +64,10 @@ export function AddExchangeModal({
   };
 
   return (
-    <Dialog open={open} onClose={onClose}>
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
       <div className="p-6 space-y-6">
         <h2 className="text-xl font-bold text-gray-100">Add Exchange</h2>
-        
+
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
             <div className="flex items-center gap-2 text-red-400">
@@ -132,6 +133,36 @@ export function AddExchangeModal({
               placeholder="Enter memo if required"
             />
           </div>
+
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="useTestnet"
+              checked={useTestnet}
+              onChange={(e) => setUseTestnet(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+            />
+            <label htmlFor="useTestnet" className="text-sm font-medium">
+              Use TestNet (Recommended for testing)
+            </label>
+          </div>
+
+          {selectedExchange === 'binance' && (
+            <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 mt-4">
+              <div className="flex items-start gap-2 text-blue-400">
+                <Info className="w-5 h-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-sm font-medium mb-1">Binance API Key Requirements:</p>
+                  <ul className="text-xs list-disc pl-4 space-y-1">
+                    <li>Create API keys from your Binance account settings</li>
+                    <li>Enable at minimum "Read-Only" permissions</li>
+                    <li>If using TestNet, create keys at <a href="https://testnet.binance.vision/" target="_blank" rel="noopener noreferrer" className="underline">testnet.binance.vision</a></li>
+                    <li>Some regions may require a VPN to access Binance API</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="flex justify-end gap-2 mt-6">
             <Button

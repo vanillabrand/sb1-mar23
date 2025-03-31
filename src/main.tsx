@@ -7,14 +7,20 @@ import { AuthProvider } from './hooks/useAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { systemSync } from './lib/system-sync';
 import { logService } from './lib/log-service';
+import { globalCacheService } from './lib/global-cache-service';
 import './index.css';
+
+// Initialize the global cache service
+// This will start background refresh timers for AI Market Insights and News
+// The cache will be updated every 15 minutes and shared across all users
+console.log('Initializing global cache service...');
 
 const CriticalErrorScreen = ({ message }: { message: string }) => (
   <div className="min-h-screen flex items-center justify-center bg-gunmetal-950">
     <div className="text-center p-6 bg-gunmetal-900 rounded-xl border border-gunmetal-800">
       <h2 className="text-xl font-bold text-neon-pink">Critical Error</h2>
       <p className="text-gray-400 mt-2">{message}</p>
-      <button 
+      <button
         onClick={() => window.location.reload()}
         className="mt-4 px-4 py-2 bg-neon-pink text-white rounded hover:bg-opacity-90 transition-colors"
       >
@@ -52,26 +58,41 @@ const initApp = async () => {
 
     // Initialize services
     console.log('Starting application initialization...');
-    await logService.initialize();
-    console.log('Log service initialized');
 
-    // Render application
+    try {
+      await logService.initialize();
+      console.log('Log service initialized');
+    } catch (logError) {
+      console.error('Log service initialization failed, but continuing:', logError);
+    }
+
+    // Add a small delay to ensure the DOM has time to update
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // Render application with error boundary
+    console.log('Rendering main application...');
     root.render(
       <StrictMode>
-        <ErrorBoundary 
+        <ErrorBoundary
           fallback={
             <div className="min-h-screen flex items-center justify-center bg-gunmetal-950">
               <div className="text-center p-6 bg-gunmetal-900 rounded-xl border border-gunmetal-800">
                 <h2 className="text-xl font-bold text-neon-pink">Application Error</h2>
                 <p className="text-gray-400 mt-2">Failed to initialize application</p>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="mt-4 px-4 py-2 bg-neon-pink hover:bg-neon-pink/80 text-white rounded-lg transition-colors"
+                >
+                  Retry
+                </button>
               </div>
             </div>
           }
         >
           <BrowserRouter
-            future={{ 
+            future={{
               v7_startTransition: true,
-              v7_relativeSplatPath: true 
+              v7_relativeSplatPath: true
             }}
           >
             <AuthProvider>
@@ -83,16 +104,16 @@ const initApp = async () => {
     );
   } catch (error) {
     console.error('Application initialization failed:', error);
-    
+
     // Use existing root if available, otherwise create new one
     if (!root && document.getElementById('root')) {
       root = createRoot(document.getElementById('root')!);
     }
-    
+
     if (root) {
       root.render(
-        <CriticalErrorScreen 
-          message={error instanceof Error ? error.message : 'Failed to initialize application'} 
+        <CriticalErrorScreen
+          message={error instanceof Error ? error.message : 'Failed to initialize application'}
         />
       );
     } else {

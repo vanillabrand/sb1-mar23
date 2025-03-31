@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useAuth } from './useAuth';
 import { strategySync } from '../lib/strategy-sync';
 import { logService } from '../lib/log-service';
+import { eventBus } from '../lib/event-bus';
 import type { Strategy, CreateStrategyData } from '../lib/types';
 
 export function useStrategies() {
@@ -15,20 +16,28 @@ export function useStrategies() {
     try {
       setLoading(true);
       setError(null);
-      
+
       if (!user) {
         setStrategies([]);
-        return;
+        return [];
       }
 
-      if (!strategySync.isSyncing()) {
-        await strategySync.initialize();
-      }
-      
+      // Force a complete refresh from the database
+      await strategySync.initialize();
+
+      // Get all strategies
       const allStrategies = strategySync.getAllStrategies();
-      setStrategies(allStrategies.filter(s => !pendingDeletions.has(s.id)));
-      
-      logService.log('info', `Loaded ${allStrategies.length} strategies`, null, 'useStrategies');
+
+      // Filter out any pending deletions
+      const filteredStrategies = allStrategies.filter(s => !pendingDeletions.has(s.id));
+
+      // Update state with a new array to ensure React detects the change
+      setStrategies(filteredStrategies as unknown as Strategy[]);
+
+      console.log('Refreshed strategies:', filteredStrategies.length);
+      logService.log('info', `Loaded ${filteredStrategies.length} strategies`, null, 'useStrategies');
+
+      return filteredStrategies;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to load strategies';
       setError(err instanceof Error ? err : new Error(errorMsg));
@@ -43,7 +52,7 @@ export function useStrategies() {
     try {
       const strategy = await strategySync.createStrategy(data);
       await refreshStrategies(); // Refresh the list after creating
-      return strategy;
+      return strategy as unknown as Strategy;
     } catch (error) {
       logService.log('error', 'Failed to create strategy:', error, 'useStrategies');
       throw error;
@@ -54,6 +63,21 @@ export function useStrategies() {
   useEffect(() => {
     refreshStrategies();
   }, [refreshStrategies]);
+
+  // Listen for strategy updates from other components
+  useEffect(() => {
+    const handleStrategiesUpdated = (updatedStrategies: Strategy[]) => {
+      setStrategies(updatedStrategies);
+    };
+
+    // Subscribe to the strategies:updated event
+    const unsubscribe = eventBus.subscribe('strategies:updated', handleStrategiesUpdated);
+
+    return () => {
+      // Clean up the subscription when the component unmounts
+      unsubscribe();
+    };
+  }, []);
 
   return {
     strategies,

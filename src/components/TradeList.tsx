@@ -5,13 +5,13 @@ import type { Trade } from '../lib/types';
 
 interface TradeListProps {
   trades: Trade[];
-  currentPage: number;
-  onPageChange: (page: number) => void;
+  currentPage?: number;
+  onPageChange?: (page: number) => void;
 }
 
 const ITEMS_PER_PAGE = 10;
 
-export const TradeList: React.FC<TradeListProps> = ({ trades, currentPage, onPageChange }) => {
+export const TradeList: React.FC<TradeListProps> = ({ trades, currentPage = 0, onPageChange }) => {
   const totalPages = Math.ceil(trades.length / ITEMS_PER_PAGE);
   const startIndex = currentPage * ITEMS_PER_PAGE;
   const displayedTrades = trades.slice(startIndex, startIndex + ITEMS_PER_PAGE);
@@ -22,8 +22,8 @@ export const TradeList: React.FC<TradeListProps> = ({ trades, currentPage, onPag
         <table className="w-full">
           <thead>
             <tr className="bg-gunmetal-900">
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Pair</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Type</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Symbol</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Side</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Entry</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Exit</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Profit</th>
@@ -38,34 +38,41 @@ export const TradeList: React.FC<TradeListProps> = ({ trades, currentPage, onPag
                 animate={{ opacity: 1, y: 0 }}
                 className="border-t border-gunmetal-700"
               >
-                <td className="px-4 py-3 text-sm text-white">{trade.pair}</td>
+                <td className="px-4 py-3 text-sm text-white">{trade.symbol || '-'}</td>
                 <td className="px-4 py-3 text-sm text-white">
                   <span className={`flex items-center gap-1 ${
-                    trade.type === 'buy' ? 'text-green-400' : 'text-red-400'
+                    trade.side === 'buy' ? 'text-green-400' : 'text-red-400'
                   }`}>
-                    {trade.type === 'buy' ? 
-                      <ArrowUpRight className="w-4 h-4" /> : 
+                    {trade.side === 'buy' ?
+                      <ArrowUpRight className="w-4 h-4" /> :
                       <ArrowDownRight className="w-4 h-4" />
                     }
-                    {trade.type}
+                    {trade.side || '-'}
                   </span>
                 </td>
-                <td className="px-4 py-3 text-sm text-white">${trade.entryPrice.toFixed(2)}</td>
+                <td className="px-4 py-3 text-sm text-white">
+                  {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
+                </td>
                 <td className="px-4 py-3 text-sm text-white">
                   {trade.exitPrice ? `$${trade.exitPrice.toFixed(2)}` : '-'}
                 </td>
                 <td className="px-4 py-3 text-sm">
-                  <span className={`${
-                    trade.profit > 0 ? 'text-green-400' : 'text-red-400'
-                  }`}>
-                    {trade.profit > 0 ? '+' : ''}{trade.profit.toFixed(2)}%
-                  </span>
+                  {trade.profit !== undefined ? (
+                    <span className={`${
+                      trade.profit > 0 ? 'text-green-400' : 'text-red-400'
+                    }`}>
+                      {trade.profit > 0 ? '+' : ''}{trade.profit.toFixed(2)}%
+                    </span>
+                  ) : (
+                    <span className="text-gray-400">-</span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-sm">
                   <span className={`px-2 py-1 rounded-full text-xs ${
-                    trade.status === 'completed' ? 'bg-green-500/20 text-green-400' :
+                    trade.status === 'executed' ? 'bg-green-500/20 text-green-400' :
                     trade.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
-                    'bg-red-500/20 text-red-400'
+                    trade.status === 'cancelled' ? 'bg-red-500/20 text-red-400' :
+                    'bg-gray-500/20 text-gray-400'
                   }`}>
                     {trade.status}
                   </span>
@@ -76,7 +83,7 @@ export const TradeList: React.FC<TradeListProps> = ({ trades, currentPage, onPag
         </table>
       </div>
 
-      {totalPages > 1 && (
+      {totalPages > 1 && onPageChange && (
         <div className="flex justify-between items-center pt-4">
           <button
             onClick={() => onPageChange(currentPage - 1)}

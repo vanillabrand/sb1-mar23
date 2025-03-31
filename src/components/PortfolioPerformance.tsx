@@ -1,18 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Activity, 
-  Calendar, 
-  Download, 
-  Filter, 
-  Loader2, 
-  AlertCircle, 
-  X, 
-  ChevronDown 
+import {
+  Activity,
+  Calendar,
+  Download,
+  Filter,
+  Loader2,
+  AlertCircle,
+  X,
+  ChevronDown
 } from 'lucide-react';
 import { supabase } from '../lib/supabase-client';
 import { transactionService } from '../lib/transaction-service';
 import { logService } from '../lib/log-service';
+import { globalCacheService } from '../lib/global-cache-service';
 import {
   Area,
   AreaChart,
@@ -40,18 +41,32 @@ export function PortfolioPerformance() {
 
   const loadPerformanceData = async () => {
     try {
+      setLoading(true);
+      setError(null);
+
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         // Handle unauthenticated state gracefully
-        setPerformanceData(null);
+        setPerformanceData([]);
+        setLoading(false);
         return;
       }
-      
-      const transactions = await transactionService.getTransactionsForUser();
-      // Process transactions...
+
+      // Use the global cache service to get portfolio data
+      const data = await globalCacheService.getPortfolioData(timeframe);
+
+      if (data && Array.isArray(data) && data.length > 0) {
+        setPerformanceData(data);
+      } else {
+        // If no data in cache, show empty state
+        setPerformanceData([]);
+      }
+
+      setLoading(false);
     } catch (error) {
       logService.log('error', 'Failed to load performance data', error, 'PortfolioPerformance');
-      // Handle error state
+      setError('Failed to load performance data. Please try again later.');
+      setLoading(false);
     }
   };
 
@@ -59,7 +74,7 @@ export function PortfolioPerformance() {
     try {
       setDownloadingCSV(true);
       setError(null);
-      
+
       if (!startDate || !endDate) {
         throw new Error('Please select a date range');
       }
@@ -76,7 +91,7 @@ export function PortfolioPerformance() {
       }
 
       // Format transactions for CSV
-      const csvData = transactions.map(tx => ({
+      const csvData = transactions.map((tx: any) => ({
         Date: new Date(tx.created_at).toLocaleString(),
         Type: tx.type.charAt(0).toUpperCase() + tx.type.slice(1),
         Amount: tx.amount.toFixed(2),
@@ -90,11 +105,11 @@ export function PortfolioPerformance() {
       const headers = Object.keys(csvData[0]);
       const csv = [
         headers.join(','),
-        ...csvData.map(row => headers.map(header => {
+        ...csvData.map((row: Record<string, string>) => headers.map(header => {
           const value = row[header];
           // Escape commas and quotes in values
-          return /[,"]/.test(value) 
-            ? `"${value.replace(/"/g, '""')}"` 
+          return /[,"]/.test(value)
+            ? `"${value.replace(/"/g, '""')}"`
             : value;
         }).join(','))
       ].join('\n');
@@ -172,13 +187,13 @@ export function PortfolioPerformance() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-              <XAxis 
-                dataKey="date" 
+              <XAxis
+                dataKey="date"
                 stroke="#6B7280"
                 tick={{ fill: '#9CA3AF' }}
                 tickFormatter={(value) => new Date(value).toLocaleDateString()}
               />
-              <YAxis 
+              <YAxis
                 stroke="#6B7280"
                 tick={{ fill: '#9CA3AF' }}
                 tickFormatter={(value) => `$${value.toLocaleString()}`}

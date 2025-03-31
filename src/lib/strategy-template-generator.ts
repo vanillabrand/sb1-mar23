@@ -1,10 +1,8 @@
 import { AIService } from './ai-service';
 import { marketMonitor } from './market-monitor';
 import { logService } from './log-service';
-import { ccxtService } from './ccxt-service';
-import { MarketInsight } from './types/market';
-import { Strategy } from './types/strategy';
 import { exchangeService } from './exchange-service';
+import { Strategy } from './types';
 
 export class StrategyTemplateGenerator {
   private static instance: StrategyTemplateGenerator;
@@ -25,10 +23,10 @@ export class StrategyTemplateGenerator {
     try {
       // 1. Gather current market conditions
       const marketData = await this.gatherMarketData();
-      
+
       // 2. Generate strategy templates using DeepSeek
       const templates = await this.generateTemplatesWithAI(marketData);
-      
+
       // 3. Validate and optimize templates
       const optimizedTemplates = await this.optimizeTemplates(templates || []); // Add fallback empty array
 
@@ -45,8 +43,8 @@ export class StrategyTemplateGenerator {
       if (!exchangeService.isInitialized()) {
         await exchangeService.initializeExchange({
           name: 'binance',
-          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY,
-          secret: import.meta.env.VITE_BINANCE_TEST_SECRET,
+          apiKey: 'demo-api-key',
+          secret: 'demo-secret',
           testnet: true,
           useUSDX: false
         });
@@ -57,12 +55,12 @@ export class StrategyTemplateGenerator {
 
       const marketData = await Promise.all(this.DEFAULT_MARKETS.map(async (asset) => {
         try {
-          // Get ticker data using CCXT's fetchTicker method
-          const ticker = await ccxtService.fetchTicker(asset);
-          
+          // Get ticker data using exchange service
+          const ticker = await exchangeService.fetchTicker(asset);
+
           // Get historical data from market monitor
           const historicalData = await marketMonitor.getHistoricalData(asset, 100);
-          
+
           return {
             asset,
             currentPrice: ticker.last,

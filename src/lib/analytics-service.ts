@@ -56,37 +56,72 @@ class AnalyticsService extends EventEmitter {
   }
 
   async initialize(): Promise<void> {
-    if (this.initialized) return;
-    if (this.initializationPromise) return this.initializationPromise;
+    if (this.initialized) {
+      logService.log('info', 'Analytics service already initialized', null, 'AnalyticsService');
+      return;
+    }
+
+    if (this.initializationPromise) {
+      logService.log('info', 'Analytics service initialization already in progress', null, 'AnalyticsService');
+      return this.initializationPromise;
+    }
+
+    logService.log('info', 'Starting analytics service initialization', null, 'AnalyticsService');
 
     this.initializationPromise = (async () => {
       try {
-        // Load stored data
-        this.loadStoredData();
-
-        // Start periodic updates
-        this.startPeriodicUpdates();
-
-        // Load active strategies
-        const { data: strategies, error } = await supabase
-          .from('strategies')
-          .select('*')
-          .eq('status', 'active');
-
-        if (error) throw error;
-
-        if (strategies) {
-          // Initialize analytics for each active strategy
-          for (const strategy of strategies) {
-            await this.trackStrategy(strategy);
-          }
+        // Load stored data - this shouldn't fail, but wrap in try/catch just in case
+        try {
+          this.loadStoredData();
+          logService.log('info', 'Loaded stored analytics data', null, 'AnalyticsService');
+        } catch (storageError) {
+          logService.log('warn', 'Failed to load stored analytics data, continuing with empty data', storageError, 'AnalyticsService');
         }
 
+        // Start periodic updates - this is just setting up intervals, shouldn't fail
+        try {
+          this.startPeriodicUpdates();
+          logService.log('info', 'Started periodic analytics updates', null, 'AnalyticsService');
+        } catch (updateError) {
+          logService.log('warn', 'Failed to start periodic updates, continuing without them', updateError, 'AnalyticsService');
+        }
+
+        // Load active strategies - this might fail if database is unavailable
+        try {
+          const { data: strategies, error } = await supabase
+            .from('strategies')
+            .select('*')
+            .eq('status', 'active');
+
+          if (error) {
+            logService.log('warn', 'Failed to load active strategies, continuing with empty set', error, 'AnalyticsService');
+          } else if (strategies) {
+            logService.log('info', `Loaded ${strategies.length} active strategies`, null, 'AnalyticsService');
+
+            // Initialize analytics for each active strategy
+            for (const strategy of strategies) {
+              try {
+                await this.trackStrategy(strategy);
+              } catch (trackError) {
+                logService.log('warn', `Failed to track strategy ${strategy.id}, skipping`, trackError, 'AnalyticsService');
+              }
+            }
+          }
+        } catch (strategiesError) {
+          logService.log('warn', 'Failed to query strategies, continuing with empty set', strategiesError, 'AnalyticsService');
+        }
+
+        // Mark as initialized even if some parts failed - we can still provide basic functionality
         this.initialized = true;
         logService.log('info', 'Analytics service initialized successfully', null, 'AnalyticsService');
+        return;
       } catch (error) {
         logService.log('error', 'Failed to initialize analytics service', error, 'AnalyticsService');
-        throw error;
+        // Don't throw the error - this allows the app to continue even if analytics fails
+        // Just mark as initialized so we don't keep trying
+        this.initialized = true;
+        logService.log('warn', 'Marking analytics service as initialized despite errors', null, 'AnalyticsService');
+        return;
       } finally {
         this.initializationPromise = null;
       }
@@ -204,7 +239,7 @@ class AnalyticsService extends EventEmitter {
       // Store analytics
       const strategyData = this.analyticsData.get(strategyId) || [];
       strategyData.push(analyticsEntry);
-      
+
       // Keep last 24 hours of data
       const cutoff = Date.now() - (24 * 60 * 60 * 1000);
       const filteredData = strategyData.filter(d => d.timestamp >= cutoff);
@@ -282,19 +317,19 @@ class AnalyticsService extends EventEmitter {
 
   private calculateValueAtRisk(trades: StrategyTrade[], assetMetrics: any[]): number {
     try {
-      const returns = trades.map((t, i) => 
+      const returns = trades.map((t, i) =>
         i === 0 ? 0 : ((t.pnl || 0) / (trades[i-1].entry_price || 1)) * 100
       );
-      
+
       // Calculate 95% VaR using historical simulation
       const sortedReturns = returns.sort((a, b) => a - b);
       const varIndex = Math.floor(0.05 * sortedReturns.length);
       const var95 = Math.abs(sortedReturns[varIndex] || 0);
-      
+
       // Adjust VaR based on current exposure and volatility
       const totalExposure = trades.reduce((sum, t) => sum + (t.entry_price || 0), 0);
       const avgVolatility = this.calculateVolatility(assetMetrics);
-      
+
       return (var95 * totalExposure * avgVolatility) / 100;
     } catch (error) {
       logService.log('error', 'Error calculating Value at Risk', error, 'AnalyticsService');
@@ -390,7 +425,7 @@ class AnalyticsService extends EventEmitter {
     const riskScores = metrics.map(m => m.metrics.riskScore);
     const current = riskScores[riskScores.length - 1] || 0;
     const average = riskScores.reduce((sum, score) => sum + score, 0) / riskScores.length;
-    
+
     // Calculate trend
     const recentScores = riskScores.slice(-5); // Look at last 5 data points
     const trend = recentScores.length > 1

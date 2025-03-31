@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Brain, RefreshCw, Loader2 } from 'lucide-react';
-import { aiMarketService } from '../lib/ai-market-service';
+import { Brain, RefreshCw, Loader2, Clock } from 'lucide-react';
+import { globalCacheService } from '../lib/global-cache-service';
 import { ErrorBoundary } from './ErrorBoundary';
+import { formatDistanceToNow } from 'date-fns';
 
 interface AIMarketInsightProps {
   assets: Set<string>;
@@ -25,7 +26,8 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
   const [error, setError] = useState<string | null>(null);
   const [insights, setInsights] = useState<any | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [sentimentDistribution, setSentimentDistribution] = 
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(0);
+  const [sentimentDistribution, setSentimentDistribution] =
     useState<SentimentDistribution>(DEFAULT_DISTRIBUTION);
 
   const calculateSentimentDistribution = (marketInsights: any): SentimentDistribution => {
@@ -51,16 +53,21 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
     try {
       setError(null);
       setLoading(true);
-      
-      const assetList = assets.size > 0 
+
+      const assetList = assets.size > 0
         ? Array.from(assets)
         : ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT'];
-      
-      const marketInsights = await aiMarketService.getMarketInsights(assetList);
+
+      // Use the global cache service instead of direct API call
+      const marketInsights = await globalCacheService.getMarketInsights(assetList);
       setInsights(marketInsights);
-      
+
       const distribution = calculateSentimentDistribution(marketInsights);
       setSentimentDistribution(distribution);
+
+      // Get the last update time from the cache service
+      const lastUpdateTime = globalCacheService.getMarketInsightsLastUpdate();
+      setLastUpdateTime(lastUpdateTime);
     } catch (err) {
       setError('Failed to generate market insights');
       console.error('Error fetching market insights:', err);
@@ -75,9 +82,19 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
     fetchInsights();
   }, [assets]);
 
-  const handleRefresh = () => {
-    setRefreshing(true);
-    fetchInsights();
+  const handleRefresh = async () => {
+    try {
+      setRefreshing(true);
+      // Force a refresh of the global cache
+      await globalCacheService.forceRefreshMarketInsights();
+      // Then fetch the updated insights
+      await fetchInsights();
+    } catch (error) {
+      console.error('Error refreshing insights:', error);
+      setError('Failed to refresh market insights');
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   if (loading && !insights) {
@@ -98,24 +115,33 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
 
   return (
     <div className={className}>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <Brain className="w-6 h-6 text-neon-turquoise" />
-          <h2 className="text-lg font-semibold gradient-text">AI Market Insight</h2>
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Brain className="w-6 h-6 text-neon-turquoise" />
+            <h2 className="text-lg font-semibold gradient-text">AI Market Insight</h2>
+          </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
+          >
+            {refreshing ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+          </button>
         </div>
-        <button 
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
-        >
-          {refreshing ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4" />
-          )}
-        </button>
+
+        {lastUpdateTime > 0 && (
+          <div className="flex items-center gap-2 text-xs text-gray-500">
+            <Clock className="w-3 h-3" />
+            <span>Updated {formatDistanceToNow(new Date(lastUpdateTime))} ago</span>
+          </div>
+        )}
       </div>
-      
+
       <div className="space-y-6">
         {/* Strategic Recommendations */}
         {insights?.recommendations?.length > 0 && (
@@ -125,7 +151,7 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
             </h3>
             <div className="grid gap-3">
               {insights.recommendations.map((rec: string, index: number) => (
-                <div 
+                <div
                   key={index}
                   className="bg-gunmetal-800/30 rounded-lg p-4 hover:bg-gunmetal-800/50 transition-colors"
                 >

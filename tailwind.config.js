@@ -47,6 +47,7 @@ export default {
         'glow': 'glow 2s ease-in-out infinite alternate',
         'float': 'float 3s ease-in-out infinite',
         'pulse-glow': 'pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+        'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
         'spin-slow': 'spin 10s linear infinite',
         'fade-in': 'fadeIn 0.3s ease-out',
         'fade-out': 'fadeOut 0.3s ease-out',
@@ -99,7 +100,7 @@ export default {
     'text-neon-pink',
     'text-neon-raspberry',
     'bg-neon-turquoise',
-    'bg-neon-yellow', 
+    'bg-neon-yellow',
     'bg-neon-orange',
     'bg-neon-pink',
     'bg-neon-raspberry',
@@ -111,6 +112,7 @@ export default {
     'animate-fade-in',
     'animate-fade-out',
     'animate-slide-up',
-    'animate-slide-down'
+    'animate-slide-down',
+    'animate-pulse-slow'
   ]
 };
