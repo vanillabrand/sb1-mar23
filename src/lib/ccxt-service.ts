@@ -37,8 +37,28 @@ class CCXTService {
 
       // Add proxy support if available
       if (import.meta.env.VITE_PROXY_URL) {
-        config.proxy = import.meta.env.VITE_PROXY_URL;
-        logService.log('info', `Using proxy for exchange: ${import.meta.env.VITE_PROXY_URL}`, null, 'CCXTService');
+        // For Binance TestNet, we need to use a specific proxy URL
+        if (exchangeId === 'binance' && testnet) {
+          // Use the binanceTestnet proxy path
+          config.urls = {
+            api: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`
+          };
+          // Add custom options for better error handling
+          config.options = {
+            ...config.options,
+            verbose: true, // Enable verbose mode for debugging
+            timeout: 10000, // 10 seconds timeout
+            retry: true, // Enable retry
+            retries: 3, // Number of retries
+            retryDelay: 1000, // Delay between retries in milliseconds
+          };
+          logService.log('info', `Using proxy for Binance TestNet: ${import.meta.env.VITE_PROXY_URL}binanceTestnet`, null, 'CCXTService');
+          console.log(`Using proxy for Binance TestNet: ${import.meta.env.VITE_PROXY_URL}binanceTestnet with timeout: ${config.options.timeout}ms`);
+        } else {
+          // For other exchanges, use the standard proxy URL
+          config.proxy = import.meta.env.VITE_PROXY_URL;
+          logService.log('info', `Using proxy for exchange: ${import.meta.env.VITE_PROXY_URL}`, null, 'CCXTService');
+        }
       }
 
       // Add user agent to avoid some blocks
@@ -67,8 +87,18 @@ class CCXTService {
         };
 
         // Log the endpoint being used
-        const endpoint = testnet ? 'testnet.binance.vision' : 'api.binance.com';
-        logService.log('info', `Binance endpoint: ${endpoint}`, null, 'CCXTService');
+        if (testnet) {
+          // For TestNet, we're using our proxy
+          const endpoint = import.meta.env.VITE_PROXY_URL ?
+            `${import.meta.env.VITE_PROXY_URL}binanceTestnet` :
+            'testnet.binance.vision';
+          logService.log('info', `Binance TestNet endpoint: ${endpoint}`, null, 'CCXTService');
+          console.log(`Using Binance TestNet endpoint: ${endpoint}`);
+        } else {
+          // For production, use the standard endpoint
+          const endpoint = 'api.binance.com';
+          logService.log('info', `Binance endpoint: ${endpoint}`, null, 'CCXTService');
+        }
       }
 
       // Store the instance
@@ -108,8 +138,8 @@ class CCXTService {
       if (testnet) {
         // Use TestNet credentials from environment variables
         credentials = {
-          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY || '',
-          secret: import.meta.env.VITE_BINANCE_TEST_API_SECRET || '',
+          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY || process.env.BINANCE_TESTNET_API_KEY || '',
+          secret: import.meta.env.VITE_BINANCE_TEST_API_SECRET || process.env.BINANCE_TESTNET_API_SECRET || '',
           memo: ''
         };
 

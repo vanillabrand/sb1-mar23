@@ -1,23 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, TrendingUp, TrendingDown, DollarSign, AlertCircle } from 'lucide-react';
+import { Loader2, TrendingUp, TrendingDown, DollarSign, AlertCircle, X } from 'lucide-react';
+import type { BacktestProgress as BacktestProgressType } from '../lib/backtest-service';
 
 interface BacktestProgressProps {
-  progress: number;
-  currentStep: string;
-  status: 'running' | 'completed' | 'error';
-  error?: string;
-  latestUpdate?: {
-    timestamp: number;
-    price: number;
-    position: string | null;
-    equity: number;
-    pnl: number;
-    drawdown: number;
-  };
+  progress: BacktestProgressType;
+  latestUpdate?: any;
   onCancel: () => void;
 }
 
-export function BacktestProgress({ progress, currentStep, status, error, latestUpdate, onCancel }: BacktestProgressProps) {
+export function BacktestProgress({ progress, latestUpdate, onCancel }: BacktestProgressProps) {
   const [timeElapsed, setTimeElapsed] = useState(0);
 
   useEffect(() => {
@@ -28,18 +19,30 @@ export function BacktestProgress({ progress, currentStep, status, error, latestU
     return () => clearInterval(interval);
   }, []);
 
+  const { status, currentStep, error } = progress;
+  const progressValue = progress.progress || 0;
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-2xl p-6 w-full max-w-2xl border border-gunmetal-800">
-        <div className="flex items-center gap-3 mb-6">
-          {status === 'error' ? (
-            <AlertCircle className="w-6 h-6 text-neon-pink" />
-          ) : (
-            <Loader2 className="w-6 h-6 text-neon-turquoise animate-spin" />
-          )}
-          <h2 className="text-xl font-bold text-gray-200">
-            {status === 'error' ? 'Backtest Error' : 'Running Backtest'}
-          </h2>
+        <div className="flex justify-between items-center mb-6">
+          <div className="flex items-center gap-3">
+            {status === 'error' ? (
+              <AlertCircle className="w-6 h-6 text-neon-pink" />
+            ) : (
+              <Loader2 className="w-6 h-6 text-neon-turquoise animate-spin" />
+            )}
+            <h2 className="text-xl font-bold text-gray-200">
+              {status === 'error' ? 'Backtest Error' : 'Running Backtest'}
+            </h2>
+          </div>
+          <button
+            onClick={onCancel}
+            className="text-gray-400 hover:text-gray-200 transition-colors p-1 rounded-full hover:bg-gunmetal-800/50"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         <div className="space-y-6">
@@ -57,15 +60,15 @@ export function BacktestProgress({ progress, currentStep, status, error, latestU
               <span className={`font-medium ${
                 status === 'error' ? 'text-neon-pink' : 'text-neon-turquoise'
               }`}>
-                {progress}%
+                {progressValue}%
               </span>
             </div>
             <div className="w-full bg-gunmetal-800 rounded-full h-2">
-              <div 
+              <div
                 className={`h-2 rounded-full transition-all duration-300 ${
                   status === 'error' ? 'bg-neon-pink' : 'bg-neon-turquoise'
                 }`}
-                style={{ width: `${progress}%` }}
+                style={{ width: `${progressValue}%` }}
               />
             </div>
           </div>
@@ -79,7 +82,7 @@ export function BacktestProgress({ progress, currentStep, status, error, latestU
                   <DollarSign className="w-4 h-4 text-neon-turquoise" />
                 </div>
                 <p className="text-xl font-mono">
-                  ${latestUpdate.price.toFixed(2)}
+                  ${latestUpdate.price ? latestUpdate.price.toFixed(2) : '0.00'}
                 </p>
               </div>
 
@@ -105,7 +108,7 @@ export function BacktestProgress({ progress, currentStep, status, error, latestU
                   <DollarSign className="w-4 h-4 text-neon-yellow" />
                 </div>
                 <p className="text-xl font-mono">
-                  ${latestUpdate.equity.toFixed(2)}
+                  ${latestUpdate.equity ? latestUpdate.equity.toFixed(2) : '0.00'}
                 </p>
               </div>
 
@@ -115,7 +118,7 @@ export function BacktestProgress({ progress, currentStep, status, error, latestU
                   <TrendingDown className="w-4 h-4 text-neon-pink" />
                 </div>
                 <p className="text-xl font-mono text-neon-pink">
-                  {latestUpdate.drawdown.toFixed(2)}%
+                  {latestUpdate.drawdown ? latestUpdate.drawdown.toFixed(2) : '0.00'}%
                 </p>
               </div>
             </div>

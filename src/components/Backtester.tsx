@@ -22,16 +22,20 @@ import {
   Upload,
   X
 } from 'lucide-react';
+
 import { useStrategies } from '../hooks/useStrategies';
 import { backtestService } from '../lib/backtest-service';
 import { BacktestConfigModal } from './BacktestConfigModal';
 import { BacktestProgress } from './BacktestProgress';
 import { BacktestResults } from './BacktestResults';
 import { PanelWrapper } from './PanelWrapper';
-import { logService } from '../lib/log-service';
-import Papa from 'papaparse';
-import type { Strategy } from '../lib/supabase-types';
+import type { Strategy } from '../lib/types';
 import type { BacktestConfig, BacktestProgress as BacktestProgressType, BacktestResults as BacktestResultsType } from '../lib/backtest-service';
+
+type SortField = 'title' | 'created_at' | 'performance' | 'risk_level';
+type SortOrder = 'asc' | 'desc';
+
+// Number of strategies to show per page
 
 const DATA_SOURCE_OPTIONS = [
   {
@@ -85,7 +89,7 @@ const MARKET_SCENARIOS = [
 type SortField = 'title' | 'performance' | 'risk_level' | 'created_at';
 type SortOrder = 'asc' | 'desc';
 
-const ITEMS_PER_PAGE = 5;
+const ITEMS_PER_PAGE = 6; // Number of strategies to show per page
 
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
@@ -97,6 +101,13 @@ export function Backtester() {
   const [results, setResults] = useState<BacktestResultsType | null>(null);
   const [showResults, setShowResults] = useState(false);
   const { strategies } = useStrategies();
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortField, setSortField] = useState<SortField>('created_at');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
+  const [filterRiskLevel, setFilterRiskLevel] = useState<string | null>(null);
 
   useEffect(() => {
     // Set up event listeners for backtest progress and updates
@@ -149,9 +160,121 @@ export function Backtester() {
     setProgress(null);
   };
 
+  // Filter and sort strategies
+  const filteredStrategies = useMemo(() => {
+    return strategies
+      .filter(strategy => {
+        // Filter by search term
+        const matchesSearch = searchTerm === '' ||
+          strategy.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (strategy.description && strategy.description.toLowerCase().includes(searchTerm.toLowerCase()));
+
+        // Filter by risk level
+        const matchesRiskLevel = !filterRiskLevel ||
+          strategy.risk_level === filterRiskLevel;
+
+        return matchesSearch && matchesRiskLevel;
+      })
+      .sort((a, b) => {
+        // Sort by selected field
+        let aValue = a[sortField];
+        let bValue = b[sortField];
+
+        // Handle special cases
+        if (sortField === 'performance') {
+          aValue = parseFloat(aValue) || 0;
+          bValue = parseFloat(bValue) || 0;
+        }
+
+        // Apply sort order
+        if (sortOrder === 'asc') {
+          return aValue > bValue ? 1 : -1;
+        } else {
+          return aValue < bValue ? 1 : -1;
+        }
+      });
+  }, [strategies, searchTerm, filterRiskLevel, sortField, sortOrder]);
+
+  // Paginate strategies
+  const paginatedStrategies = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return filteredStrategies.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [filteredStrategies, currentPage]);
+
+  // Calculate total pages
+  const totalPages = Math.ceil(filteredStrategies.length / ITEMS_PER_PAGE);
+
+  // Handle sort toggle
+  const handleSortToggle = (field: SortField) => {
+    if (sortField === field) {
+      // Toggle sort order if same field
+      setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc');
+    } else {
+      // Set new field and default to ascending
+      setSortField(field);
+      setSortOrder('asc');
+    }
+  };
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+  };
+
   return (
     <PanelWrapper title="Backtester" icon={<BarChart3 className="w-5 h-5" />}>
       <div className="space-y-6">
+        {/* Search and Filter Controls */}
+        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+            <input
+              type="text"
+              placeholder="Search strategies..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-neon-turquoise/50 focus:border-neon-turquoise/50"
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <div className="relative">
+              <button
+                className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
+                onClick={() => setFilterRiskLevel(filterRiskLevel ? null : 'Low')}
+              >
+                <Filter className="w-4 h-4" />
+                {filterRiskLevel || 'Risk Level'}
+                {filterRiskLevel && <X className="w-3 h-3" />}
+              </button>
+            </div>
+
+            <button
+              className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
+              onClick={() => handleSortToggle('title')}
+            >
+              {sortField === 'title' ? (
+                sortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />
+              ) : (
+                <Tag className="w-4 h-4" />
+              )}
+              Name
+            </button>
+
+            <button
+              className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
+              onClick={() => handleSortToggle('performance')}
+            >
+              {sortField === 'performance' ? (
+                sortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />
+              ) : (
+                <Target className="w-4 h-4" />
+              )}
+              Performance
+            </button>
+          </div>
+        </div>
+
         {/* Strategy Selection Table */}
         <div className="bg-gunmetal-900/50 rounded-xl overflow-hidden">
           <table className="w-full">
@@ -160,10 +283,10 @@ export function Backtester() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Strategy
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Market Type
+                <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  Risk Level
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                <th className="hidden sm:table-cell px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Assets
                 </th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
@@ -172,40 +295,95 @@ export function Backtester() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gunmetal-800">
-              {strategies.map((strategy) => (
-                <tr key={strategy.id} className="hover:bg-gunmetal-800/30 transition-colors">
-                  <td className="px-6 py-4">
-                    <div className="text-sm font-medium text-gray-200">{strategy.title}</div>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-400">
-                    {strategy.market_type}
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex gap-1">
-                      {strategy.assets.map((asset) => (
-                        <span key={asset} className="px-2 py-1 bg-gunmetal-700 rounded-full text-xs text-gray-300">
-                          {asset}
-                        </span>
-                      ))}
+              {paginatedStrategies.length > 0 ? (
+                paginatedStrategies.map((strategy) => (
+                  <tr key={strategy.id} className="hover:bg-gunmetal-800/30 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="text-sm font-medium text-gray-200">{strategy.title}</div>
+                      <div className="text-xs text-gray-400 mt-1 line-clamp-1">{strategy.description}</div>
+                    </td>
+                    <td className="hidden md:table-cell px-6 py-4">
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${strategy.risk_level === 'High' ? 'bg-neon-pink/10 text-neon-pink' : strategy.risk_level === 'Medium' ? 'bg-neon-orange/10 text-neon-orange' : 'bg-neon-turquoise/10 text-neon-turquoise'}`}>
+                        {strategy.risk_level}
+                      </span>
+                    </td>
+                    <td className="hidden sm:table-cell px-6 py-4">
+                      <div className="flex flex-wrap gap-1">
+                        {strategy.assets && strategy.assets.map((asset) => (
+                          <span key={asset} className="px-2 py-1 bg-gunmetal-700 rounded-full text-xs text-gray-300">
+                            {asset}
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <button
+                        onClick={() => {
+                          setSelectedStrategy(strategy);
+                          setShowConfig(true);
+                        }}
+                        className="inline-flex items-center gap-2 px-3 py-1 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all"
+                      >
+                        <Play className="w-4 h-4" />
+                        Run
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
+                    <div className="flex flex-col items-center justify-center gap-2">
+                      <AlertTriangle className="w-6 h-6 text-neon-orange" />
+                      <p>No strategies found matching your filters.</p>
+                      {searchTerm && (
+                        <button
+                          onClick={() => setSearchTerm('')}
+                          className="text-neon-turquoise hover:text-neon-yellow transition-colors text-sm"
+                        >
+                          Clear search
+                        </button>
+                      )}
                     </div>
                   </td>
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() => {
-                        setSelectedStrategy(strategy);
-                        setShowConfig(true);
-                      }}
-                      className="inline-flex items-center gap-2 px-3 py-1 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all"
-                    >
-                      <Play className="w-4 h-4" />
-                      Run
-                    </button>
-                  </td>
                 </tr>
-              ))}
+              )}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex justify-center mt-4">
+            <nav className="flex items-center gap-1">
+              <button
+                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                disabled={currentPage === 1}
+                className={`p-2 rounded-lg ${currentPage === 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
+              >
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                <button
+                  key={page}
+                  onClick={() => handlePageChange(page)}
+                  className={`w-8 h-8 rounded-lg text-sm ${currentPage === page ? 'bg-neon-turquoise text-gunmetal-950' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
+                >
+                  {page}
+                </button>
+              ))}
+
+              <button
+                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                disabled={currentPage === totalPages}
+                className={`p-2 rounded-lg ${currentPage === totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
+              >
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </nav>
+          </div>
+        )}
 
         {/* Progress Section */}
         {progress && (
@@ -220,10 +398,18 @@ export function Backtester() {
       {/* Modals */}
       <BacktestConfigModal
         open={showConfig}
-        strategy={selectedStrategy}
+        strategy={selectedStrategy || {} as Strategy}
         onClose={() => setShowConfig(false)}
         onStart={handleStartBacktest}
       />
+
+      {/* Results Modal */}
+      {showResults && results && (
+        <BacktestResults
+          results={results}
+          onClose={() => setShowResults(false)}
+        />
+      )}
     </PanelWrapper>
   );
 }

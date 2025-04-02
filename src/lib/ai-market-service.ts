@@ -19,13 +19,22 @@ class AIMarketService {
 
   private async generateWithDeepSeek(assets: string[]): Promise<MarketInsight> {
     const API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
-    
+
     if (!API_KEY || API_KEY === 'your_api_key' || API_KEY.length < 10) {
       logService.log('warn', 'No valid DeepSeek API key found, using synthetic insights', null, 'AIMarketService');
       return this.generateSyntheticInsights(assets);
     }
 
-    try {
+    let retries = 0;
+
+    while (retries <= this.MAX_RETRIES) {
+      try {
+        // Add exponential backoff for retries
+        if (retries > 0) {
+          const delay = this.RETRY_DELAY * Math.pow(2, retries - 1);
+          logService.log('info', `Retrying DeepSeek API call (${retries}/${this.MAX_RETRIES}) after ${delay}ms delay`, null, 'AIMarketService');
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
       const response = await fetch(this.API_URL, {
         method: 'POST',
         headers: {
@@ -36,14 +45,17 @@ class AIMarketService {
         body: JSON.stringify({
           model: this.MODEL,
           messages: [{
+            role: 'system',
+            content: 'You are a crypto market analyst. Provide concise, accurate market insights in JSON format only. Keep explanations brief and focus on key indicators.'
+          }, {
             role: 'user',
-            content: `Analyze the following crypto assets and return a JSON response: ${assets.join(', ')}. Include technical indicators, market sentiment, and potential opportunities. Format the response as a valid JSON object with the following structure:
+            content: `Analyze these crypto assets: ${assets.join(', ')}. Return ONLY a JSON object with this structure:
 {
-  "timestamp": number,
+  "timestamp": ${Date.now()},
   "assets": [{
     "symbol": string,
     "sentiment": "bullish" | "bearish" | "neutral",
-    "signals": string[],
+    "signals": string[], // 1-3 brief signals
     "riskLevel": "low" | "medium" | "high"
   }],
   "marketConditions": {
@@ -51,12 +63,13 @@ class AIMarketService {
     "volatility": "low" | "medium" | "high",
     "volume": "low" | "medium" | "high"
   },
-  "recommendations": string[]
+  "recommendations": string[] // 2-3 brief recommendations
 }`
           }],
-          temperature: 0.3,
-          max_tokens: 2000,
-          stream: false
+          temperature: 0.2,
+          max_tokens: 1000,
+          stream: false,
+          timeout: 10
         })
       });
 
@@ -67,7 +80,7 @@ class AIMarketService {
       }
 
       const data = await response.json();
-      
+
       if (!data.choices?.[0]?.message?.content) {
         throw new Error('Invalid response format from DeepSeek API');
       }
@@ -90,9 +103,23 @@ class AIMarketService {
       return this.validateMarketInsight(parsedContent);
 
     } catch (error) {
-      logService.log('error', 'Failed to generate insights with DeepSeek', error, 'AIMarketService');
-      return this.generateSyntheticInsights(assets);
+      logService.log('error', `DeepSeek API call failed (attempt ${retries + 1}/${this.MAX_RETRIES + 1})`, error, 'AIMarketService');
+
+      // Increment retry counter
+      retries++;
+
+      // If we've exhausted all retries, fall back to synthetic data
+      if (retries > this.MAX_RETRIES) {
+        logService.log('warn', 'All DeepSeek API retries exhausted, using synthetic insights', null, 'AIMarketService');
+        return this.generateSyntheticInsights(assets);
+      }
+
+      // Continue to next retry iteration
     }
+    }
+
+    // This should never be reached, but TypeScript requires a return statement
+    return this.generateSyntheticInsights(assets);
   }
 
   private validateMarketInsight(insight: MarketInsight): MarketInsight {
@@ -172,19 +199,7 @@ class AIMarketService {
     return this.generateWithDeepSeek(assets);
   }
 
-  private parseDeepSeekResponse(response: string): any {
-    try {
-      // Remove any potential non-JSON content before and after the JSON
-      const jsonMatch = response.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        throw new Error('No valid JSON found in response');
-      }
-      return JSON.parse(jsonMatch[0]);
-    } catch (error) {
-      logService.log('error', 'Failed to parse DeepSeek response', { response, error }, 'AIMarketService');
-      return null;
-    }
-  }
+  // End of class
 }
 
 export const aiMarketService = AIMarketService.getInstance();

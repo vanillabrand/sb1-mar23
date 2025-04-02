@@ -118,13 +118,23 @@ class TradeEngine extends EventEmitter {
         .eq('status', 'pending')
         .gt('expires_at', new Date().toISOString());
 
-      if (error) throw error;
+      if (error) {
+        // Check if the error is because the trade_signals table doesn't exist
+        if (error.message && error.message.includes('relation "trade_signals" does not exist')) {
+          console.log('Trade signals table does not exist, skipping signal check');
+          console.warn('Please run the database setup script to create the trade_signals table.');
+          logService.log('warn', 'Trade signals table does not exist, skipping signal check', null, 'TradeEngine');
+          return;
+        }
+        throw error;
+      }
 
       // Process each signal
       for (const signal of signals || []) {
         await this.processTradeSignal(signal);
       }
     } catch (error) {
+      console.error('Error checking trade signals:', error);
       logService.log('error', 'Error checking trade signals', error, 'TradeEngine');
     }
   }

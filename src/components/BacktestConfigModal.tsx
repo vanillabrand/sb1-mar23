@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { 
-  Calendar, 
-  Info, 
-  TrendingUp, 
-  Database, 
+import {
+  Calendar,
+  Info,
+  TrendingUp,
+  Database,
   FileUp,
   ChevronRight,
   AlertCircle,
@@ -16,8 +16,9 @@ import type { CSVValidationError } from '@/lib/types';
 
 interface BacktestConfigModalProps {
   strategy: Strategy;
-  onConfirm: (config: BacktestConfig) => void;
-  onCancel: () => void;
+  open: boolean;
+  onStart: (config: BacktestConfig) => void;
+  onClose: () => void;
 }
 
 const DATA_SOURCE_OPTIONS = [
@@ -69,7 +70,7 @@ const MARKET_SCENARIOS = [
   }
 ];
 
-export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestConfigModalProps) {
+export function BacktestConfigModal({ strategy, open, onStart, onClose }: BacktestConfigModalProps) {
   const [step, setStep] = useState<'source' | 'scenario' | 'config'>('source');
   const [dataSource, setDataSource] = useState<string | null>(null);
   const [scenario, setScenario] = useState<string>('sideways');
@@ -87,7 +88,7 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
   const validateCSV = (headers: string[]): boolean => {
     const requiredColumns = ['timestamp', 'open', 'high', 'low', 'close', 'volume'];
     const hasValidHeaders = requiredColumns.every(col => headers.includes(col));
-    
+
     if (!hasValidHeaders) {
       setUploadError({
         type: 'INVALID_HEADERS',
@@ -95,7 +96,7 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
       });
       return false;
     }
-    
+
     return true;
   };
 
@@ -111,9 +112,9 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
         const text = e.target?.result as string;
         const lines = text.split('\n');
         const headers = lines[0].split(',');
-        
+
         if (!validateCSV(headers)) return;
-        
+
         // Parse data
         const data = lines.slice(1).map(line => {
           const values = line.split(',');
@@ -186,7 +187,7 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
         data: uploadedData || undefined
       };
 
-      onConfirm(config);
+      onStart(config);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid configuration');
     }
@@ -330,10 +331,10 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
             <div className="flex justify-end gap-3 pt-4">
               <button
                 type="button"
-                onClick={() => setStep('source')}
+                onClick={() => step === 'config' ? setStep('source') : onClose()}
                 className="px-4 py-2 text-sm font-medium text-gray-400 hover:text-gray-200"
               >
-                Back
+                {step === 'config' ? 'Back' : 'Cancel'}
               </button>
               <button
                 type="submit"
@@ -347,11 +348,22 @@ export function BacktestConfigModal({ strategy, onConfirm, onCancel }: BacktestC
     }
   };
 
+  if (!open || !strategy) return null;
+
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
       <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-lg p-6 w-full max-w-md border border-gunmetal-800">
-        <h2 className="text-xl font-bold gradient-text mb-4">Configure Backtest</h2>
-        
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-bold gradient-text">Configure Backtest</h2>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-full hover:bg-gunmetal-800 transition-colors"
+            aria-label="Close"
+          >
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
         {error && (
           <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-md flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />

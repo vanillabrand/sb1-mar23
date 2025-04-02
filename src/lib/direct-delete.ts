@@ -66,8 +66,30 @@ export async function directDeleteStrategy(strategyId: string): Promise<boolean>
       console.warn(`Exception deleting trades: ${e}`);
     }
 
-    // 2. Delete any monitoring status records
-    console.log(`Step 2: Deleting monitoring status for strategy ${strategyId}`);
+    // 2. Delete any trade signals
+    console.log(`Step 2: Deleting trade signals for strategy ${strategyId}`);
+    try {
+      const { error: signalsError } = await supabase
+        .from('trade_signals')
+        .delete()
+        .eq('strategy_id', strategyId);
+
+      if (signalsError) {
+        // Check if the error is because the trade_signals table doesn't exist
+        if (signalsError.message.includes('relation "trade_signals" does not exist')) {
+          console.log('Trade signals table does not exist, skipping trade signals deletion');
+        } else {
+          console.warn(`Error deleting trade signals: ${signalsError.message}`);
+        }
+      } else {
+        console.log(`Successfully deleted trade signals for strategy ${strategyId}`);
+      }
+    } catch (e) {
+      console.warn(`Exception deleting trade signals: ${e}`);
+    }
+
+    // 3. Delete any monitoring status records
+    console.log(`Step 3: Deleting monitoring status for strategy ${strategyId}`);
     try {
       const { error: monitoringError } = await supabase
         .from('monitoring_status')
@@ -75,7 +97,12 @@ export async function directDeleteStrategy(strategyId: string): Promise<boolean>
         .eq('strategy_id', strategyId);
 
       if (monitoringError) {
-        console.warn(`Error deleting monitoring status: ${monitoringError.message}`);
+        // Check if the error is because the monitoring_status table doesn't exist
+        if (monitoringError.message.includes('relation "monitoring_status" does not exist')) {
+          console.log('Monitoring status table does not exist, skipping monitoring status deletion');
+        } else {
+          console.warn(`Error deleting monitoring status: ${monitoringError.message}`);
+        }
       } else {
         console.log(`Successfully deleted monitoring status for strategy ${strategyId}`);
       }
@@ -83,8 +110,8 @@ export async function directDeleteStrategy(strategyId: string): Promise<boolean>
       console.warn(`Exception deleting monitoring status: ${e}`);
     }
 
-    // 3. Delete any strategy performance records
-    console.log(`Step 3: Deleting performance records for strategy ${strategyId}`);
+    // 4. Delete any strategy performance records
+    console.log(`Step 4: Deleting performance records for strategy ${strategyId}`);
     try {
       const { error: performanceError } = await supabase
         .from('strategy_performance')
@@ -100,8 +127,8 @@ export async function directDeleteStrategy(strategyId: string): Promise<boolean>
       console.warn(`Exception deleting performance records: ${e}`);
     }
 
-    // 4. Delete the strategy itself
-    console.log(`Step 4: Deleting strategy ${strategyId}`);
+    // 5. Delete the strategy itself
+    console.log(`Step 5: Deleting strategy ${strategyId}`);
     const { error: strategyError } = await supabase
       .from('strategies')
       .delete()

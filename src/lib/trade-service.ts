@@ -245,65 +245,49 @@ class TradeService extends EventEmitter {
     try {
       console.log(`TradeService: Removing trades for strategy ${strategyId}`);
 
-      // First, close any active trades
-      try {
-        const { data: activeTrades, error: fetchError } = await supabase
-          .from('trades')
-          .select('id, status')
-          .eq('strategy_id', strategyId)
-          .in('status', ['pending', 'open']);
+      // First let's cleanup any active trades
+      const { data: activeTrades, error: fetchError } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('strategy_id', strategyId)
+        .in('status', ['pending', 'open']);
 
-        if (fetchError) {
-          console.warn(`Error fetching active trades for strategy ${strategyId}:`, fetchError);
-        } else if (activeTrades && activeTrades.length > 0) {
-          console.log(`Found ${activeTrades.length} active trades to close for strategy ${strategyId}`);
+      if (fetchError) {
+        throw new Error(`Error fetching active trades: ${fetchError.message}`);
+      }
 
-          // Update active trades to closed status
-          const { error: updateError } = await supabase
-            .from('trades')
-            .update({
-              status: 'closed',
-              close_reason: 'Strategy deleted',
-              closed_at: new Date().toISOString()
-            })
-            .eq('strategy_id', strategyId)
-            .in('status', ['pending', 'open']);
-
-          if (updateError) {
-            console.warn(`Error closing active trades for strategy ${strategyId}:`, updateError);
-          } else {
-            console.log(`Successfully closed ${activeTrades.length} trades for strategy ${strategyId}`);
+      // Close any active trades first
+      if (activeTrades?.length > 0) {
+        for (const trade of activeTrades) {
+          try {
+            // Update trade status to closed
+            await supabase
+              .from('trades')
+              .update({
+                status: 'closed',
+                close_reason: 'Strategy deleted',
+                closed_at: new Date().toISOString()
+              })
+              .eq('id', trade.id);
+          } catch (error) {
+            console.error(`Error closing trade ${trade.id}:`, error);
           }
         }
-      } catch (closeError) {
-        console.error(`Error in closing trades for strategy ${strategyId}:`, closeError);
-        // Continue with deletion even if closing fails
+      }
+      
+      // Call the database function to handle deletion
+      const { data, error } = await supabase
+        .rpc('delete_strategy', { strategy_id: strategyId });
+
+      if (error) {
+        throw error;
       }
 
-      // Then delete all trades for this strategy
-      try {
-        const { error: deleteError } = await supabase
-          .from('trades')
-          .delete()
-          .eq('strategy_id', strategyId);
-
-        if (deleteError) {
-          console.error(`Error deleting trades for strategy ${strategyId}:`, deleteError);
-          logService.log('error', `Failed to delete trades for strategy ${strategyId}`, deleteError, 'TradeService');
-          return false;
-        }
-
-        console.log(`Successfully deleted all trades for strategy ${strategyId}`);
-        logService.log('info', `Removed all trades for strategy ${strategyId}`, null, 'TradeService');
-        return true;
-      } catch (deleteError) {
-        console.error(`Unexpected error deleting trades for strategy ${strategyId}:`, deleteError);
-        logService.log('error', `Unexpected error deleting trades for strategy ${strategyId}`, deleteError, 'TradeService');
-        return false;
-      }
+      logService.log('info', `Successfully removed strategy ${strategyId} and all related data`, null, 'TradeService');
+      return true;
     } catch (error) {
-      console.error(`Failed to remove trades for strategy ${strategyId}:`, error);
-      logService.log('error', `Failed to remove trades for strategy ${strategyId}`, error, 'TradeService');
+      console.error(`Failed to remove strategy ${strategyId}:`, error);
+      logService.log('error', `Failed to remove strategy ${strategyId}`, error, 'TradeService');
       return false;
     }
   }

@@ -10,6 +10,7 @@ import type {
   ExchangeId
 } from './types';
 import { ccxtService } from './ccxt-service';
+import * as ccxt from 'ccxt';
 
 class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
@@ -304,7 +305,8 @@ class ExchangeService extends EventEmitter {
     return {
       total: parseFloat(ccxtBalance.total.USDT || 0),
       free: parseFloat(ccxtBalance.free.USDT || 0),
-      used: parseFloat(ccxtBalance.used.USDT || 0)
+      used: parseFloat(ccxtBalance.used.USDT || 0),
+      currency: 'USDT' // Default to USDT
     };
   }
 
@@ -399,29 +401,97 @@ class ExchangeService extends EventEmitter {
     return this.initializationPromise;
   }
 
-  private async initializeDemoExchange(config: ExchangeConfig): Promise<void> {
+  private async initializeDemoExchange(_config: ExchangeConfig): Promise<void> {
     try {
+      // Get API keys from environment variables, trying both VITE_ prefixed and non-prefixed versions
+      const apiKey = import.meta.env.VITE_BINANCE_TEST_API_KEY || process.env.BINANCE_TESTNET_API_KEY;
+      const apiSecret = import.meta.env.VITE_BINANCE_TEST_API_SECRET || process.env.BINANCE_TESTNET_API_SECRET;
+
+      if (!apiKey || !apiSecret) {
+        logService.log('warn', 'Missing Binance TestNet API credentials', null, 'ExchangeService');
+        console.warn('Missing Binance TestNet API credentials. Please check your .env file.');
+      }
+
+      console.log('Initializing Binance TestNet exchange with proxy:', import.meta.env.VITE_PROXY_URL);
+      logService.log('info', 'Initializing Binance TestNet exchange',
+        { hasApiKey: !!apiKey, hasApiSecret: !!apiSecret, proxy: import.meta.env.VITE_PROXY_URL }, 'ExchangeService');
+
+      // First, try to ping the Binance TestNet API through our proxy to verify connectivity
+      try {
+        const proxyUrl = `${import.meta.env.VITE_PROXY_URL}binanceTestnet/api/v3/ping`;
+        console.log(`Testing connection to Binance TestNet via proxy: ${proxyUrl}`);
+
+        // Add a timeout to the fetch request
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+        try {
+          const response = await fetch(proxyUrl, { signal: controller.signal });
+          clearTimeout(timeoutId);
+
+          if (!response.ok) {
+            throw new Error(`Failed to ping Binance TestNet API: ${response.status} ${response.statusText}`);
+          }
+
+          console.log('Successfully pinged Binance TestNet API through proxy');
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          if (fetchError.name === 'AbortError') {
+            throw new Error('Connection to Binance TestNet API timed out');
+          }
+          throw fetchError;
+        }
+      } catch (pingError) {
+        console.error('Error pinging Binance TestNet API:', pingError);
+        logService.log('error', 'Failed to ping Binance TestNet API', pingError, 'ExchangeService');
+        console.warn('Continuing with CCXT initialization despite ping failure');
+        // Continue anyway, as CCXT might still work
+      }
+
       const testnetExchange = await ccxtService.createExchange(
         'binance',
         {
-          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY,
-          secret: import.meta.env.VITE_BINANCE_TEST_SECRET,
+          apiKey: apiKey,
+          secret: apiSecret,
         },
         true
       );
 
       this.exchangeInstances.set('binance', testnetExchange);
+
+      console.log('Loading markets from Binance TestNet...');
       await testnetExchange.loadMarkets();
+      console.log('Successfully loaded markets from Binance TestNet');
 
       this.activeExchange = {
         id: 'binance',
         credentials: {
-          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY,
-          secret: import.meta.env.VITE_BINANCE_TEST_SECRET,
+          apiKey: apiKey,
+          secret: apiSecret,
         }
       };
+
+      logService.log('info', 'Successfully initialized Binance TestNet exchange', null, 'ExchangeService');
+      console.log('Successfully initialized Binance TestNet exchange');
     } catch (error) {
       logService.log('error', 'Failed to initialize testnet exchange', error, 'ExchangeService');
+      console.error('Failed to initialize Binance TestNet exchange:', error);
+
+      // Provide more detailed error information
+      if (error instanceof Error) {
+        console.error('Error details:', error.message);
+        if (error.stack) {
+          console.error('Stack trace:', error.stack);
+        }
+
+        // Try to provide a more helpful error message
+        if (error.message.includes('ECONNREFUSED')) {
+          console.error('Connection refused. Make sure the proxy server is running on port 3001.');
+        } else if (error.message.includes('NetworkError')) {
+          console.error('Network error. Check your internet connection and proxy configuration.');
+        }
+      }
+
       throw error;
     }
   }
@@ -430,6 +500,7 @@ class ExchangeService extends EventEmitter {
     return this.demoMode;
   }
 
+  // This method is kept for future use
   private async createExchangeInstance(config: ExchangeConfig): Promise<ccxt.Exchange> {
     return await ccxtService.createExchange(
       config.name as ExchangeId,
@@ -463,7 +534,7 @@ class ExchangeService extends EventEmitter {
 
       const candles = await exchange.fetchOHLCV(symbol, timeframe, undefined, limit);
 
-      return candles.map(candle => ({
+      return candles.map((candle: any) => ({
         timestamp: candle[0],
         open: candle[1],
         high: candle[2],

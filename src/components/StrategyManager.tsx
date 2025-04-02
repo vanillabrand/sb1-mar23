@@ -95,28 +95,105 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     };
   }, []);
 
-  // Add direct DOM event listener for strategy removal
+  // Set up periodic refresh of strategies
+  useEffect(() => {
+    // Initial refresh
+    refreshStrategies();
+
+    // Set up periodic refresh every 30 seconds
+    const refreshInterval = setInterval(() => {
+      console.log('Performing periodic refresh of strategies');
+      refreshStrategies();
+    }, 30000); // 30 seconds
+
+    return () => {
+      clearInterval(refreshInterval);
+    };
+  }, [refreshStrategies]);
+
+  // Define the handlePageChange function
+  const handlePageChange = useCallback((newPage: number) => {
+    console.log(`Changing to page ${newPage}`);
+    setCurrentPage(newPage);
+  }, []);
+
+  // Add comprehensive event listeners for strategy changes
   useEffect(() => {
     const handleStrategyRemove = (event: Event) => {
       const customEvent = event as CustomEvent;
       const strategyId = customEvent.detail?.id;
 
       if (strategyId && strategies) {
-        console.log('Direct DOM event in StrategyManager: strategy:remove', strategyId);
+        console.log('Strategy removal event received:', strategyId);
         // Immediately update the UI
         const updatedStrategies = strategies.filter(s => s.id !== strategyId);
         setFilteredStrategies(updatedStrategies);
+
+        // Force a refresh of the pagination
+        handlePageChange(0);
       }
     };
 
-    // Add the event listener
+    const handleStrategyUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const updatedStrategy = customEvent.detail?.strategy;
+
+      if (updatedStrategy && strategies) {
+        console.log('Strategy update event received:', updatedStrategy.id);
+
+        // Update the strategy in the list
+        const updatedStrategies = strategies.map(s =>
+          s.id === updatedStrategy.id ? updatedStrategy : s
+        );
+
+        // Update filtered strategies
+        setFilteredStrategies(prevFiltered => {
+          return prevFiltered.map(s =>
+            s.id === updatedStrategy.id ? updatedStrategy : s
+          );
+        });
+
+        // Force a refresh of the strategies list
+        refreshStrategies();
+      }
+    };
+
+    const handleStrategyCreate = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const newStrategy = customEvent.detail?.strategy;
+
+      if (newStrategy) {
+        console.log('Strategy creation event received:', newStrategy.id);
+        // Force a refresh to get the new strategy
+        refreshStrategies();
+      }
+    };
+
+    const handleStrategiesUpdated = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const updatedStrategies = customEvent.detail?.strategies;
+
+      if (updatedStrategies) {
+        console.log('Strategies list update event received:', updatedStrategies.length, 'strategies');
+        // Force a refresh of the strategies list
+        refreshStrategies();
+      }
+    };
+
+    // Add the event listeners
     document.addEventListener('strategy:remove', handleStrategyRemove);
+    document.addEventListener('strategy:update', handleStrategyUpdate);
+    document.addEventListener('strategy:create', handleStrategyCreate);
+    document.addEventListener('strategies:updated', handleStrategiesUpdated);
 
     return () => {
-      // Remove the direct DOM event listener
+      // Remove the event listeners
       document.removeEventListener('strategy:remove', handleStrategyRemove);
+      document.removeEventListener('strategy:update', handleStrategyUpdate);
+      document.removeEventListener('strategy:create', handleStrategyCreate);
+      document.removeEventListener('strategies:updated', handleStrategiesUpdated);
     };
-  }, [strategies]);
+  }, [strategies, refreshStrategies]);
 
   // Update filtered strategies whenever dependencies change
   useEffect(() => {
@@ -311,15 +388,26 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       // 2. Store the strategy ID for later use
       const strategyId = strategy.id;
 
-      // 3. Immediately update the UI
+      // 3. Immediately update the UI for instant feedback
       if (strategies) {
         // Update filtered strategies directly
         setFilteredStrategies(prevStrategies => {
           const updated = prevStrategies.filter(s => s.id !== strategyId);
-          console.log(`UI updated: Removed strategy ${strategyId}`);
+          console.log(`UI updated: Removed strategy ${strategyId} from filtered list`);
+          return updated;
+        });
+
+        // Also update paginated strategies
+        setPaginatedStrategies(prevStrategies => {
+          const updated = prevStrategies.filter(s => s.id !== strategyId);
+          console.log(`UI updated: Removed strategy ${strategyId} from paginated list`);
           return updated;
         });
       }
+
+      // Pause strategy sync to prevent race conditions
+      console.log('Pausing strategy sync during deletion');
+      strategySync.pauseSync();
 
       // 4. Use the direct deletion function
       console.log(`Using direct deletion function for strategy ${strategyId}...`);
@@ -328,24 +416,58 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       if (success) {
         console.log(`Strategy ${strategyId} successfully deleted from database`);
       } else {
-        console.error(`Failed to delete strategy ${strategyId} from database`);
+        console.error(`Failed to delete strategy ${strategyId} from database, trying alternative methods`);
 
-        // Try one more time with a direct SQL query
+        // Try deleting trades first to avoid foreign key constraints
         try {
-          console.log(`Attempting direct SQL query as last resort...`);
-          await supabase.rpc('execute_sql', {
-            query: `
-              DELETE FROM trades WHERE strategy_id = '${strategyId}';
-              DELETE FROM strategies WHERE id = '${strategyId}';
-            `
-          });
-          console.log(`Direct SQL query executed for strategy ${strategyId}`);
-        } catch (sqlError) {
-          console.error(`Final SQL attempt failed: ${sqlError}`);
+          console.log(`Deleting trades for strategy ${strategyId}`);
+          const { error: tradesError } = await supabase
+            .from('trades')
+            .delete()
+            .eq('strategy_id', strategyId);
+
+          if (tradesError) {
+            console.warn(`Error deleting trades: ${tradesError.message}`);
+          } else {
+            console.log(`Successfully deleted all trades for strategy ${strategyId}`);
+          }
+        } catch (tradesError) {
+          console.warn(`Exception deleting trades: ${tradesError}`);
+        }
+
+        // Try direct strategy deletion
+        try {
+          console.log(`Deleting strategy ${strategyId} directly`);
+          const { error: strategyError } = await supabase
+            .from('strategies')
+            .delete()
+            .eq('id', strategyId);
+
+          if (strategyError) {
+            console.error(`Error deleting strategy: ${strategyError.message}`);
+
+            // Last resort: Try with a direct SQL query
+            try {
+              console.log(`Attempting direct SQL query as last resort...`);
+              await supabase.rpc('execute_sql', {
+                query: `
+                  DELETE FROM trades WHERE strategy_id = '${strategyId}';
+                  DELETE FROM strategies WHERE id = '${strategyId}';
+                `
+              });
+              console.log(`Direct SQL query executed for strategy ${strategyId}`);
+            } catch (sqlError) {
+              console.error(`Final SQL attempt failed: ${sqlError}`);
+            }
+          } else {
+            console.log(`Successfully deleted strategy ${strategyId} directly`);
+          }
+        } catch (strategyError) {
+          console.error(`Exception deleting strategy: ${strategyError}`);
         }
       }
 
-      // Verify deletion
+      // 5. Verify deletion
       try {
         const { data: checkData } = await supabase
           .from('strategies')
@@ -362,15 +484,34 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         console.error(`Error verifying deletion: ${verifyError}`);
       }
 
-      // 6. Force refresh in the background
+      // 6. Broadcast the deletion event for other components
+      eventBus.emit('strategy:deleted', { strategyId });
+      document.dispatchEvent(new CustomEvent('strategy:remove', {
+        detail: { id: strategyId }
+      }));
+
+      // 7. Force a complete refresh of the strategies list
+      console.log('Refreshing strategies list after deletion');
+      await refreshStrategies();
+
+      // 8. Resume strategy sync after a delay
       setTimeout(() => {
-        refreshStrategies().catch(e => console.warn('Error refreshing strategies:', e));
-      }, 1000);
+        console.log('Resuming strategy sync');
+        strategySync.resumeSync();
+      }, 2000); // Wait 2 seconds before resuming sync
 
       logService.log('info', `Strategy ${strategyId} deleted successfully`, null, 'StrategyManager');
+      console.log(`Strategy ${strategyId} deletion process completed`);
     } catch (error) {
       console.error('Unexpected error in delete handler:', error);
-      // Don't show error to user since UI is already updated
+      setError('Failed to delete strategy. Please try again.');
+
+      // Even if there's an error, try to refresh the strategies list
+      try {
+        await refreshStrategies();
+      } catch (refreshError) {
+        console.error('Error refreshing strategies after deletion error:', refreshError);
+      }
     } finally {
       setIsDeleting(false);
     }
@@ -844,7 +985,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                     <Pagination
                       currentPage={currentPage}
                       totalPages={totalPages}
-                      onPageChange={setCurrentPage}
+                      onPageChange={handlePageChange}
                       itemsPerPage={ITEMS_PER_PAGE}
                       totalItems={filteredStrategies?.length || 0}
                       showPageNumbers={true}

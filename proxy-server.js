@@ -100,6 +100,7 @@ const exchangeProxies = {
       if (req.headers.authorization) {
         proxyReq.setHeader('Authorization', req.headers.authorization);
       }
+      console.log(`Proxying request to Binance TestNet: ${req.method} ${req.url}`);
     },
     onProxyRes: (proxyRes, req, _res) => {
       // Remove ALL existing CORS headers
@@ -114,6 +115,20 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
       proxyRes.headers['access-control-allow-headers'] = '*';
+
+      console.log(`Received response from Binance TestNet: ${proxyRes.statusCode}`);
+    },
+    onError: (err, req, res) => {
+      console.error(`Proxy error for Binance TestNet: ${err.message}`);
+      res.writeHead(500, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',
+        'Access-Control-Allow-Credentials': 'true'
+      });
+      res.end(JSON.stringify({
+        error: 'Proxy error',
+        message: err.message
+      }));
     }
   }
 };

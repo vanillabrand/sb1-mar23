@@ -111,6 +111,23 @@ export interface ExchangeConfig {
   useUSDX?: boolean;
 }
 
+// Exchange interface for compatibility with ccxt
+export interface Exchange {
+  id: string;
+  credentials: ExchangeCredentials;
+  spotSupported?: boolean;
+  marginSupported?: boolean;
+  futuresSupported?: boolean;
+}
+
+// Wallet balance interface
+export interface WalletBalance {
+  free: number;
+  used: number;
+  total: number;
+  currency: string;
+}
+
 export interface StrategyTemplate {
   id: string;
   title: string;
@@ -191,4 +208,54 @@ export interface NewsItem {
   relatedAssets?: string[];
   sentiment?: 'positive' | 'negative' | 'neutral';
   summary?: string;
+}
+
+export interface TradeSignal {
+  id?: string;
+  strategy_id: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  entry_price?: number;
+  target_price?: number;
+  stop_loss?: number;
+  quantity?: number;
+  confidence?: number;
+  signal_type?: 'entry' | 'exit';
+  status?: 'pending' | 'executed' | 'cancelled';
+  expires_at?: string;
+  executed_at?: string;
+  cancelled_at?: string;
+  cancel_reason?: string;
+  metadata?: any;
+}
+
+export interface TradeConfig {
+  symbol: string;
+  side: 'buy' | 'sell';
+  quantity: number;
+  price: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  trailingStop?: number;
+  leverage?: number;
+  margin?: boolean;
+  timeInForce?: string;
+}
+
+export interface TradeAnalysis {
+  shouldClose: boolean;
+  shouldAdjustStops: boolean;
+  reason: string;
+  recommendedStops?: {
+    stopLoss?: number;
+    takeProfit?: number;
+    trailingStop?: number;
+  };
+}
+
+export interface MarketFitAnalysis {
+  score: number;
+  confidence: number;
+  reasons: string[];
+  recommendations: string[];
 }

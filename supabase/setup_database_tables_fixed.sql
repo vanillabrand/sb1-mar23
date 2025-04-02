@@ -4,7 +4,7 @@
 -- Create extension for UUID generation if not already created
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Create strategies table if it doesn't exist
+-- Create all tables first
 CREATE TABLE IF NOT EXISTS strategies (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -19,7 +19,6 @@ CREATE TABLE IF NOT EXISTS strategies (
     performance NUMERIC DEFAULT 0
 );
 
--- Create trades table if it doesn't exist
 CREATE TABLE IF NOT EXISTS trades (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -38,7 +37,6 @@ CREATE TABLE IF NOT EXISTS trades (
     trade_config JSONB DEFAULT '{}'::JSONB
 );
 
--- Create template_strategies table if it doesn't exist
 CREATE TABLE IF NOT EXISTS template_strategies (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -52,7 +50,6 @@ CREATE TABLE IF NOT EXISTS template_strategies (
     performance NUMERIC DEFAULT 0
 );
 
--- Create monitoring_status table if it doesn't exist
 CREATE TABLE IF NOT EXISTS monitoring_status (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -64,7 +61,6 @@ CREATE TABLE IF NOT EXISTS monitoring_status (
     market_conditions JSONB DEFAULT '{}'::JSONB
 );
 
--- Create strategy_performance table if it doesn't exist
 CREATE TABLE IF NOT EXISTS strategy_performance (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -81,7 +77,6 @@ CREATE TABLE IF NOT EXISTS strategy_performance (
     metrics JSONB DEFAULT '{}'::JSONB
 );
 
--- Create trade_signals table if it doesn't exist
 CREATE TABLE IF NOT EXISTS trade_signals (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -103,7 +98,6 @@ CREATE TABLE IF NOT EXISTS trade_signals (
     metadata JSONB DEFAULT '{}'::JSONB
 );
 
--- Create strategy_templates table if it doesn't exist (alias for template_strategies)
 CREATE TABLE IF NOT EXISTS strategy_templates (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -114,10 +108,12 @@ CREATE TABLE IF NOT EXISTS strategy_templates (
     status TEXT DEFAULT 'active',
     selected_pairs JSONB DEFAULT '[]'::JSONB,
     strategy_config JSONB DEFAULT '{}'::JSONB,
-    performance NUMERIC DEFAULT 0
+    performance NUMERIC DEFAULT 0,
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    title TEXT,
+    risk_level TEXT
 );
 
--- Create transaction_history table if it doesn't exist
 CREATE TABLE IF NOT EXISTS transaction_history (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
@@ -132,304 +128,99 @@ CREATE TABLE IF NOT EXISTS transaction_history (
     metadata JSONB DEFAULT '{}'::JSONB
 );
 
--- Create RLS policies for strategies table to ensure user isolation
-ALTER TABLE strategies ENABLE ROW LEVEL SECURITY;
+-- Create indexes
+CREATE INDEX IF NOT EXISTS idx_trade_signals_strategy ON trade_signals(strategy_id);
+CREATE INDEX IF NOT EXISTS idx_trade_signals_status ON trade_signals(status);
+CREATE INDEX IF NOT EXISTS idx_trade_signals_expires ON trade_signals(expires_at);
 
--- Drop existing policies if they exist
+-- Now create all RLS policies
+ALTER TABLE strategies ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can only see their own strategies" ON strategies;
 DROP POLICY IF EXISTS "Users can only insert their own strategies" ON strategies;
 DROP POLICY IF EXISTS "Users can only update their own strategies" ON strategies;
 DROP POLICY IF EXISTS "Users can only delete their own strategies" ON strategies;
 
--- Users can only see their own strategies
-CREATE POLICY "Users can only see their own strategies"
-ON strategies
-FOR SELECT
-USING (auth.uid() = user_id);
+CREATE POLICY "Users can only see their own strategies" ON strategies FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can only insert their own strategies" ON strategies FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can only update their own strategies" ON strategies FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can only delete their own strategies" ON strategies FOR DELETE USING (auth.uid() = user_id);
 
--- Users can only insert their own strategies
-CREATE POLICY "Users can only insert their own strategies"
-ON strategies
-FOR INSERT
-WITH CHECK (auth.uid() = user_id);
-
--- Users can only update their own strategies
-CREATE POLICY "Users can only update their own strategies"
-ON strategies
-FOR UPDATE
-USING (auth.uid() = user_id);
-
--- Users can only delete their own strategies
-CREATE POLICY "Users can only delete their own strategies"
-ON strategies
-FOR DELETE
-USING (auth.uid() = user_id);
-
--- Create RLS policies for trades table to ensure user isolation
 ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can only see trades for their own strategies" ON trades;
+DROP POLICY IF EXISTS "Users can only insert trades for their own strategies" ON trades;
+DROP POLICY IF EXISTS "Users can only update trades for their own strategies" ON trades;
+DROP POLICY IF EXISTS "Users can only delete trades for their own strategies" ON trades;
 
--- Users can only see trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see trades for their own strategies"
-ON trades
-FOR SELECT
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
+CREATE POLICY "Users can only see trades for their own strategies" ON trades FOR SELECT USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only insert trades for their own strategies" ON trades FOR INSERT WITH CHECK (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only update trades for their own strategies" ON trades FOR UPDATE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only delete trades for their own strategies" ON trades FOR DELETE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
 
--- Users can only insert trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert trades for their own strategies"
-ON trades
-FOR INSERT
-WITH CHECK (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only update trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update trades for their own strategies"
-ON trades
-FOR UPDATE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only delete trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete trades for their own strategies"
-ON trades
-FOR DELETE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Create RLS policies for template_strategies
 ALTER TABLE template_strategies ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Template strategies are readable by all authenticated users" ON template_strategies;
+DROP POLICY IF EXISTS "Only admins can insert template strategies" ON template_strategies;
+DROP POLICY IF EXISTS "Only admins can update template strategies" ON template_strategies;
+DROP POLICY IF EXISTS "Only admins can delete template strategies" ON template_strategies;
 
--- Allow all authenticated users to read template strategies
-CREATE POLICY IF NOT EXISTS "Template strategies are readable by all authenticated users"
-ON template_strategies
-FOR SELECT
-USING (auth.role() = 'authenticated');
+CREATE POLICY "Template strategies are readable by all authenticated users" ON template_strategies FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Only admins can insert template strategies" ON template_strategies FOR INSERT WITH CHECK (auth.role() = 'service_role');
+CREATE POLICY "Only admins can update template strategies" ON template_strategies FOR UPDATE USING (auth.role() = 'service_role');
+CREATE POLICY "Only admins can delete template strategies" ON template_strategies FOR DELETE USING (auth.role() = 'service_role');
 
--- Only allow admins to insert, update, or delete template strategies
-CREATE POLICY IF NOT EXISTS "Only admins can insert template strategies"
-ON template_strategies
-FOR INSERT
-WITH CHECK (auth.role() = 'service_role');
-
-CREATE POLICY IF NOT EXISTS "Only admins can update template strategies"
-ON template_strategies
-FOR UPDATE
-USING (auth.role() = 'service_role');
-
-CREATE POLICY IF NOT EXISTS "Only admins can delete template strategies"
-ON template_strategies
-FOR DELETE
-USING (auth.role() = 'service_role');
-
--- Create RLS policies for monitoring_status
 ALTER TABLE monitoring_status ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can only see monitoring status for their own strategies" ON monitoring_status;
+DROP POLICY IF EXISTS "Users can only insert monitoring status for their own strategies" ON monitoring_status;
+DROP POLICY IF EXISTS "Users can only update monitoring status for their own strategies" ON monitoring_status;
+DROP POLICY IF EXISTS "Users can only delete monitoring status for their own strategies" ON monitoring_status;
 
--- Users can only see monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see monitoring status for their own strategies"
-ON monitoring_status
-FOR SELECT
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
+CREATE POLICY "Users can only see monitoring status for their own strategies" ON monitoring_status FOR SELECT USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only insert monitoring status for their own strategies" ON monitoring_status FOR INSERT WITH CHECK (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only update monitoring status for their own strategies" ON monitoring_status FOR UPDATE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only delete monitoring status for their own strategies" ON monitoring_status FOR DELETE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
 
--- Users can only insert monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert monitoring status for their own strategies"
-ON monitoring_status
-FOR INSERT
-WITH CHECK (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only update monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update monitoring status for their own strategies"
-ON monitoring_status
-FOR UPDATE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only delete monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete monitoring status for their own strategies"
-ON monitoring_status
-FOR DELETE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Create RLS policies for strategy_performance
 ALTER TABLE strategy_performance ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can only see performance for their own strategies" ON strategy_performance;
+DROP POLICY IF EXISTS "Users can only insert performance for their own strategies" ON strategy_performance;
+DROP POLICY IF EXISTS "Users can only update performance for their own strategies" ON strategy_performance;
+DROP POLICY IF EXISTS "Users can only delete performance for their own strategies" ON strategy_performance;
 
--- Users can only see performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see performance for their own strategies"
-ON strategy_performance
-FOR SELECT
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
+CREATE POLICY "Users can only see performance for their own strategies" ON strategy_performance FOR SELECT USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only insert performance for their own strategies" ON strategy_performance FOR INSERT WITH CHECK (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only update performance for their own strategies" ON strategy_performance FOR UPDATE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only delete performance for their own strategies" ON strategy_performance FOR DELETE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
 
--- Users can only insert performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert performance for their own strategies"
-ON strategy_performance
-FOR INSERT
-WITH CHECK (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only update performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update performance for their own strategies"
-ON strategy_performance
-FOR UPDATE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only delete performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete performance for their own strategies"
-ON strategy_performance
-FOR DELETE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Create RLS policies for trade_signals
 ALTER TABLE trade_signals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can only see trade signals for their own strategies" ON trade_signals;
+DROP POLICY IF EXISTS "Users can only insert trade signals for their own strategies" ON trade_signals;
+DROP POLICY IF EXISTS "Users can only update trade signals for their own strategies" ON trade_signals;
+DROP POLICY IF EXISTS "Users can only delete trade signals for their own strategies" ON trade_signals;
 
--- Create indexes for trade_signals
-CREATE INDEX IF NOT EXISTS idx_trade_signals_strategy ON trade_signals(strategy_id);
-CREATE INDEX IF NOT EXISTS idx_trade_signals_status ON trade_signals(status);
-CREATE INDEX IF NOT EXISTS idx_trade_signals_expires ON trade_signals(expires_at);
+CREATE POLICY "Users can only see trade signals for their own strategies" ON trade_signals FOR SELECT USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only insert trade signals for their own strategies" ON trade_signals FOR INSERT WITH CHECK (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only update trade signals for their own strategies" ON trade_signals FOR UPDATE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
+CREATE POLICY "Users can only delete trade signals for their own strategies" ON trade_signals FOR DELETE USING (strategy_id IN (SELECT id FROM strategies WHERE user_id = auth.uid()));
 
--- Users can only see trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see trade signals for their own strategies"
-ON trade_signals
-FOR SELECT
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only insert trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert trade signals for their own strategies"
-ON trade_signals
-FOR INSERT
-WITH CHECK (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only update trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update trade signals for their own strategies"
-ON trade_signals
-FOR UPDATE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Users can only delete trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete trade signals for their own strategies"
-ON trade_signals
-FOR DELETE
-USING (
-    strategy_id IN (
-        SELECT id FROM strategies WHERE user_id = auth.uid()
-    )
-);
-
--- Create RLS policies for strategy_templates
 ALTER TABLE strategy_templates ENABLE ROW LEVEL SECURITY;
-
--- Drop existing policies if they exist
 DROP POLICY IF EXISTS "Template strategies are readable by all authenticated users" ON strategy_templates;
 DROP POLICY IF EXISTS "Only admins can insert template strategies" ON strategy_templates;
 DROP POLICY IF EXISTS "Only admins can update template strategies" ON strategy_templates;
 DROP POLICY IF EXISTS "Only admins can delete template strategies" ON strategy_templates;
 
--- Allow all authenticated users to read template strategies
-CREATE POLICY "Template strategies are readable by all authenticated users"
-ON strategy_templates
-FOR SELECT
-USING (auth.role() = 'authenticated');
+CREATE POLICY "Template strategies are readable by all authenticated users" ON strategy_templates FOR SELECT USING (auth.role() = 'authenticated');
+CREATE POLICY "Only admins can insert template strategies" ON strategy_templates FOR INSERT WITH CHECK (auth.role() = 'service_role');
+CREATE POLICY "Only admins can update template strategies" ON strategy_templates FOR UPDATE USING (auth.role() = 'service_role');
+CREATE POLICY "Only admins can delete template strategies" ON strategy_templates FOR DELETE USING (auth.role() = 'service_role');
 
--- Only allow admins to insert, update, or delete template strategies
-CREATE POLICY "Only admins can insert template strategies"
-ON strategy_templates
-FOR INSERT
-WITH CHECK (auth.role() = 'service_role');
-
-CREATE POLICY "Only admins can update template strategies"
-ON strategy_templates
-FOR UPDATE
-USING (auth.role() = 'service_role');
-
-CREATE POLICY "Only admins can delete template strategies"
-ON strategy_templates
-FOR DELETE
-USING (auth.role() = 'service_role');
-
--- Create RLS policies for transaction_history
 ALTER TABLE transaction_history ENABLE ROW LEVEL SECURITY;
-
--- Drop existing policies if they exist
 DROP POLICY IF EXISTS "Users can only see their own transactions" ON transaction_history;
 DROP POLICY IF EXISTS "Users can only insert their own transactions" ON transaction_history;
 DROP POLICY IF EXISTS "Users can only update their own transactions" ON transaction_history;
 DROP POLICY IF EXISTS "Users can only delete their own transactions" ON transaction_history;
 
--- Users can only see their own transactions
-CREATE POLICY "Users can only see their own transactions"
-ON transaction_history
-FOR SELECT
-USING (auth.uid() = user_id);
-
--- Users can only insert their own transactions
-CREATE POLICY "Users can only insert their own transactions"
-ON transaction_history
-FOR INSERT
-WITH CHECK (auth.uid() = user_id);
-
--- Users can only update their own transactions
-CREATE POLICY "Users can only update their own transactions"
-ON transaction_history
-FOR UPDATE
-USING (auth.uid() = user_id);
-
--- Users can only delete their own transactions
-CREATE POLICY "Users can only delete their own transactions"
-ON transaction_history
-FOR DELETE
-USING (auth.uid() = user_id);
+CREATE POLICY "Users can only see their own transactions" ON transaction_history FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can only insert their own transactions" ON transaction_history FOR INSERT WITH CHECK (auth.uid() = user_id);
+CREATE POLICY "Users can only update their own transactions" ON transaction_history FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can only delete their own transactions" ON transaction_history FOR DELETE USING (auth.uid() = user_id);
 
 -- Add a function to delete a strategy and all its related records
 CREATE OR REPLACE FUNCTION delete_strategy(strategy_id UUID)

@@ -54,7 +54,11 @@ function App() {
         { name: 'websocket', fn: () => systemSync.initializeWebSocket() },
         { name: 'exchange', fn: () => systemSync.initializeExchange() },
         { name: 'analytics', fn: () => analyticsService.initialize() },
-        { name: 'templates', fn: () => templateManager.initialize() },
+        { name: 'templates', fn: async () => {
+          await templateManager.initialize();
+          // Force generation of demo templates
+          await templateManager.generateDemoTemplatesIfNeeded();
+        } },
         { name: 'trading', fn: () => tradeEngine.initialize() },
         { name: 'wallet', fn: () => walletBalanceService.initialize() },
         { name: 'demo', fn: () => Promise.resolve(demoService.isInDemoMode()) }

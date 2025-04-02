@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Clock, Calendar } from 'lucide-react';
-import { 
+import {
   analyticsService,
   monitoringService,
-  logService 
+  logService
 } from '../lib/services';
 import { supabase } from '../lib/supabase-client';
 import { useAuth } from '../hooks/useAuth';
-import { 
+import {
   StrategyAssetPanel,
   ErrorBoundary,
   WidgetError,
@@ -23,9 +23,9 @@ import {
   AssetDistribution
 } from './index';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
-import type { 
+import type {
   Strategy,
-  MonitoringStatus 
+  MonitoringStatus
 } from '../lib/types';
 
 const TIMEZONES = [
@@ -61,8 +61,9 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
   const [localStrategies, setLocalStrategies] = useState<Strategy[]>(initialStrategies);
   const [localMonitoringStatuses, setLocalMonitoringStatuses] = useState<Record<string, MonitoringStatus>>(initialStatuses);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(false);
 
-  const activeStrategies = useMemo(() => 
+  const activeStrategies = useMemo(() =>
     localStrategies.filter(s => s.status === 'active'),
     [localStrategies]
   );
@@ -111,7 +112,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
     const initializeMonitoring = async () => {
       try {
         await monitoringService.initialize();
-        
+
         const statuses = await monitoringService.getAllMonitoringStatuses();
         const statusMap: Record<string, MonitoringStatus> = {};
         statuses.forEach(status => {
@@ -153,7 +154,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
 
   const loadStrategies = async () => {
     if (!user) return;
-    
+
     try {
       const { data, error } = await supabase
         .from('strategies')
@@ -168,9 +169,21 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
     }
   };
 
+  const loadPerformanceMetrics = async () => {
+    // This function would normally load performance metrics from the backend
+    // For now, we'll just use a placeholder
+    return Promise.resolve();
+  };
+
+  const loadActiveTrades = async () => {
+    // This function would normally load active trades from the backend
+    // For now, we'll just use a placeholder
+    return Promise.resolve();
+  };
+
   useEffect(() => {
     loadStrategies();
-    
+
     if (!user) return;
 
     const subscription = supabase
@@ -223,7 +236,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         <div className="flex items-center gap-2">
           <Calendar className="w-6 h-6 text-neon-yellow" />
           <h1 className="text-2xl font-bold gradient-text">
-            {currentDate.toLocaleDateString(undefined, { 
+            {currentDate.toLocaleDateString(undefined, {
               weekday: 'long',
               year: 'numeric',
               month: 'long',
@@ -279,10 +292,14 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             <WorldClock timezone={selectedTimezone} />
           </div>
 
-          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
-            <DefconMonitor 
-              strategies={activeStrategies} 
-              className="mb-6"
+          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-4 sm:p-5 shadow-lg border border-gunmetal-800/50">
+            <h3 className="text-sm font-medium text-gray-400 mb-3 sm:mb-4 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-neon-turquoise"></span>
+              System Status
+            </h3>
+            <DefconMonitor
+              strategies={activeStrategies}
+              className="mb-2 sm:mb-3"
             />
           </div>
 

@@ -24,8 +24,9 @@ class GlobalCacheService {
   // Default assets to monitor when none are specified
   private readonly DEFAULT_ASSETS = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'];
 
-  // Cache refresh interval (15 minutes)
-  private readonly CACHE_REFRESH_INTERVAL = 15 * 60 * 1000;
+  // Cache refresh interval (60 minutes for market insights, which don't change frequently)
+  private readonly CACHE_REFRESH_INTERVAL = 60 * 60 * 1000;
+  private readonly NEWS_REFRESH_INTERVAL = 15 * 60 * 1000; // Keep news refreshing more frequently
 
   // Background refresh timers
   private marketInsightsTimer: NodeJS.Timeout | null = null;
@@ -33,8 +34,57 @@ class GlobalCacheService {
   private portfolioTimer: NodeJS.Timeout | null = null;
 
   private constructor() {
+    // Load cache from localStorage if available
+    this.loadCacheFromLocalStorage();
+
     // Initialize caches on service creation
     this.initializeCache();
+  }
+
+  /**
+   * Load cache from localStorage if available
+   */
+  private loadCacheFromLocalStorage(): void {
+    try {
+      // Load market insights cache
+      const marketInsightsCache = localStorage.getItem('marketInsightsCache');
+      if (marketInsightsCache) {
+        const parsed = JSON.parse(marketInsightsCache);
+        Object.entries(parsed).forEach(([key, value]) => {
+          this.marketInsightsCache.set(key, value as MarketInsight);
+        });
+
+        // Load last update time
+        const lastUpdateTime = localStorage.getItem('marketInsightsLastUpdate');
+        if (lastUpdateTime) {
+          this.marketInsightsLastUpdate = parseInt(lastUpdateTime, 10);
+        }
+
+        logService.log('info', 'Loaded market insights cache from localStorage', null, 'GlobalCacheService');
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to load cache from localStorage', error, 'GlobalCacheService');
+      // Continue with empty cache
+    }
+  }
+
+  /**
+   * Save cache to localStorage
+   */
+  private saveCacheToLocalStorage(): void {
+    try {
+      // Save market insights cache
+      const marketInsightsCache = Object.fromEntries(this.marketInsightsCache.entries());
+      localStorage.setItem('marketInsightsCache', JSON.stringify(marketInsightsCache));
+
+      // Save last update time
+      localStorage.setItem('marketInsightsLastUpdate', this.marketInsightsLastUpdate.toString());
+
+      logService.log('info', 'Saved market insights cache to localStorage', null, 'GlobalCacheService');
+    } catch (error) {
+      logService.log('error', 'Failed to save cache to localStorage', error, 'GlobalCacheService');
+      // Continue without saving
+    }
   }
 
   static getInstance(): GlobalCacheService {
@@ -82,7 +132,7 @@ class GlobalCacheService {
         this.refreshNews().catch(error => {
           logService.log('error', 'Failed to refresh news cache', error, 'GlobalCacheService');
         });
-      }, this.CACHE_REFRESH_INTERVAL);
+      }, this.NEWS_REFRESH_INTERVAL);
 
       this.portfolioTimer = setInterval(() => {
         this.refreshPortfolioData().catch(error => {
@@ -148,6 +198,9 @@ class GlobalCacheService {
       this.marketInsightsCache.set(cacheKey, insights);
       this.marketInsightsLastUpdate = Date.now();
 
+      // Save to localStorage
+      this.saveCacheToLocalStorage();
+
       logService.log('info', 'Market insights cache refreshed successfully', null, 'GlobalCacheService');
       return insights;
     } catch (error) {
@@ -163,6 +216,9 @@ class GlobalCacheService {
       const syntheticInsights = this.createSyntheticMarketInsights();
       this.marketInsightsCache.set(cacheKey, syntheticInsights);
       this.marketInsightsLastUpdate = Date.now();
+
+      // Save to localStorage
+      this.saveCacheToLocalStorage();
 
       return syntheticInsights;
     }

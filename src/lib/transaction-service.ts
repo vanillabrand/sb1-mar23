@@ -108,8 +108,15 @@ class TransactionService extends EventEmitter {
         .order('created_at', { ascending: false });
 
       if (error) {
-        logService.log('error', 'Supabase query error', error, 'TransactionService');
-        throw error;
+        // Check if the error is because the transaction_history table doesn't exist
+        if (error.message && error.message.includes('relation "transaction_history" does not exist')) {
+          logService.log('warn', 'Transaction history table does not exist, returning empty array', null, 'TransactionService');
+          console.warn('Transaction history table does not exist. Please run the database setup script.');
+          return [];
+        } else {
+          logService.log('error', 'Supabase query error', error, 'TransactionService');
+          throw error;
+        }
       }
 
       return transactions || [];
@@ -149,7 +156,22 @@ class TransactionService extends EventEmitter {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Check if the error is because the transaction_history table doesn't exist
+        if (error.message && error.message.includes('relation "transaction_history" does not exist')) {
+          logService.log('warn', 'Transaction history table does not exist, skipping transaction recording', null, 'TransactionService');
+          console.warn('Transaction history table does not exist. Please run the database setup script.');
+
+          // Return a synthetic transaction object
+          return {
+            ...transaction,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          } as Transaction;
+        } else {
+          throw error;
+        }
+      }
       if (!data) throw new Error('Failed to create transaction');
 
       // Update local cache
