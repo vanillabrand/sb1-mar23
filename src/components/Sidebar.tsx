@@ -29,7 +29,7 @@ interface NavItemProps {
 
 const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className }) => {
   const baseClass = `flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${className || ''}`;
-  
+
   if (to) {
     return (
       <NavLink
@@ -37,8 +37,8 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className }
         className={({ isActive }) =>
           `${baseClass} ${
             isActive
-              ? 'bg-gunmetal-800 text-neon-turquoise'
-              : 'text-gray-400 hover:text-white hover:bg-gunmetal-800/50'
+              ? 'bg-gunmetal-800/80 text-neon-turquoise font-medium shadow-inner'
+              : 'text-gray-400 hover:text-white hover:bg-gunmetal-900/80'
           }`
         }
       >
@@ -51,7 +51,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className }
   return (
     <button
       onClick={onClick}
-      className={`${baseClass} text-gray-400 hover:text-white hover:bg-gunmetal-800/50`}
+      className={`${baseClass} text-gray-400 hover:text-white hover:bg-gunmetal-900/80`}
     >
       {icon}
       <span>{label}</span>
@@ -78,7 +78,7 @@ export const Sidebar: React.FC = () => {
 
       // Navigate to home page
       navigate('/');
-      
+
       logService.log('info', 'User signed out successfully', null, 'Sidebar');
     } catch (error) {
       logService.log('error', 'Error during sign out:', error, 'Sidebar');
@@ -89,7 +89,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className="w-64 h-screen bg-gunmetal-900/95 backdrop-blur-xl border-r border-gunmetal-800 p-4 flex flex-col">
+    <div className="w-64 h-screen bg-gunmetal-950 backdrop-blur-xl border-r border-gunmetal-800/50 p-4 flex flex-col shadow-xl">
       <div className="px-4 py-3 mb-6">
         <KilnLogo />
       </div>
@@ -147,7 +147,7 @@ export const Sidebar: React.FC = () => {
         />
       </nav>
 
-      <div className="pt-4 border-t border-gunmetal-800">
+      <div className="pt-4 border-t border-gunmetal-800/30 mt-4">
         <NavItem
           icon={<LogOut className="w-5 h-5" />}
           label="Sign Out"

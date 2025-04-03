@@ -363,6 +363,14 @@ class ExchangeService extends EventEmitter {
         if (config.testnet) {
           this.demoMode = true;
           await this.initializeDemoExchange(config);
+
+          // Also initialize the futures exchange in demo mode
+          try {
+            await this.initializeFuturesExchange(config);
+          } catch (futuresError) {
+            logService.log('warn', 'Failed to initialize futures exchange, continuing with spot only', futuresError, 'ExchangeService');
+            console.warn('Failed to initialize futures exchange, continuing with spot only:', futuresError);
+          }
         } else {
           const exchange = await ccxtService.createExchange(
             config.name as ExchangeId,
@@ -401,6 +409,56 @@ class ExchangeService extends EventEmitter {
     return this.initializationPromise;
   }
 
+  private async initializeFuturesExchange(_config: ExchangeConfig): Promise<void> {
+    try {
+      // Get API keys from environment variables
+      const apiKey = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_KEY || process.env.BINANCE_FUTURES_TESTNET_API_KEY;
+      const apiSecret = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_SECRET || process.env.BINANCE_FUTURES_TESTNET_API_SECRET;
+
+      if (!apiKey || !apiSecret) {
+        logService.log('warn', 'Missing Binance Futures TestNet API credentials', null, 'ExchangeService');
+        console.warn('Missing Binance Futures TestNet API credentials. Please check your .env file.');
+      }
+
+      // Create a new CCXT exchange instance for Binance Futures
+      const futuresExchange = await ccxtService.createExchange(
+        'binance',
+        {
+          apiKey: apiKey,
+          secret: apiSecret,
+        },
+        true
+      );
+
+      // Configure the exchange for futures trading
+      futuresExchange.options.defaultType = 'future';
+
+      // Set the base URLs for the Binance Futures TestNet
+      const testnetBaseUrl = import.meta.env.VITE_PROXY_URL ?
+        `${import.meta.env.VITE_PROXY_URL}binanceFutures` :
+        'https://testnet.binancefuture.com';
+
+      console.log('Using Binance Futures TestNet base URL:', testnetBaseUrl);
+
+      futuresExchange.urls.api = {
+        ...futuresExchange.urls.api,
+        fapiPublic: `${testnetBaseUrl}/fapi/v1`,
+        fapiPrivate: `${testnetBaseUrl}/fapi/v1`,
+        fapiPublicV2: `${testnetBaseUrl}/fapi/v2`,
+        fapiPrivateV2: `${testnetBaseUrl}/fapi/v2`,
+      };
+
+      this.exchangeInstances.set('binanceFutures', futuresExchange);
+
+      logService.log('info', 'Successfully initialized Binance Futures TestNet exchange', null, 'ExchangeService');
+      console.log('Successfully initialized Binance Futures TestNet exchange');
+    } catch (error) {
+      logService.log('error', 'Failed to initialize Binance Futures TestNet exchange', error, 'ExchangeService');
+      console.error('Failed to initialize Binance Futures TestNet exchange:', error);
+      throw error;
+    }
+  }
+
   private async initializeDemoExchange(_config: ExchangeConfig): Promise<void> {
     try {
       // Get API keys from environment variables, trying both VITE_ prefixed and non-prefixed versions
@@ -423,10 +481,17 @@ class ExchangeService extends EventEmitter {
 
         // Add a timeout to the fetch request
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout (increased)
 
         try {
-          const response = await fetch(proxyUrl, { signal: controller.signal });
+          // Use no-cors mode to avoid CORS issues during the ping test
+          const response = await fetch(proxyUrl, {
+            signal: controller.signal,
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'application/json'
+            }
+          });
           clearTimeout(timeoutId);
 
           if (!response.ok) {
@@ -439,7 +504,8 @@ class ExchangeService extends EventEmitter {
           if (fetchError.name === 'AbortError') {
             throw new Error('Connection to Binance TestNet API timed out');
           }
-          throw fetchError;
+          console.warn('Fetch error during ping test:', fetchError);
+          // Don't throw here, just log and continue
         }
       } catch (pingError) {
         console.error('Error pinging Binance TestNet API:', pingError);
@@ -447,6 +513,14 @@ class ExchangeService extends EventEmitter {
         console.warn('Continuing with CCXT initialization despite ping failure');
         // Continue anyway, as CCXT might still work
       }
+
+      // Log the API credentials (without showing the actual values)
+      console.log('Binance TestNet API credentials:', {
+        hasApiKey: !!apiKey,
+        hasApiSecret: !!apiSecret,
+        apiKeyLength: apiKey ? apiKey.length : 0,
+        secretLength: apiSecret ? apiSecret.length : 0
+      });
 
       const testnetExchange = await ccxtService.createExchange(
         'binance',

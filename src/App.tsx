@@ -6,6 +6,8 @@ import { logService } from './lib/log-service';
 import { systemSync } from './lib/system-sync';
 import { analyticsService } from './lib/analytics-service';
 import { templateManager } from './lib/template-manager';
+import { dbSchemaFixer } from './lib/db-schema-fixer';
+import { demoTradeGenerator } from './lib/demo-trade-generator';
 import { tradeEngine } from './lib/trade-engine';
 import { demoService } from './lib/demo-service';
 import { walletBalanceService } from './lib/wallet-balance-service';
@@ -50,7 +52,13 @@ function App() {
 
       // Initialize core services in sequence
       const services = [
-        { name: 'database', fn: () => systemSync.initializeDatabase() },
+        { name: 'database', fn: async () => {
+          await systemSync.initializeDatabase();
+          // Fix database schema issues
+          console.log('App: Fixing database schema issues...');
+          const schemaFixed = await dbSchemaFixer.fixDatabaseSchema();
+          console.log('App: Database schema fix ' + (schemaFixed ? 'successful' : 'failed'));
+        } },
         { name: 'websocket', fn: () => systemSync.initializeWebSocket() },
         { name: 'exchange', fn: () => systemSync.initializeExchange() },
         { name: 'analytics', fn: () => analyticsService.initialize() },
@@ -61,7 +69,15 @@ function App() {
         } },
         { name: 'trading', fn: () => tradeEngine.initialize() },
         { name: 'wallet', fn: () => walletBalanceService.initialize() },
-        { name: 'demo', fn: () => Promise.resolve(demoService.isInDemoMode()) }
+        { name: 'demo', fn: () => Promise.resolve(demoService.isInDemoMode()) },
+        { name: 'demoTrading', fn: async () => {
+          if (demoService.isInDemoMode()) {
+            console.log('App: Initializing demo trade generator for demo mode');
+            await demoTradeGenerator.initialize();
+            return true;
+          }
+          return false;
+        }}
       ];
 
       for (const service of services) {

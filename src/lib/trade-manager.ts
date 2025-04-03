@@ -80,8 +80,17 @@ class TradeManager extends EventEmitter {
     const tradeId = this.generateTradeId(options);
 
     try {
+      // Determine if we should use TestNet or real exchange
+      const useTestNet = options.testnet || demoService.isInDemoMode();
+
+      // Log the mode being used
+      logService.log('info', `Executing trade in ${useTestNet ? 'TestNet/Demo' : 'Real'} mode`, { useTestNet, options }, 'TradeManager');
+
+      // Set the testnet option
+      options.testnet = useTestNet;
+
       // If using TestNet, we'll use real TestNet trades
-      if (options.testnet) {
+      if (useTestNet) {
         try {
           // Get TestNet exchange instance from demo service
           const testnetExchange = await demoService.getTestNetExchange();

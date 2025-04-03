@@ -30,24 +30,28 @@ export function BacktestResults({ results, onClose }: BacktestResultsProps) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-2xl p-6 w-full max-w-6xl max-h-[90vh] overflow-y-auto border border-gunmetal-800">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold gradient-text">Backtest Results</h2>
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-black rounded-2xl p-8 w-full max-w-6xl max-h-[90vh] overflow-y-auto border border-gunmetal-700 shadow-2xl">
+        <div className="relative mb-8">
+          <div>
+            <h2 className="text-2xl font-bold text-neon-turquoise">Backtest Results</h2>
+            <p className="text-gray-400 mt-1">Analysis of strategy performance against historical data</p>
+          </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-200 transition-colors"
+            className="absolute top-0 right-0 p-3 rounded-full bg-gunmetal-800/50 hover:bg-gunmetal-700/70 transition-colors border border-gunmetal-700"
+            aria-label="Close"
           >
-            <X className="w-6 h-6" />
+            <X className="w-6 h-6 text-neon-turquoise hover:text-neon-yellow" />
           </button>
         </div>
 
         {/* Performance Metrics */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gunmetal-800/30 rounded-lg p-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
+          <div className="bg-gunmetal-800/30 rounded-xl p-5 border border-gunmetal-700/50 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Total Return</p>
+                <p className="text-sm text-gray-400 mb-1">Total Return</p>
                 <p
                   className={`text-2xl font-bold ${
                     results.totalReturns >= 0
@@ -59,57 +63,65 @@ export function BacktestResults({ results, onClose }: BacktestResultsProps) {
                   {results.totalReturns.toFixed(1)}%
                 </p>
               </div>
-              {results.totalReturns >= 0 ? (
-                <TrendingUp className="w-8 h-8 text-neon-orange" />
-              ) : (
-                <TrendingDown className="w-8 h-8 text-neon-pink" />
-              )}
+              <div className={`p-3 rounded-full ${results.totalReturns >= 0 ? 'bg-neon-orange/10' : 'bg-neon-pink/10'}`}>
+                {results.totalReturns >= 0 ? (
+                  <TrendingUp className="w-8 h-8 text-neon-orange" />
+                ) : (
+                  <TrendingDown className="w-8 h-8 text-neon-pink" />
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="bg-gunmetal-800/30 rounded-lg p-4">
+          <div className="bg-gunmetal-800/30 rounded-xl p-5 border border-gunmetal-700/50 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Win Rate</p>
+                <p className="text-sm text-gray-400 mb-1">Win Rate</p>
                 <p className="text-2xl font-bold text-neon-turquoise">
                   {results.winRate.toFixed(2)}%
                 </p>
               </div>
-              <Target className="w-8 h-8 text-neon-turquoise" />
+              <div className="p-3 rounded-full bg-neon-turquoise/10">
+                <Target className="w-8 h-8 text-neon-turquoise" />
+              </div>
             </div>
           </div>
 
-          <div className="bg-gunmetal-800/30 rounded-lg p-4">
+          <div className="bg-gunmetal-800/30 rounded-xl p-5 border border-gunmetal-700/50 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Total Trades</p>
-                <p className="text-2xl font-bold text-gray-200">
+                <p className="text-sm text-gray-400 mb-1">Total Trades</p>
+                <p className="text-2xl font-bold text-neon-yellow">
                   {results.totalTrades}
                 </p>
               </div>
-              <BarChart3 className="w-8 h-8 text-neon-yellow" />
+              <div className="p-3 rounded-full bg-neon-yellow/10">
+                <BarChart3 className="w-8 h-8 text-neon-yellow" />
+              </div>
             </div>
           </div>
 
-          <div className="bg-gunmetal-800/30 rounded-lg p-4">
+          <div className="bg-gunmetal-800/30 rounded-xl p-5 border border-gunmetal-700/50 shadow-lg">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400">Sharpe Ratio</p>
+                <p className="text-sm text-gray-400 mb-1">Sharpe Ratio</p>
                 <p className="text-2xl font-bold text-neon-turquoise">
                   {results.sharpeRatio.toFixed(2)}
                 </p>
               </div>
-              <Scale className="w-8 h-8 text-neon-turquoise" />
+              <div className="p-3 rounded-full bg-neon-turquoise/10">
+                <Scale className="w-8 h-8 text-neon-turquoise" />
+              </div>
             </div>
           </div>
         </div>
 
         {/* Equity Curve */}
-        <div className="bg-gunmetal-800/30 rounded-lg p-4 mb-6">
-          <h3 className="text-lg font-semibold text-gray-200 mb-4">
+        <div className="bg-gunmetal-800/30 rounded-xl p-6 mb-8 border border-gunmetal-700/50 shadow-lg">
+          <h3 className="text-lg font-semibold text-neon-turquoise mb-4">
             Equity Curve
           </h3>
-          <div className="h-[250px]">
+          <div className="h-[300px] bg-gunmetal-900/50 p-4 rounded-lg border border-gunmetal-800/70 shadow-inner">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={results.equity}>
                 <defs>
@@ -164,45 +176,46 @@ export function BacktestResults({ results, onClose }: BacktestResultsProps) {
         </div>
 
         {/* Trade List */}
-        <div className="bg-gunmetal-800/30 rounded-lg overflow-hidden">
-          <div className="p-4 border-b border-gunmetal-700">
-            <h3 className="text-lg font-semibold text-gray-200">
+        <div className="bg-gunmetal-800/30 rounded-xl border border-gunmetal-700/50 shadow-lg overflow-hidden">
+          <div className="p-6 border-b border-gunmetal-700">
+            <h3 className="text-lg font-semibold text-neon-turquoise">
               Trade History
             </h3>
+            <p className="text-sm text-gray-400 mt-1">Detailed record of all executed trades during the backtest period</p>
           </div>
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gunmetal-700">
               <thead className="bg-gunmetal-900/50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Date
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Type
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Price
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     Amount
                   </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
                     P&L
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gunmetal-700">
+              <tbody className="divide-y divide-gunmetal-700 bg-gunmetal-900/30">
                 {results.trades.map((trade, index) => (
                   <tr
                     key={index}
                     className="hover:bg-gunmetal-800/50 transition-colors"
                   >
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-200">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
                       {trade.date.toLocaleDateString()}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap">
+                    <td className="px-6 py-4 whitespace-nowrap">
                       <span
-                        className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
                           trade.type === 'buy'
                             ? 'bg-neon-orange/20 text-neon-orange'
                             : 'bg-neon-pink/20 text-neon-pink'
@@ -211,14 +224,14 @@ export function BacktestResults({ results, onClose }: BacktestResultsProps) {
                         {trade.type.toUpperCase()}
                       </span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-200">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
                       ${trade.price.toFixed(2)}
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-200">
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
                       {trade.amount.toFixed(4)}
                     </td>
                     <td
-                      className={`px-4 py-3 whitespace-nowrap text-sm ${
+                      className={`px-6 py-4 whitespace-nowrap text-sm font-medium ${
                         trade.pnl >= 0 ? 'text-neon-orange' : 'text-neon-pink'
                       }`}
                     >
@@ -230,6 +243,17 @@ export function BacktestResults({ results, onClose }: BacktestResultsProps) {
               </tbody>
             </table>
           </div>
+        </div>
+
+        {/* Sticky Close Button */}
+        <div className="sticky bottom-0 left-0 right-0 pt-4 pb-2 bg-black border-t border-gunmetal-800 mt-8 flex justify-center">
+          <button
+            onClick={onClose}
+            className="px-6 py-2 bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-turquoise hover:text-neon-yellow rounded-lg transition-colors border border-gunmetal-700 flex items-center gap-2"
+          >
+            <X className="w-4 h-4" />
+            Close Results
+          </button>
         </div>
       </div>
     </div>

@@ -262,8 +262,48 @@ class TradeEngine extends EventEmitter {
     }
   }
 
-  async addStrategy(strategy: Strategy): Promise<void> {
+  async addStrategy(strategyOrId: Strategy | string): Promise<void> {
     try {
+      let strategy: Strategy;
+
+      // If a string ID was passed, fetch the strategy from the database
+      if (typeof strategyOrId === 'string') {
+        const { data, error } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('id', strategyOrId)
+          .single();
+
+        if (error || !data) {
+          throw new Error(`Strategy ${strategyOrId} not found: ${error?.message || 'No data returned'}`);
+        }
+
+        strategy = data;
+      } else {
+        strategy = strategyOrId;
+      }
+
+      // Ensure the strategy is active
+      if (strategy.status !== 'active') {
+        logService.log('warn', `Strategy ${strategy.id} is not active, updating status`, { currentStatus: strategy.status }, 'TradeEngine');
+
+        // Update the strategy status to active
+        const { data: updatedStrategy, error: updateError } = await supabase
+          .from('strategies')
+          .update({ status: 'active', updated_at: new Date().toISOString() })
+          .eq('id', strategy.id)
+          .select()
+          .single();
+
+        if (updateError || !updatedStrategy) {
+          throw new Error(`Failed to update strategy status: ${updateError?.message || 'No data returned'}`);
+        }
+
+        // Use the updated strategy
+        strategy = updatedStrategy;
+      }
+
+      // Add to active strategies
       this.activeStrategies.set(strategy.id, strategy);
 
       // Initialize monitoring status
@@ -274,7 +314,8 @@ class TradeEngine extends EventEmitter {
 
       logService.log('info', `Added strategy ${strategy.id} to trade engine`, null, 'TradeEngine');
     } catch (error) {
-      logService.log('error', `Failed to add strategy ${strategy.id}`, error, 'TradeEngine');
+      const strategyId = typeof strategyOrId === 'string' ? strategyOrId : strategyOrId.id;
+      logService.log('error', `Failed to add strategy ${strategyId}`, error, 'TradeEngine');
       throw error;
     }
   }

@@ -212,19 +212,39 @@ class TradeService extends EventEmitter {
       const { tradeEngine } = await import('./trade-engine');
       const { tradeGenerator } = await import('./trade-generator');
 
-      // Add strategy to trade engine
-      await tradeEngine.addStrategy(strategyId);
-
-      // Get the strategy from the database
-      const { data: strategy } = await supabase
+      // Get the strategy from the database first
+      const { data: strategy, error: fetchError } = await supabase
         .from('strategies')
         .select('*')
         .eq('id', strategyId)
         .single();
 
-      if (!strategy) {
-        throw new Error(`Strategy ${strategyId} not found`);
+      if (fetchError || !strategy) {
+        throw new Error(`Strategy ${strategyId} not found: ${fetchError?.message || 'No data returned'}`);
       }
+
+      // Ensure the strategy is active
+      if (strategy.status !== 'active') {
+        logService.log('warn', `Strategy ${strategyId} is not active, updating status`, { currentStatus: strategy.status }, 'TradeService');
+
+        // Update the strategy status to active
+        const { data: updatedStrategy, error: updateError } = await supabase
+          .from('strategies')
+          .update({ status: 'active', updated_at: new Date().toISOString() })
+          .eq('id', strategyId)
+          .select()
+          .single();
+
+        if (updateError || !updatedStrategy) {
+          throw new Error(`Failed to update strategy status: ${updateError?.message || 'No data returned'}`);
+        }
+
+        // Use the updated strategy
+        Object.assign(strategy, updatedStrategy);
+      }
+
+      // Add strategy to trade engine
+      await tradeEngine.addStrategy(strategy);
 
       // Add strategy to trade generator
       await tradeGenerator.addStrategy(strategy);
@@ -274,7 +294,7 @@ class TradeService extends EventEmitter {
           }
         }
       }
-      
+
       // Call the database function to handle deletion
       const { data, error } = await supabase
         .rpc('delete_strategy', { strategy_id: strategyId });

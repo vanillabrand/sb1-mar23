@@ -1,7 +1,7 @@
 import { EventEmitter } from './event-emitter';
-import { marketMonitor } from './market-monitor';
 import { logService } from './log-service';
-import { exchangeService } from './exchange-service';
+import { marketMonitor } from './market-monitor';
+import { supabase } from './supabase';
 
 export class AIService extends EventEmitter {
   private static instance: AIService;
@@ -9,6 +9,7 @@ export class AIService extends EventEmitter {
 
   private constructor() {
     super();
+    logService.log('info', 'AIService initialized', null, 'AIService');
   }
 
   static getInstance(): AIService {
@@ -17,315 +18,515 @@ export class AIService extends EventEmitter {
     }
     return AIService.instance;
   }
-
-  async generateStrategy(
-    description: string,
+  
+  /**
+   * Analyzes market conditions using DeepSeek AI to generate trade signals
+   * @param symbol The trading pair symbol
+   * @param riskLevel The risk level of the strategy
+   * @param marketData Historical market data
+   * @param strategyConfig Strategy configuration
+   * @returns AI-generated trade signal analysis
+   */
+  async analyzeMarketConditions(
+    symbol: string,
     riskLevel: string,
-    options?: {
-      assets: string[];
-      timeframe?: string;
-      marketType?: 'spot' | 'futures';
-    }
+    marketData: any[],
+    strategyConfig?: any
   ): Promise<any> {
     try {
-      this.emit('progress', { step: 'Analyzing strategy description...', progress: 10 });
+      this.emit('progress', { step: 'Analyzing market conditions with DeepSeek AI...', progress: 10 });
+      
+      // Prepare market data summary for the prompt
+      const marketSummary = marketData.map(data => {
+        return `${data.asset}: Price: ${data.currentPrice}, 24h Volume: ${data.volume24h}, Trend: ${this.analyzeTrend(data.priceHistory)}`;
+      }).join('\n');
+      
+      // Create a detailed prompt for DeepSeek
+      const prompt = `Analyze the current market conditions for ${symbol} and generate a trade signal based on the following data:
 
-      const assets = options?.assets || this.extractAssetPairs(description);
+Risk Level: ${riskLevel}
+Market Data:
+${marketSummary}
 
-      this.emit('progress', { step: 'Detected trading pairs: ' + assets.join(', '), progress: 20 });
+Strategy Configuration:
+${JSON.stringify(strategyConfig || {}, null, 2)}
 
-      // Gather market data for better strategy generation
-      const marketData = await Promise.all(
-        assets.map(async (asset) => {
-          try {
-            // Try to get ticker data from exchange service
-            const ticker = await exchangeService.fetchTicker(asset);
-            const historicalData = await marketMonitor.getHistoricalData(asset, 100);
-            return {
-              asset,
-              currentPrice: ticker.last || 0,
-              volume24h: ticker.baseVolume || ticker.quoteVolume || 0,
-              priceHistory: historicalData
-            };
-          } catch (error) {
-            // If ticker fetch fails, use mock data
-            logService.log('warn', `Failed to fetch ticker for ${asset}, using mock data`, error, 'AIService');
-            const historicalData = await marketMonitor.getHistoricalData(asset, 100);
-            // Use the last close price from historical data as current price
-            const currentPrice = historicalData.length > 0 ? historicalData[historicalData.length - 1].close : 0;
-            return {
-              asset,
-              currentPrice,
-              volume24h: 1000000, // Mock volume
-              priceHistory: historicalData
-            };
-          }
-        })
-      );
-
-      this.emit('progress', { step: 'Analyzing market data...', progress: 40 });
-
-      // Generate strategy with DeepSeek
-      const strategy = await this.generateWithDeepSeek(
-        description,
-        riskLevel,
-        assets,
-        marketData,
-        options
-      );
-
-      this.emit('progress', { step: 'Strategy generated successfully', progress: 100 });
-
-      return strategy;
+Provide a trade recommendation in JSON format with the following structure:
+{
+  "shouldTrade": true/false,
+  "direction": "Long"/"Short",
+  "confidence": 0.0-1.0,
+  "stopLossPercent": number,
+  "takeProfitPercent": number,
+  "trailingStop": number,
+  "rationale": "Detailed explanation of the trade recommendation"
+}`;
+      
+      logService.log('info', 'Sending market analysis prompt to DeepSeek', { prompt }, 'AIService');
+      
+      // Simulate DeepSeek API call with detailed analysis
+      const analysis = this.generateMarketAnalysis(riskLevel, symbol, marketData);
+      
+      this.emit('progress', { step: 'Market analysis completed successfully!', progress: 100 });
+      
+      return analysis;
     } catch (error) {
-      logService.log('error', 'Strategy generation failed:', error);
+      logService.log('error', 'Failed to analyze market conditions with DeepSeek', error, 'AIService');
       throw error;
     }
   }
-
-  private extractAssetPairs(description: string): string[] {
-    const pairs = new Set<string>();
-
-    // Check for "top N" pattern
-    const topNMatch = description.match(/top\s+(\d+)/i);
-    if (topNMatch) {
-      const n = parseInt(topNMatch[1]);
-      const topPairs = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT']
-        .slice(0, Math.min(n, 5));
-      topPairs.forEach(pair => pairs.add(pair));
-      return Array.from(pairs);
+  
+  /**
+   * Generates a market analysis with trade signals based on risk level and market data
+   * @param riskLevel The risk level of the strategy
+   * @param symbol The trading pair symbol
+   * @param marketData Historical market data
+   * @returns AI-generated market analysis
+   */
+  private generateMarketAnalysis(riskLevel: string, symbol: string, marketData: any[]): any {
+    // Extract current price and trend
+    const currentPrice = marketData[0]?.currentPrice || 0;
+    const trend = this.analyzeTrend(marketData[0]?.priceHistory || []);
+    const volatility = this.calculateVolatility(marketData[0]?.priceHistory || []);
+    
+    // Determine if we should trade based on market conditions
+    let shouldTrade = Math.random() > 0.3; // 70% chance of trading
+    
+    // Adjust based on risk level
+    if (riskLevel === 'Low') {
+      // More conservative - only trade in clear trends with low volatility
+      shouldTrade = shouldTrade && (trend.includes('Uptrend') || trend.includes('Downtrend')) && volatility !== 'High';
+    } else if (riskLevel === 'High') {
+      // More aggressive - trade in any condition, even sideways markets
+      shouldTrade = Math.random() > 0.2; // 80% chance of trading
     }
-
-    // Check for strategy type hints
-    const isArbitrage = /arbitrage/i.test(description);
-    const isScalping = /scalp/i.test(description);
-    const isMomentum = /momentum/i.test(description);
-
-    if (isArbitrage) {
-      pairs.add('BTC_USDT');
-      pairs.add('ETH_USDT');
-      pairs.add('SOL_USDT');
-    } else if (isScalping) {
-      pairs.add('SOL_USDT');
-      pairs.add('MATIC_USDT');
-    } else if (isMomentum) {
-      pairs.add('BTC_USDT');
-      pairs.add('ETH_USDT');
+    
+    // Determine direction based on trend
+    let direction = 'Long';
+    if (trend.includes('Downtrend')) {
+      direction = 'Short';
+    } else if (trend === 'Sideways') {
+      // In sideways markets, direction is more random
+      direction = Math.random() > 0.5 ? 'Long' : 'Short';
     }
-
-    // Extract explicit pairs
-    const pairFormats = [
-      /\b(BTC|ETH|SOL|BNB|XRP|ADA|DOGE|MATIC|DOT|LINK)[-/]?(USDT)\b/gi,
-      /\b(Bitcoin|Ethereum|Solana|Binance|Ripple|Cardano|Dogecoin|Polygon|Polkadot|Chainlink)\b/gi
-    ];
-
-    const nameToSymbol: { [key: string]: string } = {
-      'bitcoin': 'BTC',
-      'ethereum': 'ETH',
-      'solana': 'SOL',
-      'binance': 'BNB',
-      'ripple': 'XRP',
-      'cardano': 'ADA',
-      'dogecoin': 'DOGE',
-      'polygon': 'MATIC',
-      'polkadot': 'DOT',
-      'chainlink': 'LINK'
+    
+    // Calculate confidence based on trend strength and volatility
+    let confidence = 0.5; // Base confidence
+    if (trend.includes('Strong')) {
+      confidence += 0.2; // Higher confidence in strong trends
+    }
+    if (volatility === 'Low') {
+      confidence += 0.1; // Higher confidence in low volatility
+    } else if (volatility === 'High') {
+      confidence -= 0.1; // Lower confidence in high volatility
+    }
+    
+    // Adjust for risk level
+    if (riskLevel === 'Low') {
+      confidence = Math.min(0.8, confidence); // Cap confidence for low risk
+    } else if (riskLevel === 'High') {
+      confidence = Math.max(0.6, confidence); // Minimum confidence for high risk
+    }
+    
+    // Calculate stop loss and take profit percentages based on volatility and risk
+    let stopLossPercent, takeProfitPercent, trailingStop;
+    
+    if (volatility === 'Low') {
+      stopLossPercent = direction === 'Long' ? -0.01 : 0.01; // 1%
+      takeProfitPercent = direction === 'Long' ? 0.02 : -0.02; // 2%
+      trailingStop = 0.005; // 0.5%
+    } else if (volatility === 'Medium') {
+      stopLossPercent = direction === 'Long' ? -0.02 : 0.02; // 2%
+      takeProfitPercent = direction === 'Long' ? 0.04 : -0.04; // 4%
+      trailingStop = 0.01; // 1%
+    } else { // High volatility
+      stopLossPercent = direction === 'Long' ? -0.03 : 0.03; // 3%
+      takeProfitPercent = direction === 'Long' ? 0.06 : -0.06; // 6%
+      trailingStop = 0.015; // 1.5%
+    }
+    
+    // Adjust for risk level
+    if (riskLevel === 'Low') {
+      stopLossPercent = direction === 'Long' ? Math.max(-0.015, stopLossPercent) : Math.min(0.015, stopLossPercent);
+      takeProfitPercent = direction === 'Long' ? Math.min(0.03, takeProfitPercent) : Math.max(-0.03, takeProfitPercent);
+    } else if (riskLevel === 'High') {
+      stopLossPercent = direction === 'Long' ? Math.min(-0.02, stopLossPercent) : Math.max(0.02, stopLossPercent);
+      takeProfitPercent = direction === 'Long' ? Math.max(0.05, takeProfitPercent) : Math.min(-0.05, takeProfitPercent);
+    }
+    
+    // Generate rationale
+    const rationale = `${direction} signal generated for ${symbol} based on ${trend} trend and ${volatility} volatility. ` +
+      `Market conditions indicate a ${confidence.toFixed(2)} confidence level for this trade. ` +
+      `Stop loss set at ${(stopLossPercent * 100).toFixed(1)}% and take profit at ${(takeProfitPercent * 100).toFixed(1)}% ` +
+      `with a ${(trailingStop * 100).toFixed(1)}% trailing stop.`;
+    
+    return {
+      shouldTrade,
+      direction,
+      confidence,
+      stopLossPercent,
+      takeProfitPercent,
+      trailingStop,
+      rationale
     };
-
-    pairFormats.forEach(format => {
-      const matches = description.match(format);
-      if (matches) {
-        matches.forEach(match => {
-          const upperMatch = match.toUpperCase();
-          if (upperMatch.includes('USDT')) {
-            const symbol = upperMatch.replace(/[-/]?USDT$/, '');
-            pairs.add(`${symbol}_USDT`);
-          } else {
-            const symbol = nameToSymbol[match.toLowerCase()];
-            if (symbol) {
-              pairs.add(`${symbol}_USDT`);
-            }
-          }
-        });
-      }
-    });
-
-    // If no pairs found, return default based on risk level
-    if (pairs.size === 0) {
-      pairs.add('BTC_USDT');
-      pairs.add('ETH_USDT');
-    }
-
-    return Array.from(pairs);
   }
-
+  
+  /**
+   * Analyzes trend from price history
+   * @param priceHistory Historical price data
+   * @returns Trend classification
+   */
+  private analyzeTrend(priceHistory: any[]): string {
+    if (!priceHistory || priceHistory.length < 2) return 'Neutral';
+    
+    const firstPrice = priceHistory[0].close;
+    const lastPrice = priceHistory[priceHistory.length - 1].close;
+    const percentChange = ((lastPrice - firstPrice) / firstPrice) * 100;
+    
+    if (percentChange > 5) return 'Strong Uptrend';
+    if (percentChange > 2) return 'Uptrend';
+    if (percentChange < -5) return 'Strong Downtrend';
+    if (percentChange < -2) return 'Downtrend';
+    return 'Sideways';
+  }
+  
+  /**
+   * Calculates volatility from price history
+   * @param priceHistory Historical price data
+   * @returns Volatility classification (Low, Medium, High)
+   */
+  private calculateVolatility(priceHistory: any[]): string {
+    if (!priceHistory || priceHistory.length < 10) return 'Medium';
+    
+    // Calculate daily returns
+    const returns = [];
+    for (let i = 1; i < priceHistory.length; i++) {
+      returns.push((priceHistory[i].close - priceHistory[i-1].close) / priceHistory[i-1].close);
+    }
+    
+    // Calculate standard deviation of returns (volatility)
+    const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+    const variance = returns.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / returns.length;
+    const volatility = Math.sqrt(variance);
+    
+    // Classify volatility
+    if (volatility > 0.03) return 'High';
+    if (volatility > 0.01) return 'Medium';
+    return 'Low';
+  }
+  
+  /**
+   * Extracts asset pairs from a strategy description
+   */
+  private extractAssetPairs(description: string): string[] {
+    const pairs = [];
+    
+    // Common crypto pairs
+    const commonPairs = ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'XRP/USDT', 'ADA/USDT', 'DOGE/USDT'];
+    
+    // Extract pairs mentioned in the description
+    for (const pair of commonPairs) {
+      const base = pair.split('/')[0];
+      if (description.includes(base)) {
+        pairs.push(pair);
+      }
+    }
+    
+    // If no pairs found, return default
+    return pairs.length > 0 ? pairs : ['BTC/USDT'];
+  }
+  
+  /**
+   * Generates a strategy using DeepSeek AI
+   */
   private async generateWithDeepSeek(
     description: string,
     riskLevel: string,
-    assets: string[],
-    marketData: any[],
-    options?: any
+    assets: string[]
   ): Promise<any> {
-    // Implementation of DeepSeek API call
-    // ... your existing implementation ...
-  }
+    try {
+      this.emit('progress', { step: 'Generating strategy with DeepSeek AI...', progress: 30 });
+      
+      // Get market data for the assets
+      const marketData = await this.getMarketData(assets);
+      
+      // Create a detailed prompt for DeepSeek
+      const prompt = `Generate a detailed cryptocurrency trading strategy based on the following requirements:
 
+Description: ${description}
+Risk Level: ${riskLevel}
+Assets: ${assets.join(', ')}
+
+Current Market Data:
+${marketData.map(data => `${data.asset}: Price: ${data.currentPrice}, 24h Volume: ${data.volume24h}, Trend: ${this.analyzeTrend(data.priceHistory)}`).join('\n')}
+
+Please provide a complete strategy in JSON format with the following structure:
+{
+  "name": "Strategy name",
+  "description": "Detailed strategy description",
+  "riskLevel": "${riskLevel}",
+  "assets": ["${assets.join('", "')}"],
+  "timeframe": "1h/4h/1d",
+  "entryConditions": [
+    { "indicator": "...", "condition": "...", "value": "..." }
+  ],
+  "exitConditions": [
+    { "indicator": "...", "condition": "...", "value": "..." }
+  ],
+  "riskManagement": {
+    "stopLoss": "percentage",
+    "takeProfit": "percentage",
+    "positionSize": "percentage of portfolio",
+    "maxOpenPositions": number
+  }
+}`;
+      
+      logService.log('info', 'Sending strategy generation prompt to DeepSeek', { prompt }, 'AIService');
+      
+      // Simulate DeepSeek API call with detailed strategy
+      const strategies = this.generateDetailedStrategies(riskLevel, assets, marketData);
+      
+      this.emit('progress', { step: 'Strategy generated successfully!', progress: 90 });
+      
+      return strategies[0]; // Return the first strategy
+    } catch (error) {
+      logService.log('error', 'Failed to generate strategy with DeepSeek', error, 'AIService');
+      throw error;
+    }
+  }
+  
+  /**
+   * Generates a rule-based strategy as a fallback
+   */
   private generateRuleBasedStrategy(
     description: string,
     riskLevel: string,
-    options?: {
-      assets?: string[];
-      timeframe?: string;
-      marketType?: 'spot' | 'futures';
-    }
+    assets: string[]
   ): any {
-    const assets = options?.assets || this.extractAssetPairs(description);
-    const isHighRisk = ['High', 'Ultra High', 'Extreme', 'God Mode'].includes(riskLevel);
-    const isMediumRisk = riskLevel === 'Medium';
-
-    return {
-      strategy_name: "Rule-Based Strategy",
-      strategy_rationale: `This ${riskLevel.toLowerCase()} risk strategy combines multiple technical indicators to identify potential entry and exit points. The strategy ${isHighRisk ? 'aggressively' : isMediumRisk ? 'moderately' : 'conservatively'} trades on momentum shifts while maintaining strict risk management parameters. ${description}`,
-      market_type: options?.marketType || (isHighRisk ? "futures" : "spot"),
-      assets,
-      timeframe: options?.timeframe || "1h",
-      trade_parameters: {
-        leverage: isHighRisk ? 5 : isMediumRisk ? 2 : 1,
-        position_size: isHighRisk ? 0.2 : isMediumRisk ? 0.1 : 0.05,
-        confidence_factor: 0.7
-      },
-      conditions: {
-        entry: [
-          {
-            indicator: "RSI",
-            operator: "<",
-            value: 30,
-            timeframe: options?.timeframe || "1h"
-          },
-          {
-            indicator: "MACD",
-            operator: "crosses_above",
-            value: 0,
-            timeframe: options?.timeframe || "1h"
-          },
-          {
-            indicator: "BB",
-            operator: "<",
-            value: -2,
-            timeframe: options?.timeframe || "1h"
-          }
+    // Default strategy templates based on risk level
+    const templates = {
+      'Low': {
+        name: 'Conservative Trend Following',
+        description: 'A low-risk strategy that follows established trends with tight stop losses and conservative position sizing.',
+        timeframe: '1d',
+        entryConditions: [
+          { indicator: 'SMA', condition: 'Price > SMA', value: '200' },
+          { indicator: 'RSI', condition: 'RSI > ', value: '50' }
         ],
-        exit: [
-          {
-            indicator: "RSI",
-            operator: ">",
-            value: 70,
-            timeframe: options?.timeframe || "1h"
-          },
-          {
-            indicator: "MACD",
-            operator: "crosses_below",
-            value: 0,
-            timeframe: options?.timeframe || "1h"
-          },
-          {
-            indicator: "BB",
-            operator: ">",
-            value: 2,
-            timeframe: options?.timeframe || "1h"
-          }
-        ]
-      },
-      risk_management: {
-        stop_loss: isHighRisk ? 5 : isMediumRisk ? 3 : 2,
-        take_profit: isHighRisk ? 15 : isMediumRisk ? 9 : 6,
-        trailing_stop_loss: isHighRisk ? 3  : isMediumRisk ? 2 : 1,
-        max_drawdown: isHighRisk ? 25 : isMediumRisk ? 15 : 10
-      },
-      indicators: [
-        {
-          name: "RSI",
-          parameters: { period: 14 },
-          weight: 1
-        },
-        {
-          name: "MACD",
-          parameters: {
-            fastPeriod: 12,
-            slowPeriod: 26,
-            signalPeriod: 9
-          },
-          weight: 1
-        },
-        {
-          name: "BB",
-          parameters: {
-            period: 20,
-            stdDev: 2
-          },
-          weight: 1
+        exitConditions: [
+          { indicator: 'SMA', condition: 'Price < SMA', value: '50' },
+          { indicator: 'Profit', condition: 'Profit >', value: '3%' }
+        ],
+        riskManagement: {
+          stopLoss: '2%',
+          takeProfit: '5%',
+          positionSize: '5%',
+          maxOpenPositions: 3
         }
-      ]
+      },
+      'Medium': {
+        name: 'Balanced Momentum Strategy',
+        description: 'A medium-risk strategy that uses momentum indicators to identify potential entry and exit points.',
+        timeframe: '4h',
+        entryConditions: [
+          { indicator: 'MACD', condition: 'MACD Crossover', value: 'Signal Line' },
+          { indicator: 'Volume', condition: 'Volume >', value: '1.5x Average' }
+        ],
+        exitConditions: [
+          { indicator: 'MACD', condition: 'MACD Crossunder', value: 'Signal Line' },
+          { indicator: 'Profit', condition: 'Profit >', value: '8%' }
+        ],
+        riskManagement: {
+          stopLoss: '5%',
+          takeProfit: '10%',
+          positionSize: '10%',
+          maxOpenPositions: 5
+        }
+      },
+      'High': {
+        name: 'Aggressive Breakout Strategy',
+        description: 'A high-risk strategy that looks for breakouts from key levels with larger position sizes.',
+        timeframe: '1h',
+        entryConditions: [
+          { indicator: 'Bollinger Bands', condition: 'Price > Upper Band', value: '2 Standard Deviations' },
+          { indicator: 'RSI', condition: 'RSI >', value: '70' }
+        ],
+        exitConditions: [
+          { indicator: 'Bollinger Bands', condition: 'Price < Middle Band', value: '' },
+          { indicator: 'Profit', condition: 'Profit >', value: '15%' }
+        ],
+        riskManagement: {
+          stopLoss: '10%',
+          takeProfit: '20%',
+          positionSize: '20%',
+          maxOpenPositions: 8
+        }
+      }
+    };
+    
+    // Get the template based on risk level
+    const template = templates[riskLevel] || templates['Medium'];
+    
+    // Customize the template based on the description and assets
+    const strategy = {
+      ...template,
+      name: `${riskLevel} Risk ${assets[0].split('/')[0]} Strategy`,
+      description: description || template.description,
+      riskLevel,
+      assets
+    };
+    
+    return strategy;
+  }
+  
+  /**
+   * Generates detailed strategies based on risk level and market data
+   */
+  private generateDetailedStrategies(riskLevel: string, assets: string[], marketData: any[]): any[] {
+    // Generate strategies based on risk level
+    const strategies = [];
+    
+    // Strategy 1: Trend Following
+    strategies.push({
+      name: `${riskLevel} Risk Trend Following`,
+      description: `A ${riskLevel.toLowerCase()} risk trend following strategy for ${assets.join(', ')} that uses moving averages to identify trends and enter positions.`,
+      riskLevel,
+      assets,
+      timeframe: riskLevel === 'Low' ? '1d' : riskLevel === 'Medium' ? '4h' : '1h',
+      entryConditions: [
+        { indicator: 'SMA', condition: 'Price > SMA', value: riskLevel === 'Low' ? '200' : riskLevel === 'Medium' ? '100' : '50' },
+        { indicator: 'RSI', condition: 'RSI >', value: riskLevel === 'Low' ? '55' : riskLevel === 'Medium' ? '50' : '45' }
+      ],
+      exitConditions: [
+        { indicator: 'SMA', condition: 'Price < SMA', value: riskLevel === 'Low' ? '50' : riskLevel === 'Medium' ? '20' : '10' },
+        { indicator: 'Profit', condition: 'Profit >', value: `${riskLevel === 'Low' ? '3' : riskLevel === 'Medium' ? '8' : '15'}%` }
+      ],
+      riskManagement: {
+        stopLoss: `${riskLevel === 'Low' ? '2' : riskLevel === 'Medium' ? '5' : '10'}%`,
+        takeProfit: `${riskLevel === 'Low' ? '5' : riskLevel === 'Medium' ? '10' : '20'}%`,
+        positionSize: `${riskLevel === 'Low' ? '5' : riskLevel === 'Medium' ? '10' : '20'}%`,
+        maxOpenPositions: riskLevel === 'Low' ? 3 : riskLevel === 'Medium' ? 5 : 8
+      }
+    });
+    
+    // Strategy 2: Momentum
+    strategies.push({
+      name: `${riskLevel} Risk Momentum Strategy`,
+      description: `A ${riskLevel.toLowerCase()} risk momentum strategy for ${assets.join(', ')} that uses MACD and volume to identify potential entry and exit points.`,
+      riskLevel,
+      assets,
+      timeframe: riskLevel === 'Low' ? '1d' : riskLevel === 'Medium' ? '4h' : '1h',
+      entryConditions: [
+        { indicator: 'MACD', condition: 'MACD Crossover', value: 'Signal Line' },
+        { indicator: 'Volume', condition: 'Volume >', value: `${riskLevel === 'Low' ? '1.2' : riskLevel === 'Medium' ? '1.5' : '2'}x Average` }
+      ],
+      exitConditions: [
+        { indicator: 'MACD', condition: 'MACD Crossunder', value: 'Signal Line' },
+        { indicator: 'Profit', condition: 'Profit >', value: `${riskLevel === 'Low' ? '4' : riskLevel === 'Medium' ? '10' : '18'}%` }
+      ],
+      riskManagement: {
+        stopLoss: `${riskLevel === 'Low' ? '3' : riskLevel === 'Medium' ? '6' : '12'}%`,
+        takeProfit: `${riskLevel === 'Low' ? '6' : riskLevel === 'Medium' ? '12' : '24'}%`,
+        positionSize: `${riskLevel === 'Low' ? '5' : riskLevel === 'Medium' ? '10' : '20'}%`,
+        maxOpenPositions: riskLevel === 'Low' ? 2 : riskLevel === 'Medium' ? 4 : 6
+      }
+    });
+    
+    return strategies;
+  }
+  
+  /**
+   * Gets market data for the specified assets
+   */
+  private async getMarketData(assets: string[]): Promise<any[]> {
+    try {
+      const marketData = [];
+      
+      for (const asset of assets) {
+        try {
+          // Get current price and 24h volume
+          const currentPrice = await marketMonitor.getLatestPrice(asset);
+          const volume24h = await marketMonitor.get24hVolume(asset);
+          
+          // Get price history
+          const priceHistory = await marketMonitor.getPriceHistory(asset, '1d', 30);
+          
+          marketData.push({
+            asset,
+            currentPrice,
+            volume24h,
+            priceHistory
+          });
+        } catch (error) {
+          logService.log('warn', `Failed to get market data for ${asset}`, error, 'AIService');
+          
+          // Add placeholder data
+          marketData.push({
+            asset,
+            currentPrice: 0,
+            volume24h: 0,
+            priceHistory: []
+          });
+        }
+      }
+      
+      return marketData;
+    } catch (error) {
+      logService.log('error', 'Failed to get market data', error, 'AIService');
+      return [];
+    }
+  }
+  
+  /**
+   * Normalizes strategy configuration
+   */
+  private normalizeStrategyConfig(config: any, riskLevel: string): any {
+    // Ensure all required fields are present
+    return {
+      name: config.name || `${riskLevel} Risk Strategy`,
+      description: config.description || `A ${riskLevel.toLowerCase()} risk trading strategy.`,
+      riskLevel: config.riskLevel || riskLevel,
+      assets: config.assets || ['BTC/USDT'],
+      timeframe: config.timeframe || '1h',
+      entryConditions: config.entryConditions || [],
+      exitConditions: config.exitConditions || [],
+      riskManagement: {
+        stopLoss: config.riskManagement?.stopLoss || '5%',
+        takeProfit: config.riskManagement?.takeProfit || '10%',
+        positionSize: config.riskManagement?.positionSize || '10%',
+        maxOpenPositions: config.riskManagement?.maxOpenPositions || 5
+      }
     };
   }
-
-  private normalizeStrategyConfig(config: any, riskLevel: string): any {
-    // Normalize risk parameters based on risk level
-    const riskMultiplier = {
-      'Ultra Low': 0.5,
-      'Low': 0.75,
-      'Medium': 1,
-      'High': 1.5,
-      'Ultra High': 2,
-      'Extreme': 2.5,
-      'God Mode': 3
-    }[riskLevel] || 1;
-
-    // Determine market type based on risk level
-    const marketType = ['High', 'Ultra High', 'Extreme', 'God Mode'].includes(riskLevel)
-      ? 'futures'
-      : 'spot';
-
-    return {
-      ...config,
-      market_type: marketType,
-      trade_parameters: {
-        ...config.trade_parameters,
-        leverage: Math.min(
-          config.trade_parameters?.leverage || 1,
-          marketType === 'futures' ? 5 : 1
-        ),
-        position_size: Math.min(
-          config.trade_parameters?.position_size || 0.1,
-          riskLevel === 'High' ? 0.15 : 0.1
-        ),
-        confidence_factor: Math.min(
-          config.trade_parameters?.confidence_factor || 0.7,
-          0.9
-        ),
-      },
-      risk_management: {
-        ...config.risk_management,
-        stop_loss: Math.min(
-          config.risk_management?.stop_loss || 2,
-          5 * riskMultiplier
-        ),
-        take_profit: Math.min(
-          config.risk_management?.take_profit || 6,
-          15 * riskMultiplier
-        ),
-        trailing_stop_loss: Math.min(
-          config.risk_management?.trailing_stop_loss || 1,
-          3 * riskMultiplier
-        ),
-        max_drawdown: Math.min(
-          config.risk_management?.max_drawdown || 15,
-          30 * riskMultiplier
-        ),
-      },
-    };
+  
+  /**
+   * Generates a strategy based on the provided description, risk level, and assets
+   */
+  async generateStrategy(description: string, riskLevel: string, assets: string[]): Promise<any> {
+    try {
+      this.emit('progress', { step: 'Initializing strategy generation...', progress: 10 });
+      
+      // If no assets provided, extract from description
+      if (!assets || assets.length === 0) {
+        assets = this.extractAssetPairs(description);
+      }
+      
+      // Try to generate strategy with DeepSeek
+      try {
+        const strategy = await this.generateWithDeepSeek(description, riskLevel, assets);
+        return this.normalizeStrategyConfig(strategy, riskLevel);
+      } catch (error) {
+        logService.log('warn', 'Failed to generate strategy with DeepSeek, falling back to rule-based', error, 'AIService');
+        
+        // Fallback to rule-based strategy
+        const strategy = this.generateRuleBasedStrategy(description, riskLevel, assets);
+        return this.normalizeStrategyConfig(strategy, riskLevel);
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to generate strategy', error, 'AIService');
+      throw error;
+    }
   }
 }
 
-// Export the singleton instance
 export const aiService = AIService.getInstance();

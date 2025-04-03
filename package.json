@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"npm run proxy\" \"vite\"",
+    "dev": "vite",
     "proxy": "cross-env PROXY_PORT=3001 node proxy-server.js",
     "frontend": "vite",
     "build": "tsc && vite build",

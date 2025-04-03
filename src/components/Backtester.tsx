@@ -222,176 +222,214 @@ export function Backtester() {
   };
 
   return (
-    <PanelWrapper title="Backtester" icon={<BarChart3 className="w-5 h-5" />}>
-      <div className="space-y-6">
-        {/* Search and Filter Controls */}
-        <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
-            <input
-              type="text"
-              placeholder="Search strategies..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-neon-turquoise/50 focus:border-neon-turquoise/50"
-            />
-          </div>
+    <PanelWrapper title="Backtester" icon={<BarChart3 className="w-5 h-5" />} className="bg-black">
+      <div className="space-y-8 p-2 max-w-[1800px] mx-auto">
+        {/* Introduction Section */}
+        <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
+          <h2 className="text-xl font-bold text-neon-turquoise mb-3">Strategy Backtesting</h2>
+          <p className="text-gray-300 mb-4">Test your trading strategies against historical market data to evaluate performance before deploying with real assets.</p>
 
-          <div className="flex flex-wrap gap-2">
-            <div className="relative">
-              <button
-                className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
-                onClick={() => setFilterRiskLevel(filterRiskLevel ? null : 'Low')}
-              >
-                <Filter className="w-4 h-4" />
-                {filterRiskLevel || 'Risk Level'}
-                {filterRiskLevel && <X className="w-3 h-3" />}
-              </button>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div className="bg-gunmetal-900/70 rounded-lg p-4 border border-gunmetal-700/50 flex flex-col items-center text-center">
+              <div className="bg-neon-turquoise/10 p-3 rounded-full mb-3">
+                <TrendingUp className="w-6 h-6 text-neon-turquoise" />
+              </div>
+              <h3 className="font-medium text-gray-200 mb-1">Historical Performance</h3>
+              <p className="text-sm text-gray-400">Analyze how your strategy would have performed in past market conditions</p>
             </div>
 
-            <button
-              className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
-              onClick={() => handleSortToggle('title')}
-            >
-              {sortField === 'title' ? (
-                sortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />
-              ) : (
-                <Tag className="w-4 h-4" />
-              )}
-              Name
-            </button>
+            <div className="bg-gunmetal-900/70 rounded-lg p-4 border border-gunmetal-700/50 flex flex-col items-center text-center">
+              <div className="bg-neon-orange/10 p-3 rounded-full mb-3">
+                <Target className="w-6 h-6 text-neon-orange" />
+              </div>
+              <h3 className="font-medium text-gray-200 mb-1">Risk Assessment</h3>
+              <p className="text-sm text-gray-400">Measure drawdowns, volatility, and risk-adjusted returns</p>
+            </div>
 
-            <button
-              className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
-              onClick={() => handleSortToggle('performance')}
-            >
-              {sortField === 'performance' ? (
-                sortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />
-              ) : (
-                <Target className="w-4 h-4" />
-              )}
-              Performance
-            </button>
+            <div className="bg-gunmetal-900/70 rounded-lg p-4 border border-gunmetal-700/50 flex flex-col items-center text-center">
+              <div className="bg-neon-yellow/10 p-3 rounded-full mb-3">
+                <Brain className="w-6 h-6 text-neon-yellow" />
+              </div>
+              <h3 className="font-medium text-gray-200 mb-1">Strategy Optimization</h3>
+              <p className="text-sm text-gray-400">Fine-tune parameters to maximize returns and minimize risk</p>
+            </div>
           </div>
         </div>
 
-        {/* Strategy Selection Table */}
-        <div className="bg-gunmetal-900/50 rounded-xl overflow-hidden">
-          <table className="w-full">
-            <thead className="bg-gunmetal-800/50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Strategy
-                </th>
-                <th className="hidden md:table-cell px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Risk Level
-                </th>
-                <th className="hidden sm:table-cell px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Assets
-                </th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
-                  Action
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gunmetal-800">
-              {paginatedStrategies.length > 0 ? (
-                paginatedStrategies.map((strategy) => (
-                  <tr key={strategy.id} className="hover:bg-gunmetal-800/30 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="text-sm font-medium text-gray-200">{strategy.title}</div>
-                      <div className="text-xs text-gray-400 mt-1 line-clamp-1">{strategy.description}</div>
-                    </td>
-                    <td className="hidden md:table-cell px-6 py-4">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${strategy.risk_level === 'High' ? 'bg-neon-pink/10 text-neon-pink' : strategy.risk_level === 'Medium' ? 'bg-neon-orange/10 text-neon-orange' : 'bg-neon-turquoise/10 text-neon-turquoise'}`}>
-                        {strategy.risk_level}
-                      </span>
-                    </td>
-                    <td className="hidden sm:table-cell px-6 py-4">
-                      <div className="flex flex-wrap gap-1">
-                        {strategy.assets && strategy.assets.map((asset) => (
-                          <span key={asset} className="px-2 py-1 bg-gunmetal-700 rounded-full text-xs text-gray-300">
-                            {asset}
-                          </span>
-                        ))}
+        {/* Search and Filter Controls */}
+        <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
+          <h3 className="text-lg font-semibold text-gray-200 mb-4">Select a Strategy to Test</h3>
+
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-6">
+            <div className="relative w-full sm:w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+              <input
+                type="text"
+                placeholder="Search strategies..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-200 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-neon-turquoise/50 focus:border-neon-turquoise/50"
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <div className="relative">
+                <button
+                  className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
+                  onClick={() => setFilterRiskLevel(filterRiskLevel ? null : 'Low')}
+                >
+                  <Filter className="w-4 h-4" />
+                  {filterRiskLevel || 'Risk Level'}
+                  {filterRiskLevel && <X className="w-3 h-3" />}
+                </button>
+              </div>
+
+              <button
+                className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
+                onClick={() => handleSortToggle('title')}
+              >
+                {sortField === 'title' ? (
+                  sortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />
+                ) : (
+                  <Tag className="w-4 h-4" />
+                )}
+                Name
+              </button>
+
+              <button
+                className="px-3 py-2 bg-gunmetal-800/50 border border-gunmetal-700 rounded-lg text-sm text-gray-300 hover:bg-gunmetal-700/50 transition-colors flex items-center gap-2"
+                onClick={() => handleSortToggle('performance')}
+              >
+                {sortField === 'performance' ? (
+                  sortOrder === 'asc' ? <SortAsc className="w-4 h-4" /> : <SortDesc className="w-4 h-4" />
+                ) : (
+                  <Target className="w-4 h-4" />
+                )}
+                Performance
+              </button>
+            </div>
+          </div>
+
+          {/* Strategy Selection Table */}
+          <div className="bg-gunmetal-900/50 rounded-xl overflow-hidden border border-gunmetal-800/70 shadow-inner">
+            <table className="w-full">
+              <thead className="bg-gunmetal-800/70">
+                <tr>
+                  <th className="px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Strategy
+                  </th>
+                  <th className="hidden md:table-cell px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Risk Level
+                  </th>
+                  <th className="hidden sm:table-cell px-6 py-4 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Assets
+                  </th>
+                  <th className="px-6 py-4 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    Action
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gunmetal-800">
+                {paginatedStrategies.length > 0 ? (
+                  paginatedStrategies.map((strategy) => (
+                    <tr key={strategy.id} className="hover:bg-gunmetal-800/30 transition-colors">
+                      <td className="px-6 py-5">
+                        <div className="text-sm font-medium text-gray-200">{strategy.title}</div>
+                        <div className="text-xs text-gray-400 mt-1 line-clamp-1">{strategy.description}</div>
+                      </td>
+                      <td className="hidden md:table-cell px-6 py-5">
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${strategy.risk_level === 'High' ? 'bg-neon-pink/10 text-neon-pink' : strategy.risk_level === 'Medium' ? 'bg-neon-orange/10 text-neon-orange' : 'bg-neon-turquoise/10 text-neon-turquoise'}`}>
+                          {strategy.risk_level}
+                        </span>
+                      </td>
+                      <td className="hidden sm:table-cell px-6 py-5">
+                        <div className="flex flex-wrap gap-1">
+                          {strategy.selected_pairs && strategy.selected_pairs.map((asset) => (
+                            <span key={asset} className="px-2 py-1 bg-gunmetal-700 rounded-full text-xs text-gray-300">
+                              {asset}
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-6 py-5 text-right">
+                        <button
+                          onClick={() => {
+                            setSelectedStrategy(strategy);
+                            setShowConfig(true);
+                          }}
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all font-medium shadow-lg shadow-neon-turquoise/20"
+                        >
+                          <Play className="w-4 h-4" />
+                          Run Backtest
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-10 text-center text-gray-400">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <AlertTriangle className="w-6 h-6 text-neon-orange" />
+                        <p>No strategies found matching your filters.</p>
+                        {searchTerm && (
+                          <button
+                            onClick={() => setSearchTerm('')}
+                            className="text-neon-turquoise hover:text-neon-yellow transition-colors text-sm"
+                          >
+                            Clear search
+                          </button>
+                        )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <button
-                        onClick={() => {
-                          setSelectedStrategy(strategy);
-                          setShowConfig(true);
-                        }}
-                        className="inline-flex items-center gap-2 px-3 py-1 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all"
-                      >
-                        <Play className="w-4 h-4" />
-                        Run
-                      </button>
-                    </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={4} className="px-6 py-8 text-center text-gray-400">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <AlertTriangle className="w-6 h-6 text-neon-orange" />
-                      <p>No strategies found matching your filters.</p>
-                      {searchTerm && (
-                        <button
-                          onClick={() => setSearchTerm('')}
-                          className="text-neon-turquoise hover:text-neon-yellow transition-colors text-sm"
-                        >
-                          Clear search
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex justify-center mt-4">
-            <nav className="flex items-center gap-1">
-              <button
-                onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
-                disabled={currentPage === 1}
-                className={`p-2 rounded-lg ${currentPage === 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-                <button
-                  key={page}
-                  onClick={() => handlePageChange(page)}
-                  className={`w-8 h-8 rounded-lg text-sm ${currentPage === page ? 'bg-neon-turquoise text-gunmetal-950' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
-                >
-                  {page}
-                </button>
-              ))}
-
-              <button
-                onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
-                disabled={currentPage === totalPages}
-                className={`p-2 rounded-lg ${currentPage === totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </nav>
+                )}
+              </tbody>
+            </table>
           </div>
-        )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center mt-6">
+              <nav className="flex items-center gap-1">
+                <button
+                  onClick={() => handlePageChange(Math.max(1, currentPage - 1))}
+                  disabled={currentPage === 1}
+                  className={`p-2 rounded-lg ${currentPage === 1 ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
+                >
+                  <ChevronLeft className="w-5 h-5" />
+                </button>
+
+                {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
+                  <button
+                    key={page}
+                    onClick={() => handlePageChange(page)}
+                    className={`w-8 h-8 rounded-lg text-sm ${currentPage === page ? 'bg-neon-turquoise text-gunmetal-950' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
+                  >
+                    {page}
+                  </button>
+                ))}
+
+                <button
+                  onClick={() => handlePageChange(Math.min(totalPages, currentPage + 1))}
+                  disabled={currentPage === totalPages}
+                  className={`p-2 rounded-lg ${currentPage === totalPages ? 'text-gray-600 cursor-not-allowed' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
+                >
+                  <ChevronRight className="w-5 h-5" />
+                </button>
+              </nav>
+            </div>
+          )}
+        </div>
 
         {/* Progress Section */}
         {progress && (
-          <BacktestProgress
-            progress={progress}
-            latestUpdate={latestUpdate}
-            onCancel={handleCancelBacktest}
-          />
+          <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
+            <BacktestProgress
+              progress={progress}
+              latestUpdate={latestUpdate}
+              onCancel={handleCancelBacktest}
+            />
+          </div>
         )}
       </div>
 

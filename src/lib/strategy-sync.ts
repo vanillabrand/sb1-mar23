@@ -342,6 +342,7 @@ class StrategySync extends EventEmitter {
         ...data,
         user_id: session.user.id,
         title: data.title || 'New Strategy',
+        name: data.name || data.title || 'New Strategy', // Use title as fallback for name
         description: data.description || '',
         type: data.type || 'custom',
         created_at: new Date().toISOString(),
@@ -352,15 +353,15 @@ class StrategySync extends EventEmitter {
         strategy_config: data.strategy_config || {},
       };
 
-      // Handle risk level field (both risk_level and riskLevel)
+      // Only use risk_level, not riskLevel (which causes errors)
       if (data.riskLevel && !data.risk_level) {
         strategyData.risk_level = data.riskLevel;
-      } else if (data.risk_level && !data.riskLevel) {
-        strategyData.riskLevel = data.risk_level;
       } else if (!data.risk_level && !data.riskLevel) {
         strategyData.risk_level = 'Medium';
-        strategyData.riskLevel = 'Medium';
       }
+
+      // Remove riskLevel to avoid database errors
+      delete strategyData.riskLevel;
 
       // Log the data we're trying to insert
       console.log('Creating strategy with data:', strategyData);
@@ -377,7 +378,71 @@ class StrategySync extends EventEmitter {
           userId: session.user.id,
           data
         }, 'StrategySync');
-        throw error;
+
+        // Log the specific error for debugging
+        logService.log('error', 'Failed to create strategy', error, 'StrategySync');
+
+        // If we get any error, try a more minimal approach
+        try {
+          // Check if the error is related to missing columns
+          if (error.message && (error.message.includes('title') || error.message.includes('schema cache'))) {
+            logService.log('warn', 'Database schema issue detected, trying to fix schema', error, 'StrategySync');
+
+            // Import and use the dbSchemaFixer
+            const { dbSchemaFixer } = await import('./db-schema-fixer');
+            const schemaFixed = await dbSchemaFixer.fixDatabaseSchema();
+
+            if (schemaFixed) {
+              logService.log('info', 'Database schema fixed, retrying strategy creation', null, 'StrategySync');
+
+              // Try again with the original data after schema fix
+              const { data: fixedStrategy, error: fixedError } = await supabase
+                .from('strategies')
+                .insert(strategyData)
+                .select()
+                .single();
+
+              if (fixedError) {
+                logService.log('error', 'Failed to create strategy after schema fix', fixedError, 'StrategySync');
+              } else if (fixedStrategy) {
+                logService.log('info', 'Successfully created strategy after schema fix', null, 'StrategySync');
+                return fixedStrategy;
+              }
+            }
+          }
+
+          // If schema fix didn't work or wasn't needed, try with minimal data
+          const minimalData = {
+            user_id: session.user.id,
+            title: data.title || 'New Strategy',
+            name: data.name || data.title || 'New Strategy', // Use title as fallback for name
+            description: data.description || '',
+            type: data.type || 'custom',
+            status: data.status || 'inactive',
+            risk_level: data.riskLevel || data.risk_level || 'Medium',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          };
+
+          console.log('Trying with minimal data:', minimalData);
+
+          const { data: minimalStrategy, error: minimalError } = await supabase
+            .from('strategies')
+            .insert(minimalData)
+            .select()
+            .single();
+
+          if (minimalError) {
+            logService.log('error', 'Failed to create strategy with minimal data', minimalError, 'StrategySync');
+            throw minimalError;
+          }
+
+          logService.log('info', 'Successfully created strategy with minimal data', null, 'StrategySync');
+          return minimalStrategy;
+        } catch (fallbackError) {
+          logService.log('error', 'All attempts to create strategy failed', fallbackError, 'StrategySync');
+          throw error; // Throw the original error
+        }
       }
 
       if (!strategy) {

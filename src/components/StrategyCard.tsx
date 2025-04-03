@@ -5,6 +5,7 @@ import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
 import { marketService } from '../lib/market-service';
 import { tradeGenerator } from '../lib/trade-generator';
+import { demoTradeGenerator } from '../lib/demo-trade-generator';
 import { tradeEngine } from '../lib/trade-engine';
 import { tradeManager } from '../lib/trade-manager';
 import { logService } from '../lib/log-service';
@@ -249,8 +250,15 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'StrategyCard');
 
           // Add strategy to trade generator
-          await tradeGenerator.addStrategy(updatedStrategy as any);
-          logService.log('info', `Added strategy ${strategy.id} to trade generator`, null, 'StrategyCard');
+          if (demoService.isInDemoMode()) {
+            // Use demo trade generator in demo mode
+            await demoTradeGenerator.addStrategy(updatedStrategy as any);
+            logService.log('info', `Added strategy ${strategy.id} to demo trade generator`, null, 'StrategyCard');
+          } else {
+            // Use regular trade generator in normal mode
+            await tradeGenerator.addStrategy(updatedStrategy as any);
+            logService.log('info', `Added strategy ${strategy.id} to trade generator`, null, 'StrategyCard');
+          }
 
           // Initialize strategy monitoring
           await strategyMonitor.addStrategy(updatedStrategy as any);
@@ -339,7 +347,15 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         }
 
         try {
-          tradeGenerator.removeStrategy(strategy.id);
+          if (demoService.isInDemoMode()) {
+            // Remove from demo trade generator in demo mode
+            demoTradeGenerator.removeStrategy(strategy.id);
+            logService.log('info', `Removed strategy ${strategy.id} from demo trade generator`, null, 'StrategyCard');
+          } else {
+            // Remove from regular trade generator in normal mode
+            tradeGenerator.removeStrategy(strategy.id);
+            logService.log('info', `Removed strategy ${strategy.id} from trade generator`, null, 'StrategyCard');
+          }
         } catch (generatorError) {
           logService.log('warn', 'Error removing from trade generator, continuing with deactivation', generatorError, 'StrategyCard');
         }
@@ -640,7 +656,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   return (
     <>
       <motion.div
-        className={`bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-6 shadow-lg border border-gunmetal-800/50 cursor-pointer hover:shadow-xl transition-all duration-300`}
+        className={`bg-black rounded-xl p-6 shadow-lg border border-gunmetal-800/50 cursor-pointer hover:shadow-xl transition-all duration-300`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
@@ -819,7 +835,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                     <p className="text-gray-400">No active trades for this strategy</p>
                   </div>
                 ) : (
-                  <div className="bg-gunmetal-800/30 rounded-lg overflow-hidden">
+                  <div className="bg-black border border-gunmetal-800/50 rounded-lg overflow-hidden">
                     <table className="w-full">
                       <thead>
                         <tr className="bg-gunmetal-900/50">

@@ -65,67 +65,231 @@ export class TemplateManager extends EventEmitter {
         return;
       }
 
-      // Generate demo templates
+      // Generate demo templates - only use risk_level, not riskLevel
       const demoTemplates = [
         {
           title: 'Momentum Surge',
+          name: 'Momentum Surge',
           description: 'Capitalizes on strong price momentum to enter trades in the direction of the trend.',
           risk_level: 'Low',
-          riskLevel: 'Low',
           type: 'system_template',
           selected_pairs: ['BTC/USDT'],
-          strategy_config: { indicatorType: 'momentum', entryConditions: {}, exitConditions: {} }
+          strategy_config: {
+            indicatorType: 'momentum',
+            timeframe: '1h',
+            entryConditions: {
+              momentumThreshold: 0.5,
+              volumeIncrease: 20,
+              minPriceChange: 1.5,
+              direction: 'both',
+              confirmationCandles: 3,
+              indicators: {
+                rsi: { period: 14, overbought: 70, oversold: 30 },
+                macd: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 }
+              }
+            },
+            exitConditions: {
+              takeProfitPercentage: 3.5,
+              stopLossPercentage: 2.0,
+              trailingStopPercentage: 1.0,
+              maxDurationHours: 48,
+              exitOnMomentumReversal: true,
+              rsiExitLevel: 50
+            },
+            riskManagement: {
+              positionSizePercentage: 5,
+              maxOpenTrades: 3,
+              maxDailyLoss: 5
+            }
+          }
         },
         {
           title: 'Trend Follower Pro',
+          name: 'Trend Follower Pro',
           description: 'Follows established market trends using multiple timeframe analysis for confirmation.',
           risk_level: 'Medium',
-          riskLevel: 'Medium',
           type: 'system_template',
           selected_pairs: ['ETH/USDT'],
-          strategy_config: { indicatorType: 'trend', entryConditions: {}, exitConditions: {} }
+          strategy_config: {
+            indicatorType: 'trend',
+            timeframe: '4h',
+            entryConditions: {
+              primaryTimeframe: '4h',
+              confirmationTimeframe: '1d',
+              direction: 'both',
+              minTrendStrength: 70,
+              indicators: {
+                ema: { shortPeriod: 20, longPeriod: 50, direction: 'cross' },
+                adx: { period: 14, threshold: 25 },
+                supertrend: { period: 10, multiplier: 3 }
+              }
+            },
+            exitConditions: {
+              takeProfitPercentage: 8.0,
+              stopLossPercentage: 4.0,
+              trailingStopPercentage: 2.0,
+              maxDurationHours: 120,
+              exitOnTrendReversal: true,
+              exitOnEMACrossover: true
+            },
+            riskManagement: {
+              positionSizePercentage: 10,
+              maxOpenTrades: 5,
+              maxDailyLoss: 8
+            }
+          }
         },
         {
           title: 'Volatility Breakout',
+          name: 'Volatility Breakout',
           description: 'Identifies and trades breakouts from periods of low volatility for explosive moves.',
           risk_level: 'High',
-          riskLevel: 'High',
           type: 'system_template',
           selected_pairs: ['SOL/USDT'],
-          strategy_config: { indicatorType: 'volatility', entryConditions: {}, exitConditions: {} }
+          strategy_config: {
+            indicatorType: 'volatility',
+            timeframe: '15m',
+            entryConditions: {
+              volatilityPercentile: 20,
+              breakoutPercentage: 3.0,
+              volumeMultiplier: 2.5,
+              direction: 'both',
+              consolidationPeriod: 24,
+              indicators: {
+                bollinger: { period: 20, deviations: 2.0, squeezeThreshold: 0.1 },
+                atr: { period: 14, multiplier: 1.5 },
+                keltnerChannels: { period: 20, multiplier: 1.5 }
+              }
+            },
+            exitConditions: {
+              takeProfitPercentage: 15.0,
+              stopLossPercentage: 7.0,
+              trailingStopPercentage: 3.5,
+              maxDurationHours: 24,
+              exitOnVolatilityContraction: true,
+              atrMultiplierExit: 2.0
+            },
+            riskManagement: {
+              positionSizePercentage: 15,
+              maxOpenTrades: 3,
+              maxDailyLoss: 12
+            }
+          }
         },
         {
           title: 'RSI Reversal',
+          name: 'RSI Reversal',
           description: 'Spots oversold and overbought conditions using RSI for potential market reversals.',
           risk_level: 'Medium',
-          riskLevel: 'Medium',
           type: 'system_template',
           selected_pairs: ['BNB/USDT'],
-          strategy_config: { indicatorType: 'oscillator', entryConditions: {}, exitConditions: {} }
+          strategy_config: {
+            indicatorType: 'oscillator',
+            timeframe: '2h',
+            entryConditions: {
+              overboughtLevel: 75,
+              oversoldLevel: 25,
+              confirmationCandles: 2,
+              direction: 'both',
+              indicators: {
+                rsi: { period: 14, smoothing: 3 },
+                stochastic: { kPeriod: 14, dPeriod: 3, slowing: 3, overbought: 80, oversold: 20 },
+                priceAction: { confirmationNeeded: true }
+              }
+            },
+            exitConditions: {
+              takeProfitPercentage: 5.0,
+              stopLossPercentage: 3.0,
+              trailingStopPercentage: 1.5,
+              maxDurationHours: 36,
+              rsiCenterCrossExit: true,
+              exitLevel: 50
+            },
+            riskManagement: {
+              positionSizePercentage: 8,
+              maxOpenTrades: 4,
+              maxDailyLoss: 7
+            }
+          }
         },
         {
           title: 'MACD Crossover',
+          name: 'MACD Crossover',
           description: 'Uses MACD crossovers to identify shifts in momentum and trend direction.',
           risk_level: 'Low',
-          riskLevel: 'Low',
           type: 'system_template',
           selected_pairs: ['XRP/USDT'],
-          strategy_config: { indicatorType: 'momentum', entryConditions: {}, exitConditions: {} }
+          strategy_config: {
+            indicatorType: 'momentum',
+            timeframe: '6h',
+            entryConditions: {
+              signalCrossover: true,
+              histogramReversal: true,
+              direction: 'both',
+              confirmationCandles: 1,
+              indicators: {
+                macd: { fastPeriod: 12, slowPeriod: 26, signalPeriod: 9 },
+                ema: { period: 200, respectTrend: true },
+                volume: { minIncrease: 10 }
+              }
+            },
+            exitConditions: {
+              takeProfitPercentage: 4.0,
+              stopLossPercentage: 2.5,
+              trailingStopPercentage: 1.2,
+              maxDurationHours: 72,
+              exitOnOppositeSignal: true,
+              macdHistogramReversal: true
+            },
+            riskManagement: {
+              positionSizePercentage: 6,
+              maxOpenTrades: 5,
+              maxDailyLoss: 5
+            }
+          }
         },
         {
           title: 'Bollinger Squeeze',
+          name: 'Bollinger Squeeze',
           description: 'Trades the expansion phase after periods of price consolidation within tight Bollinger Bands.',
           risk_level: 'High',
-          riskLevel: 'High',
           type: 'system_template',
           selected_pairs: ['ADA/USDT'],
-          strategy_config: { indicatorType: 'volatility', entryConditions: {}, exitConditions: {} }
+          strategy_config: {
+            indicatorType: 'volatility',
+            timeframe: '30m',
+            entryConditions: {
+              bandwidthThreshold: 0.1,
+              expansionPercentage: 2.5,
+              direction: 'both',
+              minimumContractionPeriod: 12,
+              indicators: {
+                bollinger: { period: 20, deviations: 2.0 },
+                keltner: { period: 20, atrMultiplier: 1.5 },
+                momentum: { indicator: 'rsi', period: 14, threshold: 50 }
+              }
+            },
+            exitConditions: {
+              takeProfitPercentage: 12.0,
+              stopLossPercentage: 6.0,
+              trailingStopPercentage: 3.0,
+              maxDurationHours: 48,
+              bandwidthExpansionExit: 2.0,
+              priceRetracementExit: 0.5
+            },
+            riskManagement: {
+              positionSizePercentage: 12,
+              maxOpenTrades: 3,
+              maxDailyLoss: 10
+            }
+          }
         }
       ];
 
       // Insert demo templates
       for (const template of demoTemplates) {
         try {
+          // First try with both risk_level and riskLevel
           const { error: insertError } = await supabase
             .from('strategy_templates')
             .insert({
@@ -136,6 +300,28 @@ export class TemplateManager extends EventEmitter {
 
           if (insertError) {
             logService.log('error', 'Failed to insert demo template', insertError, 'TemplateManager');
+
+            // If the error is related to riskLevel, try without it
+            if (insertError.message && insertError.message.includes('riskLevel')) {
+              const simplifiedTemplate = { ...template };
+              delete simplifiedTemplate.riskLevel;
+
+              const { error: retryError } = await supabase
+                .from('strategy_templates')
+                .insert({
+                  ...simplifiedTemplate,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                });
+
+              if (retryError) {
+                logService.log('error', 'Failed to insert simplified demo template', retryError, 'TemplateManager');
+              } else {
+                logService.log('info', 'Successfully inserted simplified demo template', null, 'TemplateManager');
+              }
+            }
+          } else {
+            logService.log('info', 'Successfully inserted demo template', null, 'TemplateManager');
           }
         } catch (insertError) {
           logService.log('error', 'Exception inserting demo template', insertError, 'TemplateManager');

@@ -8,7 +8,8 @@ import {
   ChevronRight,
   AlertCircle,
   Loader2,
-  Clock
+  Clock,
+  X
 } from 'lucide-react';
 import type { Strategy } from '../lib/supabase-types';
 import type { BacktestConfig } from '../lib/backtest-service';
@@ -150,7 +151,10 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
         throw new Error('Strategy configuration is missing');
       }
 
-      if (!Array.isArray(strategy.strategy_config.assets) || strategy.strategy_config.assets.length === 0) {
+      // Check for trading pairs in selected_pairs (primary) or strategy_config.assets (fallback)
+      const tradingPairs = strategy.selected_pairs || (strategy.strategy_config?.assets as string[] || []);
+
+      if (!Array.isArray(tradingPairs) || tradingPairs.length === 0) {
         throw new Error('No trading pairs configured for this strategy');
       }
 
@@ -172,8 +176,8 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
         throw new Error('Initial balance must be greater than 0');
       }
 
-      // Get first asset from strategy config
-      const symbol = strategy.strategy_config.assets[0];
+      // Get first trading pair
+      const symbol = tradingPairs[0];
 
       const config: BacktestConfig = {
         strategy,
@@ -216,14 +220,14 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
                         setStep('config');
                       }
                     }}
-                    className="flex items-center gap-4 p-4 bg-gunmetal-800/50 rounded-lg hover:bg-gunmetal-800/70 transition-all duration-300"
+                    className="flex items-center gap-4 p-5 bg-gunmetal-800/50 rounded-lg hover:bg-gunmetal-800/70 transition-all duration-300 border border-gunmetal-700/50 shadow-md hover:shadow-lg hover:border-gunmetal-600/50"
                   >
-                    <div className="p-2 rounded-lg bg-neon-raspberry/10">
-                      <Icon className="w-6 h-6 text-neon-raspberry" />
+                    <div className="p-3 rounded-lg bg-neon-turquoise/10 shadow-inner">
+                      <Icon className="w-6 h-6 text-neon-turquoise" />
                     </div>
                     <div className="text-left">
                       <h4 className="font-medium text-gray-200">{option.name}</h4>
-                      <p className="text-sm text-gray-400">{option.description}</p>
+                      <p className="text-sm text-gray-400 mt-1">{option.description}</p>
                     </div>
                   </button>
                 );
@@ -237,27 +241,38 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
           <div className="space-y-6">
             <h3 className="text-lg font-semibold text-gray-200 mb-6">Choose Market Scenario</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {MARKET_SCENARIOS.map((scenarioOption) => (
-                <button
-                  key={scenarioOption.id}
-                  onClick={() => {
-                    setScenario(scenarioOption.id);
-                    setStep('config');
-                  }}
-                  className={`p-4 rounded-lg border transition-all duration-300 ${
-                    scenario === scenarioOption.id
-                      ? `bg-${scenarioOption.color}/10 border-${scenarioOption.color}/50`
-                      : 'bg-gunmetal-900/30 border-gunmetal-800 hover:border-gunmetal-700'
-                  }`}
-                >
-                  <h4 className={`text-lg font-medium ${
-                    scenario === scenarioOption.id ? `text-${scenarioOption.color}` : 'text-gray-200'
-                  } mb-2`}>
-                    {scenarioOption.name}
-                  </h4>
-                  <p className="text-sm text-gray-400">{scenarioOption.description}</p>
-                </button>
-              ))}
+              {MARKET_SCENARIOS.map((scenarioOption) => {
+                // Map color names to actual Tailwind classes to avoid dynamic class name issues
+                const colorMap = {
+                  'neon-turquoise': 'bg-neon-turquoise/10 border-neon-turquoise/50 text-neon-turquoise',
+                  'neon-pink': 'bg-neon-pink/10 border-neon-pink/50 text-neon-pink',
+                  'neon-yellow': 'bg-neon-yellow/10 border-neon-yellow/50 text-neon-yellow',
+                  'neon-orange': 'bg-neon-orange/10 border-neon-orange/50 text-neon-orange'
+                };
+
+                const isSelected = scenario === scenarioOption.id;
+                const colorClass = colorMap[scenarioOption.color] || '';
+
+                return (
+                  <button
+                    key={scenarioOption.id}
+                    onClick={() => {
+                      setScenario(scenarioOption.id);
+                      setStep('config');
+                    }}
+                    className={`p-5 rounded-lg border transition-all duration-300 shadow-md hover:shadow-lg ${
+                      isSelected
+                        ? colorClass
+                        : 'bg-gunmetal-900/30 border-gunmetal-800 hover:border-gunmetal-600 text-gray-200'
+                    }`}
+                  >
+                    <h4 className={`text-lg font-medium mb-2`}>
+                      {scenarioOption.name}
+                    </h4>
+                    <p className="text-sm text-gray-400">{scenarioOption.description}</p>
+                  </button>
+                );
+              })}
             </div>
           </div>
         );
@@ -265,51 +280,98 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
       case 'config':
         return (
           <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Start Date
-              </label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="pl-10 w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg shadow-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent"
-                  required
-                />
+            <div className="bg-gunmetal-800/30 p-5 rounded-lg border border-gunmetal-700/50 shadow-inner">
+              <h4 className="text-md font-medium text-neon-turquoise mb-4">Backtest Period</h4>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Start Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="pl-10 w-full py-2 bg-gunmetal-800 border border-gunmetal-700 rounded-lg shadow-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    End Date
+                  </label>
+                  <div className="relative">
+                    <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="pl-10 w-full py-2 bg-gunmetal-800 border border-gunmetal-700 rounded-lg shadow-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent"
+                      required
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  Initial Balance (USDT)
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={initialBalance}
+                    onChange={(e) => setInitialBalance(parseFloat(e.target.value))}
+                    className="w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg shadow-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent px-4 py-2"
+                    min="0"
+                    step="1000"
+                    required
+                  />
+                </div>
               </div>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                End Date
-              </label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="pl-10 w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg shadow-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent"
-                  required
-                />
-              </div>
-            </div>
+            {/* Strategy Summary */}
+            <div className="bg-gunmetal-800/30 p-5 rounded-lg border border-gunmetal-700/50 shadow-inner">
+              <h4 className="text-md font-medium text-neon-turquoise mb-4">Strategy Summary</h4>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
-                Initial Balance (USDT)
-              </label>
-              <input
-                type="number"
-                value={initialBalance}
-                onChange={(e) => setInitialBalance(parseFloat(e.target.value))}
-                className="w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg shadow-sm text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent px-4 py-2"
-                min="0"
-                step="1000"
-                required
-              />
+              <div className="space-y-3">
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-400">Name:</span>
+                  <span className="text-sm text-gray-200 font-medium">{strategy.title}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-400">Risk Level:</span>
+                  <span className={`text-sm font-medium ${strategy.riskLevel === 'High' ? 'text-neon-pink' : strategy.riskLevel === 'Medium' ? 'text-neon-orange' : 'text-neon-turquoise'}`}>
+                    {strategy.riskLevel}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-400">Trading Pair:</span>
+                  <span className="text-sm text-gray-200 font-medium">
+                    {(() => {
+                      // Get trading pairs from selected_pairs or strategy_config.assets
+                      const pairs = strategy.selected_pairs || (strategy.strategy_config?.assets as string[] || []);
+                      return pairs && pairs.length > 0 ? pairs[0] : 'N/A';
+                    })()}
+                  </span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-400">Data Source:</span>
+                  <span className="text-sm text-gray-200 font-medium">
+                    {dataSource === 'synthetic' ? `Synthetic (${scenario})` :
+                     dataSource === 'exchange' ? 'Exchange Data' :
+                     dataSource === 'file' ? 'Uploaded File' : 'Not Selected'}
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* Hidden file input */}
@@ -322,9 +384,9 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
             />
 
             {uploadError && (
-              <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center gap-2">
-                <AlertCircle className="w-5 h-5" />
-                {uploadError.message}
+              <div className="p-4 bg-neon-pink/10 border border-neon-pink/30 text-neon-pink rounded-lg flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <span>{uploadError.message}</span>
               </div>
             )}
 
@@ -332,13 +394,13 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
               <button
                 type="button"
                 onClick={() => step === 'config' ? setStep('source') : onClose()}
-                className="px-4 py-2 text-sm font-medium text-gray-400 hover:text-gray-200"
+                className="px-4 py-2 text-sm font-medium text-gray-400 hover:text-gray-200 border border-gunmetal-700 rounded-lg hover:bg-gunmetal-800/50 transition-all"
               >
                 {step === 'config' ? 'Back' : 'Cancel'}
               </button>
               <button
                 type="submit"
-                className="px-4 py-2 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all duration-300"
+                className="px-6 py-2 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all duration-300 font-medium shadow-lg shadow-neon-turquoise/20"
               >
                 Start Backtest
               </button>
@@ -351,23 +413,23 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
   if (!open || !strategy) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-lg p-6 w-full max-w-md border border-gunmetal-800">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold gradient-text">Configure Backtest</h2>
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <div className="bg-black rounded-xl p-8 w-full max-w-md border border-gunmetal-700 shadow-xl">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold text-neon-turquoise">Configure Backtest</h2>
           <button
             onClick={onClose}
-            className="p-1 rounded-full hover:bg-gunmetal-800 transition-colors"
+            className="p-2 rounded-full hover:bg-gunmetal-800/70 transition-colors"
             aria-label="Close"
           >
-            <X className="w-5 h-5 text-gray-400" />
+            <X className="w-5 h-5 text-gray-400 hover:text-gray-200" />
           </button>
         </div>
 
         {error && (
-          <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-600 rounded-md flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" />
-            {error}
+          <div className="mb-6 p-4 bg-neon-pink/10 border border-neon-pink/30 text-neon-pink rounded-lg flex items-center gap-3">
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span>{error}</span>
           </div>
         )}
 

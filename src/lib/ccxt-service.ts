@@ -43,17 +43,26 @@ class CCXTService {
           config.urls = {
             api: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`
           };
+
+          // Force CCXT to use our proxy for all requests
+          config.proxy = false; // Disable CCXT's built-in proxy handling
+
           // Add custom options for better error handling
           config.options = {
             ...config.options,
             verbose: true, // Enable verbose mode for debugging
-            timeout: 10000, // 10 seconds timeout
+            timeout: 30000, // 30 seconds timeout (increased for reliability)
             retry: true, // Enable retry
-            retries: 3, // Number of retries
+            retries: 5, // Increased number of retries
             retryDelay: 1000, // Delay between retries in milliseconds
+            createMarketBuyOrderRequiresPrice: false, // Allow market orders without price
+            defaultType: 'spot', // Use spot trading by default
           };
+
+          // Log the configuration
           logService.log('info', `Using proxy for Binance TestNet: ${import.meta.env.VITE_PROXY_URL}binanceTestnet`, null, 'CCXTService');
           console.log(`Using proxy for Binance TestNet: ${import.meta.env.VITE_PROXY_URL}binanceTestnet with timeout: ${config.options.timeout}ms`);
+          console.log('CCXT config:', JSON.stringify(config, null, 2));
         } else {
           // For other exchanges, use the standard proxy URL
           config.proxy = import.meta.env.VITE_PROXY_URL;
@@ -91,7 +100,7 @@ class CCXTService {
           // For TestNet, we're using our proxy
           const endpoint = import.meta.env.VITE_PROXY_URL ?
             `${import.meta.env.VITE_PROXY_URL}binanceTestnet` :
-            'testnet.binance.vision';
+            'https://testnet.binance.vision';
           logService.log('info', `Binance TestNet endpoint: ${endpoint}`, null, 'CCXTService');
           console.log(`Using Binance TestNet endpoint: ${endpoint}`);
         } else {

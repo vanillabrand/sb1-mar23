@@ -10,9 +10,9 @@ interface PanelWrapperProps {
   icon?: React.ReactNode;
 }
 
-export function PanelWrapper({ 
-  children, 
-  index = 0, 
+export function PanelWrapper({
+  children,
+  index = 0,
   className = "",
   delay = 0,
   title,
@@ -54,7 +54,7 @@ export function PanelWrapper({
       ref={panelRef}
       initial={{ opacity: 0, y: 20 }}
       animate={controls}
-      className={`bg-gunmetal-800/90 backdrop-blur-xl rounded-xl p-6 ${className}`}
+      className={`bg-black backdrop-blur-xl rounded-xl p-6 ${className}`}
     >
       {title && (
         <div className="flex items-center gap-3 mb-6">

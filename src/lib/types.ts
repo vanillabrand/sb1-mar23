@@ -48,6 +48,27 @@ export interface TradeOptions {
   type?: 'market' | 'limit';
   // Add aliases for camelCase properties
   strategyId?: string;
+}
+
+export interface BacktestResult {
+  returns: number[];
+  positions: Record<string, number>;
+  trades: {
+    entryPrice: number;
+    exitPrice: number;
+    entryTime: Date;
+    exitTime: Date;
+    profit: number;
+    size: number;
+    processed?: boolean;
+  }[];
+  metrics: {
+    totalReturn: number;
+    sharpeRatio: number;
+    maxDrawdown: number;
+    winRate: number;
+  };
+  equityCurve?: { date: Date; value: number }[];
   entryPrice?: number;
   stopLoss?: number;
   takeProfit?: number;

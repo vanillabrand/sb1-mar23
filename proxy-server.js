@@ -53,7 +53,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = '*';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
     }
   },
   binance: {
@@ -83,7 +83,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = '*';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
     }
   },
   binanceTestnet: {
@@ -97,6 +97,13 @@ const exchangeProxies = {
       proxyReq.removeHeader('origin');
       // Add custom headers if needed
       proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+
+      // Forward the Binance API key header if present
+      if (req.headers['x-mbx-apikey']) {
+        proxyReq.setHeader('X-MBX-APIKEY', req.headers['x-mbx-apikey']);
+        console.log('Forwarding X-MBX-APIKEY header');
+      }
+
       if (req.headers.authorization) {
         proxyReq.setHeader('Authorization', req.headers.authorization);
       }
@@ -114,12 +121,64 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = '*';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
 
       console.log(`Received response from Binance TestNet: ${proxyRes.statusCode}`);
     },
     onError: (err, req, res) => {
       console.error(`Proxy error for Binance TestNet: ${err.message}`);
+      res.writeHead(500, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',
+        'Access-Control-Allow-Credentials': 'true'
+      });
+      res.end(JSON.stringify({
+        error: 'Proxy error',
+        message: err.message
+      }));
+    }
+  },
+  binanceFutures: {
+    target: 'https://testnet.binancefuture.com',
+    changeOrigin: true,
+    pathRewrite: {
+      '^/api/binanceFutures': ''
+    },
+    onProxyReq: (proxyReq, req, _res) => {
+      // Remove origin header to prevent CORS issues
+      proxyReq.removeHeader('origin');
+      // Add custom headers if needed
+      proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+
+      // Forward the Binance API key header if present
+      if (req.headers['x-mbx-apikey']) {
+        proxyReq.setHeader('X-MBX-APIKEY', req.headers['x-mbx-apikey']);
+        console.log('Forwarding X-MBX-APIKEY header to Binance Futures');
+      }
+
+      if (req.headers.authorization) {
+        proxyReq.setHeader('Authorization', req.headers.authorization);
+      }
+      console.log(`Proxying request to Binance Futures: ${req.method} ${req.url}`);
+    },
+    onProxyRes: (proxyRes, req, _res) => {
+      // Remove ALL existing CORS headers
+      Object.keys(proxyRes.headers).forEach(key => {
+        if (key.toLowerCase().startsWith('access-control-')) {
+          delete proxyRes.headers[key];
+        }
+      });
+
+      // Add our own CORS headers
+      proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
+      proxyRes.headers['access-control-allow-credentials'] = 'true';
+      proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
+
+      console.log(`Received response from Binance Futures: ${proxyRes.statusCode}`);
+    },
+    onError: (err, req, res) => {
+      console.error(`Proxy error for Binance Futures: ${err.message}`);
       res.writeHead(500, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',

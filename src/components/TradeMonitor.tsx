@@ -150,7 +150,17 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
 
+    // Set up auto-refresh timer for more frequent updates
+    const refreshTimer = setInterval(() => {
+      console.log('Auto-refreshing trade data...');
+      fetchTradeData();
+    }, 15000); // Refresh every 15 seconds
+
     return () => {
+      // Clear the refresh timer
+      clearInterval(refreshTimer);
+
+      // Unsubscribe from all subscriptions
       tradeSubscription.unsubscribe();
       strategySubscription.unsubscribe();
       strategyCreatedUnsubscribe();
@@ -347,7 +357,14 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (dbError) throw dbError;
+      if (dbError) {
+        // Check if the error is because the trades table doesn't exist
+        if (dbError.message && dbError.message.includes('relation "trades" does not exist')) {
+          console.warn('Trades table does not exist, returning empty array');
+          return [];
+        }
+        throw dbError;
+      }
 
       // Convert to our Trade format
       return (data || []).map(trade => ({
@@ -431,26 +448,49 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setError(null);
       setIsSubmittingBudget(true);
 
-      // 1. Set the budget
+      // 1. Set the budget first
       await tradeService.setBudget(strategy.id, budget);
       logService.log('info', `Budget set for strategy ${strategy.id}`, { budget }, 'TradeMonitor');
 
-      // 2. Activate the strategy in the database
+      // 2. Get the latest strategy data to ensure we have the most up-to-date information
+      const { data: latestStrategy, error: fetchError } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('id', strategy.id)
+        .single();
+
+      if (fetchError || !latestStrategy) {
+        throw new Error(`Failed to fetch latest strategy data: ${fetchError?.message || 'No data returned'}`);
+      }
+
+      // 3. Activate the strategy in the database
       const updatedStrategy = await strategyService.activateStrategy(strategy.id);
       logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'TradeMonitor');
 
-      // 3. Start monitoring the strategy
+      // 4. Start monitoring the strategy
       await marketService.startStrategyMonitoring(updatedStrategy);
       logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'TradeMonitor');
 
-      // 4. Connect to trading engine to start generating trades
-      await tradeService.connectStrategyToTradingEngine(strategy.id);
+      // 5. Connect to trading engine to start generating trades
+      const connected = await tradeService.connectStrategyToTradingEngine(strategy.id);
+
+      if (!connected) {
+        // If connection failed, try again after a short delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const retryConnected = await tradeService.connectStrategyToTradingEngine(strategy.id);
+
+        if (!retryConnected) {
+          throw new Error('Failed to connect strategy to trading engine after retry');
+        }
+      }
+
       logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'TradeMonitor');
 
-      // 5. Refresh data
+      // 6. Refresh data
       await fetchStrategies();
+      await fetchTradeData(); // Also refresh trade data to show new trades
 
-      // 6. Close the modals
+      // 7. Close the modals
       setShowBudgetModal(false);
       setShowBudgetAdjustmentModal(false);
       setPendingStrategy(null);
@@ -474,11 +514,11 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     .sort((a, b) => b.timestamp - a.timestamp);
 
   return (
-    <div className="min-h-screen bg-gunmetal-900 p-6">
+    <div className="min-h-screen bg-black p-6 overflow-x-hidden">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="space-y-6"
+        className="space-y-6 max-w-[1800px] mx-auto"
       >
         {/* Header Section */}
         <div className="flex items-center justify-between">

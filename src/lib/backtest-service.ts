@@ -1,7 +1,8 @@
 import { EventEmitter } from './event-emitter';
-import { bitmartService } from './bitmart-service';
 import { BacktestEngine } from './backtest-engine';
 import { logService } from './log-service';
+import { exchangeService } from './exchange-service';
+import { demoService } from './demo-service';
 import type { Strategy } from './supabase-types';
 
 export interface BacktestConfig {
@@ -76,6 +77,24 @@ class BacktestService extends EventEmitter {
   }
 
   // Generate synthetic data if needed based on scenario
+  /**
+   * Converts a timeframe string to milliseconds
+   * @param timeframe Timeframe string (e.g., '1m', '5m', '1h', '1d')
+   * @returns Milliseconds equivalent of the timeframe
+   */
+  private timeframeToMs(timeframe: string): number {
+    const unit = timeframe.slice(-1);
+    const value = parseInt(timeframe.slice(0, -1));
+
+    switch (unit) {
+      case 'm': return value * 60 * 1000; // minutes
+      case 'h': return value * 60 * 60 * 1000; // hours
+      case 'd': return value * 24 * 60 * 60 * 1000; // days
+      case 'w': return value * 7 * 24 * 60 * 60 * 1000; // weeks
+      default: return 60 * 60 * 1000; // default to 1h
+    }
+  }
+
   private async generateSyntheticData(
     startDate: Date,
     endDate: Date,
@@ -83,7 +102,7 @@ class BacktestService extends EventEmitter {
   ): Promise<any[]> {
     try {
       logService.log('info', 'Generating synthetic data', { startDate, endDate, scenario }, 'BacktestService');
-      
+
       const data = [];
       let currentDate = startDate.getTime();
       const endTime = endDate.getTime();
@@ -99,23 +118,23 @@ class BacktestService extends EventEmitter {
       while (currentDate <= endTime) {
         // Update trend with mean reversion effect
         trend = trend * 0.95 + (Math.random() - 0.5 + trendBias) * 0.1;
-        
+
         // Calculate price movement influenced by trend and volatility
         const volatility = (Math.random() * 2 - 1) * volatilityMultiplier;
         const movement = (trend + volatility) * (scenario === 'volatile' ? 2 : 1);
         price = Math.max(price * (1 + movement / 100), 0.01);
-        
+
         // Generate realistic OHLC data
         const open = price;
         const high = price * (1 + Math.random() * 0.01);
         const low = price * (1 - Math.random() * 0.01);
         const close = price * (1 + (Math.random() - 0.5) * 0.005);
-        
+
         // Generate volume with potential spikes during significant movements
         const baseVolume = Math.random() * 1000000 + 500000;
         const volumeMultiplier = Math.abs(movement) > 1 ? 2 : 1;
         const volume = baseVolume * volumeMultiplier;
-        
+
         data.push({
           timestamp: currentDate,
           open,
@@ -160,12 +179,55 @@ class BacktestService extends EventEmitter {
           data = await this.generateSyntheticData(config.startDate, config.endDate, scenario);
           break;
         case 'exchange':
-          data = await bitmartService.getKlines(
-            config.symbol,
-            Math.floor(config.startDate.getTime() / 1000),
-            Math.floor(config.endDate.getTime() / 1000),
-            config.timeframe || '1h'
-          );
+          try {
+            // Get historical data from the appropriate exchange
+            // If in demo mode, use the demo exchange (Binance TestNet)
+            // Otherwise, use the user's configured exchange
+            const isDemo = demoService.isInDemoMode();
+            logService.log('info', `Fetching historical data in ${isDemo ? 'demo' : 'real'} mode`, {
+              symbol: config.symbol,
+              timeframe: config.timeframe || '1h',
+              startDate: config.startDate,
+              endDate: config.endDate
+            }, 'BacktestService');
+
+            // Calculate the number of candles needed based on the date range and timeframe
+            const timeframeInMs = this.timeframeToMs(config.timeframe || '1h');
+            const dateRangeMs = config.endDate.getTime() - config.startDate.getTime();
+            const limit = Math.ceil(dateRangeMs / timeframeInMs) + 10; // Add some buffer
+
+            // Get candles from the exchange service
+            const candles = await exchangeService.getCandles(
+              config.symbol,
+              config.timeframe || '1h',
+              limit,
+              config.startDate.getTime()
+            );
+
+            // Format the candles for the backtest engine
+            data = candles.map(candle => ({
+              datetime: new Date(candle[0]),
+              open: candle[1],
+              high: candle[2],
+              low: candle[3],
+              close: candle[4],
+              volume: candle[5]
+            }));
+
+            // Filter candles to ensure they're within the date range
+            data = data.filter(candle =>
+              candle.datetime >= config.startDate &&
+              candle.datetime <= config.endDate
+            );
+
+            logService.log('info', `Fetched ${data.length} candles for backtesting`, {
+              symbol: config.symbol,
+              timeframe: config.timeframe || '1h'
+            }, 'BacktestService');
+          } catch (error) {
+            logService.log('error', 'Failed to fetch historical data from exchange', error, 'BacktestService');
+            throw new Error(`Failed to fetch historical data: ${error.message}`);
+          }
           break;
         case 'file':
           if (!config.data || !Array.isArray(config.data)) {
