@@ -402,7 +402,8 @@ export class TemplateManager extends EventEmitter {
               type: 'system_template',
               user_id: null,  // This will be properly handled as SQL NULL
               created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
+              updated_at: new Date().toISOString(),
+              name: template.title || template.name || 'Strategy Template' // Ensure name field is included
             })));
 
           insertError = error;
@@ -419,7 +420,8 @@ export class TemplateManager extends EventEmitter {
                 ...template,
                 type: 'system_template',
                 created_at: new Date().toISOString(),
-                updated_at: new Date().toISOString()
+                updated_at: new Date().toISOString(),
+                name: template.title || template.name || 'Strategy Template' // Ensure name field is included
               })));
 
             if (retryError) {

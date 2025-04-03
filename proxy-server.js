@@ -142,7 +142,7 @@ const exchangeProxies = {
     target: 'https://testnet.binancefuture.com',
     changeOrigin: true,
     pathRewrite: {
-      '^/api/binanceFutures': ''
+      '^/api/binanceFutures': '/fapi'
     },
     onProxyReq: (proxyReq, req, _res) => {
       // Remove origin header to prevent CORS issues

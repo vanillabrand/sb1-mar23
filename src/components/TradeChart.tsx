@@ -58,7 +58,7 @@ export function TradeChart({ trades }: TradeChartProps) {
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: '#1F2937',
+              backgroundColor: '#000000',
               border: 'none',
               borderRadius: '0.375rem',
               color: '#D1D5DB'

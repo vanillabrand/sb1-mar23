@@ -147,7 +147,7 @@ export function BacktestResults({ results, onClose }: BacktestResultsProps) {
                 />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: 'rgba(17, 24, 39, 0.8)',
+                    backgroundColor: '#000000',
                     border: '1px solid rgba(75, 85, 99, 0.4)',
                     borderRadius: '8px',
                     backdropFilter: 'blur(4px)',

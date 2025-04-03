@@ -45,7 +45,8 @@ class CCXTService {
           };
 
           // Force CCXT to use our proxy for all requests
-          config.proxy = false; // Disable CCXT's built-in proxy handling
+          // Don't set config.proxy = false as it's causing issues
+          // Just let CCXT use the custom URLs
 
           // Add custom options for better error handling
           config.options = {
@@ -180,11 +181,25 @@ class CCXTService {
     await this.exchange.loadMarkets();
   }
 
+  /**
+   * Normalizes a symbol to the format expected by the exchange
+   * @param symbol Symbol to normalize (e.g., 'BTC_USDT' or 'BTC/USDT')
+   * @returns Normalized symbol (e.g., 'BTC/USDT')
+   */
+  normalizeSymbol(symbol: string): string {
+    // Replace underscore with slash if present
+    if (symbol.includes('_')) {
+      logService.log('info', `Normalizing symbol format from ${symbol} to ${symbol.replace('_', '/')}`, null, 'CCXTService');
+      return symbol.replace('_', '/');
+    }
+    return symbol;
+  }
+
   async fetchTicker(symbol: string) {
     if (!this.exchange) {
       throw new Error('Exchange not initialized');
     }
-    return await this.exchange.fetchTicker(symbol);
+    return await this.exchange.fetchTicker(this.normalizeSymbol(symbol));
   }
 
   async fetchOrderBook(symbol: string) {
@@ -193,7 +208,7 @@ class CCXTService {
       if (!exchange) {
         throw new Error('Exchange not initialized');
       }
-      return await exchange.fetchOrderBook(symbol);
+      return await exchange.fetchOrderBook(this.normalizeSymbol(symbol));
     } catch (error) {
       logService.log('error', `Failed to fetch order book for ${symbol}`, error, 'CCXTService');
       throw error;
@@ -206,7 +221,7 @@ class CCXTService {
       if (!exchange) {
         throw new Error('Exchange not initialized');
       }
-      return await exchange.fetchTrades(symbol, undefined, limit);
+      return await exchange.fetchTrades(this.normalizeSymbol(symbol), undefined, limit);
     } catch (error) {
       logService.log('error', `Failed to fetch recent trades for ${symbol}`, error, 'CCXTService');
       throw error;

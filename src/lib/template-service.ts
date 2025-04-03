@@ -124,7 +124,8 @@ export class TemplateService {
         type: template.type || 'system_template',
         user_id: template.user_id,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        name: template.title || 'Strategy Template' // Add name field which is required
       };
 
       // Add risk_level if it exists in the template

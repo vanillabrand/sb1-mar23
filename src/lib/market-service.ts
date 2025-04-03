@@ -39,10 +39,10 @@ export class MarketService extends EventEmitter {
       );
       this.intervalIds.set(strategy.id, intervalId);
 
-      logService.log('info', `Started monitoring strategy: ${strategy.id}`, 
+      logService.log('info', `Started monitoring strategy: ${strategy.id}`,
         { strategyId: strategy.id }, 'MarketService');
     } catch (error) {
-      logService.log('error', `Failed to start monitoring strategy: ${strategy.id}`, 
+      logService.log('error', `Failed to start monitoring strategy: ${strategy.id}`,
         error, 'MarketService');
       throw error;
     }
@@ -55,8 +55,8 @@ export class MarketService extends EventEmitter {
       this.intervalIds.delete(strategyId);
       this.monitoredStrategies.delete(strategyId);
       this.marketData.delete(strategyId);
-      
-      logService.log('info', `Stopped monitoring strategy: ${strategyId}`, 
+
+      logService.log('info', `Stopped monitoring strategy: ${strategyId}`,
         { strategyId }, 'MarketService');
     }
   }
@@ -67,7 +67,7 @@ export class MarketService extends EventEmitter {
       this.marketData.set(strategy.id, data);
       this.emit('marketDataUpdated', { strategyId: strategy.id, data });
     } catch (error) {
-      logService.log('error', `Failed to initialize market data for strategy: ${strategy.id}`, 
+      logService.log('error', `Failed to initialize market data for strategy: ${strategy.id}`,
         error, 'MarketService');
       throw error;
     }
@@ -77,26 +77,53 @@ export class MarketService extends EventEmitter {
     try {
       const data = await this.fetchMarketData(strategy);
       this.marketData.set(strategy.id, data);
-      
+
       const marketConditions = await this.analyzeMarketConditions(strategy, data);
-      this.emit('marketDataUpdated', { 
-        strategyId: strategy.id, 
+      this.emit('marketDataUpdated', {
+        strategyId: strategy.id,
         data,
-        marketConditions 
+        marketConditions
       });
     } catch (error) {
-      logService.log('error', `Failed to update market data for strategy: ${strategy.id}`, 
+      logService.log('error', `Failed to update market data for strategy: ${strategy.id}`,
         error, 'MarketService');
       // Don't throw here to prevent interval disruption
     }
   }
 
   private async fetchMarketData(strategy: Strategy): Promise<MarketData> {
-    return await this.ccxtService.executeWithRetry(
-      async () => {
-        const ticker = await this.ccxtService.fetchTicker(strategy.symbol);
-        const orderBook = await this.ccxtService.fetchOrderBook(strategy.symbol);
-        const trades = await this.ccxtService.fetchRecentTrades(strategy.symbol);
+    // Check if ccxtService is properly initialized and has the executeWithRetry method
+    if (!this.ccxtService || typeof this.ccxtService.executeWithRetry !== 'function') {
+      logService.log('error', 'CCXT Service not properly initialized', { strategy }, 'MarketService');
+
+      // Return default market data to prevent errors
+      return {
+        ticker: {
+          symbol: strategy.symbol || 'BTC/USDT',
+          last: 0,
+          bid: 0,
+          ask: 0,
+          high: 0,
+          low: 0,
+          volume: 0,
+          timestamp: Date.now()
+        },
+        orderBook: {
+          bids: [],
+          asks: [],
+          timestamp: Date.now()
+        },
+        trades: [],
+        timestamp: Date.now()
+      };
+    }
+
+    try {
+      return await this.ccxtService.executeWithRetry(
+        async () => {
+          const ticker = await this.ccxtService.fetchTicker(strategy.symbol);
+          const orderBook = await this.ccxtService.fetchOrderBook(strategy.symbol);
+          const trades = await this.ccxtService.fetchRecentTrades(strategy.symbol);
 
         return {
           timestamp: Date.now(),
@@ -111,6 +138,25 @@ export class MarketService extends EventEmitter {
       },
       `fetchMarketData-${strategy.id}`
     );
+    } catch (error) {
+      logService.log('error', 'Failed to fetch market data', { error, strategy }, 'MarketService');
+
+      // Return default market data to prevent errors
+      return {
+        timestamp: Date.now(),
+        symbol: strategy.symbol || 'BTC/USDT',
+        price: 0,
+        volume: 0,
+        high24h: 0,
+        low24h: 0,
+        orderBook: {
+          bids: [],
+          asks: [],
+          timestamp: Date.now()
+        },
+        recentTrades: [],
+      };
+    }
   }
 
   private async analyzeMarketConditions(
@@ -119,7 +165,7 @@ export class MarketService extends EventEmitter {
   ): Promise<MarketCondition> {
     try {
       const indicators = await Promise.all(
-        strategy.indicators.map(config => 
+        strategy.indicators.map(config =>
           IndicatorService.calculateIndicator(config, data.recentTrades)
         )
       );
@@ -135,7 +181,7 @@ export class MarketService extends EventEmitter {
         }), {})
       };
     } catch (error) {
-      logService.log('error', 'Failed to analyze market conditions', 
+      logService.log('error', 'Failed to analyze market conditions',
         error, 'MarketService');
       throw error;
     }

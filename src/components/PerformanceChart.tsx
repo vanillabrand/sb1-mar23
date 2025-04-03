@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Area, 
+import {
+  Area,
   AreaChart,
-  CartesianGrid, 
+  CartesianGrid,
   ResponsiveContainer,
-  Tooltip, 
-  XAxis, 
-  YAxis 
+  Tooltip,
+  XAxis,
+  YAxis
 } from 'recharts';
 import { RefreshCw, Loader2 } from 'lucide-react';
 import { analyticsService } from '../lib/analytics-service';
@@ -38,7 +38,7 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
 
   // Handle time filter change
   const handleFilterChange = (selectedFilter: TimeFilter) => {
-    setTimeFilters(prev => 
+    setTimeFilters(prev =>
       prev.map(filter => ({
         ...filter,
         active: filter.label === selectedFilter.label
@@ -49,10 +49,10 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
   // Update performance data
   const updatePerformanceData = async () => {
     setLoading(true);
-    
+
     try {
       const cutoff = Date.now() - (activeTimeFilter.days * 24 * 60 * 60 * 1000);
-      
+
       // Try to get real data first
       if (activeStrategies.length > 0) {
         const strategyAnalytics = activeStrategies.flatMap(s => {
@@ -64,7 +64,7 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
               strategyId: s.id
             }));
         });
-        
+
         if (strategyAnalytics.length > 0) {
           // Group by date and calculate total equity
           const groupedByDate = strategyAnalytics.reduce((acc, item) => {
@@ -74,25 +74,25 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
             acc[item.date].value += item.value;
             return acc;
           }, {} as Record<string, { date: string, value: number }>);
-          
+
           // Convert to array and sort by date
           const data = Object.values(groupedByDate).sort(
             (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
           );
-          
+
           setPerformanceData(data);
           setLoading(false);
           setRefreshing(false);
           return;
         }
       }
-      
+
       // If no real data, generate synthetic data
       const data = generateSyntheticPerformanceData(activeTimeFilter.days);
       setPerformanceData(data);
     } catch (error) {
       console.error('Error updating performance data:', error);
-      
+
       // Generate synthetic data as fallback
       const data = generateSyntheticPerformanceData(activeTimeFilter.days);
       setPerformanceData(data);
@@ -107,32 +107,32 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
     const data = [];
     const now = new Date();
     let value = 10000; // Starting value
-    
+
     for (let i = days; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(date.getDate() - i);
-      
+
       // Add some realistic-looking fluctuations
       const changePercent = (Math.random() * 2 - 0.5) * (i < 5 ? 1.5 : 0.8); // More volatile recent days
       value = value * (1 + changePercent / 100);
-      
+
       data.push({
         date: date.toLocaleDateString(),
         value: Math.round(value * 100) / 100
       });
     }
-    
+
     return data;
   };
 
   useEffect(() => {
     updatePerformanceData();
-    
+
     // Set up interval for periodic updates
     const interval = setInterval(() => {
       updatePerformanceData();
     }, 60000); // Update every minute
-    
+
     return () => clearInterval(interval);
   }, [activeTimeFilter, activeStrategies]);
 
@@ -144,13 +144,13 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
   // Calculate performance metrics
   const calculatePerformanceMetrics = () => {
     if (!performanceData || performanceData.length < 2) return { change: 0, percentChange: 0 };
-    
+
     const first = performanceData[0]?.value || 0;
     const last = performanceData[performanceData.length - 1]?.value || 0;
-    
+
     const change = last - first;
     const percentChange = first > 0 ? (change / first) * 100 : 0;
-    
+
     return {
       change,
       percentChange
@@ -163,7 +163,7 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       return (
-        <div className="bg-gunmetal-900/90 p-3 rounded-lg shadow-lg">
+        <div className="bg-black p-3 rounded-lg shadow-lg">
           <p className="text-gray-300 text-sm mb-1">{label}</p>
           <p className="text-neon-turquoise text-sm font-semibold">
             ${payload[0].value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -215,7 +215,7 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
               </button>
             ))}
           </div>
-          <button 
+          <button
             onClick={handleRefresh}
             disabled={refreshing}
             className="p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
@@ -228,7 +228,7 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
           </button>
         </div>
       </div>
-      
+
       {loading && performanceData.length === 0 ? (
         <div className="h-[280px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-neon-turquoise animate-spin" />
@@ -236,8 +236,8 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
       ) : (
         <div className="h-[280px] mt-4">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart 
-              data={performanceData} 
+            <AreaChart
+              data={performanceData}
               margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
             >
               <defs>
@@ -246,14 +246,14 @@ export function PerformanceChart({ activeStrategies, className = "" }: Performan
                   <stop offset="95%" stopColor={chartStyles.primaryColor} stopOpacity={0}/>
                 </linearGradient>
               </defs>
-              <XAxis 
-                dataKey="date" 
+              <XAxis
+                dataKey="date"
                 tick={{ fill: chartStyles.textColor, fontSize: 12 }}
                 axisLine={false}
                 tickLine={false}
                 dy={10}
               />
-              <YAxis 
+              <YAxis
                 tick={{ fill: chartStyles.textColor, fontSize: 12 }}
                 tickFormatter={(value) => `$${value.toLocaleString()}`}
                 axisLine={false}

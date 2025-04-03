@@ -78,3 +78,4 @@ The setup process is similar for all exchanges, but API key generation will diff
 - Use API keys with the minimum permissions required
 - Consider using IP restrictions for your API keys
 - For testing, always use TestNet when available
+
