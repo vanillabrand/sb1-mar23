@@ -68,7 +68,7 @@ export interface BacktestResult {
     maxDrawdown: number;
     winRate: number;
   };
-  equityCurve?: { date: Date; value: number }[];
+  equityCurve?: { date: string; value: number }[];
   entryPrice?: number;
   stopLoss?: number;
   takeProfit?: number;

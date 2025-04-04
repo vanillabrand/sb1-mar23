@@ -107,16 +107,33 @@ class WalletBalanceService extends EventEmitter {
    */
   private async fetchTestNetBalances(): Promise<void> {
     try {
+      logService.log('info', 'Fetching TestNet balances', null, 'WalletBalanceService');
+
       // Get the exchange instance (Binance TestNet)
       const exchange = await ccxtService.getExchange('binance', true);
 
       if (!exchange) {
-        // If exchange is not available, use mock data
+        logService.log('warn', 'TestNet exchange instance not available, using mock data', null, 'WalletBalanceService');
         this.generateMockBalances();
         return;
       }
 
+      logService.log('info', 'TestNet exchange instance created successfully', {
+        exchangeId: exchange.id,
+        hasCredentials: !!exchange.apiKey && !!exchange.secret
+      }, 'WalletBalanceService');
+
+      try {
+        // Load markets first to ensure the exchange is properly initialized
+        await exchange.loadMarkets();
+        logService.log('info', 'TestNet markets loaded successfully', null, 'WalletBalanceService');
+      } catch (marketError) {
+        logService.log('warn', 'Failed to load TestNet markets', marketError, 'WalletBalanceService');
+        // Continue anyway, as fetchBalance might still work
+      }
+
       // Fetch balances from TestNet
+      logService.log('info', 'Fetching balance from TestNet', null, 'WalletBalanceService');
       const balanceData = await exchange.fetchBalance();
 
       // Process and store the balances
@@ -139,8 +156,24 @@ class WalletBalanceService extends EventEmitter {
         this.generateMockBalances();
       }
     } catch (error) {
-      logService.log('error', 'Failed to fetch TestNet balances, using mock data', error, 'WalletBalanceService');
+      // Provide more detailed error information
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : '';
+
+      logService.log('error', 'Failed to fetch TestNet balances, using mock data', {
+        message: errorMessage,
+        stack: errorStack,
+        error
+      }, 'WalletBalanceService');
+
+      // Generate mock balances as a fallback
       this.generateMockBalances();
+
+      // Emit an event to notify about the error
+      this.emit('error', {
+        type: 'testnet_balance_error',
+        message: errorMessage
+      });
     }
   }
 

@@ -32,7 +32,7 @@ export interface BacktestResults {
   maxDrawdown: number;
   sharpeRatio: number;
   trades: BacktestTrade[];
-  equity: { date: Date; value: number }[];
+  equity: { date: string; value: number }[];
 }
 
 export interface BacktestTrade {
@@ -306,7 +306,7 @@ class BacktestService extends EventEmitter {
           date: new Date(trade.date)
         })),
         equity: results.equity.map(point => ({
-          date: new Date(point.date),
+          date: point.date, // Already a string from our updated BacktestEngine
           value: point.value
         }))
       };

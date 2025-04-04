@@ -176,11 +176,73 @@ Provide a trade recommendation in JSON format with the following structure:
    * @param priceHistory Historical price data
    * @returns Trend classification
    */
+  /**
+   * Generates mock price history for a given asset
+   * @param asset Asset symbol
+   * @returns Array of price history data points
+   */
+  private generateMockPriceHistory(asset: string): any[] {
+    const priceHistory = [];
+    const basePrice = this.getDefaultPrice(asset);
+    const now = Date.now();
+
+    // Generate 30 days of price history
+    for (let i = 0; i < 30; i++) {
+      const timestamp = now - (29 - i) * 24 * 60 * 60 * 1000; // Start 30 days ago
+      const randomChange = (Math.random() - 0.5) * 0.02; // -1% to +1%
+      const price = basePrice * (1 + randomChange * i); // Gradual trend
+
+      priceHistory.push({
+        timestamp,
+        price
+      });
+    }
+
+    return priceHistory;
+  }
+
+  /**
+   * Gets a default price for a given asset
+   * @param asset Asset symbol
+   * @returns Default price
+   */
+  private getDefaultPrice(asset: string): number {
+    const baseAsset = asset.split('/')[0];
+
+    switch (baseAsset) {
+      case 'BTC': return 50000;
+      case 'ETH': return 3000;
+      case 'SOL': return 100;
+      case 'BNB': return 500;
+      case 'XRP': return 0.5;
+      default: return 100;
+    }
+  }
+
+  /**
+   * Gets a default 24h volume for a given asset
+   * @param asset Asset symbol
+   * @returns Default 24h volume
+   */
+  private getDefaultVolume(asset: string): number {
+    const baseAsset = asset.split('/')[0];
+
+    switch (baseAsset) {
+      case 'BTC': return 1000000000; // $1B
+      case 'ETH': return 500000000;  // $500M
+      case 'SOL': return 100000000;  // $100M
+      case 'BNB': return 200000000;  // $200M
+      case 'XRP': return 50000000;   // $50M
+      default: return 10000000;      // $10M
+    }
+  }
+
   private analyzeTrend(priceHistory: any[]): string {
     if (!priceHistory || priceHistory.length < 2) return 'Neutral';
 
-    const firstPrice = priceHistory[0].close;
-    const lastPrice = priceHistory[priceHistory.length - 1].close;
+    // Handle both formats: {close, timestamp} and {price, timestamp}
+    const firstPrice = priceHistory[0].close || priceHistory[0].price;
+    const lastPrice = priceHistory[priceHistory.length - 1].close || priceHistory[priceHistory.length - 1].price;
     const percentChange = ((lastPrice - firstPrice) / firstPrice) * 100;
 
     if (percentChange > 5) return 'Strong Uptrend';

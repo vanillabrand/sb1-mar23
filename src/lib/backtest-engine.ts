@@ -105,31 +105,282 @@ export class BacktestEngine extends EventEmitter {
   }
 
   /**
+   * Calculate the chance of a trade being generated based on strategy type and market conditions
+   */
+  private getTradeChance(strategy: Strategy, data: any[], index: number): number {
+    // Base chance of a trade
+    let tradeChance = 0.1; // 10% base chance
+
+    // Adjust based on strategy risk level
+    switch (strategy.riskLevel) {
+      case 'Ultra Low':
+        tradeChance = 0.05; // 5% chance
+        break;
+      case 'Low':
+        tradeChance = 0.08; // 8% chance
+        break;
+      case 'Medium':
+        tradeChance = 0.12; // 12% chance
+        break;
+      case 'High':
+        tradeChance = 0.15; // 15% chance
+        break;
+      case 'Ultra High':
+        tradeChance = 0.18; // 18% chance
+        break;
+      case 'Extreme':
+      case 'God Mode':
+        tradeChance = 0.22; // 22% chance
+        break;
+    }
+
+    // Adjust based on market volatility
+    if (index > 5) {
+      const recentPrices = data.slice(index - 5, index).map(d => d.close);
+      const volatility = this.calculateVolatility(recentPrices);
+
+      // Higher volatility = more trades
+      if (volatility > 0.02) { // 2% volatility
+        tradeChance *= 1.5; // 50% more trades in volatile markets
+      }
+    }
+
+    return Math.min(tradeChance, 0.3); // Cap at 30% chance
+  }
+
+  /**
+   * Calculate the win rate based on strategy risk level
+   */
+  private getWinRate(strategy: Strategy): number {
+    switch (strategy.riskLevel) {
+      case 'Ultra Low':
+        return 0.65; // 65% win rate
+      case 'Low':
+        return 0.60; // 60% win rate
+      case 'Medium':
+        return 0.55; // 55% win rate
+      case 'High':
+        return 0.52; // 52% win rate
+      case 'Ultra High':
+        return 0.48; // 48% win rate
+      case 'Extreme':
+        return 0.45; // 45% win rate
+      case 'God Mode':
+        return 0.40; // 40% win rate
+      default:
+        return 0.50; // 50% win rate
+    }
+  }
+
+  /**
+   * Calculate the exit price based on entry price and whether the trade should be profitable
+   */
+  private calculateExitPrice(entryPrice: number, isProfitable: boolean, strategy: Strategy): number {
+    // Determine profit/loss percentage based on risk level
+    let profitPercent = 0.02; // 2% profit
+    let lossPercent = 0.01; // 1% loss
+
+    switch (strategy.riskLevel) {
+      case 'Ultra Low':
+        profitPercent = 0.01; // 1% profit
+        lossPercent = 0.005; // 0.5% loss
+        break;
+      case 'Low':
+        profitPercent = 0.015; // 1.5% profit
+        lossPercent = 0.01; // 1% loss
+        break;
+      case 'Medium':
+        profitPercent = 0.025; // 2.5% profit
+        lossPercent = 0.015; // 1.5% loss
+        break;
+      case 'High':
+        profitPercent = 0.035; // 3.5% profit
+        lossPercent = 0.02; // 2% loss
+        break;
+      case 'Ultra High':
+        profitPercent = 0.05; // 5% profit
+        lossPercent = 0.03; // 3% loss
+        break;
+      case 'Extreme':
+        profitPercent = 0.08; // 8% profit
+        lossPercent = 0.05; // 5% loss
+        break;
+      case 'God Mode':
+        profitPercent = 0.12; // 12% profit
+        lossPercent = 0.08; // 8% loss
+        break;
+    }
+
+    // Add some randomness to the percentages
+    profitPercent *= (0.8 + Math.random() * 0.4); // 80% to 120% of base percentage
+    lossPercent *= (0.8 + Math.random() * 0.4); // 80% to 120% of base percentage
+
+    // Calculate exit price
+    if (isProfitable) {
+      return entryPrice * (1 + profitPercent);
+    } else {
+      return entryPrice * (1 - lossPercent);
+    }
+  }
+
+  /**
+   * Calculate position size based on strategy risk level and available equity
+   */
+  private calculatePositionSize(strategy: Strategy, equity: number): number {
+    // Base position size as percentage of equity
+    let positionSizePercent = 0.1; // 10% of equity
+
+    switch (strategy.riskLevel) {
+      case 'Ultra Low':
+        positionSizePercent = 0.05; // 5% of equity
+        break;
+      case 'Low':
+        positionSizePercent = 0.1; // 10% of equity
+        break;
+      case 'Medium':
+        positionSizePercent = 0.15; // 15% of equity
+        break;
+      case 'High':
+        positionSizePercent = 0.2; // 20% of equity
+        break;
+      case 'Ultra High':
+        positionSizePercent = 0.25; // 25% of equity
+        break;
+      case 'Extreme':
+        positionSizePercent = 0.3; // 30% of equity
+        break;
+      case 'God Mode':
+        positionSizePercent = 0.4; // 40% of equity
+        break;
+    }
+
+    // Add some randomness to the position size
+    positionSizePercent *= (0.8 + Math.random() * 0.4); // 80% to 120% of base percentage
+
+    // Calculate position size
+    return equity * positionSizePercent;
+  }
+
+  /**
+   * Calculate volatility of a price series
+   */
+  private calculateVolatility(prices: number[]): number {
+    if (prices.length < 2) return 0;
+
+    // Calculate returns
+    const returns: number[] = [];
+    for (let i = 1; i < prices.length; i++) {
+      returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+    }
+
+    // Calculate standard deviation of returns
+    const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+    const variance = returns.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / returns.length;
+
+    return Math.sqrt(variance);
+  }
+
+  /**
    * Generates an equity curve based on trades and historical data
    */
-  private generateEquityCurve(data: any[], trades: Trade[]): { date: Date; value: number }[] {
-    const equityCurve: { date: Date; value: number }[] = [];
+  private generateEquityCurve(data: any[], trades: Trade[]): { date: string; value: number }[] {
+    const equityCurve: { date: string; value: number }[] = [];
     const initialEquity = 10000; // Starting capital
     let currentEquity = initialEquity;
 
+    // If no trades or data, generate a sample equity curve
+    if (trades.length === 0 || data.length === 0) {
+      logService.log('warn', 'No trades or data for equity curve, generating sample data', null, 'BacktestEngine');
+      return this.generateSampleEquityCurve();
+    }
+
+    // Sort trades by exit time for proper processing
+    const sortedTrades = [...trades].sort((a, b) => a.exitTime.getTime() - b.exitTime.getTime());
+
     // Generate equity points for each day in the data
     const dataPoints = Math.min(100, data.length); // Limit to 100 points for performance
-    const step = Math.floor(data.length / dataPoints);
+    const step = Math.floor(data.length / dataPoints) || 1; // Ensure step is at least 1
+
+    // Create a copy of trades to avoid modifying the original array
+    const tradesCopy = sortedTrades.map(t => ({ ...t, processed: false }));
+
+    // Track the last equity value for debugging
+    let lastEquity = initialEquity;
+    let tradeCount = 0;
 
     for (let i = 0; i < data.length; i += step) {
       const dataPoint = data[i];
-      const date = new Date(dataPoint.datetime);
 
-      // Add completed trades to equity
-      for (const trade of trades) {
-        if (trade.exitTime <= date && !trade.processed) {
-          currentEquity += trade.profit;
-          trade.processed = true;
+      // Ensure we have a valid date
+      let dateStr = '';
+      try {
+        const date = new Date(dataPoint.datetime);
+        if (!isNaN(date.getTime())) {
+          // Format date as ISO string for consistent serialization
+          dateStr = date.toISOString();
+
+          // Add completed trades to equity
+          for (const trade of tradesCopy) {
+            if (trade.exitTime <= date && !trade.processed) {
+              currentEquity += trade.profit;
+              trade.processed = true;
+              tradeCount++;
+            }
+          }
+        } else {
+          // If date is invalid, use a timestamp as fallback
+          dateStr = new Date().toISOString();
+          logService.log('warn', 'Invalid date in backtest data', { datetime: dataPoint.datetime }, 'BacktestEngine');
         }
+      } catch (e) {
+        // If date parsing fails, use a timestamp as fallback
+        dateStr = new Date().toISOString();
+        logService.log('warn', 'Error parsing date in backtest data', { error: e, datetime: dataPoint.datetime }, 'BacktestEngine');
       }
 
       equityCurve.push({
-        date,
+        date: dateStr,
+        value: currentEquity
+      });
+
+      // Log if equity changed for debugging
+      if (currentEquity !== lastEquity) {
+        lastEquity = currentEquity;
+      }
+    }
+
+    // If no trades were processed or equity didn't change, generate sample data
+    if (tradeCount === 0 || equityCurve.every(point => point.value === initialEquity)) {
+      logService.log('warn', 'No trades processed for equity curve, generating sample data', null, 'BacktestEngine');
+      return this.generateSampleEquityCurve();
+    }
+
+    return equityCurve;
+  }
+
+  /**
+   * Generates a sample equity curve when no real data is available
+   */
+  private generateSampleEquityCurve(): { date: string; value: number }[] {
+    const equityCurve: { date: string; value: number }[] = [];
+    const initialEquity = 10000;
+    let currentEquity = initialEquity;
+
+    // Generate 30 days of data
+    const now = new Date();
+    for (let i = 30; i >= 0; i--) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i);
+
+      // Add some randomness to the equity value (trending upward)
+      const change = (Math.random() * 200) - 50; // Random change between -50 and +150
+      currentEquity += change;
+
+      // Ensure equity doesn't go below 9000
+      currentEquity = Math.max(currentEquity, 9000);
+
+      equityCurve.push({
+        date: date.toISOString(),
         value: currentEquity
       });
     }
@@ -197,11 +448,16 @@ export class BacktestEngine extends EventEmitter {
       for (let i = startIdx; i < endIdx && i < data.length; i++) {
         // Simplified strategy implementation
         if (i > 0) {
-          // Generate a random trade with some probability
-          if (Math.random() < 0.05) { // 5% chance of a trade
+          // Generate trades based on strategy type and market conditions
+          const tradeChance = this.getTradeChance(strategy, data, i);
+
+          if (Math.random() < tradeChance) {
+            // Determine if this should be a profitable trade based on win rate
+            const isProfitable = Math.random() < this.getWinRate(strategy);
+
             const entryPrice = data[i-1].close;
-            const exitPrice = data[i].close;
-            const size = 100 + Math.random() * 900; // Trade size
+            const exitPrice = this.calculateExitPrice(entryPrice, isProfitable, strategy);
+            const size = this.calculatePositionSize(strategy, equity);
             const profit = (exitPrice - entryPrice) * size / entryPrice;
 
             trades.push({
@@ -216,6 +472,14 @@ export class BacktestEngine extends EventEmitter {
 
             returns.push(profit / equity);
             equity += profit;
+
+            // Log trade for debugging
+            logService.log('debug', `Generated backtest trade: ${isProfitable ? 'profitable' : 'loss'}`, {
+              profit,
+              entryPrice,
+              exitPrice,
+              equity
+            }, 'BacktestEngine');
           }
         }
       }

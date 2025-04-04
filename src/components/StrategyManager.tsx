@@ -733,24 +733,50 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     }
   };
 
-  // Effects
+  // Effects for strategy creation and updates
   useEffect(() => {
-    const unsubscribe = eventBus.subscribe('strategy:created', handleRefresh);
+    if (!user) return;
 
+    // Handle strategy creation events from event bus
+    const unsubscribeCreated = eventBus.subscribe('strategy:created', async (data) => {
+      console.log('Strategy created event received:', data);
+      await handleRefresh();
+    });
+
+    // Handle strategy activation events from event bus
+    const unsubscribeActivated = eventBus.subscribe('strategy:activated', async (data) => {
+      console.log('Strategy activated event received:', data);
+      await handleRefresh();
+    });
+
+    // Handle DOM events for legacy components
+    const handleDomStrategyCreated = async (event: Event) => {
+      console.log('DOM strategy created event received:', (event as CustomEvent).detail);
+      await handleRefresh();
+    };
+
+    document.addEventListener('strategy:created', handleDomStrategyCreated as EventListener);
+
+    // Handle database changes via Supabase realtime
     const subscription = supabase
       .channel('strategy_changes')
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'strategies'
-      }, handleRefresh)
+      }, async (payload) => {
+        console.log('Supabase strategy change received:', payload);
+        await handleRefresh();
+      })
       .subscribe();
 
     return () => {
-      unsubscribe();
+      unsubscribeCreated();
+      unsubscribeActivated();
+      document.removeEventListener('strategy:created', handleDomStrategyCreated as EventListener);
       subscription.unsubscribe();
     };
-  }, [handleRefresh]);
+  }, [handleRefresh, user]);
 
   // Add effect for realtime updates
   useEffect(() => {
@@ -779,7 +805,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
   return (
     <>
-      <div className="min-h-screen bg-gunmetal-950">
+      <div className="min-h-screen bg-gunmetal-950 relative">
         <div className="container mx-auto px-6 py-8 max-w-7xl">
           {/* Header */}
           <div className="flex items-center justify-between mb-8">

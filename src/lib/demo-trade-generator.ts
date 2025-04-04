@@ -551,6 +551,9 @@ class DemoTradeGenerator extends EventEmitter {
         trade
       });
 
+      // Broadcast the trade via WebSocket if available
+      this.broadcastTradeUpdate(strategy.id, trade);
+
       logService.log('info', `Created trade for ${symbol}`, {
         strategy: strategy.id,
         trade
@@ -589,6 +592,30 @@ class DemoTradeGenerator extends EventEmitter {
 
     // Round to 8 decimal places for crypto
     return Math.floor(positionSize * 1e8) / 1e8;
+  }
+
+  /**
+   * Broadcast a trade update via WebSocket
+   * @param strategyId The ID of the strategy that generated the trade
+   * @param trade The trade object
+   */
+  private broadcastTradeUpdate(strategyId: string, trade: any): void {
+    try {
+      // Check if we're in a browser environment
+      if (typeof window !== 'undefined') {
+        // Use the websocketService to broadcast the trade update
+        import('./websocket-service').then(({ websocketService }) => {
+          websocketService.emit('trade_update', { strategyId, trade });
+        }).catch(error => {
+          logService.log('error', 'Failed to import websocket service', error, 'DemoTradeGenerator');
+        });
+      }
+
+      // Log the broadcast
+      logService.log('debug', `Broadcasting trade update for strategy ${strategyId}`, { tradeId: trade.id }, 'DemoTradeGenerator');
+    } catch (error) {
+      logService.log('error', 'Failed to broadcast trade update', error, 'DemoTradeGenerator');
+    }
   }
 }
 

@@ -6,13 +6,15 @@ import { v4 as uuidv4 } from 'uuid';
 export interface Transaction {
   id: string;
   user_id: string;
-  strategy_id?: string;
+  reference_id?: string; // Can be strategy_id or trade_id
+  reference_type?: string; // 'strategy' or 'trade'
   type: 'trade' | 'deposit' | 'withdrawal';
   amount: number;
   balance_before: number;
   balance_after: number;
   description?: string;
   status: 'pending' | 'completed' | 'failed';
+  metadata?: Record<string, any>; // Additional data like strategy details
   created_at: string;
   updated_at: string;
 }
@@ -131,7 +133,9 @@ class TransactionService extends EventEmitter {
     amount: number,
     balanceBefore: number,
     description?: string,
-    strategyId?: string
+    referenceId?: string,
+    referenceType?: 'strategy' | 'trade',
+    metadata?: Record<string, any>
   ): Promise<Transaction> {
     try {
       // Get current user
@@ -141,13 +145,15 @@ class TransactionService extends EventEmitter {
       const transaction: Partial<Transaction> = {
         id: uuidv4(),
         user_id: user.id,
-        strategy_id: strategyId,
+        reference_id: referenceId,
+        reference_type: referenceType,
         type,
         amount,
         balance_before: balanceBefore,
         balance_after: balanceBefore + amount,
         description,
-        status: 'completed'
+        status: 'completed',
+        metadata: metadata || {}
       };
 
       const { data, error } = await supabase

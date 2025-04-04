@@ -59,7 +59,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.title.trim()) {
       setError('Strategy name is required');
       return;
@@ -90,10 +90,17 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
         className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
+        onClick={(e) => {
+          // Only close if clicking the backdrop, not the modal content
+          if (e.target === e.currentTarget) {
+            onClose();
+          }
+        }}
         exit={{ opacity: 0 }}
       >
         <motion.div
           className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl w-full max-w-xl mx-4 p-6 border border-gunmetal-800"
+          onClick={(e) => e.stopPropagation()} // Prevent clicks inside modal from closing it
           initial={{ scale: 0.95, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.95, opacity: 0 }}
@@ -167,7 +174,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
                   onSelect={handlePairSelect}
                   placeholder="Search trading pairs..."
                 />
-                
+
                 {formData.selected_pairs.length > 0 && (
                   <div className="flex flex-wrap gap-2 mt-3">
                     {formData.selected_pairs.map((pair) => (

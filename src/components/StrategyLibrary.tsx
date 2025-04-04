@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
+import {
   Brain,
   Plus,
   AlertCircle,
@@ -21,7 +21,12 @@ import { templateService } from '../lib/template-service';
 import { logService } from '../lib/log-service';
 import { BudgetModal } from './BudgetModal';
 import { tradeService } from '../lib/trade-service';
-import type { StrategyTemplate, RiskLevel } from '../lib/types';
+import { strategyService } from '../lib/strategy-service';
+import { strategySync } from '../lib/strategy-sync';
+import { marketService } from '../lib/market-service';
+import { tradeManager } from '../lib/trade-manager';
+import { eventBus } from '../lib/event-bus';
+import type { StrategyTemplate, RiskLevel, StrategyBudget } from '../lib/types';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 
 interface StrategyLibraryProps {
@@ -66,43 +71,28 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
     }
   };
 
-  const handleCreateFromTemplate = async (template: StrategyTemplate) => {
+  const handleCreateFromTemplate = async (template: StrategyTemplate, event?: React.MouseEvent) => {
+    // Prevent event propagation to avoid interfering with navigation
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+
     if (!user) {
       setError('Please sign in to create a strategy');
       return;
     }
 
     try {
-      setIsCreating(true);
-      setError(null);
+      // Show the budget modal instead of creating the strategy directly
+      setPendingTemplate(template);
+      setShowBudgetModal(true);
 
-      // Create strategy from template with formatted config
-      const strategy = await templateService.createStrategyFromTemplate(template.id);
-      
-      if (!strategy) {
-        throw new Error('Failed to create strategy from template');
-      }
-
-      // Force refresh all views that display strategies
-      await Promise.all([
-        strategySync.initialize(), // Refresh strategy sync
-        marketService.syncStrategies(), // Refresh market data
-        tradeManager.syncTrades() // Refresh trades
-      ]);
-
-      // Emit event for real-time updates
-      eventBus.emit('strategy:created', strategy);
-      
-      // Notify parent component
-      onStrategyCreated?.();
-      
-      logService.log('info', 'Strategy created from template', { strategy }, 'StrategyLibrary');
+      logService.log('info', 'Showing budget modal for template', { templateId: template.id }, 'StrategyLibrary');
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to create strategy from template';
+      const errorMessage = err instanceof Error ? err.message : 'Failed to prepare strategy creation';
       setError(errorMessage);
-      logService.log('error', 'Failed to create strategy from template', err, 'StrategyLibrary');
-    } finally {
-      setIsCreating(false);
+      logService.log('error', 'Failed to prepare strategy creation', err, 'StrategyLibrary');
     }
   };
 
@@ -113,21 +103,53 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
       setIsSubmittingBudget(true);
       setError(null);
 
+      // Create strategy from template
       const strategy = await templateService.createStrategyFromTemplate(pendingTemplate.id);
-      
+
       if (!strategy) {
         throw new Error('Failed to create strategy from template');
       }
 
+      // Create a proper budget object
+      const budgetObj = {
+        total: budget,
+        allocated: 0,
+        available: budget,
+        maxPositionSize: budget * 0.2 // 20% of total budget as max position size
+      };
+
       // Set budget
-      await tradeService.setBudget(strategy.id, budget);
+      await tradeService.setBudget(strategy.id, budgetObj);
+
+      // Activate the strategy
+      const activatedStrategy = await strategyService.activateStrategy(strategy.id);
+
+      // Force refresh all views that display strategies
+      await Promise.all([
+        strategySync.initialize(), // Refresh strategy sync
+        marketService.syncStrategies(), // Refresh market data
+        tradeManager.syncTrades() // Refresh trades
+      ]);
+
+      // Emit events for real-time updates
+      eventBus.emit('strategy:activated', activatedStrategy);
+      eventBus.emit('strategy:created', activatedStrategy);
+
+      // Dispatch DOM event for legacy components
+      document.dispatchEvent(new CustomEvent('strategy:created', {
+        detail: { strategy: activatedStrategy }
+      }));
 
       // Close modals and refresh
       setShowBudgetModal(false);
       setPendingTemplate(null);
-      onStrategyCreated?.();
 
-      logService.log('info', 'Strategy created from template with budget', { strategy, budget }, 'StrategyLibrary');
+      // Notify parent component
+      if (onStrategyCreated) {
+        onStrategyCreated();
+      }
+
+      logService.log('info', 'Strategy created from template with budget and activated', { strategy: activatedStrategy, budget }, 'StrategyLibrary');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create strategy with budget';
       setError(errorMessage);
@@ -287,7 +309,7 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
                 </div>
 
                 <button
-                  onClick={() => handleCreateFromTemplate(template)}
+                  onClick={(e) => handleCreateFromTemplate(template, e)}
                   disabled={isCreating}
                   className="w-32 flex items-center justify-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 disabled:opacity-50"
                 >

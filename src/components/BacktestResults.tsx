@@ -135,9 +135,20 @@ export function BacktestResults({ results, onClose }: BacktestResultsProps) {
                   dataKey="date"
                   stroke="#6B7280"
                   tick={{ fill: '#9CA3AF' }}
-                  tickFormatter={(value) =>
-                    new Date(value).toLocaleDateString()
-                  }
+                  tickFormatter={(value) => {
+                    // Check if value is a valid date string or timestamp
+                    if (!value) return 'N/A';
+
+                    try {
+                      // Try to parse the date and format it
+                      const date = new Date(value);
+                      // Check if date is valid
+                      if (isNaN(date.getTime())) return 'Invalid';
+                      return date.toLocaleDateString();
+                    } catch (e) {
+                      return 'Invalid';
+                    }
+                  }}
                 />
                 <YAxis
                   stroke="#6B7280"

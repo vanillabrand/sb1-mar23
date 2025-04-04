@@ -46,9 +46,10 @@ interface StrategyCardProps {
   onDelete?: (strategy: Strategy) => void;
   onActivate?: (strategy: Strategy) => Promise<boolean>;
   onDeactivate?: (strategy: Strategy) => Promise<void> | void;
+  trades?: Trade[];
 }
 
-export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, onEdit, onDelete, onActivate, onDeactivate }: StrategyCardProps) {
+export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, onEdit, onDelete, onActivate, onDeactivate, trades = [] }: StrategyCardProps) {
   const [isActivating, setIsActivating] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
@@ -82,10 +83,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         // Get available balance
         setAvailableBalance(walletBalanceService.getAvailableBalance());
 
-        // Fetch trades for this strategy if expanded
-        if (isExpanded) {
-          await fetchStrategyTrades();
-        }
+        // Trades are now provided via props
       } catch (error) {
         logService.log('error', `Failed to fetch data for strategy ${strategy.id}`, error, 'StrategyCard');
         setStrategyBudget(0);
@@ -109,97 +107,119 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       }
     };
 
-    // Subscribe to trade updates
+    // Subscribe to trade updates - no longer needed as trades come from props
     const handleTradeUpdate = () => {
-      if (isExpanded) {
-        fetchStrategyTrades();
-      }
+      // Trades are now provided via props
     };
 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
     tradeService.on('budgetUpdated', handleBudgetUpdate);
     tradeManager.on('tradesUpdated', handleTradeUpdate);
 
-    // Set up interval to refresh trades if expanded
-    let tradeRefreshInterval: number | null = null;
-    if (isExpanded && strategy.status === 'active') {
-      tradeRefreshInterval = window.setInterval(() => {
-        fetchStrategyTrades();
-      }, 10000); // Refresh every 10 seconds
-    }
+    // No need for interval to refresh trades as they come from props
 
     return () => {
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
       tradeService.off('budgetUpdated', handleBudgetUpdate);
       tradeManager.off('tradesUpdated', handleTradeUpdate);
-      if (tradeRefreshInterval) {
-        window.clearInterval(tradeRefreshInterval);
-      }
     };
   }, [strategy.id, isExpanded]);
 
-  // Fetch trades for this strategy
-  const fetchStrategyTrades = async () => {
+  // Process trades from props
+  useEffect(() => {
     if (!strategy.id) return;
 
     try {
       setIsLoadingTrades(true);
-      // Get active trades for this strategy
-      const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
 
-      // If we have active trades, use them directly
-      if (activeTrades.length > 0) {
-        // Add timestamps to trades if they don't have them
-        const tradesWithTimestamps = activeTrades.map(trade => {
-          if (!trade.createdAt) {
-            return {
-              ...trade,
-              createdAt: new Date(trade.timestamp).toISOString(),
-              executedAt: trade.status === 'executed' ? new Date().toISOString() : null
-            };
-          }
-          return trade;
-        });
-
-        setStrategyTrades(tradesWithTimestamps);
-        return;
-      }
-
-      // If strategy is active but no trades yet, create a pending trade to show activity
-      if (strategy.status === 'active') {
-        // Create a single pending trade to show the strategy is working
-        const pendingTrade: ExtendedTrade = {
-          id: `pending-${strategy.id}-${Date.now()}`,
-          symbol: (strategy as any).selected_pairs?.[0] || 'BTC/USDT',
-          side: 'buy',
-          status: 'pending',
-          entryPrice: 50000 + Math.random() * 1000, // Use a realistic price
-          timestamp: Date.now(),
-          createdAt: new Date().toISOString(),
-          executedAt: null,
+      // If we have trades from props, use them
+      if (trades && trades.length > 0) {
+        // Format the trades - use a stable reference to avoid unnecessary re-renders
+        const formattedTrades = trades.map(trade => ({
+          ...trade,
+          createdAt: trade.created_at || trade.datetime || new Date(trade.timestamp).toISOString(),
+          executedAt: trade.executed_at || (trade.status === 'executed' ? new Date().toISOString() : null),
+          entryPrice: trade.entry_price || trade.price,
+          stopLoss: trade.stop_loss,
+          takeProfit: trade.take_profit,
           strategyId: strategy.id
-        };
+        }));
 
-        setStrategyTrades([pendingTrade]);
-
-        // Set up a timer to simulate trade execution after a short delay
-        setTimeout(() => {
-          if (strategy.status === 'active') {
-            fetchStrategyTrades();
-          }
-        }, 30000); // Check again in 30 seconds
+        // Use a functional update to avoid dependency on previous state
+        setStrategyTrades(formattedTrades);
       } else {
-        // Strategy is not active, no trades to show
-        setStrategyTrades([]);
+        // Get active trades for this strategy from tradeManager as fallback
+        const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+
+        // If we have active trades, use them directly
+        if (activeTrades.length > 0) {
+          // Add timestamps to trades if they don't have them
+          const tradesWithTimestamps = activeTrades.map(trade => ({
+            ...trade,
+            createdAt: trade.createdAt || new Date(trade.timestamp).toISOString(),
+            executedAt: trade.executedAt || (trade.status === 'executed' ? new Date().toISOString() : null),
+            strategyId: strategy.id
+          }));
+
+          // Use a functional update to avoid dependency on previous state
+          setStrategyTrades(tradesWithTimestamps);
+        } else if (strategy.status === 'active') {
+          // If strategy is active but no trades yet, create a pending trade to show activity
+          const pendingTrade: ExtendedTrade = {
+            id: `pending-${strategy.id}`, // Remove Date.now() to avoid constant changes
+            symbol: (strategy as any).selected_pairs?.[0] || 'BTC/USDT',
+            side: 'buy',
+            status: 'pending',
+            entryPrice: 50000, // Remove random value to avoid constant changes
+            timestamp: Date.now(),
+            createdAt: new Date().toISOString(),
+            executedAt: null,
+            strategyId: strategy.id
+          };
+
+          // Use a functional update to avoid dependency on previous state
+          setStrategyTrades([pendingTrade]);
+        } else {
+          // Strategy is not active, no trades to show
+          setStrategyTrades([]);
+        }
       }
     } catch (error) {
-      logService.log('error', `Failed to fetch trades for strategy ${strategy.id}`, error, 'StrategyCard');
+      logService.log('error', `Failed to process trades for strategy ${strategy.id}`, error, 'StrategyCard');
       // Set empty array on error
       setStrategyTrades([]);
     } finally {
       setIsLoadingTrades(false);
     }
-  };
+  }, [strategy.id, strategy.status]); // Remove trades from dependency array to prevent infinite loop
+
+  // Handle changes to the trades prop separately with a deep comparison
+  useEffect(() => {
+    // Only process trades from props if we have them and the component is mounted
+    if (trades && trades.length > 0 && strategy.id) {
+      // Format the trades
+      const formattedTrades = trades.map(trade => ({
+        ...trade,
+        createdAt: trade.created_at || trade.datetime || new Date(trade.timestamp).toISOString(),
+        executedAt: trade.executed_at || (trade.status === 'executed' ? new Date().toISOString() : null),
+        entryPrice: trade.entry_price || trade.price,
+        stopLoss: trade.stop_loss,
+        takeProfit: trade.take_profit,
+        strategyId: strategy.id
+      }));
+
+      // Use a ref to track if we need to update
+      const needsUpdate = formattedTrades.length !== strategyTrades.length ||
+        formattedTrades.some((trade, index) => {
+          // If we have a different number of trades or the trade IDs don't match
+          return !strategyTrades[index] || trade.id !== strategyTrades[index].id;
+        });
+
+      if (needsUpdate) {
+        setStrategyTrades(formattedTrades);
+      }
+    }
+  }, [trades, strategy.id, strategyTrades.length]); // Only depend on trades length and strategy.id
 
   const handleActivate = async () => {
     try {

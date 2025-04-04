@@ -41,7 +41,14 @@ class CCXTService {
         if (exchangeId === 'binance' && testnet) {
           // Use the binanceTestnet proxy path
           config.urls = {
-            api: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`
+            api: {
+              public: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`,
+              private: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`,
+              fapiPublic: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
+              fapiPrivate: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
+              fapiV2Public: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
+              fapiV2Private: `${import.meta.env.VITE_PROXY_URL}binanceFutures`
+            }
           };
 
           // Force CCXT to use our proxy for all requests
@@ -61,8 +68,14 @@ class CCXTService {
           };
 
           // Log the configuration
-          logService.log('info', `Using proxy for Binance TestNet: ${import.meta.env.VITE_PROXY_URL}binanceTestnet`, null, 'CCXTService');
+          logService.log('info', `Using proxy for Binance TestNet with multiple endpoints`, {
+            spot: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`,
+            futures: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
+            timeout: config.options.timeout
+          }, 'CCXTService');
+
           console.log(`Using proxy for Binance TestNet: ${import.meta.env.VITE_PROXY_URL}binanceTestnet with timeout: ${config.options.timeout}ms`);
+          console.log(`Using proxy for Binance Futures: ${import.meta.env.VITE_PROXY_URL}binanceFutures with timeout: ${config.options.timeout}ms`);
           console.log('CCXT config:', JSON.stringify(config, null, 2));
         } else {
           // For other exchanges, use the standard proxy URL

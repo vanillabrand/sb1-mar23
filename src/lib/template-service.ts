@@ -3,6 +3,8 @@ import { logService } from './log-service';
 import { StrategyTemplate } from './types';
 import { v4 as uuidv4 } from 'uuid';
 import { strategyService } from './strategy-service';
+import { strategySync } from './strategy-sync';
+import { eventBus } from './event-bus';
 
 export class TemplateService {
   async getTemplates(): Promise<StrategyTemplate[]> {
@@ -261,6 +263,20 @@ export class TemplateService {
       // Get the risk level from template
       const riskLevel = template.riskLevel || template.risk_level || 'Medium';
 
+      // Use template's selected pairs if available, otherwise default to BTC/USDT
+      const selectedPairs = template.selected_pairs && template.selected_pairs.length > 0
+        ? template.selected_pairs
+        : ['BTC/USDT'];
+
+      // Use template's strategy config if available, otherwise create a basic one
+      const strategyConfig = template.strategy_config && Object.keys(template.strategy_config).length > 0
+        ? template.strategy_config
+        : {
+            indicatorType: 'momentum',
+            entryConditions: {},
+            exitConditions: {}
+          };
+
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
@@ -268,16 +284,23 @@ export class TemplateService {
         riskLevel: riskLevel as any,
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
-        selected_pairs: ['BTC/USDT'],
-        strategy_config: {
-          indicatorType: 'momentum',
-          entryConditions: {},
-          exitConditions: {}
-        }
+        selected_pairs: selectedPairs,
+        strategy_config: strategyConfig
       });
 
+      // Force a refresh of the strategy sync to ensure it's in the local cache
+      await strategySync.initialize();
+
+      // Emit events to notify components of the new strategy
+      eventBus.emit('strategy:created', strategy);
+
+      // Dispatch DOM event for legacy components
+      document.dispatchEvent(new CustomEvent('strategy:created', {
+        detail: { strategy }
+      }));
+
       logService.log('info', `Created strategy from template ${templateId}`,
-        null, 'TemplateService');
+        { strategy }, 'TemplateService');
 
       return strategy;
     } catch (error) {

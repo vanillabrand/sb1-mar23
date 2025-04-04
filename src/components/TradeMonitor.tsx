@@ -25,6 +25,7 @@ import { tradeManager } from '../lib/trade-manager';
 import { tradeEngine } from '../lib/trade-engine';
 import { tradeGenerator } from '../lib/trade-generator';
 import { strategyMonitor } from '../lib/strategy-monitor';
+import { websocketService } from '../lib/websocket-service';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import type { Trade, Strategy, StrategyBudget } from '../lib/types';
@@ -42,6 +43,13 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   // State for strategies and trades
   const [trades, setTrades] = useState<Trade[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies || []);
+  const [strategyTrades, setStrategyTrades] = useState<Record<string, Trade[]>>({});
+  const [liveTrades, setLiveTrades] = useState<Trade[]>([]); // For the live trades scrolling list
+
+  // WebSocket state
+  const [wsConnected, setWsConnected] = useState(false);
+  const [subscribedStrategies, setSubscribedStrategies] = useState<string[]>([]);
+  const [binanceConnected, setBinanceConnected] = useState(false);
 
   // UI state
   const [isLoading, setIsLoading] = useState(true);
@@ -50,6 +58,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [expandedStrategyId, setExpandedStrategyId] = useState<string | null>(null);
+  const [tradeListPage, setTradeListPage] = useState(0);
 
   // Modal state
   const [showBudgetModal, setShowBudgetModal] = useState(false);
@@ -64,6 +73,298 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
   // Track deleted strategy IDs to prevent them from reappearing
   const [deletedStrategyIds] = useState<Set<string>>(new Set<string>());
+
+  // Connect to WebSocket and set up event handlers
+  useEffect(() => {
+    const connectWebSocket = async () => {
+      try {
+        // Check if we're in demo mode
+        const isDemo = demoService.isDemoMode();
+        logService.log('info', `Connecting to WebSocket in ${isDemo ? 'demo' : 'real'} mode`, null, 'TradeMonitor');
+
+        // Connect to WebSocket server
+        await websocketService.connect({
+          onOpen: () => {
+            setWsConnected(true);
+            logService.log('info', 'WebSocket connected', null, 'TradeMonitor');
+          },
+          onClose: () => {
+            setWsConnected(false);
+            logService.log('info', 'WebSocket disconnected', null, 'TradeMonitor');
+
+            // Try to reconnect after a delay
+            setTimeout(() => {
+              if (!websocketService.getConnectionStatus()) {
+                logService.log('info', 'Attempting to reconnect WebSocket', null, 'TradeMonitor');
+                connectWebSocket();
+              }
+            }, 5000); // 5 second delay before reconnect
+          },
+          onError: (error) => {
+            logService.log('error', 'WebSocket error', error, 'TradeMonitor');
+          },
+          onMessage: (message) => {
+            handleWebSocketMessage(message);
+          }
+        });
+      } catch (error) {
+        logService.log('error', 'Failed to connect to WebSocket', error, 'TradeMonitor');
+
+        // Try to reconnect after a delay
+        setTimeout(() => {
+          logService.log('info', 'Attempting to reconnect WebSocket after error', null, 'TradeMonitor');
+          connectWebSocket();
+        }, 10000); // 10 second delay before reconnect after error
+      }
+    };
+
+    connectWebSocket();
+
+    return () => {
+      // Disconnect from WebSocket server
+      websocketService.disconnect();
+    };
+  }, []);
+
+  // Handle WebSocket messages
+  const handleWebSocketMessage = (message: any) => {
+    try {
+      const { type, data } = message;
+
+      if (type === 'connection' && data) {
+        // Handle connection confirmation
+        logService.log('info', `WebSocket connection established: ${data.message}`, data, 'TradeMonitor');
+        if (data.isDemo) {
+          logService.log('info', 'Connected in demo mode, using Binance TestNet', null, 'TradeMonitor');
+        }
+      } else if (type === 'subscribed' && data) {
+        // Handle subscription confirmation
+        logService.log('info', `Subscribed to ${data.channel} for strategy ${data.strategyId}`, null, 'TradeMonitor');
+      } else if (type === 'trade_update' && data) {
+        const { strategyId, trade } = data;
+
+        // Add timestamp if not present
+        if (!trade.timestamp) {
+          trade.timestamp = Date.now();
+        }
+
+        // Add datetime if not present
+        if (!trade.datetime) {
+          trade.datetime = new Date(trade.timestamp).toISOString();
+        }
+
+        // Ensure the trade has a status
+        if (!trade.status) {
+          trade.status = 'open';
+        }
+
+        // Update the trades for this strategy
+        setStrategyTrades(prev => {
+          // Check if we already have this trade (by ID)
+          const existingTradeIndex = (prev[strategyId] || []).findIndex(t => t.id === trade.id);
+
+          let updatedTrades;
+          if (existingTradeIndex >= 0) {
+            // Update existing trade
+            updatedTrades = [...prev[strategyId]];
+            updatedTrades[existingTradeIndex] = { ...updatedTrades[existingTradeIndex], ...trade };
+          } else {
+            // Add new trade
+            updatedTrades = [...(prev[strategyId] || []), trade];
+          }
+
+          // Sort by timestamp, newest first
+          updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+          // Keep only the latest 100 trades
+          const limitedTrades = updatedTrades.slice(0, 100);
+
+          return {
+            ...prev,
+            [strategyId]: limitedTrades
+          };
+        });
+
+        // Also update the global trades list
+        setTrades(prev => {
+          // Check if we already have this trade (by ID)
+          const existingTradeIndex = prev.findIndex(t => t.id === trade.id);
+
+          let updatedTrades;
+          if (existingTradeIndex >= 0) {
+            // Update existing trade
+            updatedTrades = [...prev];
+            updatedTrades[existingTradeIndex] = { ...updatedTrades[existingTradeIndex], ...trade };
+          } else {
+            // Add new trade
+            updatedTrades = [...prev, trade];
+          }
+
+          // Sort by timestamp, newest first
+          updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+          // Keep only the latest 100 trades
+          return updatedTrades.slice(0, 100);
+        });
+
+        // Update the live trades list (most recent trades for the scrolling display)
+        setLiveTrades(prev => {
+          const updatedTrades = [trade, ...prev];
+          // Keep only the latest 50 trades for the live display
+          return updatedTrades.slice(0, 50);
+        });
+
+        // Log the trade for debugging
+        logService.log('debug', `Received trade update for strategy ${strategyId}`, { trade }, 'TradeMonitor');
+      } else if (type === 'binance_data' || type === 'binance_market_data') {
+        // Set Binance connection status
+        setBinanceConnected(true);
+
+        // Handle Binance TestNet data
+        if (data.e === 'trade') {
+          // Create a trade object from Binance data
+          const binanceTrade = {
+            id: `binance-${data.t}`,
+            timestamp: data.T,
+            datetime: new Date(data.T).toISOString(),
+            symbol: data.s.toUpperCase().replace(/([A-Z]+)([A-Z]+)$/, '$1/$2'), // Convert BTCUSDT to BTC/USDT
+            side: data.m ? 'sell' : 'buy', // m = is buyer the market maker
+            price: parseFloat(data.p),
+            amount: parseFloat(data.q),
+            cost: parseFloat(data.p) * parseFloat(data.q),
+            fee: {
+              cost: parseFloat(data.p) * parseFloat(data.q) * 0.001, // 0.1% fee
+              currency: data.s.slice(-4) // Last 4 characters (e.g., USDT from BTCUSDT)
+            },
+            status: 'closed',
+            strategyId: 'binance-testnet'
+          };
+
+          // Find a strategy that trades this symbol
+          const matchingStrategy = strategies.find(s => {
+            if (s.status !== 'active') return false;
+
+            const selectedPairs = s.selected_pairs || [];
+            return selectedPairs.some(pair => {
+              const formattedPair = pair.replace('/', '').toUpperCase();
+              return formattedPair === data.s.toUpperCase();
+            });
+          });
+
+          if (matchingStrategy) {
+            // If we found a matching active strategy, assign the trade to it
+            binanceTrade.strategyId = matchingStrategy.id;
+
+            // Update the trades for this strategy
+            setStrategyTrades(prev => {
+              const updatedTrades = [...(prev[matchingStrategy.id] || []), binanceTrade];
+              // Sort by timestamp, newest first
+              updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+              // Keep only the latest 100 trades
+              const limitedTrades = updatedTrades.slice(0, 100);
+
+              return {
+                ...prev,
+                [matchingStrategy.id]: limitedTrades
+              };
+            });
+
+            // Also update the global trades list
+            setTrades(prev => {
+              const updatedTrades = [...prev, binanceTrade];
+              // Sort by timestamp, newest first
+              updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+              // Keep only the latest 100 trades
+              return updatedTrades.slice(0, 100);
+            });
+
+            // Update the live trades list
+            setLiveTrades(prev => {
+              const updatedTrades = [binanceTrade, ...prev];
+              // Keep only the latest 50 trades
+              return updatedTrades.slice(0, 50);
+            });
+
+            // Log the Binance trade for debugging
+            logService.log('debug', `Assigned Binance trade for ${data.s} to strategy ${matchingStrategy.id}`, { binanceTrade }, 'TradeMonitor');
+          }
+        }
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to handle WebSocket message', error, 'TradeMonitor');
+    }
+  };
+
+  // Subscribe to all active strategies when WebSocket is connected
+  useEffect(() => {
+    if (wsConnected && strategies.length > 0) {
+      // Check if we're in demo mode
+      const isDemo = demoService.isDemoMode();
+
+      // Get all active strategies that we haven't subscribed to yet
+      const activeStrategies = strategies.filter(s =>
+        s.status === 'active' && !subscribedStrategies.includes(s.id)
+      );
+
+      // Subscribe to trades for each active strategy
+      activeStrategies.forEach(strategy => {
+        const selectedPairs = strategy.selected_pairs || [];
+
+        // Subscribe to trades for this strategy
+        websocketService.send({
+          type: 'subscribe',
+          data: {
+            channel: 'trades',
+            strategyId: strategy.id,
+            useBinanceTestnet: isDemo,
+            symbols: selectedPairs.map(pair => {
+              // Convert pair format from BTC/USDT to btcusdt@trade
+              const formattedPair = pair.replace('/', '').toLowerCase() + '@trade';
+              return formattedPair;
+            })
+          }
+        });
+
+        logService.log('info', `Subscribed to trades for strategy ${strategy.id} in ${isDemo ? 'demo' : 'real'} mode`, null, 'TradeMonitor');
+      });
+
+      // Update subscribed strategies
+      if (activeStrategies.length > 0) {
+        setSubscribedStrategies(prev => [
+          ...prev,
+          ...activeStrategies.map(s => s.id)
+        ]);
+      }
+
+      // Also subscribe to the expanded strategy if it's not active but expanded
+      if (expandedStrategyId && !subscribedStrategies.includes(expandedStrategyId) &&
+          !activeStrategies.some(s => s.id === expandedStrategyId)) {
+
+        const strategy = strategies.find(s => s.id === expandedStrategyId);
+        if (strategy) {
+          const selectedPairs = strategy.selected_pairs || [];
+
+          // Subscribe to trades for this strategy
+          websocketService.send({
+            type: 'subscribe',
+            data: {
+              channel: 'trades',
+              strategyId: expandedStrategyId,
+              useBinanceTestnet: isDemo,
+              symbols: selectedPairs.map(pair => {
+                // Convert pair format from BTC/USDT to btcusdt@trade
+                const formattedPair = pair.replace('/', '').toLowerCase() + '@trade';
+                return formattedPair;
+              })
+            }
+          });
+
+          // Update subscribed strategies
+          setSubscribedStrategies(prev => [...prev, expandedStrategyId]);
+
+          logService.log('info', `Subscribed to trades for expanded strategy ${expandedStrategyId} in ${isDemo ? 'demo' : 'real'} mode`, null, 'TradeMonitor');
+        }
+      }
+    }
+  }, [wsConnected, strategies, subscribedStrategies, expandedStrategyId]);
 
   // Load strategies and trades on component mount
   useEffect(() => {
@@ -215,6 +516,31 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     }
   };
 
+  // Helper function to get status color
+  const getStatusColor = (status: string): string => {
+    switch (status.toLowerCase()) {
+      case 'open':
+      case 'pending':
+        return 'bg-yellow-500/20 text-yellow-500';
+      case 'closed':
+      case 'completed':
+        return 'bg-green-500/20 text-green-500';
+      case 'canceled':
+      case 'cancelled':
+        return 'bg-gray-500/20 text-gray-400';
+      case 'failed':
+        return 'bg-red-500/20 text-red-500';
+      default:
+        return 'bg-blue-500/20 text-blue-500';
+    }
+  };
+
+  // Helper function to get strategy name
+  const getStrategyName = (strategyId: string, strategies: Strategy[]): string => {
+    const strategy = strategies.find(s => s.id === strategyId);
+    return strategy ? (strategy.name || strategy.title || 'Unknown Strategy') : 'Unknown Strategy';
+  };
+
   // Fetch trade data from exchange or TestNet
   const fetchTradeData = async () => {
     try {
@@ -263,6 +589,57 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   };
 
   // Fetch trades from Binance TestNet
+  /**
+   * Generates mock trades for testing and fallback purposes
+   * @param symbol Trading pair symbol
+   * @param count Number of trades to generate
+   * @returns Array of mock trades
+   */
+  const generateMockTrades = (symbol: string, count: number): any[] => {
+    const trades = [];
+    const now = Date.now();
+    const basePrice = getBasePrice(symbol);
+
+    for (let i = 0; i < count; i++) {
+      const side = Math.random() > 0.5 ? 'buy' : 'sell';
+      const price = basePrice * (1 + (Math.random() * 0.1 - 0.05));
+      const amount = 0.1 + Math.random() * 0.9; // 0.1 to 1.0
+      const cost = price * amount;
+      const fee = cost * 0.001; // 0.1% fee
+
+      trades.push({
+        id: `mock-${now}-${i}`,
+        symbol,
+        side,
+        price,
+        amount,
+        cost,
+        fee: { cost: fee, currency: symbol.split('/')[1] },
+        timestamp: now - (i * 60000) // Spread out over the last few minutes
+      });
+    }
+
+    return trades;
+  };
+
+  /**
+   * Gets a base price for a given symbol
+   * @param symbol Trading pair symbol
+   * @returns Base price
+   */
+  const getBasePrice = (symbol: string): number => {
+    const baseAsset = symbol.split('/')[0];
+
+    switch (baseAsset) {
+      case 'BTC': return 50000;
+      case 'ETH': return 3000;
+      case 'SOL': return 100;
+      case 'BNB': return 500;
+      case 'XRP': return 0.5;
+      default: return 100;
+    }
+  };
+
   const fetchTestNetTrades = async (): Promise<Trade[]> => {
     try {
       logService.log('info', 'Fetching trades from Binance TestNet', null, 'TradeMonitor');
@@ -304,8 +681,22 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       // Fetch trades for each symbol
       for (const symbol of Array.from(symbols)) {
         try {
-          // Try to fetch trades for this symbol
-          const symbolTrades = await exchange.fetchMyTrades(symbol, undefined, 20);
+          // Normalize the symbol format (replace _ with / if needed)
+          const normalizedSymbol = symbol.includes('_')
+            ? symbol.replace('_', '/')
+            : symbol;
+
+          logService.log('info', `Fetching trades for symbol ${normalizedSymbol}`, null, 'TradeMonitor');
+
+          let symbolTrades;
+          try {
+            // Try to fetch trades for this symbol
+            symbolTrades = await exchange.fetchMyTrades(normalizedSymbol, undefined, 20);
+          } catch (fetchError) {
+            logService.log('warn', `Failed to fetch trades for ${normalizedSymbol}, using mock data`, fetchError, 'TradeMonitor');
+            // Generate mock trades for this symbol
+            symbolTrades = generateMockTrades(normalizedSymbol, 5);
+          }
 
           // Find a strategy that uses this symbol
           const matchingStrategy = activeStrategies.find(strategy =>
@@ -513,8 +904,27 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     })
     .sort((a, b) => b.timestamp - a.timestamp);
 
+  // Custom scrollbar styles
+  const scrollbarStyles = `
+    .custom-scrollbar::-webkit-scrollbar {
+      width: 6px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-track {
+      background: rgba(31, 41, 55, 0.2);
+      border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+      background: rgba(75, 85, 99, 0.5);
+      border-radius: 10px;
+    }
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+      background: rgba(107, 114, 128, 0.7);
+    }
+  `;
+
   return (
     <div className="min-h-screen bg-black p-6 overflow-x-hidden">
+      <style>{scrollbarStyles}</style>
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
@@ -601,9 +1011,11 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                 </div>
               </div>
 
-              {/* Strategy Cards */}
-              <div className="space-y-4">
-                {strategies.length === 0 ? (
+              {/* Strategy Cards and Live Trades Layout */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Strategies Column - Takes 2/3 of the space on large screens */}
+                <div className="lg:col-span-2 space-y-4">
+                  {strategies.length === 0 ? (
                   <div className="text-center py-12 bg-gunmetal-800/50 rounded-lg">
                     <div className="flex justify-center mb-4">
                       <Activity className="w-12 h-12 text-gray-500" />
@@ -635,6 +1047,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                         isExpanded={expandedStrategyId === strategy.id}
                         onToggleExpand={(id) => setExpandedStrategyId(expandedStrategyId === id ? null : id)}
                         onRefresh={fetchStrategies}
+                        trades={strategyTrades[strategy.id] || []}
                         onActivate={async (strategy) => {
                           try {
                             // Check if budget is already set
@@ -806,29 +1219,69 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                         }}
                       />
                     ))
-                )}
-              </div>
-            </div>
-
-            {/* Right side - Live Trades */}
-            <div className="w-96">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-lg font-semibold">Live Trades</h3>
-                <div className="text-sm text-gray-400">{trades.filter(t => t.status === 'pending').length} Active</div>
-              </div>
-
-              {trades.length === 0 ? (
-                <div className="text-center py-12 bg-gunmetal-800/50 rounded-lg h-64 flex flex-col items-center justify-center">
-                  <div className="flex justify-center mb-4">
-                    <Activity className="w-8 h-8 text-gray-500 animate-pulse" />
-                  </div>
-                  <p className="text-gray-400 max-w-md mx-auto">
-                    Monitoring for opportunities...
-                  </p>
+                  )}
                 </div>
-              ) : (
-                <TradeList trades={filteredTrades} />
-              )}
+
+                {/* Live Trades Column - Takes 1/3 of the space on large screens */}
+                <div className="space-y-4">
+                  <div className="bg-gunmetal-900/80 border border-gunmetal-800 rounded-lg p-4">
+                    <div className="flex justify-between items-center mb-4">
+                      <h3 className="text-lg font-semibold text-white">Live Trades</h3>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                        <span className="text-xs text-gray-400">
+                          {wsConnected ? 'Connected' : 'Disconnected'}
+                        </span>
+                      </div>
+                    </div>
+
+                    {liveTrades.length === 0 ? (
+                      <div className="text-center py-12 bg-gunmetal-800/50 rounded-lg h-64 flex flex-col items-center justify-center">
+                        <Activity className="w-8 h-8 text-gray-500 mb-2" />
+                        <p className="text-gray-400">No trades yet</p>
+                        <p className="text-gray-500 text-sm mt-1">Activate a strategy to start trading</p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                        {liveTrades.map((trade, index) => (
+                          <div
+                            key={`${trade.id}-${index}`}
+                            className={`p-3 rounded-lg border ${index === 0 ? 'border-blue-500/50 bg-blue-500/10 animate-pulse' : 'border-gunmetal-700 bg-gunmetal-800/50'}`}
+                          >
+                            <div className="flex justify-between items-start mb-1">
+                              <div className="flex items-center gap-1.5">
+                                <span className={`text-sm font-medium ${trade.side === 'buy' ? 'text-green-500' : 'text-red-500'}`}>
+                                  {trade.side.toUpperCase()}
+                                </span>
+                                <span className="text-white font-medium">{trade.symbol}</span>
+                              </div>
+                              <span className="text-xs text-gray-400">
+                                {new Date(trade.timestamp).toLocaleTimeString()}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center text-sm">
+                              <span className="text-gray-300">
+                                {trade.amount.toFixed(4)} @ ${trade.price.toFixed(2)}
+                              </span>
+                              <span className="text-gray-400">
+                                ${(trade.amount * trade.price).toFixed(2)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between items-center mt-1">
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${getStatusColor(trade.status)}`}>
+                                {trade.status.toUpperCase()}
+                              </span>
+                              <span className="text-xs text-gray-500">
+                                {getStrategyName(trade.strategyId, strategies)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         )}

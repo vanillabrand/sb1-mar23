@@ -1,5 +1,7 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
+import { demoService } from './demo-service';
+import { configService } from './config-service';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import type { WebSocketMessage, WebSocketConfig } from './types';
 
@@ -25,9 +27,38 @@ export class WebSocketService extends EventEmitter {
   }
 
   private getWebSocketUrl(): string {
+    // Check if we're in demo mode
+    const isDemo = demoService.isDemoMode();
+
+    // For direct connection to Binance TestNet in demo mode
+    if (isDemo && configService.get('USE_DIRECT_BINANCE_CONNECTION') === 'true') {
+      const testnetWsUrl = configService.get('BINANCE_TESTNET_WEBSOCKETS_URL') || 'wss://testnet.binancefuture.com/ws-fapi/v1';
+      logService.log('info', `Using direct Binance TestNet WebSocket URL: ${testnetWsUrl}`, null, 'WebSocketService');
+      return testnetWsUrl;
+    }
+
+    // If user has configured their own exchange and not in demo mode
+    const userExchangeWsUrl = configService.get('USER_EXCHANGE_WEBSOCKETS_URL');
+    if (!isDemo && userExchangeWsUrl) {
+      logService.log('info', `Using user-configured WebSocket URL: ${userExchangeWsUrl}`, null, 'WebSocketService');
+      return userExchangeWsUrl;
+    }
+
+    // Use proxy server with demo parameter
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
-    return `${protocol}//${host}/ws`;
+    const demoParam = isDemo ? '?demo=true' : '';
+
+    // Use the proxy server for WebSocket connections
+    if (host.includes('localhost') || host.includes('127.0.0.1')) {
+      const localWsUrl = `${protocol}//${host.split(':')[0]}:3001/ws${demoParam}`;
+      logService.log('info', `Using local WebSocket URL: ${localWsUrl}`, null, 'WebSocketService');
+      return localWsUrl;
+    }
+
+    const defaultWsUrl = `${protocol}//${host}/ws${demoParam}`;
+    logService.log('info', `Using default WebSocket URL: ${defaultWsUrl}`, null, 'WebSocketService');
+    return defaultWsUrl;
   }
 
   async connect(config: WebSocketConfig): Promise<void> {
@@ -38,7 +69,7 @@ export class WebSocketService extends EventEmitter {
 
       // Use secure WebSocket if on HTTPS
       const wsUrl = config.url || this.getWebSocketUrl();
-      
+
       this.socket = new ReconnectingWebSocket(wsUrl, [], {
         WebSocket: WebSocket,
         connectionTimeout: 4000,
@@ -58,10 +89,10 @@ export class WebSocketService extends EventEmitter {
         await this.subscribe(config.subscriptions);
       }
 
-      logService.log('info', 'WebSocket connected successfully', 
+      logService.log('info', 'WebSocket connected successfully',
         { url: wsUrl }, 'WebSocketService');
     } catch (error) {
-      logService.log('error', 'Failed to establish WebSocket connection', 
+      logService.log('error', 'Failed to establish WebSocket connection',
         error, 'WebSocketService');
       throw error;
     }
@@ -90,10 +121,23 @@ export class WebSocketService extends EventEmitter {
 
     this.socket.addEventListener('message', (event) => {
       try {
-        const data = JSON.parse(event.data);
-        this.emit('message', data);
+        const message = JSON.parse(event.data);
+        logService.log('debug', 'WebSocket message received', message, 'WebSocketService');
+
+        // Emit the message to all listeners
+        this.emit('message', message);
+
+        // Handle Binance TestNet data
+        if (message.type === 'binance_data' || message.type === 'binance_market_data') {
+          this.handleBinanceData(message.data);
+        }
+
+        // Also emit based on message type
+        if (message.type) {
+          this.emit(message.type, message.data);
+        }
       } catch (error) {
-        logService.log('error', 'Failed to parse WebSocket message', 
+        logService.log('error', 'Failed to parse WebSocket message',
           error, 'WebSocketService');
       }
     });
@@ -136,10 +180,10 @@ export class WebSocketService extends EventEmitter {
       };
 
       await this.send(subscribeMessage);
-      logService.log('info', 'Subscribed to WebSocket channels', 
+      logService.log('info', 'Subscribed to WebSocket channels',
         { channels: subscriptions }, 'WebSocketService');
     } catch (error) {
-      logService.log('error', 'Failed to subscribe to WebSocket channels', 
+      logService.log('error', 'Failed to subscribe to WebSocket channels',
         error, 'WebSocketService');
       throw error;
     }
@@ -157,7 +201,7 @@ export class WebSocketService extends EventEmitter {
     try {
       this.socket?.send(JSON.stringify(message));
     } catch (error) {
-      logService.log('error', 'Failed to send WebSocket message', 
+      logService.log('error', 'Failed to send WebSocket message',
         error, 'WebSocketService');
       throw error;
     }
@@ -175,7 +219,7 @@ export class WebSocketService extends EventEmitter {
   private handleDisconnection(): void {
     this.reconnectAttempts++;
     if (this.reconnectAttempts >= this.MAX_RECONNECT_ATTEMPTS) {
-      logService.log('error', 'Max WebSocket reconnection attempts reached', 
+      logService.log('error', 'Max WebSocket reconnection attempts reached',
         null, 'WebSocketService');
       this.emit('maxReconnectAttemptsReached');
     }
@@ -188,6 +232,54 @@ export class WebSocketService extends EventEmitter {
       this.isConnected = false;
       this.messageQueue = [];
       logService.log('info', 'WebSocket disconnected', null, 'WebSocketService');
+    }
+  }
+
+  /**
+   * Check if the WebSocket is connected
+   * @returns True if connected, false otherwise
+   */
+  getConnectionStatus(): boolean {
+    return this.socket !== null && this.socket.readyState === WebSocket.OPEN;
+  }
+
+  /**
+   * Handle Binance TestNet data
+   * @param data The Binance data
+   */
+  private handleBinanceData(data: any): void {
+    try {
+      // Check if this is a trade update
+      if (data.e === 'trade') {
+        // Format the trade data to match our application's format
+        const trade = {
+          id: `binance-${data.t}`,
+          timestamp: data.T,
+          datetime: new Date(data.T).toISOString(),
+          symbol: data.s.toUpperCase(),
+          side: data.m ? 'sell' : 'buy', // m = is buyer the market maker
+          price: parseFloat(data.p),
+          amount: parseFloat(data.q),
+          cost: parseFloat(data.p) * parseFloat(data.q),
+          fee: {
+            cost: parseFloat(data.p) * parseFloat(data.q) * 0.001, // 0.1% fee
+            currency: data.s.slice(-4) // Last 4 characters (e.g., USDT from BTCUSDT)
+          },
+          status: 'closed',
+          strategyId: 'binance-testnet'
+        };
+
+        // Emit the trade update
+        this.emit('trade_update', {
+          strategyId: 'binance-testnet',
+          trade
+        });
+      }
+
+      // Emit the raw Binance data
+      this.emit('binance_raw_data', data);
+    } catch (error) {
+      logService.log('error', 'Failed to handle Binance data', error, 'WebSocketService');
     }
   }
 }
