@@ -463,92 +463,82 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       console.log('Pausing strategy sync during deletion');
       strategySync.pauseSync();
 
-      // 4. Use the direct deletion function
-      console.log(`Using direct deletion function for strategy ${strategyId}...`);
-      const success = await directDeleteStrategy(strategyId);
-
-      if (success) {
-        console.log(`Strategy ${strategyId} successfully deleted from database`);
-      } else {
-        console.error(`Failed to delete strategy ${strategyId} from database, trying alternative methods`);
-
-        // Try deleting trades first to avoid foreign key constraints
-        try {
-          console.log(`Deleting trades for strategy ${strategyId}`);
-          const { error: tradesError } = await supabase
-            .from('trades')
-            .delete()
-            .eq('strategy_id', strategyId);
-
-          if (tradesError) {
-            console.warn(`Error deleting trades: ${tradesError.message}`);
-          } else {
-            console.log(`Successfully deleted all trades for strategy ${strategyId}`);
-          }
-        } catch (tradesError) {
-          console.warn(`Exception deleting trades: ${tradesError}`);
-        }
-
-        // Try direct strategy deletion
-        try {
-          console.log(`Deleting strategy ${strategyId} directly`);
-          const { error: strategyError } = await supabase
-            .from('strategies')
-            .delete()
-            .eq('id', strategyId);
-
-          if (strategyError) {
-            console.error(`Error deleting strategy: ${strategyError.message}`);
-
-            // Last resort: Try with a direct SQL query
-            try {
-              console.log(`Attempting direct SQL query as last resort...`);
-              await supabase.rpc('execute_sql', {
-                query: `
-                  DELETE FROM trades WHERE strategy_id = '${strategyId}';
-                  DELETE FROM strategies WHERE id = '${strategyId}';
-                `
-              });
-              console.log(`Direct SQL query executed for strategy ${strategyId}`);
-            } catch (sqlError) {
-              console.error(`Final SQL attempt failed: ${sqlError}`);
-            }
-          } else {
-            console.log(`Successfully deleted strategy ${strategyId} directly`);
-          }
-        } catch (strategyError) {
-          console.error(`Exception deleting strategy: ${strategyError}`);
-        }
-      }
-
-      // 5. Verify deletion
       try {
-        const { data: checkData } = await supabase
-          .from('strategies')
-          .select('id')
-          .eq('id', strategyId);
+        // 4. Use the strategy service to delete the strategy
+        console.log(`Using strategy service to delete strategy ${strategyId}...`);
+        await strategyService.deleteStrategy(strategyId);
+        console.log(`Strategy ${strategyId} successfully deleted from database`);
+      } catch (deleteError) {
+        console.error(`Error using strategy service: ${deleteError}`);
 
-        if (!checkData || checkData.length === 0) {
-          console.log(`VERIFICATION: Strategy ${strategyId} is confirmed deleted`);
-        } else {
-          console.error(`VERIFICATION FAILED: Strategy ${strategyId} still exists in database`);
-          console.log(`Strategy data:`, checkData);
+        // Fallback to direct deletion if strategy service fails
+        console.log(`Falling back to direct deletion for strategy ${strategyId}...`);
+        const success = await directDeleteStrategy(strategyId);
+
+        if (!success) {
+          console.error(`Failed to delete strategy ${strategyId} from database, trying alternative methods`);
+
+          // Try deleting trades first to avoid foreign key constraints
+          try {
+            console.log(`Deleting trades for strategy ${strategyId}`);
+            const { error: tradesError } = await supabase
+              .from('trades')
+              .delete()
+              .eq('strategy_id', strategyId);
+
+            if (tradesError) {
+              console.warn(`Error deleting trades: ${tradesError.message}`);
+            } else {
+              console.log(`Successfully deleted all trades for strategy ${strategyId}`);
+            }
+          } catch (tradesError) {
+            console.warn(`Exception deleting trades: ${tradesError}`);
+          }
+
+          // Try direct strategy deletion
+          try {
+            console.log(`Deleting strategy ${strategyId} directly`);
+            const { error: strategyError } = await supabase
+              .from('strategies')
+              .delete()
+              .eq('id', strategyId);
+
+            if (strategyError) {
+              console.error(`Error deleting strategy: ${strategyError.message}`);
+
+              // Last resort: Try with a direct SQL query
+              try {
+                console.log(`Attempting direct SQL query as last resort...`);
+                await supabase.rpc('execute_sql', {
+                  query: `
+                    DELETE FROM trades WHERE strategy_id = '${strategyId}';
+                    DELETE FROM strategies WHERE id = '${strategyId}';
+                  `
+                });
+                console.log(`Direct SQL query executed for strategy ${strategyId}`);
+              } catch (sqlError) {
+                console.error(`Final SQL attempt failed: ${sqlError}`);
+              }
+            } else {
+              console.log(`Successfully deleted strategy ${strategyId} directly`);
+            }
+          } catch (strategyError) {
+            console.error(`Exception deleting strategy: ${strategyError}`);
+          }
         }
-      } catch (verifyError) {
-        console.error(`Error verifying deletion: ${verifyError}`);
       }
 
-      // 6. Broadcast the deletion event for other components
+      // 5. Broadcast the deletion event for other components
       eventBus.emit('strategy:deleted', { strategyId });
       document.dispatchEvent(new CustomEvent('strategy:remove', {
         detail: { id: strategyId }
       }));
 
-      // 7. Force a complete refresh of the strategies list
+      // 6. Force a complete refresh of the strategies list
       console.log('Refreshing strategies list after deletion');
       await refreshStrategies();
 
-      // 8. Resume strategy sync after a delay
+      // 7. Resume strategy sync after a delay
       setTimeout(() => {
         console.log('Resuming strategy sync');
         strategySync.resumeSync();

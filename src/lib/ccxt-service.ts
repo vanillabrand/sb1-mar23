@@ -47,6 +47,114 @@ class CCXTService {
         recvWindow: 10000, // Increase receive window for Binance
       };
 
+      // Add headers to ensure API key is properly passed
+      config.headers = {
+        // Binance family
+        'X-MBX-APIKEY': credentials.apiKey,
+
+        // BitMart
+        'X-BM-KEY': credentials.apiKey,
+
+        // Kraken
+        'API-Key': credentials.apiKey,
+        'API-Sign': credentials.secret && credentials.apiKey ? 'signature-placeholder' : undefined,
+
+        // Coinbase
+        'CB-ACCESS-KEY': credentials.apiKey,
+        'CB-ACCESS-SIGN': credentials.secret && credentials.apiKey ? 'signature-placeholder' : undefined,
+        'CB-ACCESS-TIMESTAMP': Date.now().toString(),
+        'CB-ACCESS-PASSPHRASE': credentials.password || '',
+
+        // OKX
+        'OK-ACCESS-KEY': credentials.apiKey,
+        'OK-ACCESS-SIGN': credentials.secret && credentials.apiKey ? 'signature-placeholder' : undefined,
+        'OK-ACCESS-TIMESTAMP': Date.now().toString(),
+        'OK-ACCESS-PASSPHRASE': credentials.password || '',
+
+        // Bybit
+        'X-BAPI-API-KEY': credentials.apiKey,
+        'X-BAPI-SIGN': credentials.secret && credentials.apiKey ? 'signature-placeholder' : undefined,
+        'X-BAPI-TIMESTAMP': Date.now().toString(),
+
+        // KuCoin
+        'KC-API-KEY': credentials.apiKey,
+        'KC-API-SIGN': credentials.secret && credentials.apiKey ? 'signature-placeholder' : undefined,
+        'KC-API-TIMESTAMP': Date.now().toString(),
+        'KC-API-PASSPHRASE': credentials.password || '',
+
+        // Generic formats
+        'apikey': credentials.apiKey,
+        'api_key': credentials.apiKey,
+        'key': credentials.apiKey,
+        'X-API-KEY': credentials.apiKey,
+      };
+
+      // Exchange-specific configurations
+      switch (exchangeId) {
+        case 'bitmart':
+          // BitMart requires additional configuration
+          console.log('Setting up BitMart-specific configuration');
+          config.options = {
+            ...config.options,
+            createMarketBuyOrderRequiresPrice: false,
+            createMarketOrderRequiresPrice: false,
+            defaultType: 'spot',
+            adjustForTimeDifference: true,
+            recvWindow: 60000,
+          };
+          break;
+
+        case 'kraken':
+          // Kraken specific configuration
+          console.log('Setting up Kraken-specific configuration');
+          config.options = {
+            ...config.options,
+            createMarketBuyOrderRequiresPrice: false,
+            adjustForTimeDifference: true,
+          };
+          break;
+
+        case 'coinbase':
+          // Coinbase specific configuration
+          console.log('Setting up Coinbase-specific configuration');
+          config.options = {
+            ...config.options,
+            createMarketBuyOrderRequiresPrice: true,
+            adjustForTimeDifference: true,
+          };
+          break;
+
+        case 'okx':
+          // OKX specific configuration
+          console.log('Setting up OKX-specific configuration');
+          config.options = {
+            ...config.options,
+            createMarketBuyOrderRequiresPrice: false,
+            adjustForTimeDifference: true,
+          };
+          break;
+
+        case 'bybit':
+          // Bybit specific configuration
+          console.log('Setting up Bybit-specific configuration');
+          config.options = {
+            ...config.options,
+            defaultType: 'spot',
+            adjustForTimeDifference: true,
+          };
+          break;
+
+        case 'kucoin':
+          // KuCoin specific configuration
+          console.log('Setting up KuCoin-specific configuration');
+          config.options = {
+            ...config.options,
+            defaultType: 'spot',
+            adjustForTimeDifference: true,
+          };
+          break;
+      }
+
       // Get the proxy base URL
       const proxyBaseUrl = import.meta.env.VITE_PROXY_BASE_URL || 'http://localhost:3001';
 
@@ -67,6 +175,44 @@ class CCXTService {
                 dapiPrivate: `${proxyBaseUrl}/api/binanceFutures`
               }
             };
+
+            // Add Bybit headers for Binance TestNet (needed for some reason)
+            config.headers = {
+              ...config.headers,
+              'X-BAPI-API-KEY': credentials.apiKey,
+              'X-BAPI-SIGN': credentials.secret && credentials.apiKey ? 'signature-placeholder' : undefined,
+              'X-BAPI-TIMESTAMP': Date.now().toString(),
+              'x-bapi-api-key': credentials.apiKey,
+              'x-bapi-sign': credentials.secret && credentials.apiKey ? 'signature-placeholder' : undefined,
+              'x-bapi-timestamp': Date.now().toString(),
+            };
+
+            // Add additional options for Binance TestNet
+            config.options = {
+              ...config.options,
+              createMarketBuyOrderRequiresPrice: false,
+              createMarketOrderRequiresPrice: false,
+              defaultType: 'spot',
+              adjustForTimeDifference: true,
+              recvWindow: 60000,
+              // Disable CORS handling in CCXT since we're using our proxy
+              enableRateLimit: true,
+              verbose: true, // Enable verbose logging
+            };
+
+            // Log the configuration
+            console.log('Binance TestNet configuration:', {
+              urls: config.urls,
+              headers: {
+                ...config.headers,
+                'X-MBX-APIKEY': config.headers['X-MBX-APIKEY'] ? '***' : undefined,
+                'x-mbx-apikey': config.headers['x-mbx-apikey'] ? '***' : undefined,
+                'X-BAPI-API-KEY': config.headers['X-BAPI-API-KEY'] ? '***' : undefined,
+                'x-bapi-api-key': config.headers['x-bapi-api-key'] ? '***' : undefined,
+              },
+              options: config.options,
+            });
+
             console.log('Using custom URLs for Binance TestNet:', config.urls);
           } else {
             // Regular Binance

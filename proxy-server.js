@@ -36,14 +36,157 @@ app.use(cors(corsOptions));
 // Add OPTIONS handling for preflight requests
 app.options('*', cors(corsOptions));
 
+// Add a global middleware to handle all requests
+app.use((req, res, next) => {
+  // If this is an OPTIONS request, handle it specially
+  if (req.method === 'OPTIONS') {
+    // Get all headers from the request
+    const requestHeaders = req.headers['access-control-request-headers'] || '';
+
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+
+    // If there are request headers, allow them all
+    if (requestHeaders) {
+      res.header('Access-Control-Allow-Headers', requestHeaders);
+    } else {
+      // Otherwise, use our standard headers
+      const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+      res.header('Access-Control-Allow-Headers', standardHeaders);
+    }
+
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400'); // 24 hours
+
+    // Log the headers for debugging
+    console.log('Global OPTIONS request headers:', req.headers);
+    console.log('Global OPTIONS response headers:', res.getHeaders());
+
+    return res.status(200).send();
+  }
+
+  // For non-OPTIONS requests, continue to the next middleware
+  next();
+});
+
 // Add a specific handler for Binance TestNet OPTIONS requests
 app.options('/api/binanceTestnet/*', (req, res) => {
+  // Get all headers from the request
+  const requestHeaders = req.headers['access-control-request-headers'] || '';
+
+  // Set CORS headers
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+
+  // If there are request headers, allow them all
+  if (requestHeaders) {
+    res.header('Access-Control-Allow-Headers', requestHeaders);
+  } else {
+    // Otherwise, use our standard headers
+    const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+    res.header('Access-Control-Allow-Headers', standardHeaders);
+  }
+
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+
+  // Log the headers for debugging
+  console.log('Binance TestNet OPTIONS request headers:', req.headers);
+  console.log('Binance TestNet OPTIONS response headers:', res.getHeaders());
+
+  res.status(200).send();
+});
+
+// Add a specific handler for Binance OPTIONS requests
+app.options('/api/binance/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).send();
 });
+
+// Add a specific handler for BitMart OPTIONS requests
+app.options('/api/bitmart/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
+
+// Add a specific handler for Kraken OPTIONS requests
+app.options('/api/kraken/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key, API-Sign');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
+
+// Add a specific handler for Coinbase OPTIONS requests
+app.options('/api/coinbase/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, CB-ACCESS-KEY, CB-ACCESS-SIGN, CB-ACCESS-TIMESTAMP, CB-ACCESS-PASSPHRASE');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
+
+// Add a specific handler for OKX OPTIONS requests
+app.options('/api/okx/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, OK-ACCESS-KEY, OK-ACCESS-SIGN, OK-ACCESS-TIMESTAMP, OK-ACCESS-PASSPHRASE');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
+
+// Add a specific handler for Bybit OPTIONS requests
+app.options('/api/bybit/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
+
+// Add a specific handler for KuCoin OPTIONS requests
+app.options('/api/kucoin/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
+
+// Helper function to forward exchange-specific authentication headers
+const forwardAuthHeaders = (proxyReq, req, headers, exchangeName) => {
+  // Remove origin header to prevent CORS issues
+  proxyReq.removeHeader('origin');
+
+  // Forward exchange-specific authentication headers
+  headers.forEach(header => {
+    const headerKey = Object.keys(req.headers).find(key => key.toLowerCase() === header.toLowerCase());
+    if (headerKey) {
+      const headerValue = req.headers[headerKey];
+      proxyReq.setHeader(header, headerValue);
+      console.log(`Forwarding ${header} header: ${headerValue.substring(0, 5)}...`);
+    }
+  });
+
+  // Forward Authorization header if present
+  if (req.headers.authorization) {
+    proxyReq.setHeader('Authorization', req.headers.authorization);
+  }
+
+  // Add custom headers if needed
+  proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+
+  // Log the request details
+  console.log(`Proxying request to ${exchangeName}: ${req.method} ${req.url}`);
+};
 
 // Define proxy configurations for different exchanges
 const exchangeProxies = {
@@ -187,17 +330,32 @@ const exchangeProxies = {
       return path;
     },
     onProxyReq: (proxyReq, req, _res) => {
-      // Forward all headers
-      if (req.headers['x-mbx-apikey']) {
-        proxyReq.setHeader('X-MBX-APIKEY', req.headers['x-mbx-apikey']);
+      // Extract the exchange name from the URL
+      const path = req.path;
+      const parts = path.split('/');
+      let exchangeName = 'unknown';
+      if (parts.length >= 3) {
+        exchangeName = parts[2];
       }
 
-      if (req.headers['authorization']) {
-        proxyReq.setHeader('Authorization', req.headers['authorization']);
-      }
+      // Define exchange-specific headers
+      const exchangeHeaders = {
+        'binance': ['X-MBX-APIKEY'],
+        'binanceTestnet': ['X-MBX-APIKEY'],
+        'binanceFutures': ['X-MBX-APIKEY'],
+        'bitmart': ['X-BM-KEY', 'X-BM-SIGN', 'X-BM-TIMESTAMP'],
+        'kraken': ['API-Key', 'API-Sign'],
+        'coinbase': ['CB-ACCESS-KEY', 'CB-ACCESS-SIGN', 'CB-ACCESS-TIMESTAMP', 'CB-ACCESS-PASSPHRASE'],
+        'okx': ['OK-ACCESS-KEY', 'OK-ACCESS-SIGN', 'OK-ACCESS-TIMESTAMP', 'OK-ACCESS-PASSPHRASE'],
+        'bybit': ['X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP'],
+        'kucoin': ['KC-API-KEY', 'KC-API-SIGN', 'KC-API-TIMESTAMP', 'KC-API-PASSPHRASE'],
+      };
 
-      // Log the request
-      console.log(`Proxying exchange request: ${req.method} ${req.url}`);
+      // Get headers for this exchange
+      const headers = exchangeHeaders[exchangeName] || ['API-Key', 'API-Sign', 'Authorization', 'X-API-KEY', 'apikey'];
+
+      // Forward the headers
+      forwardAuthHeaders(proxyReq, req, headers, exchangeName);
     },
     onProxyRes: standardCorsHandler
   },
@@ -262,11 +420,8 @@ const exchangeProxies = {
       '^/api/bitmart': ''
     },
     onProxyReq: (proxyReq, req, _res) => {
-      // Remove origin header to prevent CORS issues
-      proxyReq.removeHeader('origin');
-      if (req.headers.authorization) {
-        proxyReq.setHeader('Authorization', req.headers.authorization);
-      }
+      // Use the helper function to forward authentication headers
+      forwardAuthHeaders(proxyReq, req, ['X-BM-KEY', 'X-BM-SIGN', 'X-BM-TIMESTAMP'], 'BitMart');
     },
     onProxyRes: (proxyRes, req, _res) => {
       // Remove ALL existing CORS headers
@@ -280,7 +435,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP';
     }
   },
   binance: {
@@ -290,13 +445,8 @@ const exchangeProxies = {
       '^/api/binance': ''
     },
     onProxyReq: (proxyReq, req, _res) => {
-      // Remove origin header to prevent CORS issues
-      proxyReq.removeHeader('origin');
-      // Add custom headers if needed
-      proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-      if (req.headers.authorization) {
-        proxyReq.setHeader('Authorization', req.headers.authorization);
-      }
+      // Use the helper function to forward authentication headers
+      forwardAuthHeaders(proxyReq, req, ['X-MBX-APIKEY'], 'Binance');
     },
     onProxyRes: (proxyRes, req, _res) => {
       // Remove ALL existing CORS headers
@@ -343,14 +493,25 @@ const exchangeProxies = {
       // Add custom headers
       proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
 
-      // Forward the Binance API key header if present (check all case variations)
-      const apiKeyHeader = Object.keys(req.headers).find(key => key.toLowerCase() === 'x-mbx-apikey');
-      if (apiKeyHeader) {
-        const apiKey = req.headers[apiKeyHeader];
-        proxyReq.setHeader('X-MBX-APIKEY', apiKey);
-        console.log(`Forwarding X-MBX-APIKEY header: ${apiKey.substring(0, 5)}...`);
-      } else {
-        // If no API key in headers, try to use the one from the .env file
+      // Forward all Binance and Bybit headers
+      const headersToForward = [
+        'X-MBX-APIKEY', 'x-mbx-apikey',
+        'X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP',
+        'x-bapi-api-key', 'x-bapi-sign', 'x-bapi-timestamp'
+      ];
+
+      // Forward all headers
+      headersToForward.forEach(headerName => {
+        const headerKey = Object.keys(req.headers).find(key => key.toLowerCase() === headerName.toLowerCase());
+        if (headerKey) {
+          const headerValue = req.headers[headerKey];
+          proxyReq.setHeader(headerName, headerValue);
+          console.log(`Forwarding ${headerName} header: ${headerValue.substring(0, 5)}...`);
+        }
+      });
+
+      // If no API key in headers, try to use the one from the .env file
+      if (!req.headers['x-mbx-apikey'] && !req.headers['X-MBX-APIKEY']) {
         const envApiKey = process.env.VITE_BINANCE_TESTNET_API_KEY || '6dbf9bc5b8e03455128d00bab9ccaffb33fa812bfcf0b21bcb50cff355a88049';
         if (envApiKey) {
           proxyReq.setHeader('X-MBX-APIKEY', envApiKey);
@@ -359,6 +520,14 @@ const exchangeProxies = {
           console.warn('No API key found in headers or environment variables');
         }
       }
+
+      // Forward Authorization header if present
+      if (req.headers.authorization) {
+        proxyReq.setHeader('Authorization', req.headers.authorization);
+      }
+
+      // Log the request details
+      console.log(`Proxying request to Binance TestNet: ${req.method} ${req.url}`);
 
       // Check if this is a private API request (contains signature)
       const url = new URL(req.url, `http://${req.headers.host}`);
@@ -411,7 +580,21 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = origin;
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
+
+      // Get all headers from the request
+      const requestHeaders = req.headers['access-control-request-headers'] || '';
+
+      // If there are request headers, allow them all
+      if (requestHeaders) {
+        proxyRes.headers['access-control-allow-headers'] = requestHeaders;
+      } else {
+        // Otherwise, use our standard headers
+        const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+        proxyRes.headers['access-control-allow-headers'] = standardHeaders;
+      }
+
+      // Log the headers for debugging
+      console.log('Binance TestNet response headers:', proxyRes.headers);
 
       // Add additional CORS headers for preflight requests
       if (req.method === 'OPTIONS') {
@@ -460,21 +643,8 @@ const exchangeProxies = {
       '^/api/binanceFutures': ''
     },
     onProxyReq: (proxyReq, req, _res) => {
-      // Remove origin header to prevent CORS issues
-      proxyReq.removeHeader('origin');
-      // Add custom headers if needed
-      proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
-
-      // Forward the Binance API key header if present
-      if (req.headers['x-mbx-apikey']) {
-        proxyReq.setHeader('X-MBX-APIKEY', req.headers['x-mbx-apikey']);
-        console.log('Forwarding X-MBX-APIKEY header to Binance Futures');
-      }
-
-      if (req.headers.authorization) {
-        proxyReq.setHeader('Authorization', req.headers.authorization);
-      }
-      console.log(`Proxying request to Binance Futures: ${req.method} ${req.url}`);
+      // Use the helper function to forward authentication headers
+      forwardAuthHeaders(proxyReq, req, ['X-MBX-APIKEY'], 'Binance Futures');
     },
     onProxyRes: (proxyRes, req, _res) => {
       // Remove ALL existing CORS headers

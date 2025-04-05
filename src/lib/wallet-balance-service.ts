@@ -159,10 +159,34 @@ class WalletBalanceService extends EventEmitter {
       }, 'WalletBalanceService');
 
       try {
+        // Log the exchange configuration
+        console.log('TestNet exchange configuration:', {
+          id: exchange.id,
+          name: exchange.name,
+          urls: exchange.urls,
+          has: exchange.has,
+          options: exchange.options,
+          hasApiKey: !!exchange.apiKey,
+          hasSecret: !!exchange.secret,
+        });
+
+        // Try a simple ping request first to test connectivity
+        try {
+          console.log('Pinging TestNet exchange...');
+          await exchange.publicGetPing();
+          console.log('TestNet ping successful');
+        } catch (pingError) {
+          console.error('TestNet ping failed:', pingError);
+          logService.log('warn', 'Failed to ping TestNet exchange', pingError, 'WalletBalanceService');
+          // Continue anyway, as loadMarkets might still work
+        }
+
         // Load markets first to ensure the exchange is properly initialized
+        console.log('Loading TestNet markets...');
         await exchange.loadMarkets();
         logService.log('info', 'TestNet markets loaded successfully', null, 'WalletBalanceService');
       } catch (marketError) {
+        console.error('Failed to load TestNet markets:', marketError);
         logService.log('warn', 'Failed to load TestNet markets', marketError, 'WalletBalanceService');
         // Continue anyway, as fetchBalance might still work
       }
