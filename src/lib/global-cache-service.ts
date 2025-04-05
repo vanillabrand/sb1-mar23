@@ -24,8 +24,8 @@ class GlobalCacheService {
   // Default assets to monitor when none are specified
   private readonly DEFAULT_ASSETS = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT'];
 
-  // Cache refresh interval (60 minutes for market insights, which don't change frequently)
-  private readonly CACHE_REFRESH_INTERVAL = 60 * 60 * 1000;
+  // Cache refresh interval (15 minutes for market insights)
+  private readonly CACHE_REFRESH_INTERVAL = 15 * 60 * 1000;
   private readonly NEWS_REFRESH_INTERVAL = 15 * 60 * 1000; // Keep news refreshing more frequently
 
   // Background refresh timers
@@ -99,7 +99,29 @@ class GlobalCacheService {
    */
   private async initializeCache(): Promise<void> {
     try {
+      // First, check if we have cached data in localStorage
+      const cachedInsightsStr = localStorage.getItem('marketInsightsCache');
+      if (cachedInsightsStr) {
+        try {
+          const cachedInsights = JSON.parse(cachedInsightsStr);
+          // Load cached insights into memory for immediate use
+          Object.entries(cachedInsights).forEach(([key, value]) => {
+            this.marketInsightsCache.set(key, value as any);
+          });
+
+          const lastUpdateTime = localStorage.getItem('marketInsightsLastUpdate');
+          if (lastUpdateTime) {
+            this.marketInsightsLastUpdate = parseInt(lastUpdateTime, 10);
+          }
+
+          logService.log('info', 'Loaded market insights from localStorage cache', null, 'GlobalCacheService');
+        } catch (parseError) {
+          logService.log('error', 'Failed to parse cached market insights', parseError, 'GlobalCacheService');
+        }
+      }
+
       // Initial cache population - run in parallel for faster startup
+      // Use Promise.allSettled to continue even if some promises fail
       const initPromises = [
         this.refreshMarketInsights().catch(error => {
           logService.log('error', 'Failed to initialize market insights cache', error, 'GlobalCacheService');
@@ -118,8 +140,8 @@ class GlobalCacheService {
         })
       ];
 
-      // Wait for all initialization to complete
-      await Promise.all(initPromises);
+      // Use Promise.allSettled to continue even if some promises fail
+      await Promise.allSettled(initPromises);
 
       // Set up background refresh timers
       this.marketInsightsTimer = setInterval(() => {
@@ -148,9 +170,11 @@ class GlobalCacheService {
 
   /**
    * Create synthetic market insights as a fallback
+   * @param customAssets Optional list of assets to use instead of defaults
    */
-  private createSyntheticMarketInsights(): MarketInsight {
-    const assets = this.DEFAULT_ASSETS.map(asset => ({
+  private createSyntheticMarketInsights(customAssets?: string[]): MarketInsight {
+    const assetsToUse = customAssets && customAssets.length > 0 ? customAssets : this.DEFAULT_ASSETS;
+    const assets = assetsToUse.map(asset => ({
       symbol: asset,
       sentiment: ['bullish', 'bearish', 'neutral'][Math.floor(Math.random() * 3)] as 'bullish' | 'bearish' | 'neutral',
       signals: ['Price above moving average', 'Volume increasing', 'Support level holding'],
@@ -317,17 +341,33 @@ class GlobalCacheService {
       // Generate a cache key for the requested assets
       const cacheKey = assetsToUse.sort().join(',');
 
-      // Check if we have a cache hit
+      // Check if we have a cache hit - return immediately if available
       if (this.marketInsightsCache.has(cacheKey)) {
+        // Check if cache is stale (older than 15 minutes)
+        const now = Date.now();
+        const cacheAge = now - this.marketInsightsLastUpdate;
+
+        // If cache is stale, trigger a background refresh but still return cached data
+        if (cacheAge > this.CACHE_REFRESH_INTERVAL) {
+          setTimeout(() => {
+            this.refreshMarketInsights().catch(error => {
+              logService.log('error', 'Failed to refresh stale market insights', error, 'GlobalCacheService');
+            });
+          }, 100);
+        }
+
         return this.marketInsightsCache.get(cacheKey)!;
       }
 
       // If we're requesting the default assets but they're not cached yet,
-      // it means the cache is still initializing. Return synthetic data immediately
-      // instead of waiting, to improve perceived performance
-      if (cacheKey === this.DEFAULT_ASSETS.sort().join(',')) {
+      // return synthetic data immediately to improve perceived performance
+      if (cacheKey === this.DEFAULT_ASSETS.sort().join(',') || assetsToUse.length > 0) {
         // Create synthetic data
-        const syntheticInsights = this.createSyntheticMarketInsights();
+        const syntheticInsights = this.createSyntheticMarketInsights(assetsToUse);
+
+        // Cache the synthetic data temporarily
+        this.marketInsightsCache.set(cacheKey, syntheticInsights);
+        this.marketInsightsLastUpdate = Date.now();
 
         // Trigger a refresh in the background
         setTimeout(() => {

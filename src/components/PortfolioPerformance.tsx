@@ -292,7 +292,7 @@ export function PortfolioPerformance() {
         throw new Error('No transactions found for the selected period');
       }
 
-      // Format transactions for CSV
+      // Format transactions for CSV - Include all available fields
       const csvData = transactions.map((tx: any) => ({
         Date: new Date(tx.created_at).toLocaleString(),
         Type: tx.type.charAt(0).toUpperCase() + tx.type.slice(1),
@@ -300,7 +300,12 @@ export function PortfolioPerformance() {
         'Balance Before': tx.balance_before.toFixed(2),
         'Balance After': tx.balance_after.toFixed(2),
         Status: tx.status.charAt(0).toUpperCase() + tx.status.slice(1),
-        Description: tx.description || ''
+        Description: tx.description || '',
+        'Reference ID': tx.reference_id || '',
+        'Reference Type': tx.reference_type || '',
+        'Transaction ID': tx.id || '',
+        'Created At': tx.created_at || '',
+        'Updated At': tx.updated_at || ''
       }));
 
       // Generate CSV
@@ -380,8 +385,9 @@ export function PortfolioPerformance() {
         </div>
       ) : (
         <>
-          {/* Portfolio Summary Stats */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          {/* Portfolio Summary Stats - Consolidated Panel */}
+          <div className="bg-gunmetal-900/50 rounded-lg p-4 mb-6">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
               <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Current Value</p>
               <p className="text-xl md:text-2xl font-bold text-white truncate">
@@ -411,9 +417,10 @@ export function PortfolioPerformance() {
               </p>
             </div>
           </div>
+        </div>
 
-          {/* Performance Chart */}
-          <div className="h-[350px]">
+          {/* Performance Chart - Smaller Size */}
+          <div className="h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={performanceData}>
                 <defs>
@@ -468,33 +475,12 @@ export function PortfolioPerformance() {
                 <Area
                   type="monotone"
                   dataKey="value"
-                  name="value"
+                  name="Portfolio Value"
                   stroke="#2dd4bf"
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorValue)"
                 />
-                {/* Render lines for each strategy if strategy data is available */}
-                {performanceData[0] && Object.keys(performanceData[0])
-                  .filter(key => key.startsWith('strategy_'))
-                  .map((strategyKey, index) => {
-                    // Generate a unique color for each strategy
-                    const colors = ['#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171'];
-                    const color = colors[index % colors.length];
-
-                    return (
-                      <Line
-                        key={strategyKey}
-                        type="monotone"
-                        dataKey={strategyKey}
-                        name={strategyKey}
-                        stroke={color}
-                        strokeWidth={1.5}
-                        dot={false}
-                      />
-                    );
-                  })
-                }
               </ComposedChart>
             </ResponsiveContainer>
           </div>

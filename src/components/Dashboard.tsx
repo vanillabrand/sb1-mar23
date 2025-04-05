@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Clock, Calendar } from 'lucide-react';
+import { Clock, Calendar, Activity, TrendingUp, BarChart3 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import {
   analyticsService,
   monitoringService,
@@ -20,7 +21,8 @@ import {
   NewsWidget,
   WorldClock,
   DefconMonitor,
-  AssetDistribution
+  AssetDistribution,
+  AnimatedPanel
 } from './index';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type {
@@ -53,6 +55,7 @@ interface DashboardProps {
 }
 
 export function Dashboard({ strategies: initialStrategies, monitoringStatuses: initialStatuses }: DashboardProps) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
@@ -249,30 +252,32 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
 
       <div className={`grid grid-cols-12 gap-8 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-8`}>
-          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-8 shadow-lg">
             <StrategyStatus strategies={activeStrategies} />
-          </div>
+          </AnimatedPanel>
 
-          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+          <AnimatedPanel index={1} className="panel-metallic rounded-xl p-8 shadow-lg">
             <AIMarketInsight assets={allAssets} />
-          </div>
+          </AnimatedPanel>
 
-          <PortfolioPerformance />
+          <AnimatedPanel index={2} className="w-full">
+            <PortfolioPerformance />
+          </AnimatedPanel>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+            <AnimatedPanel index={3} className="panel-metallic rounded-xl p-8 shadow-lg">
               <RiskExposure assets={allAssets} />
-            </div>
-            <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+            </AnimatedPanel>
+            <AnimatedPanel index={4} className="panel-metallic rounded-xl p-8 shadow-lg">
               <div className="flex flex-col h-full">
                 <EmergencyStopButton />
               </div>
-            </div>
+            </AnimatedPanel>
           </div>
         </div>
 
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-5'} space-y-8`}>
-          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+          <AnimatedPanel index={5} className="panel-metallic rounded-xl p-8 shadow-lg">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-neon-turquoise" />
@@ -290,9 +295,9 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
               </div>
             </div>
             <WorldClock timezone={selectedTimezone} />
-          </div>
+          </AnimatedPanel>
 
-          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-4 sm:p-5 shadow-lg border border-gunmetal-800/50">
+          <AnimatedPanel index={6} className="panel-metallic rounded-xl p-4 sm:p-5 shadow-lg">
             <h3 className="text-sm font-medium text-gray-400 mb-3 sm:mb-4 flex items-center gap-2">
               <span className="w-1.5 h-1.5 rounded-full bg-neon-turquoise"></span>
               System Status
@@ -301,15 +306,15 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
               strategies={activeStrategies}
               className="mb-2 sm:mb-3"
             />
-          </div>
+          </AnimatedPanel>
 
-          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+          <AnimatedPanel index={7} className="panel-metallic rounded-xl p-8 shadow-lg">
             <NewsWidget assets={newsAssets} limit={screenSize === 'sm' ? 2 : 4} />
-          </div>
+          </AnimatedPanel>
 
-          <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+          <AnimatedPanel index={8} className="panel-metallic rounded-xl p-8 shadow-lg">
             <AssetDistribution assets={allAssets} />
-          </div>
+          </AnimatedPanel>
         </div>
       </div>
     </div>

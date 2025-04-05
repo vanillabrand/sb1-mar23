@@ -5,6 +5,8 @@ import { marketService } from './market-service';
 import { technicalIndicators } from './technical-indicators';
 import { templateService } from './template-service';
 import { strategyService } from './strategy-service';
+import { strategySync } from './strategy-sync';
+import { eventBus } from './event-bus';
 import type { RiskLevel, Strategy, StrategyTemplate } from './types';
 
 // Using StrategyTemplate from types.ts
@@ -402,6 +404,25 @@ export class TemplateGenerator {
         title: template.title,
         name: strategy.name
       }, 'TemplateGenerator');
+
+      // Emit events to update UI immediately
+      console.log('Emitting strategy:created event with strategy:', strategy.id);
+      eventBus.emit('strategy:created', strategy);
+      document.dispatchEvent(new CustomEvent('strategy:created', {
+        detail: { strategy }
+      }));
+
+      // Force a refresh of all strategies
+      console.log('Forcing refresh of all strategies');
+      await strategySync.initialize();
+
+      // Get the latest strategies and broadcast them
+      const allStrategies = strategySync.getAllStrategies();
+      console.log('Broadcasting updated strategies list:', allStrategies.length, 'strategies');
+      eventBus.emit('strategies:updated', allStrategies);
+      document.dispatchEvent(new CustomEvent('strategies:updated', {
+        detail: { strategies: allStrategies }
+      }));
 
       logService.log('info', `Created strategy from template ${templateId}`,
         { strategyId: strategy.id, userId: session.user.id }, 'TemplateGenerator');

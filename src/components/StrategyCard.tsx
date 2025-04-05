@@ -763,7 +763,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   return (
     <>
       <motion.div
-        className={`bg-black rounded-xl p-6 shadow-lg border border-gunmetal-800/50 cursor-pointer hover:shadow-xl transition-all duration-300`}
+        className={`panel-metallic rounded-xl p-6 shadow-lg cursor-pointer hover:shadow-xl transition-all duration-300`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}

@@ -126,12 +126,31 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
       if (strategyId && strategies) {
         console.log('Strategy removal event received:', strategyId);
+
         // Immediately update the UI
-        const updatedStrategies = strategies.filter(s => s.id !== strategyId);
-        setFilteredStrategies(updatedStrategies);
+        if (strategies) {
+          // Update filtered strategies directly
+          setFilteredStrategies(prevStrategies => {
+            const updated = prevStrategies.filter(s => s.id !== strategyId);
+            console.log(`UI updated: Removed strategy ${strategyId} from filtered list`);
+            return updated;
+          });
+
+          // Also update paginated strategies
+          setPaginatedStrategies(prevStrategies => {
+            const updated = prevStrategies.filter(s => s.id !== strategyId);
+            console.log(`UI updated: Removed strategy ${strategyId} from paginated list`);
+            return updated;
+          });
+        }
 
         // Force a refresh of the pagination
         handlePageChange(0);
+
+        // Force a refresh to ensure everything is in sync
+        setTimeout(() => {
+          refreshStrategies();
+        }, 500);
       }
     };
 
@@ -142,11 +161,6 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       if (updatedStrategy && strategies) {
         console.log('Strategy update event received:', updatedStrategy.id);
 
-        // Update the strategy in the list
-        const updatedStrategies = strategies.map(s =>
-          s.id === updatedStrategy.id ? updatedStrategy : s
-        );
-
         // Update filtered strategies
         setFilteredStrategies(prevFiltered => {
           return prevFiltered.map(s =>
@@ -154,8 +168,17 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           );
         });
 
-        // Force a refresh of the strategies list
-        refreshStrategies();
+        // Update paginated strategies
+        setPaginatedStrategies(prevPaginated => {
+          return prevPaginated.map(s =>
+            s.id === updatedStrategy.id ? updatedStrategy : s
+          );
+        });
+
+        // Force a refresh to ensure everything is in sync
+        setTimeout(() => {
+          refreshStrategies();
+        }, 500);
       }
     };
 
@@ -166,15 +189,13 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       if (newStrategy) {
         console.log('Strategy creation event received:', newStrategy.id);
 
-        // Immediately add the new strategy to the list
+        // Directly update the strategies state
         if (strategies) {
-          // Update the main strategies list
-          const updatedStrategies = [...strategies, newStrategy];
-
           // Update filtered strategies
           setFilteredStrategies(prevFiltered => {
             // Only add if not already in the list
             if (!prevFiltered.some(s => s.id === newStrategy.id)) {
+              console.log(`Adding new strategy ${newStrategy.id} to filtered list`);
               return [...prevFiltered, newStrategy];
             }
             return prevFiltered;
@@ -184,17 +205,18 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           setPaginatedStrategies(prevPaginated => {
             // Only add if not already in the list
             if (!prevPaginated.some(s => s.id === newStrategy.id)) {
-              // If we're on the first page or there are fewer items than the page size,
-              // add the new strategy to the current page
-              if (currentPage === 1 || prevPaginated.length < ITEMS_PER_PAGE) {
-                return [...prevPaginated, newStrategy];
-              }
+              console.log(`Adding new strategy ${newStrategy.id} to paginated list`);
+              // Always add to the current page for immediate visibility
+              return [...prevPaginated, newStrategy];
             }
             return prevPaginated;
           });
+
+          // Force a re-render by updating the current page
+          setCurrentPage(currentPage);
         }
 
-        // Also force a refresh to ensure everything is in sync
+        // Force a refresh to ensure everything is in sync
         refreshStrategies();
       }
     };
@@ -209,8 +231,10 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         // Immediately update the UI with the new strategies
         setFilteredStrategies(updatedStrategies);
 
-        // Also force a refresh to ensure everything is in sync
-        refreshStrategies();
+        // Force a refresh to ensure everything is in sync
+        setTimeout(() => {
+          refreshStrategies();
+        }, 500);
       }
     };
 
@@ -220,12 +244,39 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     document.addEventListener('strategy:created', handleStrategyCreate);
     document.addEventListener('strategies:updated', handleStrategiesUpdated);
 
+    // Also subscribe to event bus events
+    const unsubscribeRemove = eventBus.subscribe('strategy:deleted', ({ strategyId }) => {
+      console.log('Event bus strategy:deleted received:', strategyId);
+      handleStrategyRemove(new CustomEvent('strategy:remove', { detail: { id: strategyId } }));
+    });
+
+    const unsubscribeUpdate = eventBus.subscribe('strategy:updated', ({ strategy }) => {
+      console.log('Event bus strategy:updated received:', strategy.id);
+      handleStrategyUpdate(new CustomEvent('strategy:update', { detail: { strategy } }));
+    });
+
+    const unsubscribeCreate = eventBus.subscribe('strategy:created', (strategy) => {
+      console.log('Event bus strategy:created received:', strategy.id);
+      handleStrategyCreate(new CustomEvent('strategy:created', { detail: { strategy } }));
+    });
+
+    const unsubscribeStrategiesUpdated = eventBus.subscribe('strategies:updated', (strategies) => {
+      console.log('Event bus strategies:updated received:', strategies.length, 'strategies');
+      handleStrategiesUpdated(new CustomEvent('strategies:updated', { detail: { strategies } }));
+    });
+
     return () => {
       // Remove the event listeners
       document.removeEventListener('strategy:remove', handleStrategyRemove);
       document.removeEventListener('strategy:update', handleStrategyUpdate);
       document.removeEventListener('strategy:created', handleStrategyCreate);
       document.removeEventListener('strategies:updated', handleStrategiesUpdated);
+
+      // Unsubscribe from event bus
+      unsubscribeRemove();
+      unsubscribeUpdate();
+      unsubscribeCreate();
+      unsubscribeStrategiesUpdated();
     };
   }, [strategies, refreshStrategies]);
 
@@ -437,7 +488,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         return;
       }
 
-      console.log('DIRECT DELETION - Strategy ID:', strategy.id);
+      console.log('DELETION - Strategy ID:', strategy.id);
 
       // 2. Store the strategy ID for later use
       const strategyId = strategy.id;
@@ -459,19 +510,25 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         });
       }
 
-      // Pause strategy sync to prevent race conditions
-      console.log('Pausing strategy sync during deletion');
+      // 4. Completely stop the strategy sync system
+      console.log('Stopping strategy sync during deletion');
       strategySync.pauseSync();
 
+      // 5. Remove the strategy from the strategy sync cache
+      if (strategySync.hasStrategy(strategyId)) {
+        console.log(`Manually removing strategy ${strategyId} from strategy sync cache`);
+        strategySync.removeStrategyFromCache(strategyId);
+      }
+
       try {
-        // 4. Use the strategy service to delete the strategy
+        // 6. Use the strategy service to delete the strategy
         console.log(`Using strategy service to delete strategy ${strategyId}...`);
         await strategyService.deleteStrategy(strategyId);
         console.log(`Strategy ${strategyId} successfully deleted from database`);
       } catch (deleteError) {
         console.error(`Error using strategy service: ${deleteError}`);
 
-        // Fallback to direct deletion if strategy service fails
+        // 7. Fallback to direct deletion if strategy service fails
         console.log(`Falling back to direct deletion for strategy ${strategyId}...`);
         const success = await directDeleteStrategy(strategyId);
 
@@ -528,17 +585,32 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         }
       }
 
-      // 5. Broadcast the deletion event for other components
+      // 8. Broadcast the deletion event for other components
       eventBus.emit('strategy:deleted', { strategyId });
       document.dispatchEvent(new CustomEvent('strategy:remove', {
         detail: { id: strategyId }
       }));
 
-      // 6. Force a complete refresh of the strategies list
+      // 9. Force a complete refresh of the strategies list
+      // But first, make sure the strategy is removed from the cache
+      if (strategySync.hasStrategy(strategyId)) {
+        console.log(`Strategy ${strategyId} still in cache, removing again`);
+        strategySync.removeStrategyFromCache(strategyId);
+      }
+
       console.log('Refreshing strategies list after deletion');
       await refreshStrategies();
 
-      // 7. Resume strategy sync after a delay
+      // 10. Double-check that the strategy is gone
+      if (strategySync.hasStrategy(strategyId)) {
+        console.log(`Strategy ${strategyId} STILL in cache after refresh, forcing removal`);
+        strategySync.removeStrategyFromCache(strategyId);
+
+        // Force another refresh
+        await refreshStrategies();
+      }
+
+      // 11. Resume strategy sync after a delay
       setTimeout(() => {
         console.log('Resuming strategy sync');
         strategySync.resumeSync();
@@ -575,11 +647,92 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
   const handleUseTemplate = async (template: StrategyTemplate) => {
     try {
-      await templateGenerator.copyTemplateToStrategy(template.id);
-      // Refresh strategies list after creating new strategy
+      setIsRefreshing(true);
+      console.log(`Creating strategy from template: ${template.id}`);
+
+      // Create strategy from template
+      const newStrategy = await templateGenerator.copyTemplateToStrategy(template.id);
+      console.log(`Strategy created from template: ${newStrategy.id}`);
+
+      // DIRECT APPROACH: Manually add the strategy to all lists
+      console.log('DIRECT: Manually adding strategy to all lists');
+
+      // 1. Add to the main strategies array
+      if (strategies) {
+        // Create a new array with the new strategy
+        const updatedStrategiesArray = [...strategies, newStrategy];
+
+        // 2. Update filtered strategies
+        setFilteredStrategies(prev => {
+          // Only add if not already in the list
+          if (!prev.some(s => s.id === newStrategy.id)) {
+            console.log('DIRECT: Adding strategy to filtered list');
+            return [...prev, newStrategy];
+          }
+          return prev;
+        });
+
+        // 3. Update paginated strategies
+        setPaginatedStrategies(prev => {
+          // Only add if not already in the list
+          if (!prev.some(s => s.id === newStrategy.id)) {
+            console.log('DIRECT: Adding strategy to paginated list');
+            return [...prev, newStrategy];
+          }
+          return prev;
+        });
+
+        // 4. Force a re-render by updating the current page
+        setCurrentPage(currentPage);
+      }
+
+      // 5. Manually add the strategy to the strategy sync cache
+      console.log('DIRECT: Manually adding strategy to strategy sync cache');
+      if (!strategySync.hasStrategy(newStrategy.id)) {
+        strategySync.addStrategyToCache(newStrategy);
+      }
+
+      // 6. Manually emit events to update all components
+      console.log('DIRECT: Manually emitting events');
+      eventBus.emit('strategy:created', newStrategy);
+      document.dispatchEvent(new CustomEvent('strategy:created', {
+        detail: { strategy: newStrategy }
+      }));
+
+      // 6. Force a complete refresh of strategies
+      console.log('DIRECT: Forcing complete refresh of strategies');
       await refreshStrategies();
+
+      // 7. Double-check that the strategy is in the lists
+      setTimeout(async () => {
+        console.log('DIRECT: Performing delayed check');
+
+        // Check if the strategy is in the filtered list
+        const isInFiltered = filteredStrategies.some(s => s.id === newStrategy.id);
+        if (!isInFiltered) {
+          console.log(`DIRECT: Strategy ${newStrategy.id} not in filtered list, adding it`);
+          setFilteredStrategies(prev => [...prev, newStrategy]);
+        }
+
+        // Check if the strategy is in the paginated list
+        const isInPaginated = paginatedStrategies.some(s => s.id === newStrategy.id);
+        if (!isInPaginated) {
+          console.log(`DIRECT: Strategy ${newStrategy.id} not in paginated list, adding it`);
+          setPaginatedStrategies(prev => [...prev, newStrategy]);
+        }
+
+        // Force another refresh
+        await refreshStrategies();
+      }, 1000);
+
+      // Log success
+      logService.log('info', `Strategy created from template ${template.id}`, { strategyId: newStrategy.id }, 'StrategyManager');
     } catch (err) {
+      console.error('Failed to create strategy from template:', err);
       logService.log('error', 'Failed to create strategy from template:', err, 'StrategyManager');
+      setError('Failed to create strategy from template. Please try again.');
+    } finally {
+      setIsRefreshing(false);
     }
   };
 
@@ -852,9 +1005,16 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       <div className="min-h-screen bg-gunmetal-950 relative">
         <div className="container mx-auto px-6 py-8 max-w-7xl">
           {/* Header */}
-          <div className="flex items-center justify-between mb-8">
-            <h1 className="text-3xl font-bold gradient-text">Strategy Manager</h1>
+          <div className="mb-8">
+            <h1 className="text-3xl font-bold gradient-text mb-4">Strategy Manager</h1>
             <div className="flex items-center gap-4">
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all duration-300"
+              >
+                <Plus className="w-4 h-4" />
+                Create Strategy
+              </button>
               <button
                 onClick={loadTemplates}
                 className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all duration-300"
@@ -867,13 +1027,6 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                 )}
                 Refresh Templates
               </button>
-              <button
-                onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all duration-300"
-              >
-                <Plus className="w-4 h-4" />
-                Create Strategy
-              </button>
             </div>
           </div>
 
@@ -881,7 +1034,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           <StrategyStats strategies={strategies} className="mb-8" />
 
           {/* Filters Section */}
-          <div className="bg-gunmetal-900/50 rounded-xl p-6 mb-8 border border-gunmetal-700/50">
+          <div className="panel-metallic rounded-xl p-6 mb-8">
             <div className="flex flex-col md:flex-row gap-4">
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -890,7 +1043,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   placeholder="Search strategies..."
                   value={searchTerm}
                   onChange={handleSearch}
-                  className="w-full pl-10 pr-4 py-2 bg-gunmetal-800/50 rounded-lg border border-gunmetal-700 focus:border-neon-turquoise focus:outline-none"
+                  className="w-full pl-10 pr-4 py-2 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise"
                 />
               </div>
 
@@ -905,7 +1058,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
           <div className="flex flex-col lg:flex-row gap-8 mb-8">
             {/* Template Strategies Section */}
-            <div className="lg:w-1/2 bg-gunmetal-900/50 rounded-xl p-6 border border-gunmetal-700/50">
+            <div className="lg:w-1/2 panel-metallic rounded-xl p-6">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-gray-200">Template Strategies</h2>
                 <div className="flex items-center gap-2">
@@ -1005,9 +1158,9 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             </div>
 
             {/* Your Strategies Section */}
-            <div className="lg:w-1/2 bg-gunmetal-900/50 rounded-xl p-6 border border-gunmetal-700/50">
+            <div className="lg:w-1/2 panel-metallic rounded-xl p-6">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-200">Your Strategies</h2>
+                <h2 className="text-xl font-semibold gradient-text">Your Strategies</h2>
                 <span className="text-sm text-gray-400">{filteredStrategies.length} strategies</span>
               </div>
 

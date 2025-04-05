@@ -9,6 +9,7 @@ import { systemSync } from './lib/system-sync';
 import { logService } from './lib/log-service';
 import { globalCacheService } from './lib/global-cache-service';
 import './index.css';
+import './styles/rainbow-effect.css'; // Import rainbow effect styles
 
 // Initialize the global cache service
 // This will start background refresh timers for AI Market Insights and News

@@ -976,6 +976,30 @@ class ExchangeService extends EventEmitter {
     }
   }
 
+  /**
+   * Check if the TestNet exchange is connected
+   */
+  async isTestNetConnected(): Promise<boolean> {
+    try {
+      const testNetExchange = await this.getTestNetExchange();
+      if (!testNetExchange) return false;
+
+      // Try to fetch markets to verify connection
+      await testNetExchange.fetchMarkets();
+      return true;
+    } catch (error) {
+      logService.log('error', 'Failed to check TestNet connection', error, 'ExchangeService');
+      return false;
+    }
+  }
+
+  /**
+   * Check if the service is in demo mode
+   */
+  isDemoMode(): boolean {
+    return this.demoMode;
+  }
+
 }
 
 export const exchangeService = ExchangeService.getInstance();

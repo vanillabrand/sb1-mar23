@@ -29,14 +29,16 @@
     @apply bg-gunmetal-700 backdrop-blur-xl rounded-xl p-8;
   }
 
-  /* Remove the metallic panel effects but keep basic styling */
+  /* Dark grey metal effect for panels */
   .panel-metallic {
-    @apply relative overflow-hidden;
+    @apply relative overflow-hidden shadow-md;
     background: linear-gradient(
       135deg,
       rgba(24, 24, 27, 0.95) 0%,
       rgba(39, 39, 42, 0.95) 100%
     );
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05),
+                inset 0 -1px 1px rgba(0, 0, 0, 0.2);
   }
 }
 
@@ -209,4 +211,9 @@
 
 .btn-transition:active {
   @apply transform scale-[0.98];
+}
+
+/* Make Recharts cursor/hover effect transparent */
+.recharts-tooltip-cursor {
+  fill: transparent !important;
 }

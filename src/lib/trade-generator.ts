@@ -22,6 +22,7 @@ class TradeGenerator extends EventEmitter {
   private static instance: TradeGenerator;
   private initialized: boolean = false;
   private readonly CHECK_FREQUENCY = 60000; // 1 minute
+  private readonly STRATEGY_ADAPTATION_INTERVAL = 180000; // 3 minutes
   private readonly LOOKBACK_PERIOD = 86400000; // 24 hours
   private activeStrategies: Map<string, Strategy> = new Map();
   private monitorState: Map<string, {
@@ -65,11 +66,23 @@ class TradeGenerator extends EventEmitter {
       clearInterval(this.checkInterval);
     }
 
+    // Set up interval for checking trading opportunities
     this.checkInterval = setInterval(() => {
       this.checkTradingOpportunities();
     }, this.CHECK_FREQUENCY);
 
+    // Set up interval for strategy adaptation
+    setInterval(() => {
+      this.adaptActiveStrategies();
+    }, this.STRATEGY_ADAPTATION_INTERVAL);
+
+    // Subscribe to market analysis events for immediate trade generation
+    eventBus.subscribe('market:tradingOpportunity', (analysis) => {
+      this.handleTradingOpportunity(analysis);
+    });
+
     logService.log('info', `Started checking for trading opportunities (every ${this.CHECK_FREQUENCY / 1000}s)`, null, 'TradeGenerator');
+    logService.log('info', `Started strategy adaptation (every ${this.STRATEGY_ADAPTATION_INTERVAL / 60000} minutes)`, null, 'TradeGenerator');
   }
 
   private async checkTradingOpportunities() {
@@ -494,6 +507,338 @@ Return ONLY a JSON object with this structure:
 
     // Round to 8 decimal places for crypto
     return Math.floor(positionSize * 1e8) / 1e8;
+  }
+
+  /**
+   * Handle trading opportunity from market analysis
+   */
+  private async handleTradingOpportunity(analysis: any): Promise<void> {
+    try {
+      const { symbol, strategyId, price, opportunityDetails } = analysis;
+
+      if (!opportunityDetails) return;
+
+      // Get the strategy
+      const strategy = this.activeStrategies.get(strategyId);
+      if (!strategy) {
+        logService.log('warn', `Strategy ${strategyId} not found for trading opportunity`, null, 'TradeGenerator');
+        return;
+      }
+
+      logService.log('info', `Processing trading opportunity for ${symbol} (Strategy: ${strategyId})`,
+        { direction: opportunityDetails.direction, confidence: opportunityDetails.confidence },
+        'TradeGenerator');
+
+      // Generate trade using DeepSeek
+      await this.generateTradeWithDeepSeek(
+        strategy,
+        symbol,
+        price,
+        opportunityDetails.direction === 'long' ? 'Long' : 'Short',
+        opportunityDetails.confidence,
+        opportunityDetails.rationale
+      );
+    } catch (error) {
+      logService.log('error', 'Failed to handle trading opportunity', error, 'TradeGenerator');
+    }
+  }
+
+  /**
+   * Generate trade using DeepSeek API
+   */
+  private async generateTradeWithDeepSeek(
+    strategy: Strategy,
+    symbol: string,
+    currentPrice: number,
+    direction: 'Long' | 'Short',
+    confidence: number,
+    rationale: string
+  ): Promise<void> {
+    try {
+      // Prepare prompt for DeepSeek
+      const prompt = `Generate a detailed trade for the following opportunity:
+
+Strategy Configuration:
+${JSON.stringify(strategy.strategy_config, null, 2)}
+
+Trading Opportunity:
+- Symbol: ${symbol}
+- Current Price: ${currentPrice}
+- Direction: ${direction}
+- Confidence: ${confidence}
+- Rationale: ${rationale}
+- Risk Level: ${strategy.risk_level}
+
+Requirements:
+1. Calculate precise entry price, stop loss, and take profit levels
+2. Determine position size based on risk level (${strategy.risk_level})
+3. Provide detailed entry and exit conditions
+4. Include risk management parameters
+5. Explain the trade rationale
+
+Return ONLY a JSON object with this structure:
+{
+  "symbol": "${symbol}",
+  "direction": "Long" | "Short",
+  "entry": {
+    "price": number,
+    "type": "market" | "limit",
+    "conditions": string[]
+  },
+  "exit": {
+    "stopLoss": number,
+    "takeProfit": number,
+    "trailingStop": number (optional),
+    "conditions": string[]
+  },
+  "positionSize": number,
+  "riskRewardRatio": number,
+  "rationale": string,
+  "riskParameters": {
+    "maxLoss": number,
+    "maxDrawdown": number
+  }
+}`;
+
+      // Call DeepSeek API
+      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}/v1/chat/completions`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          max_tokens: 800
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`DeepSeek API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('Empty response from DeepSeek');
+      }
+
+      // Extract JSON from response
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+
+      if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error('No valid JSON found in response');
+      }
+
+      const tradeDetails = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
+
+      // Validate trade details
+      if (!tradeDetails.symbol || !tradeDetails.direction || !tradeDetails.entry || !tradeDetails.exit) {
+        throw new Error('Invalid trade details format');
+      }
+
+      // Create trade
+      const trade = {
+        id: `trade-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        strategy_id: strategy.id,
+        symbol: tradeDetails.symbol,
+        side: tradeDetails.direction === 'Long' ? 'buy' : 'sell',
+        type: tradeDetails.entry.type || 'market',
+        status: 'open',
+        entry_price: tradeDetails.entry.price || currentPrice,
+        stop_loss: tradeDetails.exit.stopLoss,
+        take_profit: tradeDetails.exit.takeProfit,
+        trailing_stop: tradeDetails.exit.trailingStop,
+        position_size: tradeDetails.positionSize,
+        entry_conditions: tradeDetails.entry.conditions,
+        exit_conditions: tradeDetails.exit.conditions,
+        rationale: tradeDetails.rationale,
+        risk_reward_ratio: tradeDetails.riskRewardRatio,
+        timestamp: Date.now(),
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      // Save trade to database
+      await tradeService.createTrade(trade);
+
+      // Emit events
+      this.emit('tradeGenerated', { strategy, trade });
+      eventBus.emit('trade:created', { strategy, trade });
+      eventBus.emit(`trade:created:${strategy.id}`, { strategyId: strategy.id, trade });
+
+      logService.log('info', `Generated trade for ${symbol} using DeepSeek`, { trade }, 'TradeGenerator');
+    } catch (error) {
+      logService.log('error', `Failed to generate trade with DeepSeek for ${symbol}`, error, 'TradeGenerator');
+    }
+  }
+
+  /**
+   * Adapt active strategies based on current market conditions
+   */
+  private async adaptActiveStrategies(): Promise<void> {
+    try {
+      if (this.activeStrategies.size === 0) return;
+
+      logService.log('info', `Adapting ${this.activeStrategies.size} active strategies to current market conditions`, null, 'TradeGenerator');
+
+      // Process each active strategy
+      for (const [strategyId, strategy] of this.activeStrategies.entries()) {
+        try {
+          await this.adaptStrategy(strategy);
+        } catch (error) {
+          logService.log('error', `Failed to adapt strategy ${strategyId}`, error, 'TradeGenerator');
+        }
+      }
+
+      logService.log('info', 'Strategy adaptation completed', null, 'TradeGenerator');
+    } catch (error) {
+      logService.log('error', 'Failed to adapt active strategies', error, 'TradeGenerator');
+    }
+  }
+
+  /**
+   * Adapt a single strategy based on current market conditions
+   */
+  private async adaptStrategy(strategy: Strategy): Promise<void> {
+    try {
+      const strategyId = strategy.id;
+      logService.log('info', `Adapting strategy ${strategyId} to current market conditions`, null, 'TradeGenerator');
+
+      // Get the trading pairs for this strategy
+      const tradingPairs = strategy.selected_pairs || [];
+      if (tradingPairs.length === 0) {
+        logService.log('warn', `Strategy ${strategyId} has no trading pairs`, null, 'TradeGenerator');
+        return;
+      }
+
+      // Get historical data for each pair
+      const historicalDataBySymbol: Record<string, any[]> = {};
+      for (const symbol of tradingPairs) {
+        try {
+          const candles = await marketDataService.getCandles(symbol, '1h', 24); // Last 24 hours of hourly data
+          historicalDataBySymbol[symbol] = candles;
+        } catch (error) {
+          logService.log('error', `Failed to get historical data for ${symbol}`, error, 'TradeGenerator');
+        }
+      }
+
+      // Prepare prompt for DeepSeek
+      const prompt = `Analyze this trading strategy and adapt it to current market conditions:
+
+Strategy Configuration:
+${JSON.stringify(strategy.strategy_config, null, 2)}
+
+Strategy Details:
+- ID: ${strategy.id}
+- Name: ${strategy.name}
+- Risk Level: ${strategy.risk_level}
+- Status: ${strategy.status}
+
+Historical Market Data:
+${JSON.stringify(historicalDataBySymbol, null, 2)}
+
+Requirements:
+1. Analyze the strategy's performance in current market conditions
+2. Suggest optimizations to improve performance
+3. Adapt entry and exit conditions based on current market trends
+4. Adjust risk parameters if needed
+5. Keep the strategy's core approach and risk level consistent
+
+Return ONLY a JSON object with the updated strategy configuration:
+{
+  "name": string,
+  "description": string,
+  "type": string,
+  "indicators": string[],
+  "selected_pairs": string[],
+  "entry_conditions": {
+    // Strategy-specific entry conditions
+  },
+  "exit_conditions": {
+    // Strategy-specific exit conditions
+  },
+  "risk_parameters": {
+    // Risk management parameters
+  },
+  "rationale": string
+}`;
+
+      // Call DeepSeek API
+      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}/v1/chat/completions`), {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: prompt }],
+          temperature: 0.3,
+          max_tokens: 1000
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`DeepSeek API error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const content = data.choices?.[0]?.message?.content;
+
+      if (!content) {
+        throw new Error('Empty response from DeepSeek');
+      }
+
+      // Extract JSON from response
+      const jsonStart = content.indexOf('{');
+      const jsonEnd = content.lastIndexOf('}');
+
+      if (jsonStart === -1 || jsonEnd === -1) {
+        throw new Error('No valid JSON found in response');
+      }
+
+      const updatedConfig = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
+
+      // Validate updated config
+      if (!updatedConfig.name || !updatedConfig.type || !updatedConfig.selected_pairs) {
+        throw new Error('Invalid updated strategy configuration');
+      }
+
+      // Update strategy with new configuration
+      const updatedStrategy = {
+        ...strategy,
+        name: updatedConfig.name,
+        description: updatedConfig.description,
+        strategy_config: {
+          ...strategy.strategy_config,
+          ...updatedConfig
+        },
+        updated_at: new Date().toISOString()
+      };
+
+      // Save updated strategy to database
+      await strategyService.updateStrategy(strategyId, updatedStrategy);
+
+      // Update local cache
+      this.activeStrategies.set(strategyId, updatedStrategy);
+
+      // Emit events
+      this.emit('strategyAdapted', updatedStrategy);
+      eventBus.emit('strategy:updated', { strategy: updatedStrategy });
+      eventBus.emit(`strategy:updated:${strategyId}`, { strategyId, strategy: updatedStrategy });
+
+      logService.log('info', `Successfully adapted strategy ${strategyId}`, {
+        oldConfig: strategy.strategy_config,
+        newConfig: updatedConfig
+      }, 'TradeGenerator');
+    } catch (error) {
+      logService.log('error', `Failed to adapt strategy ${strategy.id}`, error, 'TradeGenerator');
+    }
   }
 
   async addStrategy(strategy: Strategy): Promise<void> {

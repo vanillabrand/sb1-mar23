@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   Loader2,
@@ -11,6 +12,8 @@ import {
 import { TradeList } from './TradeList';
 import { StrategyCard } from './StrategyCard';
 import { marketService } from '../lib/market-service';
+import { marketDataService } from '../lib/market-data-service';
+import { marketAnalyzer } from '../lib/market-analyzer';
 import { tradeService } from '../lib/trade-service';
 import { logService } from '../lib/log-service';
 import { supabase } from '../lib/supabase';
@@ -40,6 +43,10 @@ interface TradeMonitorProps {
 export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   strategies: initialStrategies
 }) => {
+  // Get URL parameters
+  const [searchParams] = useSearchParams();
+  const strategyParam = searchParams.get('strategy');
+
   // State for strategies and trades
   const [trades, setTrades] = useState<Trade[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies || []);
@@ -368,20 +375,35 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
   // Load strategies and trades on component mount
   useEffect(() => {
-    // Initialize wallet balance service
-    const initializeWalletService = async () => {
+    // Initialize services
+    const initializeServices = async () => {
       try {
+        // Initialize wallet balance service
         await walletBalanceService.initialize();
         setAvailableBalance(walletBalanceService.getAvailableBalance());
+
+        // Initialize market analyzer
+        await marketAnalyzer.initialize();
+
+        // Subscribe to trading opportunities
+        eventBus.subscribe('market:tradingOpportunity', (analysis) => {
+          logService.log('info', `Trading opportunity detected for ${analysis.symbol}`, analysis, 'TradeMonitor');
+        });
       } catch (error) {
-        logService.log('error', 'Failed to initialize wallet balance service', error, 'TradeMonitor');
+        logService.log('error', 'Failed to initialize services', error, 'TradeMonitor');
       }
     };
 
     // Initial data load
-    initializeWalletService()
+    initializeServices()
       .then(() => fetchStrategies())
-      .then(() => fetchTradeData());
+      .then(() => {
+        // If a strategy ID is provided in the URL, expand that strategy
+        if (strategyParam) {
+          setExpandedStrategyId(strategyParam);
+        }
+        return fetchTradeData();
+      });
 
     // Add direct DOM event listener for strategy removal
     const handleStrategyRemove = (event: Event) => {
@@ -454,7 +476,6 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     // Auto-refresh timer removed as per user request
 
     return () => {
-
       // Unsubscribe from all subscriptions
       tradeSubscription.unsubscribe();
       strategySubscription.unsubscribe();
@@ -467,6 +488,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // Remove the direct DOM event listener
       document.removeEventListener('strategy:remove', handleStrategyRemove);
+
+      // Clean up market analyzer
+      marketAnalyzer.cleanup();
     };
   }, []);
 
@@ -498,6 +522,19 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // Update the strategies state with a completely new array
       setStrategies([...filteredStrategies]);
+
+      // Subscribe to market data for active strategies
+      filteredStrategies.forEach(strategy => {
+        if (strategy.status === 'active' && strategy.selected_pairs) {
+          strategy.selected_pairs.forEach((symbol: string) => {
+            // Use the market service to subscribe to market data
+            marketService.subscribeToMarket(symbol)
+              .catch((error: any) => {
+                logService.log('error', `Failed to subscribe to market data for ${symbol}`, error, 'TradeMonitor');
+              });
+          });
+        }
+      });
 
       // Force a UI update
       setLastUpdate(Date.now());

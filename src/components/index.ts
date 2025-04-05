@@ -21,4 +21,5 @@ export { NewsWidget } from './NewsWidget';
 export { WorldClock } from './WorldClock';
 export { DefconMonitor } from './DefconMonitor';
 export { AssetDistribution } from './AssetDistribution';
+export { AnimatedPanel } from './AnimatedPanel';
 export { Dashboard } from './Dashboard';

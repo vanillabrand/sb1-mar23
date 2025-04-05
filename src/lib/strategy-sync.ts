@@ -164,12 +164,13 @@ class StrategySync extends EventEmitter {
   async initialize(): Promise<void> {
     if (this.initialized || this.syncInProgress) {
       console.log('Strategy sync already initialized or in progress, skipping');
+      // Don't force a refresh to avoid infinite loops
       return;
     }
 
     try {
       this.syncInProgress = true;
-      console.log('Initializing strategy sync');
+      console.log('NUCLEAR: Initializing strategy sync');
       logService.log('info', 'Initializing strategy sync', null, 'StrategySync');
 
       // Get current user session
@@ -181,7 +182,7 @@ class StrategySync extends EventEmitter {
       }
 
       const userId = session.user.id;
-      console.log(`Fetching strategies for user ${userId}`);
+      console.log(`NUCLEAR: Fetching strategies for user ${userId}`);
       logService.log('info', `Fetching strategies for user ${userId}`, null, 'StrategySync');
 
       // Get all strategies for the current user
@@ -202,7 +203,7 @@ class StrategySync extends EventEmitter {
         strategies.forEach(strategy => {
           this.strategies.set(strategy.id, strategy);
         });
-        console.log(`Loaded ${strategies.length} strategies for user ${userId}`);
+        console.log(`NUCLEAR: Loaded ${strategies.length} strategies for user ${userId}`);
         logService.log('info', `Loaded ${strategies.length} strategies for user ${userId}`, null, 'StrategySync');
       } else {
         console.log(`No strategies found for user ${userId}`);
@@ -213,13 +214,20 @@ class StrategySync extends EventEmitter {
       this.initialized = true;
       this.emit('syncComplete');
 
-      // Broadcast the initial strategies list
+      // NUCLEAR: Broadcast the initial strategies list
+      console.log('NUCLEAR: Broadcasting initial strategies list');
       this.broadcastStrategiesUpdate();
 
       // Start periodic sync
       this.startPeriodicSync();
 
-      console.log('Strategy sync initialized successfully');
+      // NUCLEAR: Force a second broadcast after a delay
+      setTimeout(() => {
+        console.log('NUCLEAR: Broadcasting delayed initial strategies list');
+        this.broadcastStrategiesUpdate();
+      }, 1000);
+
+      console.log('NUCLEAR: Strategy sync initialized successfully');
       logService.log('info', 'Strategy sync initialized successfully', null, 'StrategySync');
     } catch (error) {
       console.error('Failed to initialize strategy sync:', error);
@@ -550,6 +558,8 @@ class StrategySync extends EventEmitter {
 
       // Also emit through the EventEmitter for direct subscribers
       this.emit('strategiesUpdated', strategies);
+
+      // No delayed broadcasts to avoid infinite loops
     } catch (error) {
       console.error('Error broadcasting strategies update:', error);
       logService.log('error', 'Error broadcasting strategies update', error, 'StrategySync');
@@ -558,6 +568,50 @@ class StrategySync extends EventEmitter {
 
   hasStrategy(id: string): boolean {
     return this.strategies.has(id);
+  }
+
+  /**
+   * Manually remove a strategy from the cache
+   * This is useful when a strategy is deleted but still appears in the UI
+   */
+  removeStrategyFromCache(id: string): void {
+    if (this.strategies.has(id)) {
+      console.log(`Manually removing strategy ${id} from cache`);
+      this.strategies.delete(id);
+
+      // Broadcast the updated strategies list
+      this.broadcastStrategiesUpdate();
+
+      // Also emit deletion events
+      this.emit('strategyDeleted', id);
+      eventBus.emit('strategy:deleted', { strategyId: id });
+    } else {
+      console.log(`Strategy ${id} not found in cache, nothing to remove`);
+    }
+  }
+
+  /**
+   * Manually add a strategy to the cache
+   * This is useful when a strategy is created but doesn't appear in the UI
+   */
+  addStrategyToCache(strategy: Strategy): void {
+    if (!this.strategies.has(strategy.id)) {
+      console.log(`Manually adding strategy ${strategy.id} to cache`);
+      this.strategies.set(strategy.id, strategy);
+
+      // Broadcast the updated strategies list
+      this.broadcastStrategiesUpdate();
+
+      // Also emit creation events
+      this.emit('strategyCreated', strategy);
+      eventBus.emit('strategy:created', strategy);
+    } else {
+      console.log(`Strategy ${strategy.id} already in cache, updating it`);
+      this.strategies.set(strategy.id, strategy);
+
+      // Broadcast the updated strategies list
+      this.broadcastStrategiesUpdate();
+    }
   }
 
   getLastSyncTime(): number {

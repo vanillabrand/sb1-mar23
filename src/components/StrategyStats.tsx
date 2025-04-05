@@ -50,49 +50,46 @@ export function StrategyStats({ strategies = [], className = '' }: StrategyStats
     };
   }, [strategies]);
   return (
-    <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 ${className}`}>
+    <div className={`${className}`}>
       <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-3 bg-gunmetal-800/50 rounded-xl">
-            <Brain className="w-6 h-6 text-neon-turquoise" />
+        <h3 className="text-lg font-semibold mb-4 text-gray-200">Strategy Statistics</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <Brain className="w-5 h-5 text-neon-turquoise" />
+              <span className="text-sm text-gray-400">Total Strategies</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.total}</p>
           </div>
-          <span className="text-gray-400">Total Strategies</span>
-        </div>
-        <p className="text-3xl font-bold text-white">{stats.total}</p>
-      </div>
 
-      <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-3 bg-gunmetal-800/50 rounded-xl">
-            <Power className="w-6 h-6 text-neon-yellow" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <Power className="w-5 h-5 text-neon-yellow" />
+              <span className="text-sm text-gray-400">Active</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.active}</p>
           </div>
-          <span className="text-gray-400">Active</span>
-        </div>
-        <p className="text-3xl font-bold text-white">{stats.active}</p>
-      </div>
 
-      <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-3 bg-gunmetal-800/50 rounded-xl">
-            <TrendingUp className="w-6 h-6 text-neon-orange" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-5 h-5 text-neon-orange" />
+              <span className="text-sm text-gray-400">Profitable</span>
+            </div>
+            <p className="text-2xl font-bold text-white">{stats.profitable}</p>
           </div>
-          <span className="text-gray-400">Profitable</span>
-        </div>
-        <p className="text-3xl font-bold text-white">{stats.profitable}</p>
-      </div>
 
-      <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-3 bg-gunmetal-800/50 rounded-xl">
-            <BarChart3 className="w-6 h-6 text-neon-raspberry" />
+          <div className="flex flex-col">
+            <div className="flex items-center gap-2 mb-2">
+              <BarChart3 className="w-5 h-5 text-neon-raspberry" />
+              <span className="text-sm text-gray-400">Avg Performance</span>
+            </div>
+            <p className={`text-2xl font-bold ${
+              stats.avgPerformance >= 0 ? 'text-neon-turquoise' : 'text-neon-pink'
+            }`}>
+              {stats.avgPerformance > 0 ? '+' : ''}{stats.avgPerformance}%
+            </p>
           </div>
-          <span className="text-gray-400">Avg Performance</span>
         </div>
-        <p className={`text-3xl font-bold ${
-          stats.avgPerformance >= 0 ? 'text-neon-turquoise' : 'text-neon-pink'
-        }`}>
-          {stats.avgPerformance > 0 ? '+' : ''}{stats.avgPerformance}%
-        </p>
       </div>
     </div>
   );
