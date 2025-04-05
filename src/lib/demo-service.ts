@@ -8,12 +8,12 @@ import { v4 as uuidv4 } from 'uuid';
  */
 class DemoService {
   private static instance: DemoService;
-  private isDemoMode: boolean = false;
+  private _isDemoMode: boolean = false;
   private mockExchangeId: string = 'binance';
 
   private constructor() {
     // Set demo mode to true immediately to prevent initialization issues
-    this.isDemoMode = true;
+    this._isDemoMode = true;
 
     // Initialize demo mode asynchronously
     setTimeout(() => {
@@ -41,11 +41,21 @@ class DemoService {
 
       try {
         // Try to create a mock exchange instance with Binance TestNet
+        const apiKey = import.meta.env.VITE_DEMO_EXCHANGE_API_KEY || import.meta.env.VITE_BINANCE_TESTNET_API_KEY || 'demo-api-key';
+        const secret = import.meta.env.VITE_DEMO_EXCHANGE_SECRET || import.meta.env.VITE_BINANCE_TESTNET_API_SECRET || 'demo-secret';
+
+        logService.log('info', 'Initializing demo mode with TestNet credentials', {
+          hasApiKey: !!apiKey,
+          hasSecret: !!secret,
+          apiKeyLength: apiKey ? apiKey.length : 0,
+          secretLength: secret ? secret.length : 0
+        }, 'DemoService');
+
         await ccxtService.createExchange(
           this.mockExchangeId as any,
           {
-            apiKey: import.meta.env.BINANCE_TESTNET_API_KEY || process.env.BINANCE_TESTNET_API_KEY || 'demo-api-key',
-            secret: import.meta.env.BINANCE_TESTNET_SECRET || process.env.BINANCE_TESTNET_SECRET || 'demo-secret',
+            apiKey,
+            secret,
           },
           true // Use testnet/sandbox mode
         );
@@ -57,10 +67,10 @@ class DemoService {
       }
 
       // Ensure demo mode is set to true
-      this.isDemoMode = true;
+      this._isDemoMode = true;
     } catch (error) {
       // If anything fails, ensure demo mode is still set to true
-      this.isDemoMode = true;
+      this._isDemoMode = true;
       logService.log('error', 'Error in demo mode initialization, but continuing with basic mock data', error, 'DemoService');
     }
   }
@@ -127,7 +137,14 @@ class DemoService {
    * Check if demo mode is active
    */
   isInDemoMode(): boolean {
-    return this.isDemoMode;
+    return this._isDemoMode;
+  }
+
+  /**
+   * Check if demo mode is enabled (alias for isInDemoMode for compatibility)
+   */
+  isDemoMode(): boolean {
+    return this._isDemoMode;
   }
 
   /**
@@ -135,11 +152,22 @@ class DemoService {
    */
   async getTestNetExchange(): Promise<any> {
     try {
+      const apiKey = import.meta.env.VITE_DEMO_EXCHANGE_API_KEY || import.meta.env.VITE_BINANCE_TESTNET_API_KEY || 'demo-api-key';
+      const secret = import.meta.env.VITE_DEMO_EXCHANGE_SECRET || import.meta.env.VITE_BINANCE_TESTNET_API_SECRET || 'demo-secret';
+
+      logService.log('info', 'Getting TestNet exchange with credentials', {
+        hasApiKey: !!apiKey,
+        hasSecret: !!secret,
+        apiKeyLength: apiKey ? apiKey.length : 0,
+        secretLength: secret ? secret.length : 0
+      }, 'DemoService');
+
+      // Always use 'binance' for TestNet, not the mockExchangeId
       return await ccxtService.createExchange(
-        this.mockExchangeId as any,
+        'binance', // Use binance explicitly for TestNet
         {
-          apiKey: import.meta.env.BINANCE_TESTNET_API_KEY || process.env.BINANCE_TESTNET_API_KEY || 'demo-api-key',
-          secret: import.meta.env.BINANCE_TESTNET_SECRET || process.env.BINANCE_TESTNET_SECRET || 'demo-secret',
+          apiKey,
+          secret,
         },
         true // Enable TestNet mode
       );

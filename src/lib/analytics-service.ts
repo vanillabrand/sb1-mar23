@@ -4,6 +4,7 @@ import { exchangeService } from './exchange-service';
 import { marketMonitor } from './market-monitor';
 import { logService } from './log-service';
 import type { Strategy, StrategyTrade } from './supabase-types';
+import * as analyticsMethods from './analytics-methods';
 
 interface AnalyticsData {
   timestamp: number;
@@ -385,6 +386,46 @@ class AnalyticsService extends EventEmitter {
     const data = this.analyticsData.get(strategyId);
     if (!data || data.length === 0) return null;
     return data[data.length - 1];
+  }
+
+  /**
+   * Get risk metrics for all active strategies
+   * Uses real data from the database
+   */
+  async getRiskMetrics() {
+    return await analyticsMethods.getRiskMetrics();
+  }
+
+  /**
+   * Get performance metrics for all strategies
+   * Uses real data from the database
+   */
+  async getStrategiesPerformance() {
+    return await analyticsMethods.getStrategiesPerformance();
+  }
+
+  /**
+   * Get active assets from all strategies
+   * Uses real data from the database
+   */
+  getActiveAssets() {
+    return analyticsMethods.getActiveAssets();
+  }
+
+  /**
+   * Get performance history over time
+   * Uses real data from the database
+   */
+  async getPerformanceHistory() {
+    return await analyticsMethods.getPerformanceHistory();
+  }
+
+  /**
+   * Get strategy leaderboard
+   * Uses real data from the database
+   */
+  async getStrategyLeaderboard() {
+    return await analyticsMethods.getStrategyLeaderboard();
   }
 
   getDashboardMetrics(): any {

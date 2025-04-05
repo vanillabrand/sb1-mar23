@@ -120,11 +120,14 @@ Return an array of strategy objects with this exact structure:
 }`;
 
       const aiService = AIService.getInstance();
-      const generatedTemplates = await aiService.generateStrategy(prompt, 'Medium', {
-        assets: this.DEFAULT_MARKETS,
-        timeframe: '1h',
-        marketType: 'spot'
-      });
+
+      // Use generateDetailedStrategies to get an array of strategies
+      const generatedTemplates = await aiService.generateDetailedStrategies(
+        this.DEFAULT_MARKETS,
+        this.RISK_LEVELS.slice(0, this.MAX_TEMPLATES) // Use the first MAX_TEMPLATES risk levels
+      );
+
+      logService.log('info', `Generated ${generatedTemplates.length} strategy templates`, null, 'StrategyTemplateGenerator');
 
       if (!generatedTemplates || !Array.isArray(generatedTemplates)) {
         logService.log('warn', 'AI service returned invalid templates', { generatedTemplates }, 'StrategyTemplateGenerator');

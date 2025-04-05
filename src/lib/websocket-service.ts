@@ -2,6 +2,7 @@ import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { demoService } from './demo-service';
 import { configService } from './config-service';
+import { config } from './config';
 import ReconnectingWebSocket from 'reconnecting-websocket';
 import type { WebSocketMessage, WebSocketConfig } from './types';
 
@@ -11,9 +12,11 @@ export class WebSocketService extends EventEmitter {
   private messageQueue: WebSocketMessage[] = [];
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
+  private pingInterval: NodeJS.Timeout | null = null;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private readonly RECONNECT_INTERVAL = 5000;
   private readonly MESSAGE_QUEUE_SIZE = 1000;
+  private readonly PING_INTERVAL = 30000; // 30 seconds
 
   private constructor() {
     super();
@@ -30,35 +33,18 @@ export class WebSocketService extends EventEmitter {
     // Check if we're in demo mode
     const isDemo = demoService.isDemoMode();
 
-    // For direct connection to Binance TestNet in demo mode
-    if (isDemo && configService.get('USE_DIRECT_BINANCE_CONNECTION') === 'true') {
-      const testnetWsUrl = configService.get('BINANCE_TESTNET_WEBSOCKETS_URL') || 'wss://testnet.binancefuture.com/ws-fapi/v1';
-      logService.log('info', `Using direct Binance TestNet WebSocket URL: ${testnetWsUrl}`, null, 'WebSocketService');
-      return testnetWsUrl;
-    }
+    // Always use the proxy server for WebSocket connections
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-    // If user has configured their own exchange and not in demo mode
-    const userExchangeWsUrl = configService.get('USER_EXCHANGE_WEBSOCKETS_URL');
-    if (!isDemo && userExchangeWsUrl) {
-      logService.log('info', `Using user-configured WebSocket URL: ${userExchangeWsUrl}`, null, 'WebSocketService');
-      return userExchangeWsUrl;
-    }
-
-    // Use proxy server with demo parameter
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
+    // Use localhost:3001 directly to ensure we connect to the running proxy server
+    const proxyHost = 'localhost:3001';
     const demoParam = isDemo ? '?demo=true' : '';
 
-    // Use the proxy server for WebSocket connections
-    if (host.includes('localhost') || host.includes('127.0.0.1')) {
-      const localWsUrl = `${protocol}//${host.split(':')[0]}:3001/ws${demoParam}`;
-      logService.log('info', `Using local WebSocket URL: ${localWsUrl}`, null, 'WebSocketService');
-      return localWsUrl;
-    }
+    // Use the proxy server WebSocket endpoint
+    const wsUrl = `${wsProtocol}//${proxyHost}/ws${demoParam}`;
 
-    const defaultWsUrl = `${protocol}//${host}/ws${demoParam}`;
-    logService.log('info', `Using default WebSocket URL: ${defaultWsUrl}`, null, 'WebSocketService');
-    return defaultWsUrl;
+    logService.log('info', `Using WebSocket URL through proxy: ${wsUrl}`, null, 'WebSocketService');
+    return wsUrl;
   }
 
   async connect(config: WebSocketConfig): Promise<void> {
@@ -72,18 +58,21 @@ export class WebSocketService extends EventEmitter {
 
       this.socket = new ReconnectingWebSocket(wsUrl, [], {
         WebSocket: WebSocket,
-        connectionTimeout: 4000,
+        connectionTimeout: 10000, // Increase timeout to 10 seconds
         maxRetries: this.MAX_RECONNECT_ATTEMPTS,
         maxReconnectionDelay: 10000,
         minReconnectionDelay: 1000,
         // Add debug logging
-        debug: process.env.NODE_ENV === 'development',
-        // Use appropriate port based on protocol
-        wsPort: window.location.protocol === 'https:' ? 443 : 80
+        debug: true, // Always enable debug logging
+        // Use port 3001 for the proxy server
+        wsPort: 3001
       });
 
       this.setupEventListeners();
       await this.waitForConnection();
+
+      // Start the ping interval
+      this.startPingInterval();
 
       if (config.subscriptions) {
         await this.subscribe(config.subscriptions);
@@ -127,8 +116,24 @@ export class WebSocketService extends EventEmitter {
         // Emit the message to all listeners
         this.emit('message', message);
 
+        // Handle ping/pong messages
+        if (message.type === 'ping') {
+          // Respond with a pong message
+          this.send({
+            type: 'pong',
+            timestamp: Date.now(),
+            echo: message.timestamp
+          }).catch(error => {
+            logService.log('error', 'Failed to send pong message', error, 'WebSocketService');
+          });
+        } else if (message.type === 'pong') {
+          // Calculate round-trip time
+          const rtt = Date.now() - (message.echo || 0);
+          logService.log('debug', 'WebSocket pong received', { rtt }, 'WebSocketService');
+        }
+
         // Handle Binance TestNet data
-        if (message.type === 'binance_data' || message.type === 'binance_market_data') {
+        else if (message.type === 'binance_data' || message.type === 'binance_market_data') {
           this.handleBinanceData(message.data);
         }
 
@@ -226,6 +231,9 @@ export class WebSocketService extends EventEmitter {
   }
 
   async disconnect(): Promise<void> {
+    // Stop the ping interval
+    this.stopPingInterval();
+
     if (this.socket) {
       this.socket.close();
       this.socket = null;
@@ -280,6 +288,34 @@ export class WebSocketService extends EventEmitter {
       this.emit('binance_raw_data', data);
     } catch (error) {
       logService.log('error', 'Failed to handle Binance data', error, 'WebSocketService');
+    }
+  }
+
+  private startPingInterval(): void {
+    // Clear any existing ping interval
+    this.stopPingInterval();
+
+    // Start a new ping interval
+    this.pingInterval = setInterval(() => {
+      if (this.isConnected && this.socket?.readyState === WebSocket.OPEN) {
+        // Send a ping message
+        this.send({
+          type: 'ping',
+          timestamp: Date.now()
+        }).catch(error => {
+          logService.log('error', 'Failed to send ping message', error, 'WebSocketService');
+        });
+      }
+    }, this.PING_INTERVAL);
+
+    logService.log('debug', 'Started WebSocket ping interval', null, 'WebSocketService');
+  }
+
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+      logService.log('debug', 'Stopped WebSocket ping interval', null, 'WebSocketService');
     }
   }
 }

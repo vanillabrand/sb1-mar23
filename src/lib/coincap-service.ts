@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
+import { config } from './config';
 
 interface Asset {
   id: string;
@@ -23,8 +24,8 @@ interface AssetHistory {
 
 class CoinCapService extends EventEmitter {
   private static instance: CoinCapService;
-  private readonly BASE_URL = 'https://api.coincap.io/v2';
-  private readonly WS_URL = 'wss://ws.coincap.io/prices/all';
+  private readonly BASE_URL = config.getFullUrl('/api/coincap');
+  private readonly WS_URL = 'wss://ws.coincap.io/prices/all'; // WebSockets will be handled separately
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
@@ -110,10 +111,10 @@ class CoinCapService extends EventEmitter {
       const response = await axios.get(
         `${this.BASE_URL}/assets/${id}/history?interval=${interval}`
       );
-      
+
       const history = response.data.data;
       this.historyCache.set(cacheKey, history);
-      
+
       return history;
     } catch (error) {
       logService.log('error', `Error fetching history for ${id}`, error, 'CoinCapService');

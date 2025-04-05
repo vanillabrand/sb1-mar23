@@ -9,6 +9,8 @@ export { StrategyAssetPanel } from './StrategyAssetPanel';
 export { ErrorBoundary } from './ErrorBoundary';
 export { WidgetError } from './WidgetError';
 export { NetworkStatus } from './NetworkStatus';
+export { NetworkErrorModal } from './NetworkErrorModal';
+export { NetworkErrorProvider } from './NetworkErrorProvider';
 export { StrategyStatus } from './StrategyStatus';
 export { AIMarketInsight } from './AIMarketInsight';
 export { PortfolioPerformance } from './PortfolioPerformance';

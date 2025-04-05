@@ -6,5 +6,25 @@ export const config = {
   maxStrategiesPerProcess: parseInt(import.meta.env.VITE_MAX_STRATEGIES_PER_PROCESS || '50', 10),
   healthCheckInterval: parseInt(import.meta.env.VITE_HEALTH_CHECK_INTERVAL || '30000', 10),
   marketFitCheckInterval: parseInt(import.meta.env.VITE_MARKET_FIT_CHECK_INTERVAL || '14400000', 10), // 4 hours
-  recoveryAttempts: parseInt(import.meta.env.VITE_RECOVERY_ATTEMPTS || '3', 10)
+  recoveryAttempts: parseInt(import.meta.env.VITE_RECOVERY_ATTEMPTS || '3', 10),
+
+  // API URLs
+  apiBaseUrl: '/api', // Base URL for all API requests through the proxy server
+  proxyUrl: import.meta.env.VITE_PROXY_URL || '',
+  proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL || 'http://localhost:3001', // Base URL for the proxy server
+
+  // External API endpoints through proxy
+  binanceApiUrl: '/api/binance',
+  binanceTestnetApiUrl: '/api/binanceTestnet',
+  binanceFuturesApiUrl: '/api/binanceFutures',
+  bitmartApiUrl: '/api/bitmart',
+  coincapApiUrl: '/api/coincap',
+
+  // External API endpoints (direct)
+  deepseekApiUrl: '/api/deepseek', // Use proxy for DeepSeek API
+
+  // Function to get the full URL for an API endpoint
+  getFullUrl: function(endpoint: string): string {
+    return `${this.proxyBaseUrl}${endpoint}`;
+  }
 };

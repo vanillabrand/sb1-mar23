@@ -135,6 +135,11 @@ export class TemplateService {
         minimalTemplate.risk_level = template.riskLevel || template.risk_level;
       }
 
+      // Add assets if they exist in the template
+      if (template.assets || (template.selected_pairs && template.selected_pairs.length > 0)) {
+        minimalTemplate.assets = template.assets || template.selected_pairs;
+      }
+
       // Log the template we're trying to create
       logService.log('info', 'Creating template with minimal data', minimalTemplate, 'TemplateService');
 
@@ -280,6 +285,7 @@ export class TemplateService {
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
+        name: template.title, // Explicitly set name field to match title
         description: template.description,
         riskLevel: riskLevel as any,
         type: 'custom', // Mark as custom since it's now owned by the user
@@ -287,6 +293,14 @@ export class TemplateService {
         selected_pairs: selectedPairs,
         strategy_config: strategyConfig
       });
+
+      // Log the strategy creation for debugging
+      logService.log('debug', 'Created strategy from template', {
+        templateId,
+        strategyId: strategy.id,
+        title: template.title,
+        name: strategy.name
+      }, 'TemplateService');
 
       // Force a refresh of the strategy sync to ensure it's in the local cache
       await strategySync.initialize();

@@ -10,7 +10,7 @@ import {
   X,
   ChevronDown
 } from 'lucide-react';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { transactionService } from '../lib/transaction-service';
 import { logService } from '../lib/log-service';
 import { globalCacheService } from '../lib/global-cache-service';

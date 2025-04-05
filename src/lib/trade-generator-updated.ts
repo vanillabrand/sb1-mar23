@@ -1,4 +1,3 @@
-
 import { EventEmitter } from './event-emitter';
 import { marketMonitor } from './market-monitor';
 import { tradeManager } from './trade-manager';
@@ -24,8 +23,8 @@ class TradeGenerator extends EventEmitter {
   private readonly CHECK_FREQUENCY = 60000; // 1 minute
   private readonly LOOKBACK_PERIOD = 86400000; // 24 hours
   private activeStrategies: Map<string, Strategy> = new Map();
-  private monitorState: Map<string, {
-    isActive: boolean;
+  private monitorState: Map<string, { 
+    isActive: boolean; 
     lastCheckTime: number;
     lastGeneratedTime: number | null;
   }> = new Map();
@@ -107,209 +106,122 @@ class TradeGenerator extends EventEmitter {
     try {
       logService.log('debug', `Checking trade opportunities for strategy ${strategy.id}`, null, 'TradeGenerator');
 
-      if (!strategy.strategy_config?.assets) {
-        throw new Error('Strategy has no configured trading pairs');
+      // Get the selected pairs for this strategy
+      const selectedPairs = strategy.selected_pairs || [];
+      if (selectedPairs.length === 0) {
+        logService.log('warn', `Strategy ${strategy.id} has no selected pairs`, null, 'TradeGenerator');
+        return;
       }
 
-      // Check each asset for trading opportunities
-      for (const symbol of strategy.strategy_config.assets) {
+      // Check each pair for trading opportunities
+      for (const symbol of selectedPairs) {
         try {
-          // Get historical data
-          const historicalData = await this.getHistoricalData(symbol);
-          if (!historicalData || historicalData.length === 0) continue;
-
           // Get current market data
-          const ticker = await bitmartService.getTicker(symbol);
-          const currentPrice = parseFloat(ticker.last_price);
+          const marketData = await marketMonitor.getMarketData(symbol);
+          if (!marketData) {
+            logService.log('warn', `No market data available for ${symbol}`, null, 'TradeGenerator');
+            continue;
+          }
 
-          // Get market state
-          const marketState = marketMonitor.getMarketState(strategy.id);
-          if (!marketState) {
-            // If no market state exists for this strategy, initialize it
-            await marketMonitor.updateMarketData(strategy);
-            continue; // Skip this iteration and try again next time
+          // Get historical data for technical analysis
+          const historicalData = await this.getHistoricalData(symbol);
+          if (historicalData.length === 0) {
+            logService.log('warn', `No historical data available for ${symbol}`, null, 'TradeGenerator');
+            continue;
           }
 
           // Calculate indicators
-          const indicators = await this.calculateIndicators(strategy, historicalData);
+          const indicators = await this.calculateIndicators(historicalData);
 
           // Generate trade signal
+          const currentPrice = marketData.lastPrice;
           const signal = await this.generateTradeSignal(
             strategy,
             symbol,
             indicators,
             historicalData,
-            marketState,
+            marketData,
             currentPrice
           );
 
           if (signal) {
             // Emit event to notify that we're generating a trade
-            eventBus.emit(`trade:generating:${strategy.id}`, {
+            eventBus.emit(`trade:generating:${strategy.id}`, { 
               strategyId: strategy.id,
               symbol,
               signal
             });
 
             // Calculate position size
-            const budget = await tradeService.getBudget(strategy.id);
-            if (!budget || budget.available <= 0) continue;
+            const budget = tradeService.getBudget(strategy.id);
+            if (!budget || budget.total <= 0) {
+              logService.log('warn', `No budget set for strategy ${strategy.id}`, null, 'TradeGenerator');
+              continue;
+            }
 
             const positionSize = this.calculatePositionSize(
               strategy,
-              budget.available,
+              symbol,
+              signal.direction,
               currentPrice,
+              budget.total,
               signal.confidence
             );
 
-            // Create a real trade instead of just emitting an event
-            try {
-              // Import dynamically to avoid circular dependencies
-              const { tradeManager } = await import('./trade-manager');
+            // Create the trade
+            const trade = {
+              strategyId: strategy.id,
+              symbol,
+              side: signal.direction === 'Long' ? 'buy' : 'sell',
+              type: 'market',
+              amount: positionSize,
+              price: currentPrice,
+              status: 'pending',
+              timestamp: Date.now(),
+              rationale: signal.rationale
+            };
 
-              // Execute the trade
-              const tradeOptions = {
-                strategy_id: strategy.id,
-                symbol: symbol,
-                side: signal.direction === 'Long' ? 'buy' : 'sell',
-                type: 'market',
-                entry_price: currentPrice,
-                amount: positionSize,
-                stop_loss: signal.stopLoss,
-                take_profit: signal.takeProfit,
-                trailing_stop: signal.trailingStop,
-                testnet: demoService.isInDemoMode() // Use TestNet in demo mode
-              };
+            // Submit the trade
+            const createdTrade = await tradeService.createTrade(trade);
+            logService.log('info', `Created trade for strategy ${strategy.id}`, { trade: createdTrade }, 'TradeGenerator');
 
-              // Execute the trade
-              const tradeResult = await tradeManager.executeTrade(tradeOptions);
-
-              // Emit trade created event
-              this.emit('tradeCreated', {
-                strategy,
-                trade: tradeResult,
-                signal: {
-                  ...signal,
-                  entry: {
-                    price: currentPrice,
-                    type: 'market',
-                    amount: positionSize
-                  }
-                }
-              });
-
-              // Also emit to the event bus for UI components to listen
-              eventBus.emit('trade:created', {
-                strategy,
-                trade: tradeResult,
-                signal: {
-                  ...signal,
-                  entry: {
-                    price: currentPrice,
-                    type: 'market',
-                    amount: positionSize
-                  }
-                }
-              });
-
-              // Emit strategy-specific event for UI components to listen
-              eventBus.emit(`trade:created:${strategy.id}`, {
-                strategyId: strategy.id,
-                trade: tradeResult
-              });
-
-              // Update last generated time
-              const state = this.monitorState.get(strategy.id);
-              if (state) {
-                state.lastGeneratedTime = Date.now();
-                this.monitorState.set(strategy.id, state);
-              }
-
-              logService.log('info', `Created trade for ${symbol}`, {
-                strategy: strategy.id,
-                trade: tradeResult,
-                signal
-              }, 'TradeGenerator');
-            } catch (tradeError) {
-              logService.log('error', `Failed to create trade for ${symbol}`, tradeError, 'TradeGenerator');
-
-              // Still emit the opportunity for monitoring purposes
-              this.emit('tradeOpportunity', {
-                strategy,
-                signal: {
-                  ...signal,
-                  entry: {
-                    price: currentPrice,
-                    type: 'market',
-                    amount: positionSize
-                  }
-                }
-              });
+            // Update last generated time
+            const state = this.monitorState.get(strategy.id);
+            if (state) {
+              state.lastGeneratedTime = Date.now();
+              this.monitorState.set(strategy.id, state);
             }
+
+            // Emit event to notify that a trade was created
+            eventBus.emit(`trade:created:${strategy.id}`, { 
+              strategyId: strategy.id,
+              trade: createdTrade
+            });
           }
-        } catch (error) {
-          logService.log('error', `Error processing ${symbol} for strategy ${strategy.id}`, error, 'TradeGenerator');
+        } catch (symbolError) {
+          logService.log('error', `Error checking trade opportunities for ${symbol}:`, symbolError, 'TradeGenerator');
         }
       }
     } catch (error) {
-      logService.log('error', `Error checking strategy ${strategy.id} for trades`, error, 'TradeGenerator');
+      logService.log('error', `Error checking trade opportunities for strategy ${strategy.id}:`, error, 'TradeGenerator');
+      throw error;
     }
   }
 
-  private async updateMonitorState(
-    strategyId: string,
-    update: Partial<MonitorState>
-  ): Promise<void> {
-    const currentState = this.monitorState.get(strategyId) || {
-      isActive: false,
-      lastCheckTime: 0
-    };
-
-    this.monitorState.set(strategyId, {
-      ...currentState,
-      ...update
-    });
-  }
-
-  private async evaluateConditions(strategy: Strategy, indicators: any[], marketState: any) {
-    const conditions = [];
-
-    // Evaluate RSI conditions
-    if (indicators.RSI) {
-      conditions.push({
-        name: 'RSI',
-        value: indicators.RSI,
-        target: 30,
-        met: indicators.RSI < 30 || indicators.RSI > 70
-      });
-    }
-
-    // Evaluate MACD conditions
-    if (indicators.MACD && indicators.signal) {
-      conditions.push({
-        name: 'MACD Crossover',
-        value: indicators.MACD,
-        target: indicators.signal,
-        met: Math.abs(indicators.MACD - indicators.signal) > 0
-      });
-    }
-
-    // Add more conditions based on strategy configuration...
-
-    return conditions;
-  }
-
-  private async calculateIndicators(strategy: Strategy, data: any[]): Promise<IndicatorData[]> {
+  private async calculateIndicators(historicalData: any[]): Promise<IndicatorData[]> {
     const indicators: IndicatorData[] = [];
-    const closes = data.map(d => d.close);
 
     try {
+      // Extract close prices
+      const closes = historicalData.map(candle => candle.close);
+
       // Calculate RSI
-      if (strategy.strategy_config?.indicators?.includes('RSI')) {
+      if (closes.length >= 14) {
         const rsiConfig = {
-          type: 'RSI',
-          period: 14,
-          parameters: {}
+          name: 'RSI',
+          params: {
+            period: 14
+          }
         };
         const rsi = await indicatorService.calculateIndicator(rsiConfig, closes);
         indicators.push({
@@ -320,11 +232,10 @@ class TradeGenerator extends EventEmitter {
       }
 
       // Calculate MACD
-      if (strategy.strategy_config?.indicators?.includes('MACD')) {
+      if (closes.length >= 26) {
         const macdConfig = {
-          type: 'MACD',
-          period: null,
-          parameters: {
+          name: 'MACD',
+          params: {
             fast_period: 12,
             slow_period: 26,
             signal_period: 9
@@ -378,106 +289,141 @@ class TradeGenerator extends EventEmitter {
   ): Promise<{
     direction: 'Long' | 'Short';
     confidence: number;
-    stopLoss: number;
-    takeProfit: number;
-    trailingStop?: number;
     rationale: string;
   } | null> {
     try {
-      const prompt = `Analyze this trading opportunity and generate a precise trade signal:
+      // Check if we're in demo mode
+      const isDemo = demoService.isDemoMode();
 
-Strategy Configuration:
-${JSON.stringify(strategy.strategy_config, null, 2)}
-
-Current Market Data:
-- Symbol: ${symbol}
-- Current Price: ${currentPrice}
-- Market State: ${JSON.stringify(marketState)}
-- Risk Level: ${strategy.risk_level}
-
-Technical Indicators:
-${JSON.stringify(indicators, null, 2)}
-
-Historical Data (Last 5 Minutes):
-${JSON.stringify(historicalData.slice(-5), null, 2)}
-
-Requirements:
-1. Analyze if current conditions match strategy rules
-2. Consider market state and indicators
-3. Calculate precise entry, exit, and risk levels
-4. Provide confidence score and detailed rationale
-5. Ensure risk parameters match ${strategy.risk_level} risk level
-
-Return ONLY a JSON object with this structure:
-{
-  "direction": "Long" | "Short",
-  "confidence": number (0-1),
-  "stopLoss": number (price level),
-  "takeProfit": number (price level),
-  "trailingStop": number (optional, percentage),
-  "rationale": string (detailed explanation)
-}`;
-
-      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}/v1/chat/completions`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3,
-          max_tokens: 500
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`DeepSeek API error: ${response.status}`);
+      // In demo mode, use the DeepSeek API to generate trade signals
+      if (isDemo) {
+        return this.generateDemoTradeSignal(strategy, symbol, indicators, historicalData, marketState, currentPrice);
       }
 
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
-
-      if (!content) {
-        throw new Error('Empty response from DeepSeek');
-      }
-
-      // Extract JSON from response
-      const jsonStart = content.indexOf('{');
-      const jsonEnd = content.lastIndexOf('}');
-
-      if (jsonStart === -1 || jsonEnd === -1) {
-        throw new Error('No valid JSON found in response');
-      }
-
-      const signal = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
-
-      // Validate signal
-      if (!signal.direction || !signal.confidence || !signal.stopLoss || !signal.takeProfit || !signal.rationale) {
-        throw new Error('Invalid trade signal format');
-      }
-
-      return signal;
+      // In real mode, use the strategy's rules to generate trade signals
+      return this.generateRealTradeSignal(strategy, symbol, indicators, historicalData, marketState, currentPrice);
     } catch (error) {
-      logService.log('error', 'Failed to generate trade signal', error, 'TradeGenerator');
+      logService.log('error', `Failed to generate trade signal for ${symbol}`, error, 'TradeGenerator');
       return null;
     }
   }
 
+  private async generateDemoTradeSignal(
+    strategy: Strategy,
+    symbol: string,
+    indicators: any[],
+    historicalData: any[],
+    marketState: any,
+    currentPrice: number
+  ): Promise<{
+    direction: 'Long' | 'Short';
+    confidence: number;
+    rationale: string;
+  } | null> {
+    try {
+      // Use DeepSeek API to generate trade signals
+      const apiKey = this.DEEPSEEK_API_KEY;
+      if (!apiKey) {
+        logService.log('warn', 'No DeepSeek API key found, using random trade signals', null, 'TradeGenerator');
+        return this.generateRandomTradeSignal(symbol);
+      }
+
+      // Prepare data for DeepSeek API
+      const data = {
+        symbol,
+        indicators,
+        historicalData: historicalData.slice(-10), // Only send the last 10 candles
+        marketState,
+        currentPrice,
+        strategy: {
+          id: strategy.id,
+          name: strategy.name || strategy.title,
+          description: strategy.description,
+          riskLevel: strategy.risk_level
+        }
+      };
+
+      // Call DeepSeek API
+      const response = await fetch(`${config.PROXY_URL}/api/deepseek/trading-signal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      if (!response.ok) {
+        throw new Error(`DeepSeek API returned ${response.status}: ${await response.text()}`);
+      }
+
+      const result = await response.json();
+      if (!result.signal) {
+        return null; // No trade signal
+      }
+
+      return {
+        direction: result.signal.direction,
+        confidence: result.signal.confidence,
+        rationale: result.signal.rationale
+      };
+    } catch (error) {
+      logService.log('error', 'Error generating demo trade signal', error, 'TradeGenerator');
+      // Fall back to random signals
+      return this.generateRandomTradeSignal(symbol);
+    }
+  }
+
+  private generateRandomTradeSignal(symbol: string): {
+    direction: 'Long' | 'Short';
+    confidence: number;
+    rationale: string;
+  } | null {
+    // Only generate a signal 20% of the time
+    if (Math.random() > 0.2) {
+      return null;
+    }
+
+    const direction = Math.random() > 0.5 ? 'Long' : 'Short';
+    const confidence = 0.5 + Math.random() * 0.5; // 0.5 to 1.0
+
+    return {
+      direction,
+      confidence,
+      rationale: `Random ${direction} signal generated for ${symbol} with ${Math.round(confidence * 100)}% confidence.`
+    };
+  }
+
+  private async generateRealTradeSignal(
+    strategy: Strategy,
+    symbol: string,
+    indicators: any[],
+    historicalData: any[],
+    marketState: any,
+    currentPrice: number
+  ): Promise<{
+    direction: 'Long' | 'Short';
+    confidence: number;
+    rationale: string;
+  } | null> {
+    // Implement real trading logic based on strategy rules
+    // This is a placeholder - real implementation would use the strategy's rules
+    return null;
+  }
+
   private calculatePositionSize(
     strategy: Strategy,
-    availableBudget: number,
+    symbol: string,
+    direction: 'Long' | 'Short',
     currentPrice: number,
+    availableBudget: number,
     confidence: number
   ): number {
+    // Risk multiplier based on strategy risk level
     const riskMultiplier = {
-      'Ultra Low': 0.05,
-      'Low': 0.1,
-      'Medium': 0.15,
-      'High': 0.2,
-      'Ultra High': 0.25,
-      'Extreme': 0.3,
+      'Low Risk': 0.05,
+      'Medium Risk': 0.1,
+      'High Risk': 0.15,
       'God Mode': 0.5
     }[strategy.risk_level] || 0.15;
 
@@ -498,38 +444,44 @@ Return ONLY a JSON object with this structure:
 
   async addStrategy(strategy: Strategy): Promise<void> {
     try {
-      if (!this.initialized) {
-        await this.initialize();
+      if (!strategy || !strategy.id) {
+        logService.log('warn', 'Attempted to add invalid strategy to trade generator', { strategy }, 'TradeGenerator');
+        return;
       }
 
-      // Ensure strategy has assets configured
-      if (!strategy.strategy_config) {
-        strategy.strategy_config = {};
-      }
-
-      if (!strategy.strategy_config.assets) {
-        // Try to get assets from selected_pairs
-        if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
-          strategy.strategy_config.assets = strategy.selected_pairs;
-        } else {
-          // Default to BTC/USDT if no assets are found
-          strategy.strategy_config.assets = ['BTC/USDT'];
-          logService.log('warn', `No assets found for strategy ${strategy.id}, defaulting to BTC/USDT`, null, 'TradeGenerator');
-        }
-      }
-
-      logService.log('info', `Adding strategy ${strategy.id} to trade generator`, null, 'TradeGenerator');
-
-      // Add to active strategies and initialize monitoring state
+      // Add to active strategies
       this.activeStrategies.set(strategy.id, strategy);
-      this.monitorState.set(strategy.id, {
-        isActive: true,
-        lastCheckTime: 0, // Force immediate check
+      this.monitorState.set(strategy.id, { 
+        isActive: true, 
+        lastCheckTime: 0,
         lastGeneratedTime: null
       });
 
-      // Emit initial checking event to update UI
+      // Emit event to notify that the strategy is being monitored
       eventBus.emit(`trade:checking:${strategy.id}`, { strategyId: strategy.id });
+
+      // Initialize strategy monitoring
+      await this.initializeStrategyMonitoring(strategy);
+
+      // Force immediate check for trade opportunities
+      await this.checkStrategyForTrades(strategy);
+
+      logService.log('info', `Strategy ${strategy.id} added to trade generator`,
+        { strategy }, 'TradeGenerator');
+    } catch (error) {
+      logService.log('error', `Failed to add strategy ${strategy.id}`, error, 'TradeGenerator');
+      throw error;
+    }
+  }
+
+  private async initializeStrategyMonitoring(strategy: Strategy): Promise<void> {
+    try {
+      // Initialize strategy monitoring state
+      this.monitorState.set(strategy.id, {
+        isActive: true,
+        lastCheckTime: 0,
+        lastGeneratedTime: null
+      });
 
       // Subscribe to market data for each asset
       for (const symbol of strategy.strategy_config.assets) {
@@ -593,12 +545,7 @@ Return ONLY a JSON object with this structure:
     return Array.from(this.activeStrategies.values());
   }
 
-  isMonitoringStrategy(strategyId: string): boolean {
-    const state = this.monitorState.get(strategyId);
-    return !!state && state.isActive;
-  }
-
-  pauseStrategy(strategyId: string): void {
+  pauseMonitoring(strategyId: string): void {
     const state = this.monitorState.get(strategyId);
     if (state) {
       state.isActive = false;
@@ -607,11 +554,10 @@ Return ONLY a JSON object with this structure:
     }
   }
 
-  resumeStrategy(strategyId: string): void {
+  resumeMonitoring(strategyId: string): void {
     const state = this.monitorState.get(strategyId);
     if (state) {
       state.isActive = true;
-      state.lastCheckTime = Date.now() - this.CHECK_FREQUENCY; // Allow immediate check
       this.monitorState.set(strategyId, state);
       logService.log('info', `Resumed monitoring for strategy ${strategyId}`, null, 'TradeGenerator');
     }

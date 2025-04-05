@@ -10,8 +10,6 @@ import { ExchangeManager } from './ExchangeManager';
 import { TradeMonitor } from './TradeMonitor';
 import { Backtester } from './Backtester';
 import { Analytics } from './Analytics';
-import { Documentation } from './Documentation';
-import { Notes } from './Notes';
 
 export const AppContent = () => {
   const { user } = useAuth();
@@ -67,16 +65,7 @@ export const AppContent = () => {
               <Analytics />
             </AuthGuard>
           } />
-          <Route path="/documentation" element={
-            <AuthGuard>
-              <Documentation />
-            </AuthGuard>
-          } />
-          <Route path="/notes" element={
-            <AuthGuard>
-              <Notes />
-            </AuthGuard>
-          } />
+
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </main>

@@ -131,13 +131,21 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
         tradeManager.syncTrades() // Refresh trades
       ]);
 
+      // Get the latest strategies after initialization
+      const updatedStrategies = strategySync.getAllStrategies();
+
       // Emit events for real-time updates
       eventBus.emit('strategy:activated', activatedStrategy);
       eventBus.emit('strategy:created', activatedStrategy);
+      eventBus.emit('strategies:updated', updatedStrategies);
 
-      // Dispatch DOM event for legacy components
+      // Dispatch DOM events for legacy components
       document.dispatchEvent(new CustomEvent('strategy:created', {
         detail: { strategy: activatedStrategy }
+      }));
+
+      document.dispatchEvent(new CustomEvent('strategies:updated', {
+        detail: { strategies: updatedStrategies }
       }));
 
       // Close modals and refresh

@@ -13,9 +13,12 @@ class StrategyService {
         throw new Error('No authenticated session found');
       }
 
+      // Ensure we have a name field (required by the database schema)
+      // Map title to name if name is not provided
       const strategy = {
         id: uuidv4(),
         ...data,
+        name: data.name || data.title, // Map title to name if name is not provided
         type: data.type || 'custom',  // Add default type
         user_id: session.user.id,
         created_at: new Date().toISOString(),
@@ -25,6 +28,14 @@ class StrategyService {
         selected_pairs: data.selected_pairs || [],
         strategy_config: data.strategy_config || {}
       };
+
+      // Log the strategy data for debugging
+      logService.log('debug', 'Creating strategy with data', {
+        id: strategy.id,
+        name: strategy.name,
+        title: strategy.title,
+        userId: session.user.id
+      }, 'StrategyService');
 
       const { data: createdStrategy, error } = await supabase
         .from('strategies')

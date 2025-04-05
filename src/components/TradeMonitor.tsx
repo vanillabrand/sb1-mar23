@@ -451,15 +451,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
 
-    // Set up auto-refresh timer for more frequent updates
-    const refreshTimer = setInterval(() => {
-      console.log('Auto-refreshing trade data...');
-      fetchTradeData();
-    }, 15000); // Refresh every 15 seconds
+    // Auto-refresh timer removed as per user request
 
     return () => {
-      // Clear the refresh timer
-      clearInterval(refreshTimer);
 
       // Unsubscribe from all subscriptions
       tradeSubscription.unsubscribe();

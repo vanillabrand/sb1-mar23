@@ -1,4 +1,4 @@
-import { supabase } from './supabase-client';
+import { supabase } from './supabase';
 import { logService } from './log-service';
 import { transactionService } from './transaction-service';
 
@@ -28,7 +28,7 @@ export async function getPortfolioSummary(): Promise<any> {
     return summary;
   } catch (error) {
     logService.log('error', 'Failed to get portfolio summary', error, 'PortfolioSummary');
-    
+
     // Return sample data for demo purposes
     return {
       currentValue: 12450.75,
@@ -51,24 +51,24 @@ export async function getPortfolioSummary(): Promise<any> {
 function calculatePortfolioSummary(transactions: any[], strategies: any[]): any {
   // Default starting value
   const startingValue = 10000;
-  
+
   // Calculate current value from transactions
   let currentValue = startingValue;
   let totalTrades = 0;
   let profitableTrades = 0;
-  
+
   if (transactions && transactions.length > 0) {
     // Sort transactions by date
     const sortedTransactions = [...transactions].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
-    
+
     // Get the latest balance
     const lastTransaction = sortedTransactions[sortedTransactions.length - 1];
     if (lastTransaction) {
       currentValue = lastTransaction.balance_after;
     }
-    
+
     // Count trades and profitable trades
     for (const transaction of sortedTransactions) {
       if (transaction.type === 'trade') {
@@ -79,12 +79,12 @@ function calculatePortfolioSummary(transactions: any[], strategies: any[]): any 
       }
     }
   }
-  
+
   // Calculate changes
   const totalChange = currentValue - startingValue;
   const percentChange = (totalChange / startingValue) * 100;
   const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
-  
+
   return {
     currentValue,
     startingValue,

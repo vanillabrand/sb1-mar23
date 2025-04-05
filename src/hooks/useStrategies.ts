@@ -70,12 +70,25 @@ export function useStrategies() {
       setStrategies(updatedStrategies);
     };
 
-    // Subscribe to the strategies:updated event
-    const unsubscribe = eventBus.subscribe('strategies:updated', handleStrategiesUpdated);
+    const handleStrategyCreated = (newStrategy: Strategy) => {
+      // Immediately add the new strategy to the list
+      setStrategies(prevStrategies => {
+        // Only add if not already in the list
+        if (!prevStrategies.some(s => s.id === newStrategy.id)) {
+          return [...prevStrategies, newStrategy];
+        }
+        return prevStrategies;
+      });
+    };
+
+    // Subscribe to events
+    const unsubscribeUpdated = eventBus.subscribe('strategies:updated', handleStrategiesUpdated);
+    const unsubscribeCreated = eventBus.subscribe('strategy:created', handleStrategyCreated);
 
     return () => {
-      // Clean up the subscription when the component unmounts
-      unsubscribe();
+      // Clean up the subscriptions when the component unmounts
+      unsubscribeUpdated();
+      unsubscribeCreated();
     };
   }, []);
 

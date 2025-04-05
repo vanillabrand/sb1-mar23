@@ -27,6 +27,18 @@ class CCXTService {
         throw new Error(`Unsupported exchange: ${exchangeId}`);
       }
 
+      // Log the credentials being used (without the actual values for security)
+      logService.log('info', `Creating exchange with credentials`, {
+        exchangeId,
+        testnet,
+        hasApiKey: !!credentials.apiKey,
+        hasSecret: !!credentials.secret,
+        apiKeyLength: credentials.apiKey ? credentials.apiKey.length : 0,
+        secretLength: credentials.secret ? credentials.secret.length : 0
+      }, 'CCXTService');
+
+      console.log(`Creating exchange ${exchangeId} with credentials: API Key ${credentials.apiKey ? 'present' : 'missing'}, Secret ${credentials.secret ? 'present' : 'missing'}`);
+
       const config: any = {
         apiKey: credentials.apiKey,
         secret: credentials.secret,
@@ -35,54 +47,169 @@ class CCXTService {
         recvWindow: 10000, // Increase receive window for Binance
       };
 
-      // Add proxy support if available
-      if (import.meta.env.VITE_PROXY_URL) {
-        // For Binance TestNet, we need to use a specific proxy URL
-        if (exchangeId === 'binance' && testnet) {
-          // Use the binanceTestnet proxy path
+      // Get the proxy base URL
+      const proxyBaseUrl = import.meta.env.VITE_PROXY_BASE_URL || 'http://localhost:3001';
+
+      // Configure URLs based on exchange and testnet mode
+      switch (exchangeId) {
+        case 'binance':
+          if (testnet) {
+            // Binance TestNet
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/binanceTestnet`,
+                private: `${proxyBaseUrl}/api/binanceTestnet`,
+                fapiPublic: `${proxyBaseUrl}/api/binanceFutures`,
+                fapiPrivate: `${proxyBaseUrl}/api/binanceFutures`,
+                fapiV2Public: `${proxyBaseUrl}/api/binanceFutures`,
+                fapiV2Private: `${proxyBaseUrl}/api/binanceFutures`,
+                dapiPublic: `${proxyBaseUrl}/api/binanceFutures`,
+                dapiPrivate: `${proxyBaseUrl}/api/binanceFutures`
+              }
+            };
+            console.log('Using custom URLs for Binance TestNet:', config.urls);
+          } else {
+            // Regular Binance
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/binance`,
+                private: `${proxyBaseUrl}/api/binance`,
+                fapiPublic: `${proxyBaseUrl}/api/binance`,
+                fapiPrivate: `${proxyBaseUrl}/api/binance`,
+                fapiV2Public: `${proxyBaseUrl}/api/binance`,
+                fapiV2Private: `${proxyBaseUrl}/api/binance`,
+                dapiPublic: `${proxyBaseUrl}/api/binance`,
+                dapiPrivate: `${proxyBaseUrl}/api/binance`
+              }
+            };
+            console.log('Using custom URLs for Binance:', config.urls);
+          }
+          break;
+
+        case 'bitmart':
+          // BitMart
           config.urls = {
             api: {
-              public: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`,
-              private: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`,
-              fapiPublic: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
-              fapiPrivate: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
-              fapiV2Public: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
-              fapiV2Private: `${import.meta.env.VITE_PROXY_URL}binanceFutures`
+              public: `${proxyBaseUrl}/api/bitmart`,
+              private: `${proxyBaseUrl}/api/bitmart`
             }
           };
+          console.log('Using custom URLs for BitMart:', config.urls);
+          break;
 
-          // Force CCXT to use our proxy for all requests
-          // Don't set config.proxy = false as it's causing issues
-          // Just let CCXT use the custom URLs
+        case 'bybit':
+          if (testnet) {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/bybitTestnet`,
+                private: `${proxyBaseUrl}/api/bybitTestnet`
+              }
+            };
+            console.log('Using custom URLs for Bybit TestNet:', config.urls);
+          } else {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/bybit`,
+                private: `${proxyBaseUrl}/api/bybit`
+              }
+            };
+            console.log('Using custom URLs for Bybit:', config.urls);
+          }
+          break;
 
-          // Add custom options for better error handling
-          config.options = {
-            ...config.options,
-            verbose: true, // Enable verbose mode for debugging
-            timeout: 30000, // 30 seconds timeout (increased for reliability)
-            retry: true, // Enable retry
-            retries: 5, // Increased number of retries
-            retryDelay: 1000, // Delay between retries in milliseconds
-            createMarketBuyOrderRequiresPrice: false, // Allow market orders without price
-            defaultType: 'spot', // Use spot trading by default
+        case 'okx':
+          if (testnet) {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/okxTestnet`,
+                private: `${proxyBaseUrl}/api/okxTestnet`
+              }
+            };
+            console.log('Using custom URLs for OKX TestNet:', config.urls);
+          } else {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/okx`,
+                private: `${proxyBaseUrl}/api/okx`
+              }
+            };
+            console.log('Using custom URLs for OKX:', config.urls);
+          }
+          break;
+
+        case 'coinbase':
+          if (testnet) {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/coinbaseSandbox`,
+                private: `${proxyBaseUrl}/api/coinbaseSandbox`
+              }
+            };
+            console.log('Using custom URLs for Coinbase Sandbox:', config.urls);
+          } else {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/coinbase`,
+                private: `${proxyBaseUrl}/api/coinbase`
+              }
+            };
+            console.log('Using custom URLs for Coinbase:', config.urls);
+          }
+          break;
+
+        case 'kraken':
+          if (testnet) {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/krakenFutures`,
+                private: `${proxyBaseUrl}/api/krakenFutures`
+              }
+            };
+            console.log('Using custom URLs for Kraken Futures:', config.urls);
+          } else {
+            config.urls = {
+              api: {
+                public: `${proxyBaseUrl}/api/kraken`,
+                private: `${proxyBaseUrl}/api/kraken`
+              }
+            };
+            console.log('Using custom URLs for Kraken:', config.urls);
+          }
+          break;
+
+        case 'bitget':
+          config.urls = {
+            api: {
+              public: `${proxyBaseUrl}/api/bitget`,
+              private: `${proxyBaseUrl}/api/bitget`
+            }
           };
+          console.log('Using custom URLs for Bitget:', config.urls);
+          break;
 
-          // Log the configuration
-          logService.log('info', `Using proxy for Binance TestNet with multiple endpoints`, {
-            spot: `${import.meta.env.VITE_PROXY_URL}binanceTestnet`,
-            futures: `${import.meta.env.VITE_PROXY_URL}binanceFutures`,
-            timeout: config.options.timeout
-          }, 'CCXTService');
-
-          console.log(`Using proxy for Binance TestNet: ${import.meta.env.VITE_PROXY_URL}binanceTestnet with timeout: ${config.options.timeout}ms`);
-          console.log(`Using proxy for Binance Futures: ${import.meta.env.VITE_PROXY_URL}binanceFutures with timeout: ${config.options.timeout}ms`);
-          console.log('CCXT config:', JSON.stringify(config, null, 2));
-        } else {
-          // For other exchanges, use the standard proxy URL
-          config.proxy = import.meta.env.VITE_PROXY_URL;
-          logService.log('info', `Using proxy for exchange: ${import.meta.env.VITE_PROXY_URL}`, null, 'CCXTService');
-        }
+        default:
+          // Other exchanges - use our generic exchange proxy
+          config.urls = {
+            api: {
+              public: `${proxyBaseUrl}/api/${exchangeId}`,
+              private: `${proxyBaseUrl}/api/${exchangeId}`
+            }
+          };
+          console.log(`Using generic exchange proxy for ${exchangeId}:`, config.urls);
+          break;
       }
+
+      // Add custom options for better error handling
+      config.options = {
+        ...config.options,
+        verbose: true, // Enable verbose mode for debugging
+        timeout: 30000, // 30 seconds timeout (increased for reliability)
+        retry: true, // Enable retry
+        retries: 5, // Increased number of retries
+        retryDelay: 1000, // Delay between retries in milliseconds
+        createMarketBuyOrderRequiresPrice: false, // Allow market orders without price
+        defaultType: 'spot', // Use spot trading by default
+      };
 
       // Add user agent to avoid some blocks
       config.userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36';
@@ -97,6 +224,142 @@ class CCXTService {
       if (testnet) {
         exchange.setSandboxMode(true);
         logService.log('info', `Using testnet/sandbox mode for ${exchangeId}`, null, 'CCXTService');
+
+        // For Binance TestNet, we need to ensure all requests go through our proxy
+        // by setting the correct URLs and headers
+        if (exchangeId === 'binance') {
+          // Set the correct URLs for Binance TestNet
+          const testnetBaseUrl = `${proxyBaseUrl}/api/binanceTestnet`;
+          console.log('Setting Binance TestNet base URL:', testnetBaseUrl);
+
+          // Override the URLs to use our proxy
+          exchange.urls = {
+            ...exchange.urls,
+            api: {
+              public: testnetBaseUrl,
+              private: testnetBaseUrl,
+              v1: testnetBaseUrl,
+              v2: testnetBaseUrl,
+              v3: testnetBaseUrl,
+              fapiPublic: testnetBaseUrl,  // Add futures API endpoints
+              fapiPrivate: testnetBaseUrl,
+              fapiPrivateV2: testnetBaseUrl,
+              dapiPublic: testnetBaseUrl,  // Add delivery API endpoints
+              dapiPrivate: testnetBaseUrl,
+            },
+            test: {
+              public: testnetBaseUrl,
+              private: testnetBaseUrl,
+            },
+          };
+
+          // Override the default API endpoints
+          exchange.options = {
+            ...exchange.options,
+            defaultType: 'spot',
+            adjustForTimeDifference: true,
+            recvWindow: 10000,
+            verbose: true, // Enable verbose mode for debugging
+          };
+
+          // Log the updated URLs
+          console.log('Updated exchange URLs:', exchange.urls);
+
+          // Override the defaultHeaders to ensure API key is sent correctly
+          exchange.headers = {
+            ...exchange.headers,
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          };
+
+          // Override the sign method to ensure API key is sent through our proxy
+          const originalSign = exchange.sign.bind(exchange);
+          exchange.sign = function(path, api = 'public', method = 'GET', params = {}, headers = undefined, body = undefined) {
+            try {
+              // Handle specific endpoints that are not supported in TestNet
+              if (testnet && (api === 'fapiPublic' || api === 'dapiPublic')) {
+                // Redirect to the public API instead
+                api = 'public';
+                logService.log('info', `Redirecting ${api} request to public API in TestNet mode`, { path }, 'CCXTService');
+              }
+
+              // Ensure we have headers
+              headers = headers || {};
+
+              // Add the API key to the headers
+              if (credentials.apiKey) {
+                headers['X-MBX-APIKEY'] = credentials.apiKey;
+                console.log(`Setting X-MBX-APIKEY header in sign method: ${credentials.apiKey.substring(0, 5)}...`);
+              } else {
+                // If no API key in credentials, try to use the one from the environment
+                const envApiKey = import.meta.env.VITE_BINANCE_TESTNET_API_KEY || '6dbf9bc5b8e03455128d00bab9ccaffb33fa812bfcf0b21bcb50cff355a88049';
+                if (envApiKey) {
+                  headers['X-MBX-APIKEY'] = envApiKey;
+                  console.log(`Using API key from environment in sign method: ${envApiKey.substring(0, 5)}...`);
+                } else {
+                  console.warn('No API key found in credentials or environment variables');
+                }
+              }
+
+              // Call the original sign method
+              const result = originalSign(path, api, method, params, headers, body);
+
+              // Ensure the X-MBX-APIKEY header is set correctly in the result
+              if (result.headers) {
+                if (credentials.apiKey) {
+                  result.headers['X-MBX-APIKEY'] = credentials.apiKey;
+                  console.log(`Setting X-MBX-APIKEY header in result: ${credentials.apiKey.substring(0, 5)}...`);
+                } else {
+                  // If no API key in credentials, try to use the one from the environment
+                  const envApiKey = import.meta.env.VITE_BINANCE_TESTNET_API_KEY || '6dbf9bc5b8e03455128d00bab9ccaffb33fa812bfcf0b21bcb50cff355a88049';
+                  if (envApiKey) {
+                    result.headers['X-MBX-APIKEY'] = envApiKey;
+                    console.log(`Using API key from environment in result: ${envApiKey.substring(0, 5)}...`);
+                  }
+                }
+              }
+
+              // Log the request for debugging
+              console.log('Binance TestNet request:', {
+                path: path,
+                api: api,
+                url: result.url,
+                method: result.method,
+                params: params,
+                headers: result.headers ? { ...result.headers, 'X-MBX-APIKEY': '***' } : undefined,
+                body: result.body
+              });
+
+              return result;
+            } catch (error) {
+              console.error('Error in sign method:', error);
+
+              // If the error is about unsupported TestNet endpoints, redirect to public API
+              if (error.message && error.message.includes('does not have a testnet/sandbox URL')) {
+                logService.log('warn', 'Endpoint not supported in TestNet, redirecting to public API', { path, api }, 'CCXTService');
+
+                // Try again with the public API
+                return this.sign(path, 'public', method, params, headers, body);
+              }
+
+              // Create a default result if the original sign method fails
+              const url = typeof exchange.urls.api === 'string'
+                ? `${exchange.urls.api}${path}`
+                : `${exchange.urls.api.public}${path}`;
+
+              return {
+                url,
+                method,
+                headers: {
+                  ...headers,
+                  'X-MBX-APIKEY': credentials.apiKey
+                },
+                body
+              };
+            }
+          };
+
+          logService.log('info', 'Using custom URLs for Binance TestNet', { urls: exchange.urls }, 'CCXTService');
+        }
       }
 
       // For Binance specifically, add some additional options
@@ -108,20 +371,6 @@ class CCXTService {
           recvWindow: 10000,
           warnOnFetchOpenOrdersWithoutSymbol: false,
         };
-
-        // Log the endpoint being used
-        if (testnet) {
-          // For TestNet, we're using our proxy
-          const endpoint = import.meta.env.VITE_PROXY_URL ?
-            `${import.meta.env.VITE_PROXY_URL}binanceTestnet` :
-            'https://testnet.binance.vision';
-          logService.log('info', `Binance TestNet endpoint: ${endpoint}`, null, 'CCXTService');
-          console.log(`Using Binance TestNet endpoint: ${endpoint}`);
-        } else {
-          // For production, use the standard endpoint
-          const endpoint = 'api.binance.com';
-          logService.log('info', `Binance endpoint: ${endpoint}`, null, 'CCXTService');
-        }
       }
 
       // Store the instance
@@ -160,16 +409,29 @@ class CCXTService {
 
       if (testnet) {
         // Use TestNet credentials from environment variables
+        const apiKey = import.meta.env.VITE_DEMO_EXCHANGE_API_KEY ||
+                      import.meta.env.VITE_BINANCE_TESTNET_API_KEY ||
+                      '';
+        const secret = import.meta.env.VITE_DEMO_EXCHANGE_SECRET ||
+                      import.meta.env.VITE_BINANCE_TESTNET_API_SECRET ||
+                      '';
+
         credentials = {
-          apiKey: import.meta.env.VITE_BINANCE_TEST_API_KEY || process.env.BINANCE_TESTNET_API_KEY || '',
-          secret: import.meta.env.VITE_BINANCE_TEST_API_SECRET || process.env.BINANCE_TESTNET_API_SECRET || '',
+          apiKey,
+          secret,
           memo: ''
         };
 
         // Log the credentials (without the actual values for security)
-        logService.log('info', `Using Binance TestNet credentials`,
-          { hasApiKey: !!credentials.apiKey, hasSecret: !!credentials.secret },
-          'CCXTService');
+        logService.log('info', `Using Binance TestNet credentials`, {
+          hasApiKey: !!credentials.apiKey,
+          hasSecret: !!credentials.secret,
+          apiKeyLength: credentials.apiKey ? credentials.apiKey.length : 0,
+          secretLength: credentials.secret ? credentials.secret.length : 0
+        }, 'CCXTService');
+
+        console.log(`TestNet credentials check: API Key ${credentials.apiKey ? 'present' : 'missing'}, Secret ${credentials.secret ? 'present' : 'missing'}`);
+        console.log(`API Key length: ${credentials.apiKey ? credentials.apiKey.length : 0}, Secret length: ${credentials.secret ? credentials.secret.length : 0}`);
       } else {
         // Use demo exchange credentials
         credentials = {

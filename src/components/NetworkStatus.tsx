@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Loader2 } from 'lucide-react';
+import { Wifi, WifiOff, Loader2, AlertCircle } from 'lucide-react';
 import { exchangeService } from '../lib/exchange-service';
+import { networkErrorHandler } from '../lib/network-error-handler';
 
 export function NetworkStatus() {
   const [status, setStatus] = useState<'online' | 'offline' | 'degraded'>('online');
@@ -21,9 +22,11 @@ export function NetworkStatus() {
       const start = performance.now();
       const health = await exchangeService.checkHealth();
       const end = performance.now();
-      
+
       setLatency(Math.round(end - start));
-      setStatus(health.ok ? (health.degraded ? 'degraded' : 'online') : 'offline');
+      // Check if health has a degraded property, otherwise assume it's not degraded
+      const isDegraded = 'degraded' in health ? health.degraded : false;
+      setStatus(health.ok ? (isDegraded ? 'degraded' : 'online') : 'offline');
     } catch (error) {
       setStatus('offline');
       setLatency(null);
@@ -52,7 +55,7 @@ export function NetworkStatus() {
     if (checking) {
       return <Loader2 className={`w-4 h-4 animate-spin ${getStatusColor()}`} />;
     }
-    
+
     switch (status) {
       case 'online':
         return <Wifi className={`w-4 h-4 ${getStatusColor()}`} />;
@@ -63,13 +66,29 @@ export function NetworkStatus() {
     }
   };
 
+  const handleNetworkStatusClick = () => {
+    if (status === 'offline') {
+      // Create a network error and trigger the modal
+      const error = new Error('Network connection to exchange failed. Please check your internet connection or try using a VPN.');
+      networkErrorHandler.handleError(error, 'NetworkStatus');
+    }
+  };
+
   return (
-    <div className={`flex items-center gap-2 px-3 py-1.5 ${getStatusBg()} rounded-lg`}>
+    <div
+      className={`flex items-center gap-2 px-3 py-1.5 ${getStatusBg()} rounded-lg cursor-pointer hover:opacity-80 transition-opacity`}
+      onClick={handleNetworkStatusClick}
+      title={status === 'offline' ? 'Click for troubleshooting options' : undefined}
+    >
       {getStatusIcon()}
       <span className={`text-xs font-mono ${getStatusColor()}`}>
-        {status === 'offline' ? 'Offline' : 
-         status === 'degraded' ? `Degraded ${latency}ms` :
-         `Online ${latency}ms`}
+        {status === 'offline' ? (
+          <span className="flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Network Error
+          </span>
+        ) : status === 'degraded' ? `Degraded ${latency}ms` :
+           `Online ${latency}ms`}
       </span>
     </div>
   );

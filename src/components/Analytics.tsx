@@ -83,7 +83,7 @@ export const Analytics: React.FC = () => {
   // Fetch risk performance metrics
   const fetchRiskPerformance = async () => {
     try {
-      const metrics = analyticsService.getRiskMetrics();
+      const metrics = await analyticsService.getRiskMetrics();
       setRiskPerformance(metrics);
     } catch (err) {
       logService.log('error', 'Error fetching risk performance', err, 'Analytics');
@@ -93,7 +93,7 @@ export const Analytics: React.FC = () => {
   // Fetch portfolio performance by strategy
   const fetchPortfolioPerformance = async () => {
     try {
-      const strategies = analyticsService.getStrategiesPerformance();
+      const strategies = await analyticsService.getStrategiesPerformance();
       setPortfolioPerformance(strategies || []);
     } catch (err) {
       logService.log('error', 'Error fetching portfolio performance', err, 'Analytics');
@@ -104,7 +104,7 @@ export const Analytics: React.FC = () => {
   const fetchLiveAssetPrices = async () => {
     try {
       // Get all unique assets from active strategies
-      const assets = analyticsService.getActiveAssets();
+      const assets = await analyticsService.getActiveAssets();
 
       // Fetch current prices for each asset
       const prices = await Promise.all(
@@ -142,7 +142,7 @@ export const Analytics: React.FC = () => {
   // Fetch performance over time
   const fetchPerformanceOverTime = async () => {
     try {
-      const performanceData = analyticsService.getPerformanceHistory();
+      const performanceData = await analyticsService.getPerformanceHistory();
       setPerformanceOverTime(performanceData || []);
     } catch (err) {
       logService.log('error', 'Error fetching performance over time', err, 'Analytics');
@@ -152,7 +152,7 @@ export const Analytics: React.FC = () => {
   // Fetch strategy leaderboard
   const fetchStrategyLeaderboard = async () => {
     try {
-      const leaderboard = analyticsService.getStrategyLeaderboard();
+      const leaderboard = await analyticsService.getStrategyLeaderboard();
       setStrategyLeaderboard(leaderboard || []);
     } catch (err) {
       logService.log('error', 'Error fetching strategy leaderboard', err, 'Analytics');

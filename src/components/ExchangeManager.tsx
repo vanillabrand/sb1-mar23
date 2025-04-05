@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  CircleDollarSign, 
+import {
+  CircleDollarSign,
   Wallet,
-  Shield, 
+  Shield,
   AlertTriangle,
   Trash2,
   Plus,
-  RefreshCw
+  RefreshCw,
+  Check
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { AddExchangeModal } from './AddExchangeModal';
@@ -24,18 +25,33 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [activeExchange, setActiveExchange] = useState<Exchange | null>(null);
 
   const loadExchanges = async () => {
     try {
       setLoading(true);
+      setError(null); // Clear any previous errors
+      setSuccess(null); // Clear any previous success messages
+
+      // Load exchanges from Supabase
       const { data, error } = await supabase
         .from('user_exchanges')
         .select('*');
 
       if (error) throw error;
       setExchanges(data || []);
+
+      // Get the active exchange from the exchange service
+      const active = await exchangeService.getActiveExchange();
+      setActiveExchange(active);
+
+      logService.log('info', 'Loaded exchanges', {
+        count: data?.length || 0,
+        activeExchange: active?.id || 'none'
+      }, 'ExchangeManager');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to load exchanges';
       setError(errorMessage);
@@ -65,8 +81,15 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
 
   const handleAddExchange = async (config: ExchangeConfig) => {
     setTestingConnection(true);
+    setError(null); // Clear any previous errors
+
     try {
       // First test the connection
+      logService.log('info', 'Testing connection to exchange', {
+        exchange: config.name,
+        testnet: config.testnet
+      }, 'ExchangeManager');
+
       await exchangeService.testConnection({
         name: config.name.toLowerCase(),
         apiKey: config.apiKey,
@@ -76,19 +99,29 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
         useUSDX: config.useUSDX
       });
 
+      logService.log('info', 'Connection test successful', null, 'ExchangeManager');
+
       // If test succeeds, add the exchange
       await exchangeService.addExchange(config);
+
+      // Reload the exchanges list
       await loadExchanges();
-      
+
+      // Notify parent component if callback provided
       if (onExchangeAdd) {
         onExchangeAdd(config);
       }
-      
+
+      // Show success message
+      setSuccess(`Successfully connected to ${config.name}${config.testnet ? ' TestNet' : ''}`);
+
+      // Close the modal
       setShowAddModal(false);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to add exchange';
       setError(errorMessage);
-      throw err;
+      logService.log('error', 'Failed to add exchange', err, 'ExchangeManager');
+      // Don't throw the error, just log it and show in the UI
     } finally {
       setTestingConnection(false);
     }
@@ -165,33 +198,78 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
           </div>
         )}
 
-        <div className="space-y-4">
-          {exchanges.map((exchange) => (
-            <div
-              key={exchange.id}
-              className="bg-gunmetal-800/50 rounded-lg p-6 flex items-center justify-between hover:bg-gunmetal-800/70 transition-colors border border-gunmetal-700"
-            >
-              <div className="flex items-center gap-4">
-                <div className="bg-gunmetal-900/50 p-3 rounded-lg">
-                  <Wallet className="w-5 h-5 text-neon-turquoise" />
-                </div>
-                <div>
-                  <h3 className="font-medium text-gray-200">{exchange.name}</h3>
-                  <p className="text-sm text-gray-400">{exchange.memo || 'No memo'}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => handleRemoveExchange(exchange.id)}
-                  className="hover:bg-red-500/10 hover:text-red-400"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </Button>
-              </div>
+        {success && (
+          <div className="mb-6 bg-green-500/10 border border-green-500/20 rounded-lg p-4">
+            <div className="flex items-center gap-2 text-green-400">
+              <Check className="w-5 h-5" />
+              <p>{success}</p>
             </div>
-          ))}
+          </div>
+        )}
+
+        <div className="space-y-4">
+          {exchanges.map((exchange) => {
+            const isActive = activeExchange?.id === exchange.id;
+            return (
+              <div
+                key={exchange.id}
+                className={`bg-gunmetal-800/50 rounded-lg p-6 flex items-center justify-between hover:bg-gunmetal-800/70 transition-colors border ${isActive ? 'border-neon-turquoise/50' : 'border-gunmetal-700'}`}
+              >
+                <div className="flex items-center gap-4">
+                  <div className={`${isActive ? 'bg-neon-turquoise/20' : 'bg-gunmetal-900/50'} p-3 rounded-lg`}>
+                    <Wallet className={`w-5 h-5 ${isActive ? 'text-neon-turquoise' : 'text-gray-400'}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-medium text-gray-200">{exchange.name}</h3>
+                      {isActive && (
+                        <span className="px-2 py-0.5 bg-neon-turquoise/20 text-neon-turquoise text-xs rounded-full">
+                          Active
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-400">{exchange.memo || 'No memo'}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {!isActive && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Set this exchange as active
+                        exchangeService.initializeExchange({
+                          name: exchange.name,
+                          apiKey: exchange.credentials?.apiKey || '',
+                          secret: exchange.credentials?.secret || '',
+                          memo: exchange.memo || '',
+                          testnet: exchange.testnet || false,
+                          useUSDX: false
+                        }).then(() => {
+                          setSuccess(`${exchange.name} is now the active exchange`);
+                          loadExchanges(); // Reload to update active status
+                        }).catch(err => {
+                          setError(`Failed to activate ${exchange.name}: ${err.message}`);
+                        });
+                      }}
+                      className="mr-2"
+                    >
+                      Activate
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleRemoveExchange(exchange.id)}
+                    className="hover:bg-red-500/10 hover:text-red-400"
+                    disabled={isActive} // Can't remove the active exchange
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
 
           {!loading && exchanges.length === 0 && (
             <div className="text-center py-12 bg-gunmetal-900/30 rounded-lg border border-gunmetal-800/30">

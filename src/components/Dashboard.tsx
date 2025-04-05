@@ -5,7 +5,7 @@ import {
   monitoringService,
   logService
 } from '../lib/services';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import {
   StrategyAssetPanel,

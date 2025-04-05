@@ -1,18 +1,18 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  User, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  LogIn, 
-  AlertCircle, 
+import {
+  User,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  LogIn,
+  AlertCircle,
   Check,
   Github,
   MessageSquare
 } from 'lucide-react';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import { Hero } from './Hero';
 import { Reviews } from './Reviews';
@@ -53,7 +53,7 @@ export function Auth() {
       }));
       return false;
     }
-    
+
     if (mode === 'signup' && password.length < 8) {
       setState(prev => ({
         ...prev,
@@ -61,20 +61,20 @@ export function Auth() {
       }));
       return false;
     }
-    
+
     return true;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) return;
-    
+
     setState(prev => ({ ...prev, loading: true, error: null }));
-    
+
     try {
       let mounted = true;
-      
+
       switch (mode) {
         case 'login': {
           const { error: loginError } = await supabase.auth.signInWithPassword({
@@ -95,9 +95,9 @@ export function Auth() {
           });
           if (signupError) throw signupError;
           if (mounted) {
-            setState(prev => ({ 
-              ...prev, 
-              success: 'Account created! Please check your email to verify your account.' 
+            setState(prev => ({
+              ...prev,
+              success: 'Account created! Please check your email to verify your account.'
             }));
           }
           break;
@@ -178,8 +178,8 @@ export function Auth() {
       <div className="max-w-md w-full space-y-8">
         <div className="text-center">
           <h2 className="text-3xl font-bold gradient-text">
-            {mode === 'login' ? 'Welcome Back' : 
-             mode === 'signup' ? 'Create Account' : 
+            {mode === 'login' ? 'Welcome Back' :
+             mode === 'signup' ? 'Create Account' :
              'Reset Password'}
           </h2>
           <p className="mt-2 text-gray-400">
@@ -318,8 +318,8 @@ export function Auth() {
                 <>
                   {mode === 'login' && <LogIn className="w-5 h-5 mr-2" />}
                   {mode === 'signup' && <User className="w-5 h-5 mr-2" />}
-                  {mode === 'login' ? 'Sign In' : 
-                   mode === 'signup' ? 'Create Account' : 
+                  {mode === 'login' ? 'Sign In' :
+                   mode === 'signup' ? 'Create Account' :
                    'Reset Password'}
                 </>
               )}

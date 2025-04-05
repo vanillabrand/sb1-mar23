@@ -4,7 +4,7 @@ import { Brain, Plus, Search, Filter, Loader2, AlertCircle, RefreshCw } from 'lu
 import { Toaster } from 'react-hot-toast';
 import { useStrategies } from '../hooks/useStrategies';
 import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { directDeleteStrategy } from '../lib/direct-delete';
 import { eventBus } from '../lib/event-bus';
 import { logService } from '../lib/log-service';
@@ -29,6 +29,7 @@ import type {
 } from '../lib/types';
 import { templateService } from '../lib/template-service';
 import { templateGenerator } from '../lib/template-generator';
+import { templateManager } from '../lib/template-manager';
 import type { StrategyTemplate, StrategyBudget } from '../lib/types';
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
@@ -164,7 +165,36 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
       if (newStrategy) {
         console.log('Strategy creation event received:', newStrategy.id);
-        // Force a refresh to get the new strategy
+
+        // Immediately add the new strategy to the list
+        if (strategies) {
+          // Update the main strategies list
+          const updatedStrategies = [...strategies, newStrategy];
+
+          // Update filtered strategies
+          setFilteredStrategies(prevFiltered => {
+            // Only add if not already in the list
+            if (!prevFiltered.some(s => s.id === newStrategy.id)) {
+              return [...prevFiltered, newStrategy];
+            }
+            return prevFiltered;
+          });
+
+          // Update paginated strategies to show the new strategy immediately
+          setPaginatedStrategies(prevPaginated => {
+            // Only add if not already in the list
+            if (!prevPaginated.some(s => s.id === newStrategy.id)) {
+              // If we're on the first page or there are fewer items than the page size,
+              // add the new strategy to the current page
+              if (currentPage === 1 || prevPaginated.length < ITEMS_PER_PAGE) {
+                return [...prevPaginated, newStrategy];
+              }
+            }
+            return prevPaginated;
+          });
+        }
+
+        // Also force a refresh to ensure everything is in sync
         refreshStrategies();
       }
     };
@@ -175,7 +205,11 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
       if (updatedStrategies) {
         console.log('Strategies list update event received:', updatedStrategies.length, 'strategies');
-        // Force a refresh of the strategies list
+
+        // Immediately update the UI with the new strategies
+        setFilteredStrategies(updatedStrategies);
+
+        // Also force a refresh to ensure everything is in sync
         refreshStrategies();
       }
     };
@@ -183,14 +217,14 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     // Add the event listeners
     document.addEventListener('strategy:remove', handleStrategyRemove);
     document.addEventListener('strategy:update', handleStrategyUpdate);
-    document.addEventListener('strategy:create', handleStrategyCreate);
+    document.addEventListener('strategy:created', handleStrategyCreate);
     document.addEventListener('strategies:updated', handleStrategiesUpdated);
 
     return () => {
       // Remove the event listeners
       document.removeEventListener('strategy:remove', handleStrategyRemove);
       document.removeEventListener('strategy:update', handleStrategyUpdate);
-      document.removeEventListener('strategy:create', handleStrategyCreate);
+      document.removeEventListener('strategy:created', handleStrategyCreate);
       document.removeEventListener('strategies:updated', handleStrategiesUpdated);
     };
   }, [strategies, refreshStrategies]);
@@ -309,6 +343,26 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     } catch (error) {
       setTemplateError('Failed to load templates');
       logService.log('error', 'Failed to load templates', error, 'StrategyManager');
+    } finally {
+      setLoadingTemplates(false);
+    }
+  };
+
+  const handleRegenerateTemplates = async () => {
+    try {
+      setLoadingTemplates(true);
+      setTemplateError(null);
+
+      // Clear and regenerate templates
+      await templateManager.clearAndRegenerateTemplates();
+
+      // Reload templates
+      await loadTemplates();
+
+      logService.log('info', 'Successfully regenerated templates', null, 'StrategyManager');
+    } catch (error) {
+      setTemplateError('Failed to regenerate templates');
+      logService.log('error', 'Failed to regenerate templates', error, 'StrategyManager');
     } finally {
       setLoadingTemplates(false);
     }
@@ -864,7 +918,21 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             <div className="lg:w-1/2 bg-gunmetal-900/50 rounded-xl p-6 border border-gunmetal-700/50">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-gray-200">Template Strategies</h2>
-                <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRegenerateTemplates}
+                    className="flex items-center gap-2 px-3 py-1 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all duration-300 text-sm"
+                    disabled={loadingTemplates}
+                  >
+                    {loadingTemplates ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    Regenerate
+                  </button>
+                  <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
+                </div>
               </div>
 
               {loadingTemplates ? (
@@ -1000,6 +1068,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                           onRefresh={refreshStrategies}
                           onEdit={handleEditStrategy}
                           onDelete={handleDeleteStrategy}
+                          hideExpandArrow={true} // Hide the expand arrow in Your Strategies section
                           // Deliberately not passing onActivate and onDeactivate to hide those buttons
                         />
                       </motion.div>

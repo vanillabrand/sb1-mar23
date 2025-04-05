@@ -328,6 +328,7 @@ export class TemplateGenerator {
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
+        name: template.title, // Explicitly set name field to match title
         description: template.description,
         riskLevel: riskLevel as any,
         type: 'custom', // Mark as custom since it's now owned by the user
@@ -339,6 +340,14 @@ export class TemplateGenerator {
           exitConditions: {}
         }
       });
+
+      // Log the strategy creation for debugging
+      logService.log('debug', 'Created strategy from template in createStrategyFromTemplate', {
+        templateId,
+        strategyId: strategy.id,
+        title: template.title,
+        name: strategy.name
+      }, 'TemplateGenerator');
 
       logService.log('info', `Created strategy from template ${templateId}`, { strategyId: strategy.id, userId }, 'TemplateGenerator');
 
@@ -373,6 +382,7 @@ export class TemplateGenerator {
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
+        name: template.title, // Explicitly set name field to match title
         description: template.description,
         riskLevel: riskLevel as any,
         type: 'custom', // Mark as custom since it's now owned by the user
@@ -384,6 +394,14 @@ export class TemplateGenerator {
           exitConditions: {}
         }
       });
+
+      // Log the strategy creation for debugging
+      logService.log('debug', 'Created strategy from template in copyTemplateToStrategy', {
+        templateId,
+        strategyId: strategy.id,
+        title: template.title,
+        name: strategy.name
+      }, 'TemplateGenerator');
 
       logService.log('info', `Created strategy from template ${templateId}`,
         { strategyId: strategy.id, userId: session.user.id }, 'TemplateGenerator');

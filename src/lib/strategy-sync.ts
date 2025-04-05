@@ -383,36 +383,10 @@ class StrategySync extends EventEmitter {
         logService.log('error', 'Failed to create strategy', error, 'StrategySync');
 
         // If we get any error, try a more minimal approach
-        try {
-          // Check if the error is related to missing columns
-          if (error.message && (error.message.includes('title') || error.message.includes('schema cache'))) {
-            logService.log('warn', 'Database schema issue detected, trying to fix schema', error, 'StrategySync');
+        logService.log('warn', 'Error creating strategy, trying fallback approach', error, 'StrategySync');
 
-            // Import and use the dbSchemaFixer
-            const { dbSchemaFixer } = await import('./db-schema-fixer');
-            const schemaFixed = await dbSchemaFixer.fixDatabaseSchema();
-
-            if (schemaFixed) {
-              logService.log('info', 'Database schema fixed, retrying strategy creation', null, 'StrategySync');
-
-              // Try again with the original data after schema fix
-              const { data: fixedStrategy, error: fixedError } = await supabase
-                .from('strategies')
-                .insert(strategyData)
-                .select()
-                .single();
-
-              if (fixedError) {
-                logService.log('error', 'Failed to create strategy after schema fix', fixedError, 'StrategySync');
-              } else if (fixedStrategy) {
-                logService.log('info', 'Successfully created strategy after schema fix', null, 'StrategySync');
-                return fixedStrategy;
-              }
-            }
-          }
-
-          // If schema fix didn't work or wasn't needed, try with minimal data
-          const minimalData = {
+        // Try with minimal data
+        const minimalData = {
             user_id: session.user.id,
             title: data.title || 'New Strategy',
             name: data.name || data.title || 'New Strategy', // Use title as fallback for name
@@ -439,10 +413,6 @@ class StrategySync extends EventEmitter {
 
           logService.log('info', 'Successfully created strategy with minimal data', null, 'StrategySync');
           return minimalStrategy;
-        } catch (fallbackError) {
-          logService.log('error', 'All attempts to create strategy failed', fallbackError, 'StrategySync');
-          throw error; // Throw the original error
-        }
       }
 
       if (!strategy) {

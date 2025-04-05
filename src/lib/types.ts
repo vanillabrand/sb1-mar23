@@ -161,6 +161,7 @@ export interface StrategyTemplate {
   updated_at: string;
   performance?: number; // Not in the database schema
   selected_pairs?: string[]; // Not in the database schema, stored in strategy_config
+  assets?: string[]; // New column added to the database schema
   strategy_config?: any; // Contains selected_pairs and other config
   config?: any; // Alternative field name that might be in the database
   data?: any; // Alternative field name that might be in the database
@@ -174,6 +175,7 @@ export interface StrategyTemplate {
 
 export interface CreateStrategyData {
   title: string;
+  name?: string; // Added name field to match database schema requirement
   description: string;
   riskLevel: RiskLevel;
   type?: string;

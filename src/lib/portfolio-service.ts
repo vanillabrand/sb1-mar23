@@ -1,4 +1,4 @@
-import { supabase } from './supabase-client';
+import { supabase } from './supabase';
 import { logService } from './log-service';
 import { transactionService } from './transaction-service';
 import { EventEmitter } from './event-emitter';

@@ -7,15 +7,14 @@ import {
   Settings,
   Brain,
   History,
-  BookOpen,
-  StickyNote,
+
   AlertCircle,
   Building2,
   Monitor,
   Bug,
   LogOut
 } from 'lucide-react';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { strategyService } from '../lib/strategy-service';
 import { logService } from '../lib/log-service';
 
@@ -125,16 +124,7 @@ export const Sidebar: React.FC = () => {
           icon={<LineChart className="w-5 h-5" />}
           label="Analytics"
         />
-        <NavItem
-          to="/documentation"
-          icon={<BookOpen className="w-5 h-5" />}
-          label="Documentation"
-        />
-        <NavItem
-          to="/notes"
-          icon={<StickyNote className="w-5 h-5" />}
-          label="Notes"
-        />
+
         <NavItem
           to="/settings"
           icon={<Settings className="w-5 h-5" />}

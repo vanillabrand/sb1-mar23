@@ -533,11 +533,45 @@ class MarketMonitor extends EventEmitter {
 
   public addStrategy(strategy: Strategy): void {
     this.strategies.push(strategy);
+    // Initialize market data for this strategy if it doesn't exist
+    if (!this.marketData.has(strategy.id)) {
+      this.marketData.set(strategy.id, this.createInitialMarketData());
+    }
   }
 
   public removeStrategy(strategyId: string): void {
     this.strategies = this.strategies.filter(s => s.id !== strategyId);
     this.marketData.delete(strategyId);
+  }
+
+  /**
+   * Add an asset to be monitored
+   * @param symbol The trading pair symbol to monitor
+   */
+  public async addAsset(symbol: string): Promise<void> {
+    try {
+      logService.log('info', `Adding asset ${symbol} to market monitor`, null, 'MarketMonitor');
+      // For now, we don't need to do anything special
+      // In a real implementation, this would subscribe to market data for this asset
+      return Promise.resolve();
+    } catch (error) {
+      logService.log('error', `Failed to add asset ${symbol}`, error, 'MarketMonitor');
+      return Promise.resolve(); // Don't throw to prevent application crashes
+    }
+  }
+
+  /**
+   * Remove an asset from monitoring
+   * @param symbol The trading pair symbol to stop monitoring
+   */
+  public removeAsset(symbol: string): void {
+    try {
+      logService.log('info', `Removing asset ${symbol} from market monitor`, null, 'MarketMonitor');
+      // For now, we don't need to do anything special
+      // In a real implementation, this would unsubscribe from market data for this asset
+    } catch (error) {
+      logService.log('error', `Failed to remove asset ${symbol}`, error, 'MarketMonitor');
+    }
   }
 }
 

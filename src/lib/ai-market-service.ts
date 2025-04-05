@@ -1,9 +1,10 @@
 import { logService } from './log-service';
 import type { MarketInsight } from './types';
+import { config } from './config';
 
 class AIMarketService {
   private static instance: AIMarketService;
-  private readonly API_URL = 'https://api.deepseek.com/v1/chat/completions';  // Updated endpoint
+  private readonly API_URL = config.getFullUrl(config.deepseekApiUrl + '/v1/chat/completions');  // Use full proxy URL
   private readonly MODEL = 'deepseek-chat';  // Updated model name
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000;

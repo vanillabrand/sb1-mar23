@@ -2,15 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from './hooks/useAuth';
 import { LoadingScreen } from './components/LoadingScreen';
 import { AppContent } from './components/AppContent';
+import { NetworkErrorProvider } from './components';
 import { logService } from './lib/log-service';
 import { systemSync } from './lib/system-sync';
 import { analyticsService } from './lib/analytics-service';
 import { templateManager } from './lib/template-manager';
-import { dbSchemaFixer } from './lib/db-schema-fixer';
+
 import { demoTradeGenerator } from './lib/demo-trade-generator';
+import { tradeGenerator } from './lib/trade-generator';
 import { tradeEngine } from './lib/trade-engine';
 import { demoService } from './lib/demo-service';
 import { walletBalanceService } from './lib/wallet-balance-service';
+import { dbSchemaFixer } from './lib/db-schema-fixer';
 import { Preloader } from './components/Preloader';
 import { Toaster } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
@@ -70,6 +73,14 @@ function App() {
         { name: 'trading', fn: () => tradeEngine.initialize() },
         { name: 'wallet', fn: () => walletBalanceService.initialize() },
         { name: 'demo', fn: () => Promise.resolve(demoService.isInDemoMode()) },
+        { name: 'tradeGenerator', fn: async () => {
+          if (!demoService.isInDemoMode()) {
+            console.log('App: Initializing trade generator for normal mode');
+            await tradeGenerator.initialize();
+            return true;
+          }
+          return false;
+        }},
         { name: 'demoTrading', fn: async () => {
           if (demoService.isInDemoMode()) {
             console.log('App: Initializing demo trade generator for demo mode');
@@ -208,7 +219,11 @@ function App() {
   }
 
   // Render main app content
-  return <AppContent isReady={isAppReady} />;
+  return (
+    <NetworkErrorProvider>
+      <AppContent isReady={isAppReady} />
+    </NetworkErrorProvider>
+  );
 }
 
 export default App;

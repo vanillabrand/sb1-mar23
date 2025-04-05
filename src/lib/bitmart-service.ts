@@ -2,6 +2,7 @@ import CryptoJS from 'crypto-js';
 import { websocketService } from './websocket-service';
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
+import { config } from './config';
 
 interface BitmartConfig {
   apiKey: string;
@@ -59,8 +60,8 @@ interface TradingPair {
 class BitmartService extends EventEmitter {
   private static instance: BitmartService;
   private config: BitmartConfig | null = null;
-  // Change this to use the proxy URL instead of direct BitMart API
-  private baseUrl = '/api/bitmart'; // Changed from 'https://api-cloud.bitmart.com'
+  // Store the original BitMart API URL for reference
+  private baseUrl = 'https://api-cloud-v2.bitmart.com';
   private demoMode = false;
   private useUSDX = false;
   private serverTimeOffset = 0;
@@ -183,7 +184,18 @@ class BitmartService extends EventEmitter {
       mode: 'cors'
     };
 
-    // Don't rewrite the URL since we're using relative paths now
+    // Rewrite the URL to use our proxy server
+    const proxyBaseUrl = config.proxyUrl || 'http://localhost:3001';
+
+    // Extract the path from the original URL
+    let path = url;
+    if (url.startsWith(this.baseUrl)) {
+      path = url.substring(this.baseUrl.length);
+    }
+
+    // Create the proxied URL
+    const proxiedUrl = `${proxyBaseUrl}/api/bitmart${path}`;
+
     const finalOptions = {
       ...defaultOptions,
       ...options,
@@ -194,8 +206,8 @@ class BitmartService extends EventEmitter {
     };
 
     try {
-      logService.log('info', `Fetching from ${url}`, null, 'BitmartService');
-      const response = await fetch(url, finalOptions);
+      logService.log('info', `Fetching from ${url} via proxy ${proxiedUrl}`, null, 'BitmartService');
+      const response = await fetch(proxiedUrl, finalOptions);
 
       // Check if the response is OK
       if (!response.ok) {
@@ -342,7 +354,11 @@ class BitmartService extends EventEmitter {
 
       // In real mode, subscribe via WebSocket
       try {
-        await websocketService.subscribe(`spot/ticker:${normalizedSymbol}`);
+        // Use send method instead of subscribe
+        await websocketService.send({
+          type: 'subscribe',
+          channels: [`spot/ticker:${normalizedSymbol}`]
+        });
         logService.log('info', `Subscribed to ${normalizedSymbol}`, null, 'BitmartService');
       } catch (wsError) {
         logService.log('error', `Failed to subscribe to ${normalizedSymbol} via WebSocket`, wsError, 'BitmartService');
@@ -434,13 +450,12 @@ class BitmartService extends EventEmitter {
 
       // In real mode, unsubscribe via WebSocket
       try {
-        // Check if websocketService has an unsubscribe method
-        if (typeof websocketService.unsubscribe === 'function') {
-          await websocketService.unsubscribe(`spot/ticker:${normalizedSymbol}`);
-          logService.log('info', `Unsubscribed from ${normalizedSymbol}`, null, 'BitmartService');
-        } else {
-          logService.log('info', `WebSocket unsubscribe not available for ${normalizedSymbol}`, null, 'BitmartService');
-        }
+        // Use send method to unsubscribe
+        await websocketService.send({
+          type: 'unsubscribe',
+          channels: [`spot/ticker:${normalizedSymbol}`]
+        });
+        logService.log('info', `Unsubscribed from ${normalizedSymbol}`, null, 'BitmartService');
       } catch (wsError) {
         logService.log('error', `Failed to unsubscribe from ${normalizedSymbol} via WebSocket`, wsError, 'BitmartService');
       }
@@ -546,6 +561,183 @@ class BitmartService extends EventEmitter {
       };
     }
     return {};
+  }
+
+  /**
+   * Get historical kline (candlestick) data for a symbol
+   * @param symbol The trading symbol (e.g., 'BTC_USDT')
+   * @param startTime Start time in seconds
+   * @param endTime End time in seconds
+   * @param interval Interval for the klines (e.g., '1m', '5m', '1h')
+   * @returns Array of kline data
+   */
+  async getKlines(symbol: string, startTime: number, endTime: number, interval: string): Promise<any[]> {
+    try {
+      // Normalize the symbol format if needed
+      const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
+
+      if (this.demoMode) {
+        // In demo mode, generate synthetic kline data
+        return this.generateSyntheticKlines(normalizedSymbol, startTime, endTime, interval);
+      }
+
+      // In real mode, fetch from the API
+      const url = `${this.baseUrl}/spot/v1/symbols/kline?symbol=${normalizedSymbol}&from=${startTime}&to=${endTime}&step=${this.getIntervalInMinutes(interval)}`;
+
+      const response = await this.fetchWithCORS(url);
+      const data = await response.json();
+
+      if (data && data.data && data.data.klines) {
+        return data.data.klines.map((kline: any) => [
+          parseInt(kline.timestamp) * 1000, // Convert to milliseconds
+          kline.open,
+          kline.high,
+          kline.low,
+          kline.close,
+          kline.volume
+        ]);
+      }
+
+      return [];
+    } catch (error) {
+      logService.log('error', `Failed to get klines for ${symbol}`, error, 'BitmartService');
+
+      // Fall back to synthetic data on error
+      const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
+      return this.generateSyntheticKlines(normalizedSymbol, startTime, endTime, interval);
+    }
+  }
+
+  /**
+   * Generate synthetic kline data for demo mode
+   * @param symbol The trading symbol
+   * @param startTime Start time in seconds
+   * @param endTime End time in seconds
+   * @param interval Interval for the klines
+   * @returns Array of synthetic kline data
+   */
+  private generateSyntheticKlines(symbol: string, startTime: number, endTime: number, interval: string): any[] {
+    const intervalMs = this.getIntervalInMilliseconds(interval);
+    const basePrice = this.getBasePriceForSymbol(symbol);
+    const klines = [];
+
+    // Convert to milliseconds
+    const startTimeMs = startTime * 1000;
+    const endTimeMs = endTime * 1000;
+
+    // Generate klines for each interval
+    for (let time = startTimeMs; time <= endTimeMs; time += intervalMs) {
+      // Generate a random price movement (-0.5% to +0.5%)
+      const priceMovement = (Math.random() - 0.5) * 0.01;
+      const open = basePrice * (1 + (Math.random() - 0.5) * 0.01);
+      const close = open * (1 + priceMovement);
+      const high = Math.max(open, close) * (1 + Math.random() * 0.005); // Up to 0.5% higher
+      const low = Math.min(open, close) * (1 - Math.random() * 0.005); // Up to 0.5% lower
+      const volume = basePrice * (Math.random() * 100 + 50); // Random volume
+
+      klines.push([
+        time,
+        open.toFixed(2),
+        high.toFixed(2),
+        low.toFixed(2),
+        close.toFixed(2),
+        volume.toFixed(2)
+      ]);
+    }
+
+    return klines;
+  }
+
+  /**
+   * Convert interval string to minutes
+   * @param interval Interval string (e.g., '1m', '5m', '1h')
+   * @returns Interval in minutes
+   */
+  private getIntervalInMinutes(interval: string): number {
+    const unit = interval.slice(-1);
+    const value = parseInt(interval.slice(0, -1));
+
+    switch (unit) {
+      case 'm': return value;
+      case 'h': return value * 60;
+      case 'd': return value * 60 * 24;
+      case 'w': return value * 60 * 24 * 7;
+      default: return 1; // Default to 1 minute
+    }
+  }
+
+  /**
+   * Convert interval string to milliseconds
+   * @param interval Interval string (e.g., '1m', '5m', '1h')
+   * @returns Interval in milliseconds
+   */
+  private getIntervalInMilliseconds(interval: string): number {
+    return this.getIntervalInMinutes(interval) * 60 * 1000;
+  }
+
+  /**
+   * Get current ticker data for a symbol
+   * @param symbol The trading symbol (e.g., 'BTC_USDT')
+   * @returns Ticker data including bid, ask, and last price
+   */
+  async getTicker(symbol: string): Promise<any> {
+    try {
+      // Normalize the symbol format if needed
+      const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
+
+      if (this.demoMode) {
+        // In demo mode, generate synthetic ticker data
+        return this.generateSyntheticTicker(normalizedSymbol);
+      }
+
+      // In real mode, fetch from the API
+      const url = `${this.baseUrl}/spot/v1/ticker?symbol=${normalizedSymbol}`;
+
+      const response = await this.fetchWithCORS(url);
+      const data = await response.json();
+
+      if (data && data.data && data.data.tickers && data.data.tickers.length > 0) {
+        const ticker = data.data.tickers[0];
+        return {
+          bid: parseFloat(ticker.best_bid),
+          ask: parseFloat(ticker.best_ask),
+          last_price: parseFloat(ticker.last_price),
+          volume_24h: parseFloat(ticker.volume),
+          timestamp: Date.now()
+        };
+      }
+
+      // Fall back to synthetic data if API doesn't return expected format
+      return this.generateSyntheticTicker(normalizedSymbol);
+    } catch (error) {
+      logService.log('error', `Failed to get ticker for ${symbol}`, error, 'BitmartService');
+
+      // Fall back to synthetic data on error
+      const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
+      return this.generateSyntheticTicker(normalizedSymbol);
+    }
+  }
+
+  /**
+   * Generate synthetic ticker data for demo mode
+   * @param symbol The trading symbol
+   * @returns Synthetic ticker data
+   */
+  private generateSyntheticTicker(symbol: string): any {
+    const basePrice = this.getBasePriceForSymbol(symbol);
+
+    // Add some randomness to the price
+    const lastPrice = basePrice * (1 + (Math.random() - 0.5) * 0.01);
+    const bid = lastPrice * 0.999;
+    const ask = lastPrice * 1.001;
+
+    return {
+      bid,
+      ask,
+      last_price: lastPrice.toString(),
+      volume_24h: (basePrice * 100 * (0.5 + Math.random())).toString(),
+      timestamp: Date.now()
+    };
   }
 }
 

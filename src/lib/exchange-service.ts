@@ -2,6 +2,7 @@ import { EventEmitter } from './event-emitter';
 import CryptoJS from 'crypto-js';
 import { supabase } from './supabase';
 import { logService } from './log-service';
+import { networkErrorHandler } from './network-error-handler';
 import type {
   Exchange,
   ExchangeConfig,
@@ -11,6 +12,7 @@ import type {
 } from './types';
 import { ccxtService } from './ccxt-service';
 import * as ccxt from 'ccxt';
+import { config } from './config';
 
 class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
@@ -73,8 +75,52 @@ class ExchangeService extends EventEmitter {
     }
   }
 
+  /**
+   * Get the currently active exchange
+   * @returns The active exchange or null if none is active
+   */
   async getActiveExchange(): Promise<Exchange | null> {
-    return this.activeExchange;
+    try {
+      // If we have an active exchange in memory, return it
+      if (this.activeExchange) {
+        const { data, error } = await supabase
+          .from('user_exchanges')
+          .select('*')
+          .eq('name', this.activeExchange.id)
+          .single();
+
+        if (!error && data) {
+          return data;
+        }
+      }
+
+      // Try to get from localStorage
+      const activeExchangeStr = localStorage.getItem('activeExchange');
+      if (activeExchangeStr) {
+        try {
+          const activeExchangeInfo = JSON.parse(activeExchangeStr);
+          if (activeExchangeInfo && activeExchangeInfo.id) {
+            const { data, error } = await supabase
+              .from('user_exchanges')
+              .select('*')
+              .eq('name', activeExchangeInfo.id)
+              .single();
+
+            if (!error && data) {
+              return data;
+            }
+          }
+        } catch (e) {
+          console.error('Failed to parse active exchange from localStorage:', e);
+        }
+      }
+
+      // If no active exchange, return null
+      return null;
+    } catch (error) {
+      logService.log('error', 'Failed to get active exchange', error, 'ExchangeService');
+      return null;
+    }
   }
 
   async connect(exchange: Exchange): Promise<void> {
@@ -127,11 +173,8 @@ class ExchangeService extends EventEmitter {
         config.testnet // Pass testnet flag to ensure proper endpoint usage
       );
 
-      // Configure proxy if available
-      if (import.meta.env.VITE_PROXY_URL) {
-        testInstance.proxy = import.meta.env.VITE_PROXY_URL;
-        logService.log('info', `Using proxy for exchange connection: ${import.meta.env.VITE_PROXY_URL}`, null, 'ExchangeService');
-      }
+      // Proxy configuration is now handled in ccxt-service.ts
+      logService.log('info', 'Using proxy configuration from ccxt-service.ts', null, 'ExchangeService');
 
       // Increase timeout for API calls
       testInstance.timeout = 30000; // 30 seconds
@@ -161,9 +204,32 @@ class ExchangeService extends EventEmitter {
       // Handle network errors specifically
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-      if (errorMessage.includes('fetch failed') || errorMessage.includes('NetworkError')) {
-        logService.log('error', 'Network connection to exchange failed', error, 'ExchangeService');
-        throw new Error(`Network connection to exchange failed. Please check your internet connection or try using a VPN. If you're using Binance, ensure your location allows access to Binance API.`);
+      // Log detailed information about the error
+      logService.log('error', 'Exchange connection test failed', {
+        error,
+        errorMessage,
+        exchangeName: config.name,
+        testnet: config.testnet,
+        hasApiKey: !!config.apiKey,
+        hasSecret: !!config.secret,
+        apiKeyLength: config.apiKey ? config.apiKey.length : 0,
+        secretLength: config.secret ? config.secret.length : 0
+      }, 'ExchangeService');
+
+      console.error('Exchange connection test failed:', {
+        error,
+        errorMessage,
+        exchangeName: config.name,
+        testnet: config.testnet,
+        hasApiKey: !!config.apiKey,
+        hasSecret: !!config.secret
+      });
+
+      if (networkErrorHandler.isNetworkError(error)) {
+        // Let the network error handler handle this error
+        const formattedError = new Error(networkErrorHandler.formatNetworkErrorMessage(error instanceof Error ? error : new Error(errorMessage)));
+        networkErrorHandler.handleError(formattedError, 'ExchangeService.testConnection');
+        throw formattedError;
       }
 
       if (errorMessage.includes('Invalid API-key') || errorMessage.includes('API-key format invalid')) {
@@ -173,8 +239,6 @@ class ExchangeService extends EventEmitter {
       if (errorMessage.includes('permission') || errorMessage.includes('permissions')) {
         throw new Error(`Your API key doesn't have the required permissions. Please ensure it has 'Read' access at minimum.`);
       }
-
-      logService.log('error', 'Exchange connection test failed', error, 'ExchangeService');
       throw new Error(`Connection test failed: ${errorMessage}`);
     }
   }
@@ -360,6 +424,16 @@ class ExchangeService extends EventEmitter {
 
     this.initializationPromise = (async () => {
       try {
+        logService.log('info', 'Initializing exchange', {
+          exchangeName: config.name,
+          testnet: config.testnet,
+          hasApiKey: !!config.apiKey,
+          hasSecret: !!config.secret
+        }, 'ExchangeService');
+
+        // Save the exchange configuration to localStorage for persistence
+        this.saveExchangeConfig(config);
+
         if (config.testnet) {
           this.demoMode = true;
           await this.initializeDemoExchange(config);
@@ -372,18 +446,46 @@ class ExchangeService extends EventEmitter {
             console.warn('Failed to initialize futures exchange, continuing with spot only:', futuresError);
           }
         } else {
-          const exchange = await ccxtService.createExchange(
-            config.name as ExchangeId,
-            {
-              apiKey: config.apiKey,
-              secret: config.secret,
-              memo: config.memo
-            },
-            config.testnet
-          );
+          // User's own exchange
+          this.demoMode = false;
+          logService.log('info', `Initializing user exchange: ${config.name}`, null, 'ExchangeService');
+          console.log(`Initializing user exchange: ${config.name}`);
 
-          this.exchangeInstances.set(config.name, exchange);
-          await exchange.loadMarkets();
+          try {
+            // Create the exchange instance with the user's credentials
+            const exchange = await ccxtService.createExchange(
+              config.name as ExchangeId,
+              {
+                apiKey: config.apiKey,
+                secret: config.secret,
+                memo: config.memo
+              },
+              config.testnet
+            );
+
+            // Test the connection by loading markets
+            logService.log('info', 'Testing connection by loading markets', null, 'ExchangeService');
+            await exchange.loadMarkets();
+            logService.log('info', 'Successfully loaded markets', null, 'ExchangeService');
+
+            // Store the exchange instance
+            this.exchangeInstances.set(config.name, exchange);
+
+            // Try to fetch balance to verify API key permissions
+            try {
+              logService.log('info', 'Testing API key permissions by fetching balance', null, 'ExchangeService');
+              await exchange.fetchBalance();
+              logService.log('info', 'Successfully fetched balance', null, 'ExchangeService');
+            } catch (balanceError) {
+              logService.log('warn', 'Could not fetch balance, API key may have limited permissions', balanceError, 'ExchangeService');
+              console.warn('Could not fetch balance, API key may have limited permissions:', balanceError);
+              // Continue anyway, as read-only API keys are still useful
+            }
+          } catch (error) {
+            logService.log('error', `Failed to initialize ${config.name} exchange`, error, 'ExchangeService');
+            console.error(`Failed to initialize ${config.name} exchange:`, error);
+            throw new Error(`Failed to connect to ${config.name}. Please check your API credentials and try again.`);
+          }
         }
 
         this.initialized = true;
@@ -397,7 +499,14 @@ class ExchangeService extends EventEmitter {
           }
         };
 
+        // Store the active exchange in localStorage
+        localStorage.setItem('activeExchange', JSON.stringify({
+          id: config.name,
+          testnet: config.testnet
+        }));
+
         this.emit('exchange:initialized');
+        logService.log('info', `Exchange ${config.name} successfully initialized`, null, 'ExchangeService');
       } catch (error) {
         logService.log('error', 'Failed to initialize exchange', error, 'ExchangeService');
         throw error;
@@ -409,15 +518,43 @@ class ExchangeService extends EventEmitter {
     return this.initializationPromise;
   }
 
+  // Helper method to save exchange configuration
+  private saveExchangeConfig(config: ExchangeConfig): void {
+    try {
+      // Get existing configurations
+      const existingConfigsStr = localStorage.getItem('exchangeConfigs');
+      const existingConfigs = existingConfigsStr ? JSON.parse(existingConfigsStr) : {};
+
+      // Update or add the new configuration
+      existingConfigs[config.name] = {
+        name: config.name,
+        testnet: config.testnet,
+        memo: config.memo,
+        // Don't store actual API keys in localStorage for security
+        hasApiKey: !!config.apiKey,
+        hasSecret: !!config.secret
+      };
+
+      // Save back to localStorage
+      localStorage.setItem('exchangeConfigs', JSON.stringify(existingConfigs));
+
+      logService.log('info', `Saved exchange configuration for ${config.name}`, null, 'ExchangeService');
+    } catch (error) {
+      logService.log('error', 'Failed to save exchange configuration', error, 'ExchangeService');
+      console.error('Failed to save exchange configuration:', error);
+    }
+  }
+
   private async initializeFuturesExchange(_config: ExchangeConfig): Promise<void> {
     try {
       // Get API keys from environment variables
-      const apiKey = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_KEY || process.env.BINANCE_FUTURES_TESTNET_API_KEY;
-      const apiSecret = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_SECRET || process.env.BINANCE_FUTURES_TESTNET_API_SECRET;
+      const apiKey = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_KEY || process.env.BINANCE_FUTURES_TESTNET_API_KEY || '';
+      const apiSecret = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_SECRET || process.env.BINANCE_FUTURES_TESTNET_API_SECRET || '';
 
       if (!apiKey || !apiSecret) {
         logService.log('warn', 'Missing Binance Futures TestNet API credentials', null, 'ExchangeService');
         console.warn('Missing Binance Futures TestNet API credentials. Please check your .env file.');
+        return; // Exit early if credentials are missing
       }
 
       // Create a new CCXT exchange instance for Binance Futures
@@ -433,20 +570,10 @@ class ExchangeService extends EventEmitter {
       // Configure the exchange for futures trading
       futuresExchange.options.defaultType = 'future';
 
-      // Set the base URLs for the Binance Futures TestNet
-      const testnetBaseUrl = import.meta.env.VITE_PROXY_URL ?
-        `${import.meta.env.VITE_PROXY_URL}binanceFutures` :
-        'https://testnet.binancefuture.com';
+      // URLs are now configured in ccxt-service.ts
+      console.log('Using Binance Futures TestNet URLs from ccxt-service.ts');
 
-      console.log('Using Binance Futures TestNet base URL:', testnetBaseUrl);
-
-      futuresExchange.urls.api = {
-        ...futuresExchange.urls.api,
-        fapiPublic: `${testnetBaseUrl}/fapi/v1`,
-        fapiPrivate: `${testnetBaseUrl}/fapi/v1`,
-        fapiPublicV2: `${testnetBaseUrl}/fapi/v2`,
-        fapiPrivateV2: `${testnetBaseUrl}/fapi/v2`,
-      };
+      // No need to manually set URLs here as they're configured in ccxt-service.ts
 
       this.exchangeInstances.set('binanceFutures', futuresExchange);
 
@@ -455,28 +582,35 @@ class ExchangeService extends EventEmitter {
     } catch (error) {
       logService.log('error', 'Failed to initialize Binance Futures TestNet exchange', error, 'ExchangeService');
       console.error('Failed to initialize Binance Futures TestNet exchange:', error);
-      throw error;
+      // Don't throw the error, just log it and continue
+      // This allows the application to work even if futures initialization fails
     }
   }
 
   private async initializeDemoExchange(_config: ExchangeConfig): Promise<void> {
     try {
       // Get API keys from environment variables, trying both VITE_ prefixed and non-prefixed versions
-      const apiKey = import.meta.env.VITE_BINANCE_TEST_API_KEY || process.env.BINANCE_TESTNET_API_KEY;
-      const apiSecret = import.meta.env.VITE_BINANCE_TEST_API_SECRET || process.env.BINANCE_TESTNET_API_SECRET;
+      const apiKey = import.meta.env.VITE_BINANCE_TESTNET_API_KEY || process.env.BINANCE_TESTNET_API_KEY || '';
+      const apiSecret = import.meta.env.VITE_BINANCE_TESTNET_API_SECRET || process.env.BINANCE_TESTNET_API_SECRET || '';
+
+      console.log('Environment variables:', {
+        VITE_BINANCE_TESTNET_API_KEY: import.meta.env.VITE_BINANCE_TESTNET_API_KEY ? 'present' : 'missing',
+        VITE_BINANCE_TESTNET_API_SECRET: import.meta.env.VITE_BINANCE_TESTNET_API_SECRET ? 'present' : 'missing',
+      });
 
       if (!apiKey || !apiSecret) {
         logService.log('warn', 'Missing Binance TestNet API credentials', null, 'ExchangeService');
         console.warn('Missing Binance TestNet API credentials. Please check your .env file.');
+        // Continue anyway with empty strings, which will result in mock data being used
       }
 
-      console.log('Initializing Binance TestNet exchange with proxy:', import.meta.env.VITE_PROXY_URL);
+      console.log('Initializing Binance TestNet exchange');
       logService.log('info', 'Initializing Binance TestNet exchange',
-        { hasApiKey: !!apiKey, hasApiSecret: !!apiSecret, proxy: import.meta.env.VITE_PROXY_URL }, 'ExchangeService');
+        { hasApiKey: !!apiKey, hasApiSecret: !!apiSecret }, 'ExchangeService');
 
       // First, try to ping the Binance TestNet API through our proxy to verify connectivity
       try {
-        const proxyUrl = `${import.meta.env.VITE_PROXY_URL}binanceTestnet/api/v3/ping`;
+        const proxyUrl = `${config.getFullUrl(config.binanceTestnetApiUrl)}/api/v3/ping`;
         console.log(`Testing connection to Binance TestNet via proxy: ${proxyUrl}`);
 
         // Add a timeout to the fetch request
@@ -499,9 +633,10 @@ class ExchangeService extends EventEmitter {
           }
 
           console.log('Successfully pinged Binance TestNet API through proxy');
-        } catch (fetchError) {
+        } catch (error) {
           clearTimeout(timeoutId);
-          if (fetchError.name === 'AbortError') {
+          const fetchError = error as Error;
+          if (fetchError && fetchError.name === 'AbortError') {
             throw new Error('Connection to Binance TestNet API timed out');
           }
           console.warn('Fetch error during ping test:', fetchError);
@@ -574,18 +709,7 @@ class ExchangeService extends EventEmitter {
     return this.demoMode;
   }
 
-  // This method is kept for future use
-  private async createExchangeInstance(config: ExchangeConfig): Promise<ccxt.Exchange> {
-    return await ccxtService.createExchange(
-      config.name as ExchangeId,
-      {
-        apiKey: config.apiKey,
-        secret: config.secret,
-        memo: config.memo
-      },
-      config.testnet
-    );
-  }
+  // Method removed to avoid duplication
 
   async getCandles(
     symbol: string,
@@ -822,7 +946,7 @@ class ExchangeService extends EventEmitter {
   /**
    * Check the health of the exchange connection
    */
-  async checkHealth(): Promise<{ ok: boolean, message?: string }> {
+  async checkHealth(): Promise<{ ok: boolean, degraded?: boolean, message?: string }> {
     try {
       if (!this.activeExchange) {
         return { ok: true, message: 'Using demo mode' };
@@ -834,13 +958,24 @@ class ExchangeService extends EventEmitter {
       }
 
       // Try a simple API call to check if the exchange is responsive
+      const start = performance.now();
       await exchange.fetchTime();
-      return { ok: true };
+      const responseTime = performance.now() - start;
+
+      // If response time is over 1000ms, consider the connection degraded
+      const isDegraded = responseTime > 1000;
+
+      return {
+        ok: true,
+        degraded: isDegraded,
+        message: isDegraded ? `High latency: ${Math.round(responseTime)}ms` : undefined
+      };
     } catch (error) {
       logService.log('error', 'Exchange health check failed', error, 'ExchangeService');
       return { ok: false, message: error instanceof Error ? error.message : 'Unknown error' };
     }
   }
+
 }
 
 export const exchangeService = ExchangeService.getInstance();

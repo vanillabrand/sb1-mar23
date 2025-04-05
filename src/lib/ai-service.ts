@@ -466,8 +466,9 @@ Please provide a complete strategy in JSON format with the following structure:
 
   /**
    * Generates detailed strategies based on risk level and market data
+   * @private
    */
-  private generateDetailedStrategies(riskLevel: string, assets: string[], marketData: any[]): any[] {
+  private generateDetailedStrategiesInternal(riskLevel: string, assets: string[], marketData: any[]): any[] {
     // Generate strategies based on risk level
     const strategies = [];
 
@@ -666,6 +667,69 @@ Please provide a complete strategy in JSON format with the following structure:
     } catch (error) {
       logService.log('error', 'Failed to generate strategy', error, 'AIService');
       throw error;
+    }
+  }
+
+  /**
+   * Generates multiple detailed strategies for different risk levels
+   * @param assets Array of asset pairs to generate strategies for
+   * @param riskLevels Array of risk levels to generate strategies for
+   * @returns Array of strategy objects
+   */
+  async generateDetailedStrategies(assets: string[], riskLevels: string[]): Promise<any[]> {
+    try {
+      this.emit('progress', { step: 'Generating detailed strategies...', progress: 10 });
+
+      // Ensure assets is an array
+      if (!assets || !Array.isArray(assets)) {
+        logService.log('warn', 'Assets is not an array in generateDetailedStrategies', { assets }, 'AIService');
+        assets = ['BTC/USDT'];
+      }
+
+      // If assets array is empty, use default
+      if (assets.length === 0) {
+        logService.log('warn', 'Assets array is empty in generateDetailedStrategies', null, 'AIService');
+        assets = ['BTC/USDT'];
+      }
+
+      // Ensure riskLevels is an array
+      if (!riskLevels || !Array.isArray(riskLevels)) {
+        logService.log('warn', 'Risk levels is not an array in generateDetailedStrategies', { riskLevels }, 'AIService');
+        riskLevels = ['Low', 'Medium', 'High'];
+      }
+
+      // If riskLevels array is empty, use default
+      if (riskLevels.length === 0) {
+        logService.log('warn', 'Risk levels array is empty in generateDetailedStrategies', null, 'AIService');
+        riskLevels = ['Low', 'Medium', 'High'];
+      }
+
+      // Get market data for the assets
+      const marketData = await this.getMarketData(assets);
+
+      // Generate strategies for each risk level
+      const strategies = [];
+
+      for (const riskLevel of riskLevels) {
+        try {
+          // Generate strategies for this risk level
+          const riskStrategies = this.generateDetailedStrategiesInternal(riskLevel, assets, marketData);
+          strategies.push(...riskStrategies);
+        } catch (error) {
+          logService.log('warn', `Failed to generate strategies for risk level ${riskLevel}`, error, 'AIService');
+        }
+      }
+
+      // If no strategies were generated, return an empty array
+      if (strategies.length === 0) {
+        logService.log('warn', 'No strategies were generated', null, 'AIService');
+        return [];
+      }
+
+      return strategies;
+    } catch (error) {
+      logService.log('error', 'Failed to generate detailed strategies', error, 'AIService');
+      return [];
     }
   }
 }

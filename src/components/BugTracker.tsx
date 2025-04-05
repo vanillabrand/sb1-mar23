@@ -3,7 +3,7 @@ import { Bug, AlertTriangle, Plus, Search, Filter, SortAsc, SortDesc } from 'luc
 import { motion, AnimatePresence } from 'framer-motion';
 import { PanelWrapper } from './PanelWrapper';
 import { logService } from '../lib/log-service';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import type { User } from '@supabase/supabase-js';
 

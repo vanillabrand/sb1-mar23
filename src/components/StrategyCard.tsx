@@ -47,9 +47,10 @@ interface StrategyCardProps {
   onActivate?: (strategy: Strategy) => Promise<boolean>;
   onDeactivate?: (strategy: Strategy) => Promise<void> | void;
   trades?: Trade[];
+  hideExpandArrow?: boolean; // New prop to hide the expand arrow
 }
 
-export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, onEdit, onDelete, onActivate, onDeactivate, trades = [] }: StrategyCardProps) {
+export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, onEdit, onDelete, onActivate, onDeactivate, trades = [], hideExpandArrow = false }: StrategyCardProps) {
   const [isActivating, setIsActivating] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
@@ -62,6 +63,19 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   const [availableBalance, setAvailableBalance] = useState<number>(0);
   const [strategyTrades, setStrategyTrades] = useState<ExtendedTrade[]>([]);
   const [isLoadingTrades, setIsLoadingTrades] = useState<boolean>(false);
+
+  // State for trade generation status
+  const [tradeGenerationStatus, setTradeGenerationStatus] = useState<{
+    status: 'idle' | 'checking' | 'generating' | 'error';
+    lastChecked: number | null;
+    lastGenerated: number | null;
+    message: string;
+  }>({
+    status: 'idle',
+    lastChecked: null,
+    lastGenerated: null,
+    message: 'Waiting for market conditions...'
+  });
 
   // Fetch the budget, available balance, and trades when the component mounts or when the strategy changes
   useEffect(() => {
@@ -82,6 +96,59 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
 
         // Get available balance
         setAvailableBalance(walletBalanceService.getAvailableBalance());
+
+        // Get trade generation status
+        if (strategy.status === 'active') {
+          // Check if the strategy is being monitored by the trade generator
+          const isMonitored = tradeGenerator.isStrategyMonitored(strategy.id);
+          const lastChecked = tradeGenerator.getLastCheckTime(strategy.id);
+          const lastGenerated = tradeGenerator.getLastGeneratedTime(strategy.id);
+
+          setTradeGenerationStatus({
+            status: isMonitored ? 'checking' : 'idle',
+            lastChecked,
+            lastGenerated,
+            message: isMonitored
+              ? 'Monitoring market conditions for trade opportunities...'
+              : 'Waiting to start monitoring...'
+          });
+
+          // Subscribe to trade generation events for this strategy
+          eventBus.subscribe(`trade:checking:${strategy.id}`, () => {
+            setTradeGenerationStatus(prev => ({
+              ...prev,
+              status: 'checking',
+              lastChecked: Date.now(),
+              message: 'Checking market conditions for trade opportunities...'
+            }));
+          });
+
+          eventBus.subscribe(`trade:generating:${strategy.id}`, () => {
+            setTradeGenerationStatus(prev => ({
+              ...prev,
+              status: 'generating',
+              lastGenerated: Date.now(),
+              message: 'Generating trade based on current market conditions...'
+            }));
+          });
+
+          eventBus.subscribe(`trade:created:${strategy.id}`, () => {
+            setTradeGenerationStatus(prev => ({
+              ...prev,
+              status: 'idle',
+              lastGenerated: Date.now(),
+              message: 'Trade successfully generated! Waiting for next opportunity...'
+            }));
+          });
+
+          eventBus.subscribe(`trade:error:${strategy.id}`, (error) => {
+            setTradeGenerationStatus(prev => ({
+              ...prev,
+              status: 'error',
+              message: `Error generating trade: ${error?.message || 'Unknown error'}`
+            }));
+          });
+        }
 
         // Trades are now provided via props
       } catch (error) {
@@ -118,10 +185,30 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
 
     // No need for interval to refresh trades as they come from props
 
+    // Create unsubscribe functions for event bus subscriptions
+    let unsubscribeChecking = () => {};
+    let unsubscribeGenerating = () => {};
+    let unsubscribeCreated = () => {};
+    let unsubscribeError = () => {};
+
+    if (strategy.status === 'active') {
+      unsubscribeChecking = eventBus.subscribe(`trade:checking:${strategy.id}`, () => {});
+      unsubscribeGenerating = eventBus.subscribe(`trade:generating:${strategy.id}`, () => {});
+      unsubscribeCreated = eventBus.subscribe(`trade:created:${strategy.id}`, () => {});
+      unsubscribeError = eventBus.subscribe(`trade:error:${strategy.id}`, () => {});
+    }
+
     return () => {
+      // Unsubscribe from service events
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
       tradeService.off('budgetUpdated', handleBudgetUpdate);
       tradeManager.off('tradesUpdated', handleTradeUpdate);
+
+      // Unsubscribe from event bus
+      unsubscribeChecking();
+      unsubscribeGenerating();
+      unsubscribeCreated();
+      unsubscribeError();
     };
   }, [strategy.id, isExpanded]);
 
@@ -739,13 +826,15 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 Delete
               </button>
             )}
-            <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors border border-gunmetal-700 shadow-inner">
-              {isExpanded ? (
-                <ChevronUp className="w-5 h-5 text-neon-turquoise" />
-              ) : (
-                <ChevronDown className="w-5 h-5 text-neon-turquoise" />
-              )}
-            </div>
+            {!hideExpandArrow && (
+              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors border border-gunmetal-700 shadow-inner">
+                {isExpanded ? (
+                  <ChevronUp className="w-5 h-5 text-neon-turquoise" />
+                ) : (
+                  <ChevronDown className="w-5 h-5 text-neon-turquoise" />
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -837,6 +926,40 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 </div>
               </div>
             </div>
+
+            {/* Trade Generation Status */}
+            {strategy.status === 'active' && (
+              <div className="mt-6">
+                <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                  <Activity className={`w-4 h-4 ${tradeGenerationStatus.status === 'checking' ? 'text-yellow-400' : tradeGenerationStatus.status === 'generating' ? 'text-green-400' : tradeGenerationStatus.status === 'error' ? 'text-red-400' : 'text-neon-turquoise'}`} />
+                  Trade Generation Status
+                  {tradeGenerationStatus.status === 'checking' && (
+                    <span className="inline-block animate-pulse bg-yellow-400/20 text-yellow-400 text-xs px-2 py-0.5 rounded-full">Checking</span>
+                  )}
+                  {tradeGenerationStatus.status === 'generating' && (
+                    <span className="inline-block animate-pulse bg-green-400/20 text-green-400 text-xs px-2 py-0.5 rounded-full">Generating</span>
+                  )}
+                </h4>
+
+                <div className={`rounded-lg p-4 ${tradeGenerationStatus.status === 'error' ? 'bg-red-900/20 border border-red-900/30' : 'bg-gunmetal-800/50'}`}>
+                  <p className="text-sm text-gray-300">{tradeGenerationStatus.message}</p>
+
+                  {/* Last checked time */}
+                  {tradeGenerationStatus.lastChecked && (
+                    <p className="text-xs text-gray-400 mt-2">
+                      Last checked: {formatTimeAgo(new Date(tradeGenerationStatus.lastChecked))}
+                    </p>
+                  )}
+
+                  {/* Last generated time */}
+                  {tradeGenerationStatus.lastGenerated && (
+                    <p className="text-xs text-gray-400">
+                      Last trade generated: {formatTimeAgo(new Date(tradeGenerationStatus.lastGenerated))}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Live Trades */}
             {strategy.status === 'active' && (

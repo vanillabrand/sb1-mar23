@@ -42,6 +42,21 @@ export class TemplateManager extends EventEmitter {
     }
   }
 
+  /**
+   * Public method to manually clear and regenerate templates
+   * This can be called from the UI to force a refresh of the templates
+   */
+  async clearAndRegenerateTemplates(): Promise<void> {
+    try {
+      logService.log('info', 'Manually clearing and regenerating templates', null, 'TemplateManager');
+      await this.generateAndSyncTemplates();
+      logService.log('info', 'Successfully cleared and regenerated templates', null, 'TemplateManager');
+    } catch (error) {
+      logService.log('error', 'Failed to clear and regenerate templates', error, 'TemplateManager');
+      throw error;
+    }
+  }
+
   // Public method to generate demo templates if needed
   async generateDemoTemplatesIfNeeded(): Promise<void> {
     try {
@@ -342,6 +357,27 @@ export class TemplateManager extends EventEmitter {
 
     try {
       this.isGenerating = true;
+
+      // Clear existing system templates before generating new ones
+      try {
+        logService.log('info', 'Clearing existing system templates', null, 'TemplateManager');
+        const { error: deleteError } = await supabase
+          .from('strategy_templates')
+          .delete()
+          .eq('type', 'system_template');
+
+        if (deleteError) {
+          if (deleteError.message && deleteError.message.includes('relation "strategy_templates" does not exist')) {
+            logService.log('warn', 'Strategy templates table does not exist, skipping template deletion', null, 'TemplateManager');
+          } else {
+            logService.log('error', 'Failed to clear existing system templates', deleteError, 'TemplateManager');
+          }
+        } else {
+          logService.log('info', 'Successfully cleared existing system templates', null, 'TemplateManager');
+        }
+      } catch (deleteError) {
+        logService.log('error', 'Exception while clearing existing system templates', deleteError, 'TemplateManager');
+      }
 
       // Generate new optimized templates
       const templates = await strategyTemplateGenerator.generateOptimizedTemplates();

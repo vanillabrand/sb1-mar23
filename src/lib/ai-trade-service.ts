@@ -226,10 +226,12 @@ type TradeAnalysisDetails = {
   reasoning: string;
 };
 
+import { config } from './config';
+
 class AITradeService {
   private static instance: AITradeService;
   private static DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
-  private static DEEPSEEK_API_URL = 'https://api.deepseek.com/v1/chat/completions';
+  private static DEEPSEEK_API_URL = config.getFullUrl(config.deepseekApiUrl + '/v1/chat/completions'); // Use full proxy URL
   // Model to use for API calls
   // private static readonly MODEL = 'deepseek-chat'; // Commented out to avoid unused variable warning
   // Use a stable key for each strategy rather than a unique timestamp per request

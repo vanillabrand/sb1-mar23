@@ -85,8 +85,8 @@ class SystemSync {
       try {
         await exchangeService.initializeExchange({
           name: 'binance',
-          apiKey: import.meta.env.BINANCE_TEST_API_KEY,
-          secret: import.meta.env.BINANCE_TEST_API_SECRET,
+          apiKey: import.meta.env.VITE_BINANCE_TESTNET_API_KEY,
+          secret: import.meta.env.VITE_BINANCE_TESTNET_API_SECRET,
           testnet: true
         });
 

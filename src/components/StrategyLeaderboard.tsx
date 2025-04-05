@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
+import {
   Trophy,
   Medal,
   Crown,
@@ -13,7 +13,7 @@ import {
   Loader2,
   AlertCircle
 } from 'lucide-react';
-import { supabase } from '../lib/supabase-client';
+import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 import { CircularProgress } from './CircularProgress';
 import { Pagination } from './ui/Pagination';
@@ -45,14 +45,14 @@ export function StrategyLeaderboard() {
 
   useEffect(() => {
     loadLeaderboard();
-    
+
     // Subscribe to strategy updates
     const subscription = supabase
       .channel('strategy_performance')
-      .on('postgres_changes', { 
-        event: '*', 
-        schema: 'public', 
-        table: 'strategies' 
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'strategies'
       }, () => {
         loadLeaderboard();
       })
@@ -104,7 +104,7 @@ export function StrategyLeaderboard() {
           risk_level: strategy.risk_level,
           performance: strategy.performance || 0,
           user_id: strategy.user_id,
-          user_name: strategy.user_profiles?.first_name 
+          user_name: strategy.user_profiles?.first_name
             ? `${strategy.user_profiles.first_name} ${strategy.user_profiles.last_name?.charAt(0) || ''}.`
             : 'Anonymous',
           trades_count: trades.length,
@@ -124,7 +124,7 @@ export function StrategyLeaderboard() {
 
   const filteredEntries = React.useMemo(() => {
     return entries
-      .filter(entry => 
+      .filter(entry =>
         entry.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
         entry.user_name.toLowerCase().includes(searchTerm.toLowerCase())
       )
@@ -168,7 +168,7 @@ export function StrategyLeaderboard() {
   }
 
   return (
-    <motion.div 
+    <motion.div
       layout
       className="min-h-[400px]" // Prevent layout jumps
     >
@@ -226,7 +226,7 @@ export function StrategyLeaderboard() {
         <div className="space-y-4">
           {displayedEntries.map((entry, index) => {
             const rank = currentPage * itemsPerPage + index + 1;
-            
+
             return (
               <motion.div
                 key={entry.id}
