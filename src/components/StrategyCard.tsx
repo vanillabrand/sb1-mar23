@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDown, ChevronUp, Activity, DollarSign, BarChart3, Clock, Edit, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { AssetPriceIndicator } from './AssetPriceIndicator';
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
 import { marketService } from '../lib/market-service';
@@ -18,13 +19,35 @@ import { directDeleteStrategy } from '../lib/direct-delete';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { ConfirmDialog } from './ui/ConfirmDialog';
-import type { Strategy, StrategyBudget, Trade } from '../lib/types';
+import type { RiskLevel, Strategy, StrategyBudget, Trade } from '../lib/types';
 
 // Extended Trade type with additional properties for timestamps
 interface ExtendedTrade extends Trade {
   createdAt?: string;
   executedAt?: string | null;
 }
+
+// Helper function to get color based on risk level
+const getRiskLevelColor = (riskLevel?: RiskLevel): string => {
+  switch (riskLevel) {
+    case 'Ultra Low':
+      return 'bg-emerald-400/20 text-emerald-400';
+    case 'Low':
+      return 'bg-neon-turquoise/20 text-neon-turquoise';
+    case 'Medium':
+      return 'bg-neon-yellow/20 text-neon-yellow';
+    case 'High':
+      return 'bg-neon-orange/20 text-neon-orange';
+    case 'Ultra High':
+      return 'bg-neon-pink/20 text-neon-pink';
+    case 'Extreme':
+      return 'bg-purple-400/20 text-purple-400';
+    case 'God Mode':
+      return 'bg-red-500/20 text-red-500';
+    default:
+      return 'bg-gray-400/20 text-gray-400';
+  }
+};
 
 // Helper function to format time ago
 const formatTimeAgo = (date: Date): string => {
@@ -63,6 +86,13 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   const [availableBalance, setAvailableBalance] = useState<number>(0);
   const [strategyTrades, setStrategyTrades] = useState<ExtendedTrade[]>([]);
   const [isLoadingTrades, setIsLoadingTrades] = useState<boolean>(false);
+
+  // Section visibility states
+  const [showTradingParameters, setShowTradingParameters] = useState(false);
+  const [showRiskManagement, setShowRiskManagement] = useState(false);
+  const [showTradingPairs, setShowTradingPairs] = useState(false);
+  const [showBudget, setShowBudget] = useState(false);
+  const [showTrades, setShowTrades] = useState(true); // Trades section is expanded by default
 
   // State for trade generation status
   const [tradeGenerationStatus, setTradeGenerationStatus] = useState<{
@@ -158,6 +188,15 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               lastGenerated: Date.now(),
               message: 'Trade successfully generated! Waiting for next opportunity...'
             }));
+
+            // Update budget after trade is created
+            const updateBudget = async () => {
+              const updatedBudget = tradeService.getBudget(strategy.id);
+              if (updatedBudget) {
+                setStrategyBudget(updatedBudget.total);
+              }
+            };
+            updateBudget();
           });
 
           eventBus.subscribe(`trade:error:${strategy.id}`, (error) => {
@@ -166,6 +205,13 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               status: 'error',
               message: `Error generating trade: ${error?.message || 'Unknown error'}`
             }));
+          });
+
+          // Subscribe to budget updates
+          tradeService.on('budgetUpdated', (data) => {
+            if (data.strategyId === strategy.id && data.budget) {
+              setStrategyBudget(data.budget.total);
+            }
           });
         }
 
@@ -314,18 +360,83 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         strategyId: strategy.id
       }));
 
-      // Use a ref to track if we need to update
-      const needsUpdate = formattedTrades.length !== strategyTrades.length ||
-        formattedTrades.some((trade, index) => {
-          // If we have a different number of trades or the trade IDs don't match
-          return !strategyTrades[index] || trade.id !== strategyTrades[index].id;
-        });
+      // Create a map of existing trades for faster lookup
+      const existingTradesMap = strategyTrades.reduce((map, trade) => {
+        map[trade.id] = trade;
+        return map;
+      }, {} as Record<string, ExtendedTrade>);
 
-      if (needsUpdate) {
-        setStrategyTrades(formattedTrades);
+      // Create a map of new trades for faster lookup
+      const newTradesMap = formattedTrades.reduce((map, trade) => {
+        map[trade.id] = trade;
+        return map;
+      }, {} as Record<string, ExtendedTrade>);
+
+      // Determine which trades are new, updated, or removed
+      const newTradeIds = new Set(formattedTrades.map(t => t.id));
+      const existingTradeIds = new Set(strategyTrades.map(t => t.id));
+
+      // Find trades that are new (in new set but not in existing)
+      const addedTrades = formattedTrades.filter(t => !existingTradeIds.has(t.id));
+
+      // Find trades that are updated (in both sets but with changes)
+      const updatedTrades = formattedTrades.filter(t => {
+        const existingTrade = existingTradesMap[t.id];
+        if (!existingTrade) return false; // Not an update if it's new
+
+        // Check if any important properties have changed
+        return (
+          existingTrade.status !== t.status ||
+          existingTrade.profit !== t.profit ||
+          existingTrade.exitPrice !== t.exitPrice
+        );
+      });
+
+      // Find trades that are removed (in existing set but not in new)
+      const removedTradeIds = [...existingTradeIds].filter(id => !newTradeIds.has(id));
+
+      // Only update if there are changes
+      const hasChanges = addedTrades.length > 0 || updatedTrades.length > 0 || removedTradeIds.length > 0;
+
+      if (hasChanges) {
+        // Use a functional update to avoid race conditions
+        setStrategyTrades(prevTrades => {
+          // Start with the previous trades
+          let result = [...prevTrades];
+
+          // Remove trades that no longer exist
+          if (removedTradeIds.length > 0) {
+            result = result.filter(t => !removedTradeIds.includes(t.id));
+          }
+
+          // Update existing trades
+          if (updatedTrades.length > 0) {
+            result = result.map(trade => {
+              const updatedTrade = newTradesMap[trade.id];
+              if (updatedTrade) {
+                return { ...trade, ...updatedTrade };
+              }
+              return trade;
+            });
+          }
+
+          // Add new trades
+          if (addedTrades.length > 0) {
+            result = [...result, ...addedTrades];
+          }
+
+          // Sort by timestamp, newest first
+          result.sort((a, b) => {
+            const aTime = a.timestamp || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+            const bTime = b.timestamp || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+            return bTime - aTime;
+          });
+
+          return result;
+        });
       }
     }
-  }, [trades, strategy.id, strategyTrades.length]); // Only depend on trades length and strategy.id
+  }, [trades, strategy.id]); // Only depend on trades and strategy.id
 
   const handleActivate = async () => {
     try {
@@ -782,7 +893,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   return (
     <>
       <motion.div
-        className={`panel-metallic rounded-xl p-6 shadow-lg cursor-pointer hover:shadow-xl transition-all duration-300`}
+        className={`panel-metallic rounded-xl p-6 shadow-lg cursor-pointer strategy-card border-0`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
@@ -793,14 +904,34 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
             <div className={`p-2 rounded-lg ${strategy.status === 'active' ? 'bg-neon-turquoise/10' : 'bg-gunmetal-800'}`}>
               <Activity className={`w-5 h-5 ${strategy.status === 'active' ? 'text-neon-turquoise' : 'text-gray-400'}`} />
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-200">{(strategy as any).name || (strategy as any).title || 'Unnamed Strategy'}</h3>
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
+                <h3 className="font-semibold text-gray-200 truncate">{(strategy as any).name || (strategy as any).title || 'Unnamed Strategy'}</h3>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${getRiskLevelColor(strategy.riskLevel)}`}>
+                  {strategy.riskLevel}
+                </span>
+              </div>
+              <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{strategy.description || 'No description available'}</p>
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                 <span className={`text-xs px-2 py-0.5 rounded-full ${strategy.status === 'active' ? 'bg-neon-turquoise/10 text-neon-turquoise' : 'bg-gunmetal-700 text-gray-400'}`}>
                   {strategy.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
                 </span>
+                {/* Trading pairs as lozenges with price indicators */}
+                {(strategy.selected_pairs || []).slice(0, 3).map((pair, index) => (
+                  <div key={index} className="flex items-center text-xs px-2 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap">
+                    <span>{pair}</span>
+                    <div className="ml-1 border-l border-gunmetal-700 pl-1">
+                      <AssetPriceIndicator symbol={pair} compact={true} />
+                    </div>
+                  </div>
+                ))}
+                {(strategy.selected_pairs || []).length > 3 && (
+                  <span className="text-xs px-2 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap">
+                    +{(strategy.selected_pairs || []).length - 3} more
+                  </span>
+                )}
                 {strategy.status !== 'active' && (
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-400 ml-auto">
                     Potential profit: <span className="text-neon-yellow">+{((strategy as any).strategy_config?.takeProfit || 0.05) * 100}%</span>
                   </span>
                 )}
@@ -817,7 +948,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   handleDeactivate();
                 }}
                 disabled={isDeactivating}
-                className="px-3 py-1.5 bg-gunmetal-800 text-neon-turquoise border border-neon-turquoise/30 rounded-lg hover:bg-gunmetal-700 transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-gunmetal-800 text-neon-turquoise border border-neon-turquoise/30 rounded-lg hover:bg-gunmetal-700 transition-colors btn-text-small font-medium"
               >
                 {isDeactivating ? 'Deactivating...' : 'Deactivate'}
               </button>
@@ -828,7 +959,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   handleActivate();
                 }}
                 disabled={isActivating}
-                className="px-3 py-1.5 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-colors btn-text-small font-medium"
               >
                 {isActivating ? 'Activating...' : 'Activate'}
               </button>
@@ -840,7 +971,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   e.stopPropagation();
                   setShowDeleteConfirm(true);
                 }}
-                className="px-3 py-1.5 bg-gunmetal-800 text-red-400 border border-red-400/30 rounded-lg hover:bg-gunmetal-700 transition-colors text-sm font-medium"
+                className="px-3 py-1.5 bg-gunmetal-800 text-red-400 border border-red-400/30 rounded-lg hover:bg-gunmetal-700 transition-colors btn-text-small font-medium"
               >
                 Delete
               </button>
@@ -862,88 +993,148 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           <div className="mt-6 pt-6 border-t border-gunmetal-700/50 space-y-6">
             {/* Trading Parameters */}
             <div className="mb-6">
-              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
-                <BarChart3 className="w-4 h-4" />
-                Trading Parameters
+              <h4
+                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTradingParameters(!showTradingParameters);
+                }}
+              >
+                <div className="flex items-center gap-2 uppercase tracking-wider">
+                  <BarChart3 className="w-4 h-4" />
+                  Trading Parameters
+                </div>
+                {showTradingParameters ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                )}
               </h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500">Leverage</p>
-                  <p className="text-sm text-white">{((strategy as any).strategy_config?.leverage || 1)}x</p>
+              {showTradingParameters && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
+                  <div>
+                    <p className="text-xs text-gray-500">Leverage</p>
+                    <p className="text-sm text-white">{((strategy as any).strategy_config?.leverage || 1)}x</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Position Size</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.positionSize || 0.1) * 100).toFixed(0)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Confidence Threshold</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.confidenceThreshold || 0.7) * 100).toFixed(0)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Timeframe</p>
+                    <p className="text-sm text-white">{(strategy as any).strategy_config?.timeframe || '1h'}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500">Position Size</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.positionSize || 0.1) * 100).toFixed(0)}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Confidence Threshold</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.confidenceThreshold || 0.7) * 100).toFixed(0)}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Timeframe</p>
-                  <p className="text-sm text-white">{(strategy as any).strategy_config?.timeframe || '1h'}</p>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Risk Management */}
             <div className="mb-6">
-              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
-                <Activity className="w-4 h-4" />
-                Risk Management
+              <h4
+                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowRiskManagement(!showRiskManagement);
+                }}
+              >
+                <div className="flex items-center gap-2 uppercase tracking-wider">
+                  <Activity className="w-4 h-4" />
+                  Risk Management
+                </div>
+                {showRiskManagement ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                )}
               </h4>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <div>
-                  <p className="text-xs text-gray-500">Stop Loss</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.stopLoss || 0.03) * 100).toFixed(1)}%</p>
+              {showRiskManagement && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
+                  <div>
+                    <p className="text-xs text-gray-500">Stop Loss</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.stopLoss || 0.03) * 100).toFixed(1)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Take Profit</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.takeProfit || 0.09) * 100).toFixed(1)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Trailing Stop</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.trailingStop || 0.02) * 100).toFixed(1)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Max Drawdown</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-xs text-gray-500">Take Profit</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.takeProfit || 0.09) * 100).toFixed(1)}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Trailing Stop</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.trailingStop || 0.02) * 100).toFixed(1)}%</p>
-                </div>
-                <div>
-                  <p className="text-xs text-gray-500">Max Drawdown</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
-                </div>
-              </div>
+              )}
             </div>
 
             {/* Trading Pairs */}
             <div className="mb-6">
-              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
-                <Clock className="w-4 h-4" />
-                Trading Pairs
-              </h4>
-              <div className="flex flex-wrap gap-2">
-                {(strategy as any).selected_pairs?.map((pair: string) => (
-                  <span
-                    key={pair}
-                    className="px-2 py-1 bg-gunmetal-800 rounded-md text-xs text-neon-turquoise border border-gunmetal-700/50"
-                  >
-                    {pair}
-                  </span>
-                )) || (
-                  <span className="text-sm text-gray-500">No trading pairs selected</span>
+              <h4
+                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowTradingPairs(!showTradingPairs);
+                }}
+              >
+                <div className="flex items-center gap-2 uppercase tracking-wider">
+                  <Clock className="w-4 h-4" />
+                  Trading Pairs
+                </div>
+                {showTradingPairs ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
                 )}
-              </div>
+              </h4>
+              {showTradingPairs && (
+                <div className="flex flex-wrap gap-2 animate-fadeIn">
+                  {(strategy as any).selected_pairs?.map((pair: string) => (
+                    <span
+                      key={pair}
+                      className="px-2 py-1 bg-gunmetal-800 rounded-md text-xs text-neon-turquoise border border-gunmetal-700/50"
+                    >
+                      {pair}
+                    </span>
+                  )) || (
+                    <span className="text-sm text-gray-500">No trading pairs selected</span>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Trading Budget */}
             <div>
-              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
-                <DollarSign className="w-4 h-4" />
-                Trading Budget
-              </h4>
-              <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-400">Budget</span>
-                  <span className="text-lg font-bold text-neon-yellow">${strategyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              <h4
+                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowBudget(!showBudget);
+                }}
+              >
+                <div className="flex items-center gap-2 uppercase tracking-wider">
+                  <DollarSign className="w-4 h-4" />
+                  Trading Budget
                 </div>
-              </div>
+                {showBudget ? (
+                  <ChevronUp className="w-4 h-4 text-gray-400" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-gray-400" />
+                )}
+              </h4>
+              {showBudget && (
+                <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner animate-fadeIn">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-400">Budget</span>
+                    <span className="text-lg font-bold text-neon-yellow">${strategyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Trade Generation Status */}
@@ -983,64 +1174,78 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
             {/* Live Trades */}
             {strategy.status === 'active' && (
               <div className="mt-6">
-                <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
-                  <Activity className="w-4 h-4" />
-                  Live Trades
+                <h4
+                  className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowTrades(!showTrades);
+                  }}
+                >
+                  <div className="flex items-center gap-2 uppercase tracking-wider">
+                    <Activity className="w-4 h-4" />
+                    Live Trades
+                  </div>
+                  {showTrades ? (
+                    <ChevronUp className="w-4 h-4 text-gray-400" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-gray-400" />
+                  )}
                 </h4>
-
-                {isLoadingTrades ? (
-                  <div className="flex justify-center items-center py-8">
-                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise"></div>
-                  </div>
-                ) : strategyTrades.length === 0 ? (
-                  <div className="bg-gunmetal-800/50 rounded-lg p-4 text-center">
-                    <p className="text-gray-400">No active trades for this strategy</p>
-                  </div>
-                ) : (
-                  <div className="bg-black border border-gunmetal-800/50 rounded-lg overflow-hidden">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="bg-gunmetal-900/50">
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Symbol</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Side</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Entry</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Status</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Time</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {strategyTrades.map((trade) => (
-                          <tr key={trade.id} className="border-t border-gunmetal-700/50 hover:bg-gunmetal-800/50">
-                            <td className="px-3 py-2 text-xs text-white">{trade.symbol || '-'}</td>
-                            <td className="px-3 py-2 text-xs">
-                              <span className={`flex items-center gap-1 ${trade.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
-                                {trade.side === 'buy' ? (
-                                  <ArrowUpRight className="w-3 h-3" />
-                                ) : (
-                                  <ArrowDownRight className="w-3 h-3" />
-                                )}
-                                {trade.side}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-xs text-white">
-                              {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
-                            </td>
-                            <td className="px-3 py-2 text-xs">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-xs ${trade.status === 'executed' ? 'bg-green-500/20 text-green-400' : trade.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-gray-500/20 text-gray-400'}`}
-                                title={trade.status === 'executed' ? `Executed: ${trade.executedAt ? new Date(trade.executedAt).toLocaleString() : 'Unknown'}` : ''}
-                              >
-                                {trade.status}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 text-xs text-gray-400" title={`Created: ${trade.createdAt ? new Date(trade.createdAt).toLocaleString() : 'Unknown'}`}>
-                              {trade.createdAt ? formatTimeAgo(new Date(trade.createdAt)) : '-'}
-                            </td>
+                {showTrades && (
+                  isLoadingTrades ? (
+                    <div className="flex justify-center items-center py-8">
+                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise"></div>
+                    </div>
+                  ) : strategyTrades.length === 0 ? (
+                    <div className="bg-gunmetal-800/50 rounded-lg p-4 text-center">
+                      <p className="text-gray-400">No active trades for this strategy</p>
+                    </div>
+                  ) : (
+                    <div className="bg-black border border-gunmetal-800/50 rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="bg-gunmetal-900/50">
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Symbol</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Side</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Entry</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Status</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Time</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody>
+                          {strategyTrades.map((trade) => (
+                            <tr key={trade.id} className="border-t border-gunmetal-700/50 hover:bg-gunmetal-800/50">
+                              <td className="px-3 py-2 text-xs text-white">{trade.symbol || '-'}</td>
+                              <td className="px-3 py-2 text-xs">
+                                <span className={`flex items-center gap-1 ${trade.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
+                                  {trade.side === 'buy' ? (
+                                    <ArrowUpRight className="w-3 h-3" />
+                                  ) : (
+                                    <ArrowDownRight className="w-3 h-3" />
+                                  )}
+                                  {trade.side}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-xs text-white">
+                                {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
+                              </td>
+                              <td className="px-3 py-2 text-xs">
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-xs ${trade.status === 'executed' ? 'bg-green-500/20 text-green-400' : trade.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-gray-500/20 text-gray-400'}`}
+                                  title={trade.status === 'executed' ? `Executed: ${trade.executedAt ? new Date(trade.executedAt).toLocaleString() : 'Unknown'}` : ''}
+                                >
+                                  {trade.status}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-xs text-gray-400" title={`Created: ${trade.createdAt ? new Date(trade.createdAt).toLocaleString() : 'Unknown'}`}>
+                                {trade.createdAt ? formatTimeAgo(new Date(trade.createdAt)) : '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
                 )}
               </div>
             )}

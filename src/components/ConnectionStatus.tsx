@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Wifi, 
-  WifiOff, 
-  Loader2, 
-  CheckCircle2, 
+import {
+  Wifi,
+  WifiOff,
+  Loader2,
+  CheckCircle2,
   XCircle,
   AlertTriangle,
   ChevronDown
@@ -36,7 +36,7 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
   useEffect(() => {
     let mounted = true;
     let timeouts: NodeJS.Timeout[] = [];
-    
+
     const initializeConnection = async () => {
       try {
         // Initialize Exchange with timeout
@@ -53,7 +53,7 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
           await exchangeService.ensureInitialized();
           if (mounted) {
             clearTimeout(exchangeTimeout);
-            updateStep('exchange', 'completed', 'Exchange connected successfully');
+            updateStep('exchange', 'completed', 'Exchange connected');
           }
         } catch (error) {
           if (mounted) {
@@ -79,11 +79,11 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
             new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 1500)),
             new Promise<boolean>((_, reject) => setTimeout(() => reject(new Error('WebSocket timeout')), 5000))
           ]);
-          
+
           if (mounted) {
             clearTimeout(wsTimeout);
             if (wsConnected) {
-              updateStep('websocket', 'completed', 'WebSocket connected successfully');
+              updateStep('websocket', 'completed', 'WebSocket connected');
             } else {
               throw new Error('WebSocket connection failed');
             }
@@ -112,10 +112,10 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
             new Promise(resolve => setTimeout(resolve, 1000)),
             new Promise((_, reject) => setTimeout(() => reject(new Error('Market data timeout')), 5000))
           ]);
-          
+
           if (mounted) {
             clearTimeout(marketTimeout);
-            updateStep('market', 'completed', 'Market data loaded successfully');
+            updateStep('market', 'completed', 'Market data loaded');
             setOverallStatus('connected');
             startLatencyChecks();
 
@@ -138,7 +138,7 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
           logService.log('error', 'Connection initialization failed', error, 'ConnectionStatus');
           setOverallStatus('error');
           const errorMessage = error instanceof Error ? error.message : 'Connection failed';
-          
+
           // Update the current step with error
           const currentStep = steps.find(s => s.status === 'loading');
           if (currentStep) {
@@ -158,7 +158,7 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
   }, [onClose]);
 
   const updateStep = (id: string, status: ConnectionStep['status'], message?: string) => {
-    setSteps(prev => prev.map(step => 
+    setSteps(prev => prev.map(step =>
       step.id === id ? { ...step, status, message } : step
     ));
   };
@@ -169,7 +169,7 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
         const start = performance.now();
         const health = await exchangeService.checkHealth();
         const end = performance.now();
-        
+
         if (health.ok) {
           setLatency(Math.round(end - start));
           setOverallStatus('connected');
@@ -185,7 +185,7 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
 
     // Initial check
     checkLatency();
-    
+
     // Set up interval for periodic checks
     const interval = setInterval(checkLatency, 30000); // Check every 30 seconds
     return () => clearInterval(interval);
@@ -242,7 +242,7 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
           )}
           <span className={`text-sm font-medium ${getStatusColor()}`}>
             {overallStatus === 'connecting' ? 'Connecting' :
-             overallStatus === 'connected' ? 'Connected' : 
+             overallStatus === 'connected' ? 'Connected' :
              'Connection Error'}
           </span>
         </div>
@@ -258,17 +258,17 @@ export function ConnectionStatus({ onClose }: ConnectionStatusProps) {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            className="absolute top-full left-0 right-0 mt-2 bg-gunmetal-900/95 backdrop-blur-xl rounded-lg border border-gunmetal-800 p-4 space-y-4 z-10"
+            className="absolute top-full left-0 right-0 mt-2 bg-gunmetal-900/95 backdrop-blur-xl rounded-lg p-4 space-y-4 z-10"
           >
             {steps.map((step, index) => (
               <div key={step.id} className="relative">
                 {index !== 0 && (
-                  <div 
+                  <div
                     className={`absolute left-[11px] -top-4 h-4 w-0.5 ${
                       step.status === 'completed' ? 'bg-neon-turquoise/50' :
                       step.status === 'error' ? 'bg-neon-pink/50' :
                       'bg-gunmetal-700'
-                    }`} 
+                    }`}
                   />
                 )}
                 <div className="flex items-start gap-3">

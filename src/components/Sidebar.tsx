@@ -60,34 +60,41 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className, 
         className={({ isActive }) => {
           // Determine the appropriate color based on the label
           let activeStyles = '';
+          let hoverStyles = '';
 
-          if (isActive) {
-            if (label === 'Dashboard') {
-              activeStyles = 'bg-[#3a1a29] text-[#ff3e8e]';
-            } else if (label === 'Strategy Manager') {
-              activeStyles = 'bg-[#3a2e14] text-[#ffc700]';
-            } else if (label === 'Backtest') {
-              activeStyles = 'bg-[#3a2214] text-[#ff8c39]';
-            } else if (label === 'Trade Monitor') {
-              activeStyles = 'bg-[#1a3a3c] text-[#00f7ff]';
-            } else if (label === 'Risk Manager') {
-              activeStyles = 'bg-[#3a1a29] text-[#ff3e8e]';
-            } else if (label === 'Exchange Manager') {
-              activeStyles = 'bg-[#1a3a3c] text-[#00f7ff]';
-            } else if (label === 'Bug Tracker') {
-              activeStyles = 'bg-[#1a1a1a] text-gray-200';
-            }
+          if (label === 'Dashboard') {
+            activeStyles = 'bg-neon-pink/10 text-neon-pink';
+            hoverStyles = 'hover:text-neon-pink';
+          } else if (label === 'Strategy Manager') {
+            activeStyles = 'bg-neon-yellow/10 text-neon-yellow';
+            hoverStyles = 'hover:text-neon-yellow';
+          } else if (label === 'Backtest') {
+            activeStyles = 'bg-neon-orange/10 text-neon-orange';
+            hoverStyles = 'hover:text-neon-orange';
+          } else if (label === 'Trade Monitor') {
+            activeStyles = 'bg-neon-turquoise/10 text-neon-turquoise';
+            hoverStyles = 'hover:text-neon-turquoise';
+          } else if (label === 'Risk Manager') {
+            activeStyles = 'bg-neon-pink/10 text-neon-pink';
+            hoverStyles = 'hover:text-neon-pink';
+          } else if (label === 'Exchange Manager') {
+            activeStyles = 'bg-neon-turquoise/10 text-neon-turquoise';
+            hoverStyles = 'hover:text-neon-turquoise';
+          } else if (label === 'Bug Tracker') {
+            activeStyles = 'bg-gray-800/50 text-gray-200';
+            hoverStyles = 'hover:text-gray-200';
           }
 
           return `${baseClass} ${isActive
             ? `${activeStyles} font-medium`
-            : 'text-gray-400 hover:text-gray-200'}`
+            : `text-gray-400 ${hoverStyles}`}`
         }}
         style={{
           animationDelay: `${index * 50}ms`,
           animationDuration: '500ms',
           borderRadius: '8px',
           padding: '12px 16px',
+          paddingLeft: '12px',
         }}
       >
         {icon}
@@ -96,11 +103,14 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className, 
     );
   }
 
+  // For the Sign Out button, use a specific hover color
+  const hoverStyles = 'hover:text-[#ff3e8e]';
+
   return (
     <button
       ref={navRef as React.RefObject<HTMLButtonElement>}
       onClick={handleClick}
-      className={`${baseClass} text-gray-400 hover:text-gray-200`}
+      className={`${baseClass} text-gray-400 ${hoverStyles}`}
       style={{
         animationDelay: `${index * 50}ms`,
         animationDuration: '500ms',
@@ -119,6 +129,7 @@ export const Sidebar: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isExchangeDetailsExpanded, setIsExchangeDetailsExpanded] = useState(false);
   const [rainbowElements, setRainbowElements] = useState<HTMLElement[]>([]);
+  const connectionContainerRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
 
@@ -131,18 +142,17 @@ export const Sidebar: React.FC = () => {
   const [latency, setLatency] = useState<number | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  // Function to create rainbow effect
-  const createRainbowEffect = (element: HTMLElement) => {
-    // Clear any existing rainbow elements
+  // Function to highlight the active menu item
+  const highlightMenuItem = (clickedElement: HTMLElement) => {
+    // Clear any existing highlighted elements
     rainbowElements.forEach(el => {
-      el.classList.remove('rainbow-pulse');
+      el.classList.remove('menu-active');
     });
     setRainbowElements([]);
 
-    // Apply rainbow effect to the clicked element
-    element.classList.add('rainbow-pulse');
-    const newRainbowElements: HTMLElement[] = [element];
-    setRainbowElements(newRainbowElements);
+    // Apply highlight effect to the clicked item
+    clickedElement.classList.add('menu-active');
+    setRainbowElements([clickedElement]);
   };
 
   // Retry connection
@@ -179,7 +189,7 @@ export const Sidebar: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       setConnectionSteps(prev => prev.map(step =>
-        step.id === 'exchange' ? { ...step, status: 'completed', message: 'Exchange connected successfully' } : step
+        step.id === 'exchange' ? { ...step, status: 'completed', message: 'Exchange connected' } : step
       ));
 
       // Step 2: Check WebSocket Connection
@@ -191,7 +201,7 @@ export const Sidebar: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       setConnectionSteps(prev => prev.map(step =>
-        step.id === 'websocket' ? { ...step, status: 'completed', message: 'WebSocket connected successfully' } : step
+        step.id === 'websocket' ? { ...step, status: 'completed', message: 'WebSocket connected' } : step
       ));
 
       // Step 3: Check Market Data
@@ -203,10 +213,10 @@ export const Sidebar: React.FC = () => {
       await new Promise(resolve => setTimeout(resolve, 500));
 
       setConnectionSteps(prev => prev.map(step =>
-        step.id === 'market' ? { ...step, status: 'completed', message: 'Market data loaded successfully' } : step
+        step.id === 'market' ? { ...step, status: 'completed', message: 'Market data loaded' } : step
       ));
 
-      // All steps completed successfully
+      // All steps completed
       setIsConnected(true);
 
       // Calculate latency
@@ -261,7 +271,7 @@ export const Sidebar: React.FC = () => {
     // Subscribe to websocket connection events
     const wsConnectedHandler = () => {
       setConnectionSteps(prev => prev.map(step =>
-        step.id === 'websocket' ? { ...step, status: 'completed', message: 'WebSocket connected successfully' } : step
+        step.id === 'websocket' ? { ...step, status: 'completed', message: 'WebSocket connected' } : step
       ));
       setIsConnected(true);
     };
@@ -292,7 +302,7 @@ export const Sidebar: React.FC = () => {
       // Navigate to home page
       navigate('/');
 
-      logService.log('info', 'User signed out successfully', null, 'Sidebar');
+      logService.log('info', 'User signed out', null, 'Sidebar');
     } catch (error) {
       logService.log('error', 'Error during sign out:', error, 'Sidebar');
       // Still try to sign out and redirect even if there's an error
@@ -314,7 +324,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className={`${isMobile ? 'w-full h-auto shadow-md z-50' : 'w-64 h-screen'} bg-black flex ${isMobile ? 'flex-col' : 'flex-col'}`}>
+    <div className={`${isMobile ? 'w-full h-auto shadow-md z-50' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'}`}>
       {/* Logo and Header - Always visible and fully interactive */}
       <div
         className={`${isMobile ? 'w-full px-4 py-2' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-between' : ''} ${isMobile ? 'cursor-pointer' : ''}`}
@@ -349,11 +359,12 @@ export const Sidebar: React.FC = () => {
 
       {/* Connection Status Indicator - Conditionally rendered based on mobile state */}
       <div
-        className={`${isMobile ? (isMobileMenuOpen ? 'block' : 'hidden') : 'block'} mb-6 relative z-10 px-4 ${isMobile ? 'cursor-pointer' : ''}`}
+        className={`${isMobile ? (isMobileMenuOpen ? 'block' : 'hidden') : 'block'} mb-6 relative z-10 px-6 ${isMobile ? 'cursor-pointer' : ''}`}
         onClick={isMobile ? toggleMobileMenu : undefined}
+        ref={connectionContainerRef}
       >
         <div
-          className={`flex items-center justify-between px-4 py-2 cursor-pointer ${isExchangeDetailsExpanded ? 'rounded-t-lg' : 'rounded-lg'} ${isConnected ? 'bg-[#0d2429] border border-[#00f7ff]/30' : 'bg-[#3a2434] border border-[#f1416c]/30'}`}
+          className={`connection-header flex items-center justify-between px-4 py-2.5 cursor-pointer ${isExchangeDetailsExpanded ? 'rounded-t-lg' : 'rounded-lg'} panel-metallic shadow-md`}
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -362,74 +373,74 @@ export const Sidebar: React.FC = () => {
         >
           <div className="flex items-center gap-2">
             {isConnected ? (
-              <Wifi className="w-4 h-4 text-[#00f7ff]" />
+              <Wifi className="w-4 h-4 text-neon-turquoise" />
             ) : (
-              <WifiOff className="w-4 h-4 text-[#f1416c]" />
+              <WifiOff className="w-4 h-4 text-neon-pink" />
             )}
-            <span className={`text-sm font-medium ${isConnected ? 'text-[#00f7ff]' : 'text-[#f1416c]'}`}>
+            <span className={`text-sm font-medium ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`}>
               {isConnected ? 'Connected' : 'Disconnected'}
             </span>
             {latency !== null && isConnected && (
-              <span className="text-xs text-[#00f7ff]/70">{latency}ms</span>
+              <span className="text-xs text-neon-turquoise/70 ml-1">{latency}ms</span>
             )}
           </div>
           {isExchangeDetailsExpanded ? (
-            <ChevronUp className={`w-4 h-4 ${isConnected ? 'text-[#00f7ff]' : 'text-[#f1416c]'}`} />
+            <ChevronUp className={`w-4 h-4 ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`} />
           ) : (
-            <ChevronDown className={`w-4 h-4 ${isConnected ? 'text-[#00f7ff]' : 'text-[#f1416c]'}`} />
+            <ChevronDown className={`w-4 h-4 ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`} />
           )}
         </div>
 
         {/* Expanded Connection Details - Using simple transition */}
         <div
-          className={`absolute left-0 right-0 mt-0 px-4 py-0 ${isConnected ? 'bg-[#0d2429]' : 'bg-[#3a2434]'} rounded-b-lg text-xs space-y-2.5 z-20 border-t-0 border-x border-b ${isConnected ? 'border-[#00f7ff]/30' : 'border-[#f1416c]/30'} transition-all duration-300 overflow-hidden ${isExchangeDetailsExpanded ? 'opacity-100 max-h-[500px] py-3' : 'opacity-0 max-h-0 border-opacity-0 pointer-events-none'}`}
-          style={{ width: '100%', marginTop: '-1px', borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
+          className={`connection-details mt-0 px-4 py-0 panel-metallic rounded-b-lg text-xs space-y-3 z-20 transition-all duration-300 overflow-hidden ${isExchangeDetailsExpanded ? 'opacity-100 max-h-[500px] py-4' : 'opacity-0 max-h-0 pointer-events-none'}`}
+          style={{ marginTop: '-1px', borderTopLeftRadius: 0, borderTopRightRadius: 0 }}
         >
             {connectionSteps.map((step, index) => (
               <React.Fragment key={step.id}>
                 <div className="flex items-start">
-                  <div className={`mt-1 mr-2 rounded-full p-0.5 ${step.status === 'completed' ? 'bg-[#00f7ff]/20' : step.status === 'error' ? 'bg-[#f1416c]/20' : 'bg-gray-800'}`}>
+                  <div className={`mt-1 mr-3 rounded-full p-0.5 ${step.status === 'completed' ? 'bg-neon-turquoise/20' : step.status === 'error' ? 'bg-neon-pink/20' : 'bg-gray-800'}`}>
                     {step.status === 'completed' ? (
-                      <CheckCircle className="w-3 h-3 text-[#00f7ff]" />
+                      <CheckCircle className="w-3.5 h-3.5 text-neon-turquoise" />
                     ) : step.status === 'error' ? (
-                      <XCircle className="w-3 h-3 text-[#f1416c]" />
+                      <XCircle className="w-3.5 h-3.5 text-neon-pink" />
                     ) : step.status === 'in_progress' ? (
-                      <Loader2 className="w-3 h-3 text-yellow-400 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 text-neon-yellow animate-spin" />
                     ) : (
-                      <Circle className="w-3 h-3 text-gray-600" />
+                      <Circle className="w-3.5 h-3.5 text-gray-600" />
                     )}
                   </div>
                   <div>
-                    <div className={`text-xs font-medium ${step.status === 'completed' ? 'text-[#00f7ff]' : step.status === 'error' ? 'text-[#f1416c]' : step.status === 'in_progress' ? 'text-yellow-400' : 'text-gray-400'}`}>
+                    <div className={`text-xs font-medium ${step.status === 'completed' ? 'text-neon-turquoise' : step.status === 'error' ? 'text-neon-pink' : step.status === 'in_progress' ? 'text-neon-yellow' : 'text-gray-400'}`}>
                       {step.name}
                     </div>
-                    <div className="text-[11px] text-gray-400">
+                    <div className="text-[11px] text-gray-400 mt-0.5">
                       {step.status === 'error' ? step.message || 'Connection failed' :
-                       step.status === 'completed' ? step.message || `${step.name.split(' ')[0]} connected successfully` :
+                       step.status === 'completed' ? step.message || `${step.name.split(' ')[0]} connected` :
                        step.status === 'in_progress' ? 'Connecting...' : 'Waiting...'}
                     </div>
                   </div>
                 </div>
                 {index < connectionSteps.length - 1 && (
-                  <div className={`border-l ml-1.5 pl-5 -mt-1 pt-1 ${step.status === 'completed' ? 'border-[#00f7ff]/20' : step.status === 'error' ? 'border-[#f1416c]/20' : 'border-gray-800'}`}></div>
+                  <div className={`border-l ml-2 pl-6 -mt-1 pt-1 h-4 ${step.status === 'completed' ? 'border-neon-turquoise/20' : step.status === 'error' ? 'border-neon-pink/20' : 'border-gray-800'}`}></div>
                 )}
               </React.Fragment>
             ))}
 
             {/* Retry button if there's an error */}
             {connectionSteps.some(step => step.status === 'error') && (
-              <div className="mt-3 flex justify-end">
+              <div className="mt-4 flex justify-end">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     retryConnection();
                   }}
                   disabled={isRetrying}
-                  className={`px-2 py-1 rounded text-[10px] font-medium ${isRetrying ? 'bg-gray-800 text-gray-400' : 'bg-[#f1416c]/20 text-[#f1416c] hover:bg-[#f1416c]/30'}`}
+                  className={`px-3 py-1.5 rounded text-xs font-medium ${isRetrying ? 'bg-gray-800 text-gray-400' : 'bg-neon-pink/10 text-neon-pink border border-neon-pink/30 hover:bg-neon-pink/20'}`}
                 >
                   {isRetrying ? (
-                    <div className="flex items-center gap-1">
-                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    <div className="flex items-center gap-1.5">
+                      <Loader2 className="w-3 h-3 animate-spin" />
                       <span>Retrying...</span>
                     </div>
                   ) : 'Retry Connection'}
@@ -449,7 +460,7 @@ export const Sidebar: React.FC = () => {
           to="/dashboard"
           icon={<LayoutDashboard className="w-5 h-5" />}
           label="Dashboard"
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={0}
           isMobile={isMobile}
@@ -458,7 +469,7 @@ export const Sidebar: React.FC = () => {
           to="/strategy-manager"
           icon={<Brain className="w-5 h-5" />}
           label="Strategy Manager"
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={1}
           isMobile={isMobile}
@@ -467,7 +478,7 @@ export const Sidebar: React.FC = () => {
           to="/backtest"
           icon={<History className="w-5 h-5" />}
           label="Backtest"
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={2}
           isMobile={isMobile}
@@ -476,7 +487,7 @@ export const Sidebar: React.FC = () => {
           to="/trade-monitor"
           icon={<Monitor className="w-5 h-5" />}
           label="Trade Monitor"
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={3}
           isMobile={isMobile}
@@ -485,7 +496,7 @@ export const Sidebar: React.FC = () => {
           to="/risk-manager"
           icon={<Shield className="w-5 h-5" />}
           label="Risk Manager"
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={4}
           isMobile={isMobile}
@@ -494,7 +505,7 @@ export const Sidebar: React.FC = () => {
           to="/exchange-manager"
           icon={<Building2 className="w-5 h-5" />}
           label="Exchange Manager"
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={5}
           isMobile={isMobile}
@@ -503,7 +514,7 @@ export const Sidebar: React.FC = () => {
           to="/bug-tracker"
           icon={<Bug className="w-5 h-5" />}
           label="Bug Tracker"
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={6}
           isMobile={isMobile}
@@ -520,7 +531,7 @@ export const Sidebar: React.FC = () => {
           icon={<LogOut className="w-5 h-5" />}
           label="Sign Out"
           onClick={handleSignOut}
-          onMenuClick={createRainbowEffect}
+          onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           className="text-gray-400 hover:text-gray-200"
           index={7}

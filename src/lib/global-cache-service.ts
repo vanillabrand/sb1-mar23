@@ -143,11 +143,35 @@ class GlobalCacheService {
       // Use Promise.allSettled to continue even if some promises fail
       await Promise.allSettled(initPromises);
 
-      // Set up background refresh timers
+      // Set up background refresh timers with smart retry logic
       this.marketInsightsTimer = setInterval(() => {
-        this.refreshMarketInsights().catch(error => {
-          logService.log('error', 'Failed to refresh market insights cache', error, 'GlobalCacheService');
-        });
+        // Skip if already refreshing
+        if (this.isRefreshingInBackground) {
+          logService.log('info', 'Skipping scheduled market insights refresh, refresh already in progress', null, 'GlobalCacheService');
+          return;
+        }
+
+        // Check if we've recently had a failure
+        const now = Date.now();
+        const timeSinceLastFailure = now - this.lastFailedRefreshAttempt;
+
+        // If we've failed recently, don't try again until the backoff period has passed
+        if (this.lastFailedRefreshAttempt > 0 && timeSinceLastFailure < 5 * 60 * 1000) {
+          logService.log('info', `Skipping scheduled market insights refresh, last attempt failed ${Math.round(timeSinceLastFailure/1000)}s ago`, null, 'GlobalCacheService');
+          return;
+        }
+
+        // Set the flag to prevent multiple refreshes
+        this.isRefreshingInBackground = true;
+
+        this.refreshMarketInsights()
+          .catch(error => {
+            logService.log('error', 'Failed to refresh market insights cache in timer', error, 'GlobalCacheService');
+          })
+          .finally(() => {
+            // Reset the flag when done
+            this.isRefreshingInBackground = false;
+          });
       }, this.CACHE_REFRESH_INTERVAL);
 
       this.newsTimer = setInterval(() => {
@@ -197,19 +221,43 @@ class GlobalCacheService {
     };
   }
 
+  // Track the last time a refresh attempt failed
+  private lastFailedRefreshAttempt: number = 0;
+
+  // Flag to track if a background refresh is already in progress
+  private isRefreshingInBackground: boolean = false;
+
   /**
    * Refresh the market insights cache for default assets
    */
   private async refreshMarketInsights(): Promise<MarketInsight> {
     try {
+      // Check if we've recently tried to refresh and failed
+      const now = Date.now();
+      const timeSinceLastFailure = now - this.lastFailedRefreshAttempt;
+
+      // If we've failed recently, don't try again for at least 5 minutes
+      if (this.lastFailedRefreshAttempt > 0 && timeSinceLastFailure < 5 * 60 * 1000) {
+        logService.log('info', `Skipping market insights refresh, last attempt failed ${Math.round(timeSinceLastFailure/1000)}s ago`, null, 'GlobalCacheService');
+
+        // If we have cached data, return it
+        const cacheKey = this.DEFAULT_ASSETS.sort().join(',');
+        if (this.marketInsightsCache.has(cacheKey)) {
+          return this.marketInsightsCache.get(cacheKey)!;
+        }
+
+        // Otherwise, return synthetic data
+        return this.createSyntheticMarketInsights();
+      }
+
       logService.log('info', 'Refreshing market insights cache', null, 'GlobalCacheService');
 
       // Generate a cache key for the default assets
       const cacheKey = this.DEFAULT_ASSETS.sort().join(',');
 
-      // Set a timeout for the API call
+      // Set a timeout for the API call - increased to 15 seconds
       const timeoutPromise = new Promise<MarketInsight>((_, reject) => {
-        setTimeout(() => reject(new Error('Market insights API timeout')), 5000);
+        setTimeout(() => reject(new Error('Market insights API timeout')), 15000);
       });
 
       // Fetch fresh market insights with timeout
@@ -222,12 +270,18 @@ class GlobalCacheService {
       this.marketInsightsCache.set(cacheKey, insights);
       this.marketInsightsLastUpdate = Date.now();
 
+      // Reset the failed attempt tracker on success
+      this.lastFailedRefreshAttempt = 0;
+
       // Save to localStorage
       this.saveCacheToLocalStorage();
 
       logService.log('info', 'Market insights cache refreshed successfully', null, 'GlobalCacheService');
       return insights;
     } catch (error) {
+      // Record this failed attempt
+      this.lastFailedRefreshAttempt = Date.now();
+
       logService.log('error', 'Failed to refresh market insights cache', error, 'GlobalCacheService');
 
       // If we have cached data, return it even if refresh failed
@@ -348,12 +402,12 @@ class GlobalCacheService {
         const cacheAge = now - this.marketInsightsLastUpdate;
 
         // If cache is stale, trigger a background refresh but still return cached data
-        if (cacheAge > this.CACHE_REFRESH_INTERVAL) {
-          setTimeout(() => {
-            this.refreshMarketInsights().catch(error => {
-              logService.log('error', 'Failed to refresh stale market insights', error, 'GlobalCacheService');
-            });
-          }, 100);
+        if (cacheAge > this.CACHE_REFRESH_INTERVAL && !this.isRefreshingInBackground) {
+          // Only trigger a refresh if we haven't failed recently
+          const timeSinceLastFailure = now - this.lastFailedRefreshAttempt;
+          if (this.lastFailedRefreshAttempt === 0 || timeSinceLastFailure > 5 * 60 * 1000) {
+            this.triggerBackgroundRefresh();
+          }
         }
 
         return this.marketInsightsCache.get(cacheKey)!;
@@ -369,12 +423,14 @@ class GlobalCacheService {
         this.marketInsightsCache.set(cacheKey, syntheticInsights);
         this.marketInsightsLastUpdate = Date.now();
 
-        // Trigger a refresh in the background
-        setTimeout(() => {
-          this.refreshMarketInsights().catch(error => {
-            logService.log('error', 'Failed to refresh market insights in background', error, 'GlobalCacheService');
-          });
-        }, 100);
+        // Trigger a refresh in the background if we're not already refreshing
+        // and haven't failed recently
+        const now = Date.now();
+        const timeSinceLastFailure = now - this.lastFailedRefreshAttempt;
+        if (!this.isRefreshingInBackground &&
+            (this.lastFailedRefreshAttempt === 0 || timeSinceLastFailure > 5 * 60 * 1000)) {
+          this.triggerBackgroundRefresh();
+        }
 
         return syntheticInsights;
       }
@@ -636,11 +692,44 @@ class GlobalCacheService {
   // The getPortfolioSummary method is already defined above
 
   /**
+   * Trigger a background refresh of market insights with debouncing
+   */
+  private triggerBackgroundRefresh(): void {
+    if (this.isRefreshingInBackground) {
+      return; // Already refreshing, don't trigger another refresh
+    }
+
+    this.isRefreshingInBackground = true;
+
+    // Use a longer timeout (1 second) to reduce chances of multiple simultaneous refreshes
+    setTimeout(() => {
+      this.refreshMarketInsights()
+        .catch(error => {
+          logService.log('error', 'Failed to refresh market insights in background', error, 'GlobalCacheService');
+        })
+        .finally(() => {
+          // Reset the flag when done, regardless of success or failure
+          this.isRefreshingInBackground = false;
+        });
+    }, 1000);
+  }
+
+  /**
    * Force a refresh of the market insights cache
    * @returns Promise that resolves when the refresh is complete
    */
   async forceRefreshMarketInsights(): Promise<void> {
-    return this.refreshMarketInsights();
+    // If already refreshing, don't start another refresh
+    if (this.isRefreshingInBackground) {
+      return;
+    }
+
+    this.isRefreshingInBackground = true;
+    try {
+      await this.refreshMarketInsights();
+    } finally {
+      this.isRefreshingInBackground = false;
+    }
   }
 
   /**
@@ -663,6 +752,11 @@ class GlobalCacheService {
     if (this.newsTimer) {
       clearInterval(this.newsTimer);
       this.newsTimer = null;
+    }
+
+    if (this.portfolioTimer) {
+      clearInterval(this.portfolioTimer);
+      this.portfolioTimer = null;
     }
   }
 }

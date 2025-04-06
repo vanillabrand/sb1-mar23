@@ -9,6 +9,13 @@ class AIMarketService {
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000;
 
+  // Cache to store recent API responses
+  private cache: Map<string, {data: MarketInsight, timestamp: number}> = new Map();
+  // Cache TTL in milliseconds (30 minutes)
+  private readonly CACHE_TTL = 30 * 60 * 1000;
+  // Flag to track if a request is in progress for a specific set of assets
+  private inProgressRequests: Map<string, Promise<MarketInsight>> = new Map();
+
   private constructor() {}
 
   static getInstance(): AIMarketService {
@@ -197,7 +204,48 @@ class AIMarketService {
   }
 
   async getMarketInsights(assets: string[]): Promise<MarketInsight> {
-    return this.generateWithDeepSeek(assets);
+    // Sort assets to ensure consistent cache keys
+    const sortedAssets = [...assets].sort();
+    const cacheKey = sortedAssets.join(',');
+
+    // Check if we have a valid cache entry
+    const cachedData = this.cache.get(cacheKey);
+    const now = Date.now();
+
+    if (cachedData && (now - cachedData.timestamp) < this.CACHE_TTL) {
+      logService.log('info', 'Using cached market insights', null, 'AIMarketService');
+      return cachedData.data;
+    }
+
+    // Check if there's already a request in progress for these assets
+    if (this.inProgressRequests.has(cacheKey)) {
+      logService.log('info', 'Reusing in-progress market insights request', null, 'AIMarketService');
+      return this.inProgressRequests.get(cacheKey)!;
+    }
+
+    // Create a new request and store it
+    const requestPromise = this.fetchMarketInsights(sortedAssets, cacheKey);
+    this.inProgressRequests.set(cacheKey, requestPromise);
+
+    return requestPromise;
+  }
+
+  private async fetchMarketInsights(assets: string[], cacheKey: string): Promise<MarketInsight> {
+    try {
+      // Generate insights
+      const insights = await this.generateWithDeepSeek(assets);
+
+      // Cache the result
+      this.cache.set(cacheKey, {
+        data: insights,
+        timestamp: Date.now()
+      });
+
+      return insights;
+    } finally {
+      // Always remove the in-progress request when done
+      this.inProgressRequests.delete(cacheKey);
+    }
   }
 
   // End of class

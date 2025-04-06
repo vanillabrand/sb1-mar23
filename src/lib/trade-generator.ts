@@ -124,6 +124,18 @@ class TradeGenerator extends EventEmitter {
         throw new Error('Strategy has no configured trading pairs');
       }
 
+      // Check if the strategy has available budget before proceeding
+      const budget = await tradeService.getBudget(strategy.id);
+      if (!budget || budget.available <= 0) {
+        logService.log('warn', `Strategy ${strategy.id} has no available budget, skipping trade generation`, null, 'TradeGenerator');
+        // Emit event to notify that we're skipping this strategy due to no budget
+        eventBus.emit(`trade:error:${strategy.id}`, {
+          strategyId: strategy.id,
+          error: new Error('No available budget for trading')
+        });
+        return; // Skip this strategy
+      }
+
       // Check each asset for trading opportunities
       for (const symbol of strategy.strategy_config.assets) {
         try {

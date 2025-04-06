@@ -52,10 +52,14 @@ const TRADING_PAIRS = [
 const RISK_LEVELS: RiskLevel[] = [
   'Ultra Low',
   'Low',
+  'Medium Low',
   'Medium',
+  'Medium High',
   'High',
+  'Very High',
   'Ultra High',
-  'Extreme'
+  'Extreme',
+  'Maximum'
 ];
 
 export class TemplateGenerator {

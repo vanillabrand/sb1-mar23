@@ -22,16 +22,16 @@ export function ConfirmDialog({
 }: ConfirmDialogProps) {
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[100]">
-      <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-lg p-6 w-full max-w-md border border-gunmetal-800">
+      <div className="panel-metallic backdrop-blur-xl rounded-lg p-6 w-full max-w-md">
         <div className="flex items-center gap-3 mb-4">
           <div className={`p-2 rounded-full ${confirmVariant === 'destructive' ? 'bg-red-500/10 text-red-500' : 'bg-neon-turquoise/10 text-neon-turquoise'}`}>
             <AlertTriangle className="w-5 h-5" />
           </div>
           <h2 className="text-xl font-bold text-gray-200">{title}</h2>
         </div>
-        
+
         <p className="text-gray-300 mb-6">{message}</p>
-        
+
         <div className="flex justify-end gap-3">
           <button
             onClick={onCancel}

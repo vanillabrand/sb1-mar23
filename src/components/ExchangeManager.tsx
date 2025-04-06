@@ -213,7 +213,7 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
             return (
               <div
                 key={exchange.id}
-                className={`bg-gunmetal-800/50 rounded-lg p-6 flex items-center justify-between hover:bg-gunmetal-800/70 transition-colors border ${isActive ? 'border-neon-turquoise/50' : 'border-gunmetal-700'}`}
+                className={`panel-metallic rounded-lg p-6 flex items-center justify-between hover:bg-gunmetal-800/70 transition-colors`}
               >
                 <div className="flex items-center gap-4">
                   <div className={`${isActive ? 'bg-neon-turquoise/20' : 'bg-gunmetal-900/50'} p-3 rounded-lg`}>

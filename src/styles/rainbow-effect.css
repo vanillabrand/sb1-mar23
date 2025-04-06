@@ -1,61 +1,41 @@
-/* Rainbow Cascade Effect */
-@keyframes rainbowPulse {
+/* Menu Item Effects */
+@keyframes menuPulse {
   0% {
-    background-position: 0% 50%;
     transform: translateX(0);
   }
   50% {
-    background-position: 100% 50%;
     transform: translateX(2px);
   }
   100% {
-    background-position: 0% 50%;
     transform: translateX(0);
   }
 }
 
-.rainbow-pulse {
-  animation: rainbowPulse 1.5s ease-in-out;
+.menu-active {
   position: relative;
   z-index: 1;
+  animation: menuPulse 0.3s ease-in-out;
 }
 
-.rainbow-pulse::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-image: linear-gradient(
-    45deg,
-    #00f7ff,
-    #ff3e8e,
-    #ffc700,
-    #ff8c39,
-    #00f7ff
-  );
-  background-size: 200% 200%;
-  border-radius: 8px;
-  z-index: -1;
-  opacity: 0.15;
-  animation: rainbowPulse 1.5s ease-in-out;
-}
-
-.rainbow-pulse span {
-  color: white !important;
+.menu-active span {
   font-weight: 500;
 }
 
-/* Hover Effects */
+/* Hover Effects with Delayed Transition */
 .nav-item {
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
   position: relative;
   z-index: 1;
+  width: calc(100% - 16px); /* Make lozenges slightly less wide than sidebar */
+  margin-left: 8px; /* Center the lozenge */
 }
 
 .nav-item:hover {
   transform: translateX(2px);
+}
+
+.nav-item:hover span {
+  transition: color 0.3s ease 0.1s; /* Delayed color transition */
 }
 
 .nav-item:hover::before {
@@ -65,17 +45,10 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: linear-gradient(
-    45deg,
-    rgba(0, 247, 255, 0.1),
-    rgba(255, 62, 142, 0.1),
-    rgba(255, 199, 0, 0.1),
-    rgba(255, 140, 57, 0.1)
-  );
+  background-color: rgba(40, 40, 45, 0.7); /* Solid color instead of gradient */
   border-radius: 8px;
   z-index: -1;
-  background-size: 200% 200%;
-  animation: rainbowPulse 1.5s ease-in-out;
+  transition: all 0.3s ease; /* Smooth fade-in */
 }
 
 /* Active Item Styling */
@@ -88,7 +61,24 @@
   transition: all 0.3s ease;
 }
 
+/* Connection Manager Styling */
+.connection-header {
+  width: 100%;
+  position: relative;
+}
+
+.connection-details {
+  width: 100%;
+  position: relative;
+  display: block;
+}
+
 /* We've removed the easeOutBack animation for the connection panel */
+
+/* Strategy Card - No Hover Effect */
+.strategy-card {
+  transition: none;
+}
 
 /* Mobile Menu Transition */
 .mobile-menu-enter {

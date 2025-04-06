@@ -51,7 +51,6 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [trades, setTrades] = useState<Trade[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies || []);
   const [strategyTrades, setStrategyTrades] = useState<Record<string, Trade[]>>({});
-  const [liveTrades, setLiveTrades] = useState<Trade[]>([]); // For the live trades scrolling list
 
   // WebSocket state
   const [wsConnected, setWsConnected] = useState(false);
@@ -212,12 +211,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           return updatedTrades.slice(0, 100);
         });
 
-        // Update the live trades list (most recent trades for the scrolling display)
-        setLiveTrades(prev => {
-          const updatedTrades = [trade, ...prev];
-          // Keep only the latest 50 trades for the live display
-          return updatedTrades.slice(0, 50);
-        });
+
 
         // Log the trade for debugging
         logService.log('debug', `Received trade update for strategy ${strategyId}`, { trade }, 'TradeMonitor');
@@ -695,6 +689,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     }
   };
 
+  // Cache for TestNet trades to avoid excessive API calls
+  const tradeCache = new Map<string, {trades: Trade[], timestamp: number}>();
+  const TRADE_CACHE_TTL = 60 * 1000; // 1 minute cache TTL
+
   const fetchTestNetTrades = async (): Promise<Trade[]> => {
     try {
       logService.log('info', 'Fetching trades from Binance TestNet', null, 'TradeMonitor');
@@ -706,6 +704,16 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       if (activeStrategies.length === 0) {
         logService.log('info', 'No active strategies found', null, 'TradeMonitor');
         return [];
+      }
+
+      // Check if we have a valid cache for all strategies combined
+      const cacheKey = 'all_strategies';
+      const cachedData = tradeCache.get(cacheKey);
+      const now = Date.now();
+
+      if (cachedData && (now - cachedData.timestamp) < TRADE_CACHE_TTL) {
+        logService.log('info', 'Using cached trades for all strategies', null, 'TradeMonitor');
+        return cachedData.trades;
       }
 
       // Get trades from TestNet via ccxtService
@@ -780,6 +788,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         }
       }
 
+      // Cache the results
+      tradeCache.set('all_strategies', {
+        trades: allTrades,
+        timestamp: Date.now()
+      });
+
       return allTrades;
     } catch (error) {
       logService.log('error', 'Failed to fetch TestNet trades', error, 'TradeMonitor');
@@ -790,6 +804,16 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   // Fetch trades from user's configured exchange
   const fetchExchangeTrades = async (): Promise<Trade[]> => {
     try {
+      // Check if we have a valid cache for exchange trades
+      const cacheKey = 'exchange_trades';
+      const cachedData = tradeCache.get(cacheKey);
+      const now = Date.now();
+
+      if (cachedData && (now - cachedData.timestamp) < TRADE_CACHE_TTL) {
+        logService.log('info', 'Using cached exchange trades', null, 'TradeMonitor');
+        return cachedData.trades;
+      }
+
       // Get the active exchange
       const exchange = await exchangeService.getActiveExchange();
 
@@ -797,11 +821,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         throw new Error('No active exchange configured');
       }
 
-      // Fetch trades from the database
+      // Fetch trades from the database with limit to improve performance
       const { data, error: dbError } = await supabase
         .from('trades')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100); // Limit to 100 most recent trades for better performance
 
       if (dbError) {
         // Check if the error is because the trades table doesn't exist
@@ -813,7 +838,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       }
 
       // Convert to our Trade format
-      return (data || []).map(trade => ({
+      const formattedTrades = (data || []).map(trade => ({
         id: trade.id,
         symbol: trade.symbol,
         type: trade.type || 'market',
@@ -827,6 +852,14 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         closedAt: trade.closed_at ? new Date(trade.closed_at).getTime() : undefined,
         strategyId: trade.strategy_id,
       }));
+
+      // Cache the results
+      tradeCache.set('exchange_trades', {
+        trades: formattedTrades,
+        timestamp: now
+      });
+
+      return formattedTrades;
     } catch (error) {
       logService.log('error', 'Failed to fetch exchange trades', error, 'TradeMonitor');
       return [];
@@ -879,13 +912,46 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       return;
     }
 
-    await activateStrategyWithBudget(pendingStrategy, budget);
+    try {
+      // Store the strategy locally in case the modal is closed
+      const strategyToActivate = { ...pendingStrategy };
+
+      // Start the activation process
+      await activateStrategyWithBudget(strategyToActivate, budget);
+    } catch (error) {
+      logService.log('error', 'Error in budget confirmation handler', error, 'TradeMonitor');
+      setError('Failed to activate strategy. Please try again.');
+
+      // Make sure modals are closed even on error
+      setShowBudgetModal(false);
+      setShowBudgetAdjustmentModal(false);
+      setPendingStrategy(null);
+      setPendingBudget(0);
+      setIsSubmittingBudget(false);
+    }
   };
 
   // Handle budget adjustment confirmation
   const handleBudgetAdjustmentConfirm = async (budget: StrategyBudget) => {
     if (!pendingStrategy) return;
-    await activateStrategyWithBudget(pendingStrategy, budget);
+
+    try {
+      // Store the strategy locally in case the modal is closed
+      const strategyToActivate = { ...pendingStrategy };
+
+      // Start the activation process
+      await activateStrategyWithBudget(strategyToActivate, budget);
+    } catch (error) {
+      logService.log('error', 'Error in budget adjustment confirmation handler', error, 'TradeMonitor');
+      setError('Failed to activate strategy. Please try again.');
+
+      // Make sure modals are closed even on error
+      setShowBudgetModal(false);
+      setShowBudgetAdjustmentModal(false);
+      setPendingStrategy(null);
+      setPendingBudget(0);
+      setIsSubmittingBudget(false);
+    }
   };
 
   // Activate a strategy with the given budget - simplified version
@@ -893,6 +959,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     try {
       setError(null);
       setIsSubmittingBudget(true);
+
+      // Always close modals first to prevent UI from getting stuck
+      setShowBudgetModal(false);
+      setShowBudgetAdjustmentModal(false);
 
       // 1. Set the budget first
       await tradeService.setBudget(strategy.id, budget);
@@ -913,32 +983,37 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       const updatedStrategy = await strategyService.activateStrategy(strategy.id);
       logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'TradeMonitor');
 
-      // 4. Start monitoring the strategy
-      await marketService.startStrategyMonitoring(updatedStrategy);
-      logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'TradeMonitor');
-
-      // 5. Connect to trading engine to start generating trades
-      const connected = await tradeService.connectStrategyToTradingEngine(strategy.id);
-
-      if (!connected) {
-        // If connection failed, try again after a short delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const retryConnected = await tradeService.connectStrategyToTradingEngine(strategy.id);
-
-        if (!retryConnected) {
-          throw new Error('Failed to connect strategy to trading engine after retry');
-        }
+      // 4. Start monitoring the strategy - wrap in try/catch to continue even if this fails
+      try {
+        await marketService.startStrategyMonitoring(updatedStrategy);
+        logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'TradeMonitor');
+      } catch (monitorError) {
+        logService.log('warn', `Error starting market monitoring for strategy ${strategy.id}, continuing with activation`, monitorError, 'TradeMonitor');
       }
 
-      logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'TradeMonitor');
+      // 5. Connect to trading engine to start generating trades - wrap in try/catch to continue even if this fails
+      try {
+        const connected = await tradeService.connectStrategyToTradingEngine(strategy.id);
+
+        if (!connected) {
+          // If connection failed, log a warning but continue
+          logService.log('warn', `Failed to connect strategy ${strategy.id} to trading engine, will retry later`, null, 'TradeMonitor');
+        } else {
+          logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'TradeMonitor');
+        }
+      } catch (engineError) {
+        logService.log('warn', `Error connecting strategy ${strategy.id} to trading engine, will retry later`, engineError, 'TradeMonitor');
+      }
 
       // 6. Refresh data
-      await fetchStrategies();
-      await fetchTradeData(); // Also refresh trade data to show new trades
+      try {
+        await fetchStrategies();
+        await fetchTradeData(); // Also refresh trade data to show new trades
+      } catch (refreshError) {
+        logService.log('warn', 'Error refreshing data after strategy activation', refreshError, 'TradeMonitor');
+      }
 
-      // 7. Close the modals
-      setShowBudgetModal(false);
-      setShowBudgetAdjustmentModal(false);
+      // 7. Clean up state
       setPendingStrategy(null);
       setPendingBudget(0);
 
@@ -946,6 +1021,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     } catch (error) {
       logService.log('error', 'Failed to activate strategy with budget', error, 'TradeMonitor');
       setError('Failed to activate strategy. Please try again.');
+
+      // Make sure modals are closed even on error
+      setShowBudgetModal(false);
+      setShowBudgetAdjustmentModal(false);
+      setPendingStrategy(null);
+      setPendingBudget(0);
     } finally {
       setIsSubmittingBudget(false);
     }
@@ -988,8 +1069,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         {/* Header Section */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-100">Trade Monitor</h1>
-            <p className="text-gray-400 mt-1">Monitor your active trades in real-time. Track positions, P&L, and market conditions.</p>
+            <h1 className="gradient-text">Trade Monitor</h1>
+            <p className="description-text mt-1">Monitor your active trades in real-time. Track positions, P&L, and market conditions.</p>
           </div>
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-400 flex items-center gap-2">
@@ -999,7 +1080,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             <button
               onClick={refresh}
               disabled={refreshing}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2"
+              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 btn-text-small"
             >
               {refreshing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1046,19 +1127,19 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
                 <div className="flex gap-2">
                   <button
-                    className={`px-3 py-1.5 rounded-lg text-sm ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('all')}
                   >
                     All
                   </button>
                   <button
-                    className={`px-3 py-1.5 rounded-lg text-sm ${statusFilter === 'active' ? 'bg-pink-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'active' ? 'bg-pink-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('active')}
                   >
                     Active
                   </button>
                   <button
-                    className={`px-3 py-1.5 rounded-lg text-sm ${statusFilter === 'inactive' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'inactive' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('inactive')}
                   >
                     Inactive
@@ -1066,10 +1147,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                 </div>
               </div>
 
-              {/* Strategy Cards and Live Trades Layout */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Strategies Column - Takes 2/3 of the space on large screens */}
-                <div className="lg:col-span-2 space-y-4">
+              {/* Strategy Cards Layout */}
+              <div className="grid grid-cols-1 gap-6">
+                {/* Strategies Column */}
+                <div className="space-y-4">
                   {strategies.length === 0 ? (
                   <div className="text-center py-12 bg-gunmetal-800/50 rounded-lg">
                     <div className="flex justify-center mb-4">
@@ -1277,66 +1358,6 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                   )}
                 </div>
 
-                {/* Live Trades Column - Takes 1/3 of the space on large screens */}
-                <div className="space-y-4">
-                  <div className="bg-gunmetal-900/80 border border-gunmetal-800 rounded-lg p-4">
-                    <div className="flex justify-between items-center mb-4">
-                      <h3 className="text-lg font-semibold text-white">Live Trades</h3>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                        <span className="text-xs text-gray-400">
-                          {wsConnected ? 'Connected' : 'Disconnected'}
-                        </span>
-                      </div>
-                    </div>
-
-                    {liveTrades.length === 0 ? (
-                      <div className="text-center py-12 bg-gunmetal-800/50 rounded-lg h-64 flex flex-col items-center justify-center">
-                        <Activity className="w-8 h-8 text-gray-500 mb-2" />
-                        <p className="text-gray-400">No trades yet</p>
-                        <p className="text-gray-500 text-sm mt-1">Activate a strategy to start trading</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                        {/* Limit to 10 most recent trades */}
-                        {liveTrades.slice(0, 10).map((trade, index) => (
-                          <div
-                            key={`${trade.id}-${index}`}
-                            className={`p-3 rounded-lg border ${index === 0 ? 'border-blue-500/50 bg-blue-500/10 animate-pulse' : 'border-gunmetal-700 bg-gunmetal-800/50'}`}
-                          >
-                            <div className="flex justify-between items-start mb-1">
-                              <div className="flex items-center gap-1.5">
-                                <span className={`text-sm font-medium ${trade.side === 'buy' ? 'text-green-500' : 'text-red-500'}`}>
-                                  {trade.side.toUpperCase()}
-                                </span>
-                                <span className="text-white font-medium">{trade.symbol}</span>
-                              </div>
-                              <span className="text-xs text-gray-400">
-                                {new Date(trade.timestamp).toLocaleTimeString()}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center text-sm">
-                              <span className="text-gray-300">
-                                {parseFloat(trade.amount?.toString() || '0').toFixed(4)} @ ${parseFloat(trade.price?.toString() || '0').toFixed(2)}
-                              </span>
-                              <span className="text-gray-400">
-                                ${(parseFloat(trade.amount?.toString() || '0') * parseFloat(trade.price?.toString() || '0')).toFixed(2)}
-                              </span>
-                            </div>
-                            <div className="flex justify-between items-center mt-1">
-                              <span className={`text-xs px-1.5 py-0.5 rounded ${getStatusColor(trade.status)}`}>
-                                {trade.status.toUpperCase()}
-                              </span>
-                              <span className="text-xs text-gray-500">
-                                {getStrategyName(trade.strategyId || '', strategies)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
               </div>
             </div>
           </div>

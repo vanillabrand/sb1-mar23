@@ -14,7 +14,7 @@ export function StrategyTemplateCard({ template, onUse, isCreating }: StrategyTe
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700 min-h-[320px] flex flex-col"
+      className="panel-metallic rounded-xl p-6 min-h-[320px] flex flex-col"
     >
       <div className="flex items-center gap-3 mb-4">
         <div className="p-2 rounded-lg bg-gunmetal-900/50 text-neon-turquoise">
@@ -22,9 +22,9 @@ export function StrategyTemplateCard({ template, onUse, isCreating }: StrategyTe
         </div>
         <div>
           <h3 className="font-semibold text-gray-200">{template.title}</h3>
-          <RiskLevelBadge 
-            level={template.risk_level.toLowerCase() as 'low' | 'medium' | 'high'} 
-            size="sm" 
+          <RiskLevelBadge
+            level={template.risk_level.toLowerCase() as 'low' | 'medium' | 'high'}
+            size="sm"
           />
         </div>
       </div>

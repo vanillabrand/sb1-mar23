@@ -4,6 +4,7 @@ import { Brain, Plus, Search, Filter, Loader2, AlertCircle, RefreshCw } from 'lu
 import { Toaster } from 'react-hot-toast';
 import { useStrategies } from '../hooks/useStrategies';
 import { useAuth } from '../hooks/useAuth';
+import { useScreenSize } from '../lib/hooks/useScreenSize';
 import { supabase } from '../lib/supabase';
 import { directDeleteStrategy } from '../lib/direct-delete';
 import { eventBus } from '../lib/event-bus';
@@ -78,9 +79,18 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [error, setError] = useState<string | null>(null);
   const [loadingStrategy, setLoadingStrategy] = useState<string | null>(null);
 
+  // Get screen size for responsive pagination
+  const screenSize = useScreenSize();
+
   // Constants for pagination
-  const [ITEMS_PER_PAGE, setItemsPerPage] = useState(6); // For user strategies
-  const [TEMPLATES_PER_PAGE, setTemplatesPerPage] = useState(6); // For template strategies
+  const [ITEMS_PER_PAGE, setItemsPerPage] = useState(screenSize === 'sm' ? 3 : 6); // For user strategies
+  const [TEMPLATES_PER_PAGE, setTemplatesPerPage] = useState(screenSize === 'sm' ? 3 : 6); // For template strategies
+
+  // Update items per page when screen size changes
+  useEffect(() => {
+    setItemsPerPage(screenSize === 'sm' ? 3 : 6);
+    setTemplatesPerPage(screenSize === 'sm' ? 3 : 6);
+  }, [screenSize]);
 
   // Add event listener for budget modal
   useEffect(() => {
@@ -300,15 +310,22 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         return true;
       })
       .sort((a, b) => {
+        // Always sort by creation date first (newest first), then apply additional sorting
+        const dateComparison = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+
+        // If sortBy is 'created', just use the date comparison
+        if (sortBy === 'created') {
+          return dateComparison;
+        }
+
+        // Otherwise, apply the selected sort criteria
         switch (sortBy) {
           case 'performance':
             return parseFloat(b.performance) - parseFloat(a.performance);
-          case 'created':
-            return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
           case 'name':
             return a.title.localeCompare(b.title);
           default:
-            return 0;
+            return dateComparison; // Default to newest first
         }
       });
 
@@ -996,26 +1013,15 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         <div className="container mx-auto px-6 py-8 max-w-7xl">
           {/* Header */}
           <div className="mb-8">
-            <h1 className="text-3xl font-bold gradient-text mb-4">Strategy Manager</h1>
+            <h1 className="gradient-text mb-2">Strategy Manager</h1>
+            <p className="description-text mb-4">Create, manage, and monitor your trading strategies. Activate strategies to generate real-time trades based on market conditions.</p>
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all duration-300"
+                className="flex items-center gap-2 px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all duration-300 btn-text-small font-bold"
               >
                 <Plus className="w-4 h-4" />
                 Create Strategy
-              </button>
-              <button
-                onClick={loadTemplates}
-                className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all duration-300"
-                disabled={loadingTemplates}
-              >
-                {loadingTemplates ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <RefreshCw className="w-4 h-4" />
-                )}
-                Refresh Templates
               </button>
             </div>
           </div>
@@ -1036,13 +1042,6 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   className="w-full pl-10 pr-4 py-2 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise"
                 />
               </div>
-
-              <StrategyFilters
-                options={filterOptions}
-                onChange={handleFilterChange}
-                onSortChange={handleSortChange}
-                sortBy={sortBy}
-              />
             </div>
           </div>
 
@@ -1078,7 +1077,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   <p className="text-gray-400 text-sm mb-4">{searchTerm ? "Try adjusting your search" : "Create your first strategy"}</p>
                   <button
                     onClick={() => setShowCreateModal(true)}
-                    className="px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all"
+                    className="px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all font-bold"
                   >
                     Create Strategy
                   </button>
@@ -1092,6 +1091,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
+                        className="strategy-card rounded-xl"
                       >
                         <StrategyCard
                           key={strategy.id}
@@ -1135,18 +1135,6 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold text-gray-200">Template Strategies</h2>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={loadTemplates}
-                    className="flex items-center gap-2 px-3 py-1 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all duration-300 text-sm"
-                    disabled={loadingTemplates}
-                  >
-                    {loadingTemplates ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3 h-3" />
-                    )}
-                    Refresh Templates
-                  </button>
                   <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
                 </div>
               </div>
@@ -1182,7 +1170,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
-                        className="bg-gunmetal-800/50 rounded-xl p-6 hover:border-neon-turquoise/30 transition-all duration-300"
+                        className="bg-gunmetal-800/50 rounded-xl p-6"
                       >
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
@@ -1204,7 +1192,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                           </div>
                           <button
                             onClick={() => handleUseTemplate(template)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300"
+                            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 btn-text-small"
                           >
                             <Plus className="w-4 h-4" />
                             Use Template

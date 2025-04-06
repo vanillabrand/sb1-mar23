@@ -3,6 +3,9 @@ import { Activity, TrendingUp, BarChart3, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { formatDistanceToNow } from 'date-fns';
+import { eventBus } from '../lib/event-bus';
+import { analyticsService } from '../lib/services';
+import { Pagination } from './ui/Pagination';
 import type { Strategy, Trade } from '../lib/types';
 
 interface StrategyStatusProps {
@@ -19,6 +22,17 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
     lastTrade: string | null;
   }>>({});
   const [loading, setLoading] = useState(true);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 6;
+  const totalPages = Math.ceil(strategies.length / ITEMS_PER_PAGE);
+
+  // Get current page strategies
+  const paginatedStrategies = strategies.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
 
   // Function to handle strategy click and navigate to trade monitor
   const handleStrategyClick = (strategyId: string) => {
@@ -90,6 +104,73 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
     };
 
     fetchTradesForStrategies();
+  }, [strategies]);
+
+  // Subscribe to real-time analytics updates
+  useEffect(() => {
+    if (strategies.length === 0) return;
+
+    // Create a map of event handlers for each strategy
+    const analyticsHandlers: Record<string, (data: any) => void> = {};
+
+    // Subscribe to analytics updates for each strategy
+    strategies.forEach(strategy => {
+      const handler = (data: any) => {
+        if (data && data.metrics) {
+          // Update stats for this strategy
+          setStrategyStats(prev => {
+            const updatedStats = { ...prev };
+
+            // Update performance from analytics data
+            if (updatedStats[strategy.id]) {
+              updatedStats[strategy.id] = {
+                ...updatedStats[strategy.id],
+                performance: data.metrics.performance.toFixed(2),
+                // Update other stats if available in the analytics data
+                ...(data.trades ? {
+                  trades: data.trades.total,
+                  winRate: ((data.trades.profitable / data.trades.total) * 100).toFixed(1),
+                  lastTrade: data.timestamp ? new Date(data.timestamp).toISOString() : updatedStats[strategy.id].lastTrade
+                } : {})
+              };
+            }
+
+            return updatedStats;
+          });
+        }
+      };
+
+      // Store the handler for cleanup
+      analyticsHandlers[strategy.id] = handler;
+
+      // Subscribe to strategy-specific analytics updates
+      eventBus.subscribe(`strategy:analytics:${strategy.id}`, handler);
+    });
+
+    // Also subscribe to general analytics updates
+    const analyticsUpdateHandler = (data: any) => {
+      if (data && data.strategyId && strategies.some(s => s.id === data.strategyId)) {
+        // This will trigger an update for the specific strategy
+        const strategyId = data.strategyId;
+        const handler = analyticsHandlers[strategyId];
+        if (handler) handler(data);
+      }
+    };
+
+    analyticsService.on('analyticsUpdate', analyticsUpdateHandler);
+
+    return () => {
+      // Unsubscribe from all strategy-specific events
+      strategies.forEach(strategy => {
+        const handler = analyticsHandlers[strategy.id];
+        if (handler) {
+          eventBus.unsubscribe(`strategy:analytics:${strategy.id}`, handler);
+        }
+      });
+
+      // Unsubscribe from general analytics updates
+      analyticsService.off('analyticsUpdate', analyticsUpdateHandler);
+    };
   }, [strategies]);
 
   // Subscribe to real-time trade updates
@@ -207,7 +288,9 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise mx-auto"></div>
           <p className="text-gray-400 mt-2">Loading strategy data...</p>
         </div>
-      ) : strategies.map(strategy => {
+      ) : (
+        <>
+          {paginatedStrategies.map(strategy => {
         const stats = strategyStats[strategy.id] || {
           performance: '0.00',
           trades: 0,
@@ -278,6 +361,21 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
           </div>
         );
       })}
+
+      {/* Pagination Controls */}
+      {strategies.length > ITEMS_PER_PAGE && (
+        <div className="mt-4">
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={setCurrentPage}
+            totalItems={strategies.length}
+            itemsPerPage={ITEMS_PER_PAGE}
+          />
+        </div>
+      )}
+      </>
+      )}
     </div>
   );
 }

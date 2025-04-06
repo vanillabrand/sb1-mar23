@@ -7,7 +7,7 @@ interface PanelWrapperProps {
 
 export function PanelWrapper({ title, icon, children, actions }: PanelWrapperProps) {
   return (
-    <div className="bg-gunmetal-950/50 backdrop-blur-sm rounded-2xl p-6 shadow-xl">
+    <div className="panel-metallic backdrop-blur-sm rounded-2xl p-6 shadow-xl">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           {icon && (
@@ -15,7 +15,7 @@ export function PanelWrapper({ title, icon, children, actions }: PanelWrapperPro
               {icon}
             </div>
           )}
-          <h2 className="text-2xl font-bold gradient-text">
+          <h2 className="gradient-text">
             {title}
           </h2>
         </div>

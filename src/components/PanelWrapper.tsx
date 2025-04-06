@@ -54,12 +54,12 @@ export function PanelWrapper({
       ref={panelRef}
       initial={{ opacity: 0, y: 20 }}
       animate={controls}
-      className={`bg-black backdrop-blur-xl rounded-xl p-6 ${className}`}
+      className={`panel-metallic backdrop-blur-xl rounded-xl p-6 ${className}`}
     >
       {title && (
         <div className="flex items-center gap-3 mb-6">
           {icon && <div className="text-neon-orange">{icon}</div>}
-          <h2 className="text-xl font-bold gradient-text">{title}</h2>
+          <h2 className="gradient-text">{title}</h2>
         </div>
       )}
       {children}

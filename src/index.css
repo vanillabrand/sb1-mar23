@@ -14,7 +14,7 @@
 
 @layer components {
   .gradient-text {
-    @apply bg-gradient-to-r from-neon-raspberry via-neon-orange to-neon-yellow bg-clip-text text-transparent;
+    @apply bg-gradient-to-r from-neon-raspberry via-neon-orange to-neon-yellow bg-clip-text text-transparent text-2xl font-bold;
   }
 
   .panel {
@@ -29,16 +29,66 @@
     @apply bg-gunmetal-700 backdrop-blur-xl rounded-xl p-8;
   }
 
-  /* Dark grey metal effect for panels */
+  .btn-text-small {
+    font-size: 0.75rem; /* 12px - increased by 1pt from 11px */
+    line-height: 1.25rem;
+  }
+
+  .description-text {
+    @apply text-gray-400 text-base;
+  }
+
+  /* Darker grey metal effect for panels */
   .panel-metallic {
     @apply relative overflow-hidden shadow-md;
     background: linear-gradient(
       135deg,
-      rgba(24, 24, 27, 0.95) 0%,
-      rgba(39, 39, 42, 0.95) 100%
+      rgba(18, 18, 20, 0.98) 0%,
+      rgba(28, 28, 32, 0.98) 100%
     );
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05),
-                inset 0 -1px 1px rgba(0, 0, 0, 0.2);
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.03),
+                inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Very dark grey metal effect for sidebar */
+  .sidebar-metallic {
+    @apply relative overflow-hidden shadow-md;
+    background: linear-gradient(
+      135deg,
+      rgba(15, 15, 17, 0.98) 0%,
+      rgba(24, 24, 27, 0.98) 100%
+    );
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.03),
+                inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  }
+
+  /* Dark brushed metal effect for top nav panel */
+  .topnav-metallic {
+    @apply relative overflow-hidden shadow-md transition-all duration-300 rounded-lg;
+    background: linear-gradient(
+      135deg,
+      rgba(18, 18, 20, 0.98) 0%,
+      rgba(28, 28, 32, 0.98) 100%
+    );
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.04),
+                inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+    /* Add brushed metal texture */
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.03),
+      rgba(255, 255, 255, 0.03) 1px,
+      transparent 1px,
+      transparent 2px
+    );
+  }
+
+  /* Hover effect for top nav panel */
+  .topnav-metallic:hover {
+    background: linear-gradient(
+      135deg,
+      rgba(22, 22, 24, 0.98) 0%,
+      rgba(32, 32, 36, 0.98) 100%
+    );
   }
 }
 

@@ -3,7 +3,7 @@ import { Shield, AlertTriangle, Brain, Target } from 'lucide-react';
 
 export function ResponsibleTrading() {
   return (
-    <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-800">
+    <div className="panel-metallic backdrop-blur-xl rounded-xl p-6">
       <div className="flex items-center gap-3 mb-6">
         <Shield className="w-8 h-8 text-neon-yellow" />
         <h2 className="text-2xl font-bold gradient-text">Responsible Trading</h2>
@@ -16,9 +16,9 @@ export function ResponsibleTrading() {
             <div>
               <h3 className="text-lg font-semibold text-red-400 mb-2">Risk Warning</h3>
               <p className="text-gray-300">
-                Cryptocurrency trading involves substantial risk and is not suitable for all investors. 
-                The high degree of leverage can work against you as well as for you. Before deciding 
-                to trade cryptocurrencies, you should carefully consider your investment objectives, 
+                Cryptocurrency trading involves substantial risk and is not suitable for all investors.
+                The high degree of leverage can work against you as well as for you. Before deciding
+                to trade cryptocurrencies, you should carefully consider your investment objectives,
                 level of experience, and risk appetite.
               </p>
             </div>
@@ -58,8 +58,8 @@ export function ResponsibleTrading() {
         <div className="bg-gunmetal-800/50 rounded-lg p-4">
           <h3 className="text-lg font-semibold text-neon-pink mb-4">Getting Help</h3>
           <p className="text-gray-300 mb-4">
-            If you feel that your trading is becoming problematic or you're experiencing financial stress, 
-            don't hesitate to seek help. We provide resources and support to help you maintain healthy 
+            If you feel that your trading is becoming problematic or you're experiencing financial stress,
+            don't hesitate to seek help. We provide resources and support to help you maintain healthy
             trading practices.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

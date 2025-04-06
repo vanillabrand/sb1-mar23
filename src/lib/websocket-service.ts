@@ -33,12 +33,26 @@ export class WebSocketService extends EventEmitter {
     // Check if we're in demo mode
     const isDemo = demoService.isDemoMode();
 
-    // Always use the proxy server for WebSocket connections
+    if (isDemo) {
+      // Use Binance TestNet WebSocket URL directly for demo mode
+      const binanceTestnetWsUrl = 'wss://testnet.binancefuture.com/ws-fapi/v1';
+      logService.log('info', `Using Binance TestNet WebSocket URL: ${binanceTestnetWsUrl}`, null, 'WebSocketService');
+      return binanceTestnetWsUrl;
+    }
+
+    // For non-demo mode, use the proxy server
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 
-    // Use localhost:3001 directly to ensure we connect to the running proxy server
-    const proxyHost = 'localhost:3001';
-    const demoParam = isDemo ? '?demo=true' : '';
+    // Try to find an available port starting from 3001
+    let proxyPort = 3001;
+    // Check if we have a stored port from a previous connection
+    const storedPort = localStorage.getItem('proxyPort');
+    if (storedPort) {
+      proxyPort = parseInt(storedPort, 10);
+    }
+
+    const proxyHost = `localhost:${proxyPort}`;
+    const demoParam = '';
 
     // Use the proxy server WebSocket endpoint
     const wsUrl = `${wsProtocol}//${proxyHost}/ws${demoParam}`;
@@ -64,9 +78,16 @@ export class WebSocketService extends EventEmitter {
         minReconnectionDelay: 1000,
         // Add debug logging
         debug: true, // Always enable debug logging
-        // Use port 3001 for the proxy server
-        wsPort: 3001
       });
+
+      // Store the URL for future reference
+      if (!demoService.isDemoMode() && wsUrl.includes('localhost')) {
+        // Extract port from URL
+        const portMatch = wsUrl.match(/localhost:(\d+)/);
+        if (portMatch && portMatch[1]) {
+          localStorage.setItem('proxyPort', portMatch[1]);
+        }
+      }
 
       this.setupEventListeners();
       await this.waitForConnection();
@@ -78,11 +99,26 @@ export class WebSocketService extends EventEmitter {
         await this.subscribe(config.subscriptions);
       }
 
-      logService.log('info', 'WebSocket connected successfully',
+      logService.log('info', 'WebSocket connected',
         { url: wsUrl }, 'WebSocketService');
     } catch (error) {
       logService.log('error', 'Failed to establish WebSocket connection',
         error, 'WebSocketService');
+
+      // If we're not in demo mode and using localhost, try a different port
+      if (!demoService.isDemoMode() && !config.url) {
+        const storedPort = localStorage.getItem('proxyPort');
+        if (storedPort) {
+          const currentPort = parseInt(storedPort, 10);
+          const nextPort = currentPort + 1;
+          localStorage.setItem('proxyPort', nextPort.toString());
+          logService.log('info', `Trying next port: ${nextPort}`, null, 'WebSocketService');
+
+          // Try to reconnect with the new port
+          return this.connect(config);
+        }
+      }
+
       throw error;
     }
   }

@@ -6,6 +6,7 @@ import {
   monitoringService,
   logService
 } from '../lib/services';
+import { eventBus } from '../lib/event-bus';
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
 import {
@@ -26,9 +27,18 @@ import {
 } from './index';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type {
-  Strategy,
-  MonitoringStatus
+  Strategy
 } from '../lib/types';
+
+// Define MonitoringStatus interface locally to avoid type errors
+interface MonitoringStatus {
+  strategyId: string;
+  strategy_id?: string; // For backward compatibility
+  status: string;
+  lastUpdated?: string;
+  lastUpdate?: Date | string;
+  [key: string]: any; // Allow additional properties
+}
 
 const TIMEZONES = [
   { id: 'UTC', name: 'UTC' },
@@ -42,12 +52,6 @@ const TIMEZONES = [
   { id: 'Europe/Frankfurt', name: 'Frankfurt (CET)' },
   { id: 'Asia/Dubai', name: 'Dubai (GST)' }
 ];
-
-interface MonitoringStatus {
-  status: 'active' | 'inactive' | 'error';
-  lastUpdate: Date;
-  strategy_id: string;
-}
 
 interface DashboardProps {
   strategies: Strategy[];
@@ -102,12 +106,30 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
       }
     };
 
+    // Initial update
     updateVolatility();
+
+    // Subscribe to real-time analytics updates
+    const analyticsUpdateHandler = (data: any) => {
+      // Update volatility when analytics are updated
+      updateVolatility();
+
+      // Force refresh of strategy components
+      if (data && data.strategyId) {
+        // This will trigger updates in child components that use this data
+        eventBus.emit(`strategy:analytics:${data.strategyId}`, data);
+      }
+    };
+
+    analyticsService.on('analyticsUpdate', analyticsUpdateHandler);
+
+    // Fallback interval update (in case real-time updates fail)
     const volatilityInterval = setInterval(updateVolatility, 60000);
 
     return () => {
       clearInterval(dateInterval);
       clearInterval(volatilityInterval);
+      analyticsService.off('analyticsUpdate', analyticsUpdateHandler);
     };
   }, []);
 
@@ -119,7 +141,9 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         const statuses = await monitoringService.getAllMonitoringStatuses();
         const statusMap: Record<string, MonitoringStatus> = {};
         statuses.forEach(status => {
-          statusMap[status.strategy_id] = status;
+          // Use type assertion to handle property name differences
+          const statusWithId = status as any;
+          statusMap[statusWithId.strategyId || statusWithId.strategy_id] = statusWithId as unknown as MonitoringStatus;
         });
         setLocalMonitoringStatuses(statusMap);
 
@@ -135,10 +159,10 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           setLocalStrategies(prev => prev.filter(s => s.id !== strategy.id));
         });
 
-        monitoringService.on('monitoringStatusUpdated', (status: MonitoringStatus) => {
+        monitoringService.on('monitoringStatusUpdated', (status: any) => {
           setLocalMonitoringStatuses(prev => ({
             ...prev,
-            [status.strategy_id]: status
+            [status.strategyId || status.strategy_id]: status
           }));
         });
       } catch (error) {
@@ -236,28 +260,43 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
   return (
     <div className="p-8 space-y-8">
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Calendar className="w-6 h-6 text-neon-yellow" />
-          <h1 className="text-2xl font-bold gradient-text">
-            {currentDate.toLocaleDateString(undefined, {
-              weekday: 'long',
-              year: 'numeric',
-              month: 'long',
-              day: 'numeric'
-            })}
-          </h1>
+        <div>
+          <div className="flex items-center gap-2">
+            <Calendar className="w-6 h-6 text-neon-yellow" />
+            <h1 className="text-2xl font-bold gradient-text">
+              {currentDate.toLocaleDateString(undefined, {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+              })}
+            </h1>
+          </div>
+          <p className="description-text ml-8 mt-2">Your trading command center with real-time strategy performance, market insights, and system status.</p>
         </div>
         <NetworkStatus />
       </div>
 
       <div className={`grid grid-cols-12 gap-8 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
+        {/* DEFCON Monitor - Only shown at the top on mobile */}
+        {screenSize === 'sm' && (
+          <div className="col-span-12 mb-4">
+            <AnimatedPanel index={6} className="panel-metallic rounded-xl p-4 shadow-lg">
+              <DefconMonitor
+                strategies={activeStrategies}
+                className="mb-2 sm:mb-3"
+              />
+            </AnimatedPanel>
+          </div>
+        )}
+
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-8`}>
           <AnimatedPanel index={0} className="panel-metallic rounded-xl p-8 shadow-lg">
             <StrategyStatus strategies={activeStrategies} />
           </AnimatedPanel>
 
           <AnimatedPanel index={1} className="panel-metallic rounded-xl p-8 shadow-lg">
-            <AIMarketInsight assets={allAssets} />
+            <AIMarketInsight assets={new Set(allAssets)} />
           </AnimatedPanel>
 
           <AnimatedPanel index={2} className="w-full">
@@ -266,7 +305,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             <AnimatedPanel index={3} className="panel-metallic rounded-xl p-8 shadow-lg">
-              <RiskExposure assets={allAssets} />
+              <RiskExposure assets={new Set(allAssets)} />
             </AnimatedPanel>
             <AnimatedPanel index={4} className="panel-metallic rounded-xl p-8 shadow-lg">
               <div className="flex flex-col h-full">
@@ -297,23 +336,22 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             <WorldClock timezone={selectedTimezone} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={6} className="panel-metallic rounded-xl p-4 sm:p-5 shadow-lg">
-            <h3 className="text-sm font-medium text-gray-400 mb-3 sm:mb-4 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-neon-turquoise"></span>
-              System Status
-            </h3>
-            <DefconMonitor
-              strategies={activeStrategies}
-              className="mb-2 sm:mb-3"
-            />
-          </AnimatedPanel>
+          {/* DEFCON Monitor - Only shown in sidebar on non-mobile */}
+          {screenSize !== 'sm' && (
+            <AnimatedPanel index={6} className="panel-metallic rounded-xl p-4 sm:p-5 shadow-lg">
+              <DefconMonitor
+                strategies={activeStrategies}
+                className="mb-2 sm:mb-3"
+              />
+            </AnimatedPanel>
+          )}
 
           <AnimatedPanel index={7} className="panel-metallic rounded-xl p-8 shadow-lg">
             <NewsWidget assets={newsAssets} limit={screenSize === 'sm' ? 2 : 4} />
           </AnimatedPanel>
 
           <AnimatedPanel index={8} className="panel-metallic rounded-xl p-8 shadow-lg">
-            <AssetDistribution assets={allAssets} />
+            <AssetDistribution assets={new Set(allAssets)} />
           </AnimatedPanel>
         </div>
       </div>

@@ -1,13 +1,13 @@
 import React from 'react';
-import { 
-  Bot, 
-  ArrowUpRight, 
-  Mail, 
-  Phone, 
-  MapPin, 
-  Facebook, 
-  Twitter, 
-  Linkedin, 
+import {
+  Bot,
+  ArrowUpRight,
+  Mail,
+  Phone,
+  MapPin,
+  Facebook,
+  Twitter,
+  Linkedin,
   Instagram,
   Youtube,
   Globe,
@@ -19,7 +19,7 @@ import { KilnLogo } from './KilnLogo';
 
 export function Footer() {
   return (
-    <footer className="bg-gunmetal-900/90 backdrop-blur-xl border-t border-gunmetal-800">
+    <footer className="bg-gunmetal-900/90 backdrop-blur-xl">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Main Footer Content */}
         <div className="py-12 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -103,48 +103,48 @@ export function Footer() {
           <div>
             <h3 className="text-gray-200 font-semibold mb-4">Connect</h3>
             <div className="grid grid-cols-3 gap-2">
-              <a 
-                href="https://twitter.com/gigantic_ai" 
+              <a
+                href="https://twitter.com/gigantic_ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-10 h-10 rounded-lg bg-gunmetal-800/50 text-gray-400 hover:text-neon-raspberry hover:bg-gunmetal-700/50 transition-all duration-300"
               >
                 <Twitter className="w-5 h-5" />
               </a>
-              <a 
-                href="https://linkedin.com/company/gigantic-ai" 
+              <a
+                href="https://linkedin.com/company/gigantic-ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-10 h-10 rounded-lg bg-gunmetal-800/50 text-gray-400 hover:text-neon-raspberry hover:bg-gunmetal-700/50 transition-all duration-300"
               >
                 <Linkedin className="w-5 h-5" />
               </a>
-              <a 
-                href="https://facebook.com/gigantic.ai" 
+              <a
+                href="https://facebook.com/gigantic.ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-10 h-10 rounded-lg bg-gunmetal-800/50 text-gray-400 hover:text-neon-raspberry hover:bg-gunmetal-700/50 transition-all duration-300"
               >
                 <Facebook className="w-5 h-5" />
               </a>
-              <a 
-                href="https://instagram.com/gigantic.ai" 
+              <a
+                href="https://instagram.com/gigantic.ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-10 h-10 rounded-lg bg-gunmetal-800/50 text-gray-400 hover:text-neon-raspberry hover:bg-gunmetal-700/50 transition-all duration-300"
               >
                 <Instagram className="w-5 h-5" />
               </a>
-              <a 
-                href="https://youtube.com/gigantic_ai" 
+              <a
+                href="https://youtube.com/gigantic_ai"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-10 h-10 rounded-lg bg-gunmetal-800/50 text-gray-400 hover:text-neon-raspberry hover:bg-gunmetal-700/50 transition-all duration-300"
               >
                 <Youtube className="w-5 h-5" />
               </a>
-              <a 
-                href="https://gigantic.ai/blog" 
+              <a
+                href="https://gigantic.ai/blog"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center w-10 h-10 rounded-lg bg-gunmetal-800/50 text-gray-400 hover:text-neon-raspberry hover:bg-gunmetal-700/50 transition-all duration-300"
@@ -156,17 +156,17 @@ export function Footer() {
         </div>
 
         {/* Risk Warning */}
-        <div className="py-6 border-t border-gunmetal-800">
+        <div className="py-6">
           <div className="flex items-start gap-4 bg-gunmetal-800/30 rounded-lg p-4">
             <AlertTriangle className="w-6 h-6 text-neon-yellow flex-shrink-0" />
             <div className="text-sm text-gray-400">
               <p className="font-medium text-neon-yellow mb-2">Risk Warning</p>
               <p>
-                Cryptocurrency trading involves substantial risk and is not suitable for all investors. 
-                The high degree of leverage can work against you as well as for you. Before deciding 
-                to trade cryptocurrencies you should carefully consider your investment objectives, 
-                level of experience, and risk appetite. The possibility exists that you could sustain 
-                a loss of some or all of your initial investment and therefore you should not invest 
+                Cryptocurrency trading involves substantial risk and is not suitable for all investors.
+                The high degree of leverage can work against you as well as for you. Before deciding
+                to trade cryptocurrencies you should carefully consider your investment objectives,
+                level of experience, and risk appetite. The possibility exists that you could sustain
+                a loss of some or all of your initial investment and therefore you should not invest
                 money that you cannot afford to lose.
               </p>
             </div>
@@ -174,7 +174,7 @@ export function Footer() {
         </div>
 
         {/* Bottom Bar */}
-        <div className="py-6 border-t border-gunmetal-800">
+        <div className="py-6">
           <div className="flex flex-col md:flex-row justify-between items-center gap-4">
             <p className="text-gray-400 text-sm">
               © {new Date().getFullYear()} GIGAntic AI. All rights reserved.

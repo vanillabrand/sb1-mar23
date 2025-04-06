@@ -105,7 +105,6 @@ export function DefconMonitor({ strategies, className = '' }: DefconMonitorProps
     <div className={`${className}`}>
       <div className={`
         bg-gradient-to-br ${getDefconBackground(defconLevel)}
-        border ${getBorderColor(defconLevel)}
         rounded-xl backdrop-blur-sm
       `}>
         <div className="px-3 py-3 sm:px-4">

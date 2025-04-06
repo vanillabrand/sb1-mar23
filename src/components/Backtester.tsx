@@ -226,39 +226,13 @@ export function Backtester() {
       <div className="space-y-8 p-2 max-w-[1800px] mx-auto">
         {/* Introduction Section */}
         <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
-          <h2 className="text-xl font-bold text-neon-turquoise mb-3">Strategy Backtesting</h2>
-          <p className="text-gray-300 mb-4">Test your trading strategies against historical market data to evaluate performance before deploying with real assets.</p>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
-            <div className="bg-gunmetal-900/70 rounded-lg p-4 border border-gunmetal-700/50 flex flex-col items-center text-center">
-              <div className="bg-neon-turquoise/10 p-3 rounded-full mb-3">
-                <TrendingUp className="w-6 h-6 text-neon-turquoise" />
-              </div>
-              <h3 className="font-medium text-gray-200 mb-1">Historical Performance</h3>
-              <p className="text-sm text-gray-400">Analyze how your strategy would have performed in past market conditions</p>
-            </div>
-
-            <div className="bg-gunmetal-900/70 rounded-lg p-4 border border-gunmetal-700/50 flex flex-col items-center text-center">
-              <div className="bg-neon-orange/10 p-3 rounded-full mb-3">
-                <Target className="w-6 h-6 text-neon-orange" />
-              </div>
-              <h3 className="font-medium text-gray-200 mb-1">Risk Assessment</h3>
-              <p className="text-sm text-gray-400">Measure drawdowns, volatility, and risk-adjusted returns</p>
-            </div>
-
-            <div className="bg-gunmetal-900/70 rounded-lg p-4 border border-gunmetal-700/50 flex flex-col items-center text-center">
-              <div className="bg-neon-yellow/10 p-3 rounded-full mb-3">
-                <Brain className="w-6 h-6 text-neon-yellow" />
-              </div>
-              <h3 className="font-medium text-gray-200 mb-1">Strategy Optimization</h3>
-              <p className="text-sm text-gray-400">Fine-tune parameters to maximize returns and minimize risk</p>
-            </div>
-          </div>
+          <h2 className="gradient-text mb-3">Strategy Backtesting</h2>
+          <p className="description-text mb-4">Test your trading strategies against historical market data to evaluate performance before deploying with real assets.</p>
         </div>
 
         {/* Search and Filter Controls */}
         <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
-          <h3 className="text-lg font-semibold text-gray-200 mb-4">Select a Strategy to Test</h3>
+          <h3 className="gradient-text mb-4">Select a Strategy to Test</h3>
 
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between mb-6">
             <div className="relative w-full sm:w-64">
@@ -357,7 +331,7 @@ export function Backtester() {
                             setSelectedStrategy(strategy);
                             setShowConfig(true);
                           }}
-                          className="inline-flex items-center gap-2 px-4 py-2 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all font-medium shadow-lg shadow-neon-turquoise/20"
+                          className="inline-flex items-center gap-2 px-4 py-2 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all font-medium shadow-lg shadow-neon-turquoise/20 btn-text-small"
                         >
                           <Play className="w-4 h-4" />
                           Run Backtest
@@ -403,7 +377,7 @@ export function Backtester() {
                   <button
                     key={page}
                     onClick={() => handlePageChange(page)}
-                    className={`w-8 h-8 rounded-lg text-sm ${currentPage === page ? 'bg-neon-turquoise text-gunmetal-950' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
+                    className={`w-8 h-8 rounded-lg btn-text-small ${currentPage === page ? 'bg-neon-turquoise text-gunmetal-950' : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'}`}
                   >
                     {page}
                   </button>

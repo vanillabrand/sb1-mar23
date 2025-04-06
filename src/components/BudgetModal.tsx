@@ -127,9 +127,13 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
 
       logService.log('info', 'Confirming budget', { budget }, 'BudgetModal');
 
-      // Call onConfirm and immediately close the modal by calling onCancel or onClose
-      // This ensures the modal closes even if there's an error in the subsequent processing
-      await onConfirm(budget);
+      // Call onConfirm but don't wait for it to complete
+      // This allows the modal to close even if the activation process takes a long time or fails
+      onConfirm(budget).catch(error => {
+        logService.log('error', 'Error in budget confirmation (caught in modal)', error, 'BudgetModal');
+      });
+
+      // Close the modal immediately
       if (onCancel) onCancel();
       else if (onClose) onClose();
 

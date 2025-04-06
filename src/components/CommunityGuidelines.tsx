@@ -3,7 +3,7 @@ import { Users, MessageSquare, Shield, Heart } from 'lucide-react';
 
 export function CommunityGuidelines() {
   return (
-    <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-800">
+    <div className="panel-metallic backdrop-blur-xl rounded-xl p-6">
       <div className="flex items-center gap-3 mb-6">
         <Users className="w-8 h-8 text-neon-turquoise" />
         <h2 className="text-2xl font-bold gradient-text">Community Guidelines</h2>

@@ -20,7 +20,7 @@ const standardCorsHandler = (proxyRes, req, _res) => {
   proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
   proxyRes.headers['access-control-allow-credentials'] = 'true';
   proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, CB-ACCESS-KEY, ACCESS-KEY';
+  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, CB-ACCESS-KEY, ACCESS-KEY, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
 };
 
 // Use a more permissive CORS configuration for development
@@ -28,7 +28,7 @@ const corsOptions = {
   origin: '*', // Allow all origins in development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-MBX-APIKEY', 'x-mbx-apikey']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-MBX-APIKEY', 'x-mbx-apikey', 'X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP', 'x-bapi-timestamp', 'x-bapi-api-key', 'x-bapi-sign']
 };
 
 app.use(cors(corsOptions));
@@ -102,7 +102,7 @@ app.options('/api/binanceTestnet/*', (req, res) => {
 app.options('/api/binance/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).send();
 });
@@ -111,7 +111,7 @@ app.options('/api/binance/*', (req, res) => {
 app.options('/api/bitmart/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).send();
 });
@@ -147,7 +147,7 @@ app.options('/api/okx/*', (req, res) => {
 app.options('/api/bybit/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).send();
 });
@@ -435,7 +435,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
     }
   },
   binance: {
@@ -658,7 +658,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
 
       console.log(`Received response from Binance Futures: ${proxyRes.statusCode}`);
     },
@@ -982,8 +982,22 @@ global.broadcastBinanceData = function(data) {
   });
 };
 
-// Start the server
-server.listen(PORT, () => {
-  console.log(`Proxy server running on port ${PORT}`);
-  console.log(`WebSocket server running at ws://localhost:${PORT}/ws`);
-});
+// Start the server with fallback ports if the primary port is in use
+const startServer = (port) => {
+  server.listen(port)
+    .on('listening', () => {
+      console.log(`Proxy server running on port ${port}`);
+      console.log(`WebSocket server running at ws://localhost:${port}/ws`);
+    })
+    .on('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        console.log(`Port ${port} is already in use, trying port ${port + 1}`);
+        startServer(port + 1);
+      } else {
+        console.error('Server error:', err);
+      }
+    });
+};
+
+// Start the server with the initial port
+startServer(PORT);

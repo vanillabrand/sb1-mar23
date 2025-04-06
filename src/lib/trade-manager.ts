@@ -203,23 +203,29 @@ class TradeManager extends EventEmitter {
     if (!this.orderUpdateInterval) {
       this.orderUpdateInterval = setInterval(
         () => this.updateActiveOrders(),
-        10000
+        5000 // Reduced interval for more frequent updates
       );
     }
 
-    // Create a complete trade status object
+    // Create a complete trade status object with entry and exit conditions
     const tradeStatus = {
       status: orderDetails.status || 'pending',
       lastUpdate: Date.now(),
       timestamp: orderDetails.timestamp || Date.now(),
       symbol: orderDetails.symbol,
       side: orderDetails.side,
-      entryPrice: orderDetails.entryPrice,
+      entryPrice: orderDetails.entryPrice || orderDetails.entry_price,
       exitPrice: orderDetails.exitPrice,
       profit: orderDetails.profit,
-      strategyId: orderDetails.strategyId,
+      strategyId: orderDetails.strategyId || orderDetails.strategy_id,
       createdAt: new Date().toISOString(),
-      executedAt: null
+      executedAt: null,
+      // Ensure entry and exit conditions are tracked
+      entryConditions: orderDetails.entry_conditions || orderDetails.entryConditions || [],
+      exitConditions: orderDetails.exit_conditions || orderDetails.exitConditions || [],
+      stopLoss: orderDetails.stop_loss || orderDetails.stopLoss,
+      takeProfit: orderDetails.take_profit || orderDetails.takeProfit,
+      trailingStop: orderDetails.trailing_stop || orderDetails.trailingStop
     };
 
     this.activeOrders.set(orderId, tradeStatus);
@@ -230,13 +236,100 @@ class TradeManager extends EventEmitter {
     // Also emit to the event bus for UI components to listen
     eventBus.emit('tradesUpdated', { orderId, status: tradeStatus });
     eventBus.emit('trade:update', { orderId, status: tradeStatus });
+
+    // Log that we're tracking this order with entry/exit conditions
+    logService.log('info', `Started tracking order ${orderId} with entry/exit conditions`,
+      {
+        symbol: tradeStatus.symbol,
+        entryConditions: tradeStatus.entryConditions,
+        exitConditions: tradeStatus.exitConditions,
+        stopLoss: tradeStatus.stopLoss,
+        takeProfit: tradeStatus.takeProfit
+      },
+      'TradeManager');
   }
 
   private async updateActiveOrders(): Promise<void> {
     const updates = Array.from(this.activeOrders.entries()).map(async ([orderId, status]) => {
       try {
+        // Fetch current order status from exchange
         const orderStatus = await exchangeService.fetchOrderStatus(orderId);
-        this.handleOrderStatusUpdate(orderId, orderStatus);
+
+        // Get current market price for this symbol
+        const symbol = status.symbol;
+        let currentPrice = null;
+
+        try {
+          const marketData = await exchangeService.fetchMarketPrice(symbol);
+          currentPrice = marketData.price;
+        } catch (priceError) {
+          logService.log('warn', `Failed to fetch current price for ${symbol}`, priceError, 'TradeManager');
+        }
+
+        // Check if we need to evaluate exit conditions
+        if (currentPrice && status.status === 'filled' &&
+            (status.exitConditions?.length > 0 || status.stopLoss || status.takeProfit || status.trailingStop)) {
+
+          // Check stop loss
+          if (status.stopLoss) {
+            if ((status.side === 'buy' && currentPrice <= status.stopLoss) ||
+                (status.side === 'sell' && currentPrice >= status.stopLoss)) {
+              // Stop loss triggered
+              await this.executeExitOrder(orderId, status, currentPrice, 'stop_loss');
+              return; // Exit early as we've closed the position
+            }
+          }
+
+          // Check take profit
+          if (status.takeProfit) {
+            if ((status.side === 'buy' && currentPrice >= status.takeProfit) ||
+                (status.side === 'sell' && currentPrice <= status.takeProfit)) {
+              // Take profit triggered
+              await this.executeExitOrder(orderId, status, currentPrice, 'take_profit');
+              return; // Exit early as we've closed the position
+            }
+          }
+
+          // Check trailing stop if applicable
+          if (status.trailingStop && status.highestPrice) {
+            if (status.side === 'buy') {
+              // For long positions, update highest price if current price is higher
+              if (currentPrice > status.highestPrice) {
+                this.activeOrders.set(orderId, { ...status, highestPrice: currentPrice });
+              } else if (currentPrice <= (status.highestPrice - status.trailingStop)) {
+                // Trailing stop triggered
+                await this.executeExitOrder(orderId, status, currentPrice, 'trailing_stop');
+                return; // Exit early as we've closed the position
+              }
+            } else { // For short positions
+              // For short positions, update lowest price if current price is lower
+              if (!status.lowestPrice || currentPrice < status.lowestPrice) {
+                this.activeOrders.set(orderId, { ...status, lowestPrice: currentPrice });
+              } else if (currentPrice >= (status.lowestPrice + status.trailingStop)) {
+                // Trailing stop triggered
+                await this.executeExitOrder(orderId, status, currentPrice, 'trailing_stop');
+                return; // Exit early as we've closed the position
+              }
+            }
+          } else if (status.trailingStop && !status.highestPrice && status.side === 'buy') {
+            // Initialize highest price for trailing stop
+            this.activeOrders.set(orderId, { ...status, highestPrice: currentPrice });
+          } else if (status.trailingStop && !status.lowestPrice && status.side === 'sell') {
+            // Initialize lowest price for trailing stop
+            this.activeOrders.set(orderId, { ...status, lowestPrice: currentPrice });
+          }
+
+          // Check custom exit conditions if defined
+          if (status.exitConditions?.length > 0) {
+            // Implement custom exit condition evaluation here
+            // This would typically involve checking technical indicators
+            // For now, we'll just log that we're checking
+            logService.log('info', `Checking exit conditions for ${orderId}`, { exitConditions: status.exitConditions }, 'TradeManager');
+          }
+        }
+
+        // Update order status based on exchange response
+        this.handleOrderStatusUpdate(orderId, orderStatus, currentPrice);
       } catch (error) {
         logService.log('error', `Failed to update order ${orderId}`, error, 'TradeManager');
       }
@@ -245,15 +338,119 @@ class TradeManager extends EventEmitter {
     await Promise.allSettled(updates);
   }
 
-  private handleOrderStatusUpdate(orderId: string, status: any): void {
+  /**
+   * Execute an exit order when conditions are met
+   */
+  private async executeExitOrder(orderId: string, status: any, currentPrice: number, reason: string): Promise<void> {
+    try {
+      logService.log('info', `Executing exit order for ${orderId} due to ${reason}`,
+        { symbol: status.symbol, currentPrice, entryPrice: status.entryPrice }, 'TradeManager');
+
+      // Calculate profit/loss
+      const entryPrice = status.entryPrice || 0;
+      const priceDiff = status.side === 'buy' ? (currentPrice - entryPrice) : (entryPrice - currentPrice);
+      const profitLoss = priceDiff * (status.amount || 1);
+
+      // Execute the exit order on the exchange
+      const exitSide = status.side === 'buy' ? 'sell' : 'buy';
+
+      try {
+        // If using TestNet or demo mode
+        if (demoService.isInDemoMode()) {
+          const testnetExchange = await demoService.getTestNetExchange();
+          await testnetExchange.createOrder(
+            status.symbol,
+            'market',
+            exitSide,
+            status.amount,
+            currentPrice
+          );
+        } else {
+          // Real exchange
+          await exchangeService.createOrder({
+            symbol: status.symbol,
+            side: exitSide,
+            type: 'market',
+            amount: status.amount,
+            entry_price: currentPrice
+          });
+        }
+
+        // Update order status
+        const updatedStatus = {
+          ...status,
+          status: 'closed',
+          exitPrice: currentPrice,
+          profit: profitLoss,
+          exitReason: reason,
+          lastUpdate: Date.now(),
+          closedAt: new Date().toISOString()
+        };
+
+        // Remove from active orders
+        this.activeOrders.delete(orderId);
+
+        // Emit events
+        this.emit('orderComplete', { orderId, status: updatedStatus });
+        eventBus.emit('trade:closed', { orderId, status: updatedStatus });
+        eventBus.emit('trade:update', { orderId, status: updatedStatus });
+
+        logService.log('info', `Successfully closed position for ${orderId} due to ${reason}`,
+          { profitLoss, exitPrice: currentPrice }, 'TradeManager');
+      } catch (exitError) {
+        logService.log('error', `Failed to execute exit order for ${orderId}`, exitError, 'TradeManager');
+        throw exitError;
+      }
+    } catch (error) {
+      logService.log('error', `Error in executeExitOrder for ${orderId}`, error, 'TradeManager');
+    }
+  }
+
+  private handleOrderStatusUpdate(orderId: string, status: any, currentPrice?: number): void {
     if (this.isOrderComplete(status)) {
+      // Get existing order details before removing
+      const existingOrder = this.activeOrders.get(orderId);
+
+      // Remove from active orders
       this.activeOrders.delete(orderId);
-      this.emit('orderComplete', { orderId, status });
-    } else {
-      this.activeOrders.set(orderId, {
+
+      // Create complete status object with all details
+      const completeStatus = {
+        ...existingOrder,
         status: status.status,
-        lastUpdate: Date.now()
-      });
+        lastUpdate: Date.now(),
+        exitPrice: currentPrice || status.price,
+        closedAt: new Date().toISOString()
+      };
+
+      // Emit completion events
+      this.emit('orderComplete', { orderId, status: completeStatus });
+      eventBus.emit('trade:closed', { orderId, status: completeStatus });
+      eventBus.emit('trade:update', { orderId, status: completeStatus });
+
+      logService.log('info', `Order ${orderId} completed with status: ${status.status}`,
+        { symbol: existingOrder?.symbol, exitPrice: completeStatus.exitPrice }, 'TradeManager');
+    } else {
+      // Get existing order details
+      const existingOrder = this.activeOrders.get(orderId);
+
+      if (!existingOrder) {
+        logService.log('warn', `Cannot update non-existent order ${orderId}`, null, 'TradeManager');
+        return;
+      }
+
+      // Update with new status while preserving other fields
+      const updatedStatus = {
+        ...existingOrder,
+        status: status.status,
+        lastUpdate: Date.now(),
+        currentPrice: currentPrice || existingOrder.currentPrice
+      };
+
+      this.activeOrders.set(orderId, updatedStatus);
+
+      // Emit update event
+      eventBus.emit('trade:update', { orderId, status: updatedStatus });
     }
   }
 
@@ -334,10 +531,64 @@ class TradeManager extends EventEmitter {
   }
 
   /**
-   * Create a simulated order for demo mode
+   * Create a simulated order for demo mode with complete entry and exit conditions
    */
   private createSimulatedOrder(options: TradeOptions, tradeId: string): any {
     const now = Date.now();
+
+    // Ensure we have entry and exit conditions
+    const entryConditions = options.entry_conditions || [];
+    const exitConditions = options.exit_conditions || [];
+
+    // If no entry conditions provided, create a basic one
+    if (entryConditions.length === 0) {
+      entryConditions.push({
+        indicator: 'price',
+        condition: 'crosses',
+        value: options.entry_price || 0,
+        timeframe: '1m'
+      });
+    }
+
+    // If no exit conditions and no stop loss/take profit, create basic ones
+    if (exitConditions.length === 0 && !options.stop_loss && !options.take_profit) {
+      const entryPrice = options.entry_price || 0;
+      const direction = options.side === 'buy' ? 1 : -1;
+
+      // Default 2% stop loss
+      const stopLoss = entryPrice * (1 - (0.02 * direction));
+      // Default 4% take profit
+      const takeProfit = entryPrice * (1 + (0.04 * direction));
+
+      options.stop_loss = stopLoss;
+      options.take_profit = takeProfit;
+
+      exitConditions.push({
+        indicator: 'price',
+        condition: options.side === 'buy' ? 'falls_below' : 'rises_above',
+        value: stopLoss,
+        timeframe: '1m'
+      });
+
+      exitConditions.push({
+        indicator: 'price',
+        condition: options.side === 'buy' ? 'rises_above' : 'falls_below',
+        value: takeProfit,
+        timeframe: '1m'
+      });
+    }
+
+    // Log that we're creating a simulated order with entry/exit conditions
+    logService.log('info', `Creating simulated order with entry/exit conditions`,
+      {
+        tradeId,
+        symbol: options.symbol,
+        entryConditions,
+        exitConditions,
+        stopLoss: options.stop_loss,
+        takeProfit: options.take_profit
+      },
+      'TradeManager');
 
     return {
       id: tradeId,
@@ -353,7 +604,12 @@ class TradeManager extends EventEmitter {
       timestamp: now,
       strategyId: options.strategyId || options.strategy_id || '',
       createdAt: new Date(now).toISOString(),
-      executedAt: null
+      executedAt: null,
+      entry_conditions: entryConditions,
+      exit_conditions: exitConditions,
+      // Set initial status to pending, will be updated to filled after a short delay
+      // to simulate real exchange behavior
+      status: 'pending'
     };
   }
 }
