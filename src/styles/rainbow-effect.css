@@ -11,6 +11,63 @@
   }
 }
 
+/* Chevron Pulse Animation */
+@keyframes chevronPulse {
+  0% {
+    transform: translateY(0);
+    opacity: 0.7;
+    filter: drop-shadow(0 0 1px rgba(59, 244, 251, 0.2));
+  }
+  50% {
+    transform: translateY(3px);
+    opacity: 1;
+    filter: drop-shadow(0 0 3px rgba(59, 244, 251, 0.5));
+  }
+  100% {
+    transform: translateY(0);
+    opacity: 0.7;
+    filter: drop-shadow(0 0 1px rgba(59, 244, 251, 0.2));
+  }
+}
+
+/* Panel Highlight Animation */
+@keyframes panelHighlight {
+  0% {
+    box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
+    border-color: rgba(59, 244, 251, 0.2);
+  }
+  25% {
+    box-shadow: 0 0 20px rgba(59, 244, 251, 0.8), inset 0 0 10px rgba(59, 244, 251, 0.3);
+    border-color: rgba(59, 244, 251, 0.8);
+  }
+  50% {
+    box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
+    border-color: rgba(59, 244, 251, 0.2);
+  }
+  75% {
+    box-shadow: 0 0 20px rgba(59, 244, 251, 0.8), inset 0 0 10px rgba(59, 244, 251, 0.3);
+    border-color: rgba(59, 244, 251, 0.8);
+  }
+  100% {
+    box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
+    border-color: rgba(59, 244, 251, 0.2);
+  }
+}
+
+.chevron-pulse {
+  animation: chevronPulse 1.5s ease-in-out infinite;
+  transition: color 0.3s ease;
+}
+
+.chevron-pulse:hover {
+  color: #3bf4fb !important; /* neon-turquoise */
+}
+
+.panel-highlight {
+  animation: panelHighlight 2.5s ease-in-out;
+  border: 1px solid rgba(59, 244, 251, 0.2);
+}
+
 .menu-active {
   position: relative;
   z-index: 1;

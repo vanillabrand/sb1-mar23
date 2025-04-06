@@ -18,20 +18,71 @@
   }
 
   .panel {
-    @apply bg-gunmetal-800 backdrop-blur-xl rounded-xl p-8;
+    @apply bg-gunmetal-800 backdrop-blur-xl rounded-xl p-4 sm:p-6;
   }
 
   .panel-dark {
-    @apply bg-gunmetal-900 backdrop-blur-xl rounded-xl p-8;
+    @apply bg-gunmetal-900 backdrop-blur-xl rounded-xl p-4 sm:p-6;
   }
 
   .panel-light {
-    @apply bg-gunmetal-700 backdrop-blur-xl rounded-xl p-8;
+    @apply bg-gunmetal-700 backdrop-blur-xl rounded-xl p-4 sm:p-6;
   }
 
   .btn-text-small {
     font-size: 0.75rem; /* 12px - increased by 1pt from 11px */
     line-height: 1.25rem;
+  }
+
+  /* Responsive styles for mobile */
+  @media (max-width: 768px) {
+    /* Button styles */
+    button, .button {
+      min-width: 90px; /* Make buttons wider on mobile but not too wide */
+      height: auto !important; /* Allow height to adjust */
+      padding-top: 0.4rem !important;
+      padding-bottom: 0.4rem !important;
+      white-space: nowrap;
+      font-size: 0.8rem !important;
+    }
+
+    /* Asset pair lozenge styles */
+    .mobile-truncate {
+      min-width: 130px !important; /* Ensure lozenges are extended by 20px */
+      max-width: 150px; /* Ensure lozenges don't get too wide on mobile */
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Table styles for mobile */
+    table {
+      font-size: 0.75rem !important;
+    }
+
+    th, td {
+      padding-left: 0.5rem !important;
+      padding-right: 0.5rem !important;
+      padding-top: 0.375rem !important;
+      padding-bottom: 0.375rem !important;
+    }
+
+    /* Text truncation for other mobile elements */
+    .mobile-text-truncate {
+      max-width: 120px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    /* Adjust headings for mobile */
+    h1, h2, h3 {
+      font-size: 90% !important;
+    }
+
+    /* Adjust gradient text for mobile */
+    .gradient-text {
+      font-size: 1.25rem !important;
+    }
   }
 
   .description-text {
@@ -50,9 +101,21 @@
                 inset 0 -1px 1px rgba(0, 0, 0, 0.3);
   }
 
+  /* Responsive panel content */
+  .panel-content {
+    @apply w-full overflow-hidden;
+  }
+
+  /* Mobile panel adjustments */
+  @media (max-width: 640px) {
+    .panel-content {
+      @apply text-sm;
+    }
+  }
+
   /* Very dark grey metal effect for sidebar */
   .sidebar-metallic {
-    @apply relative overflow-hidden shadow-md;
+    @apply relative overflow-hidden shadow-md rounded-b-xl;
     background: linear-gradient(
       135deg,
       rgba(15, 15, 17, 0.98) 0%,
@@ -125,6 +188,45 @@
 
 .overflow-x-auto::-webkit-scrollbar-thumb:hover {
   @apply bg-gunmetal-700;
+}
+
+/* Responsive table container */
+.table-container {
+  @apply w-full overflow-x-auto pb-2;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Add fading indicator for scrollable tables on mobile */
+@media (max-width: 768px) {
+  .table-container {
+    position: relative;
+  }
+
+  .table-container::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 20px;
+    background: linear-gradient(to right, transparent, rgba(10, 10, 12, 0.7));
+    pointer-events: none;
+    opacity: 0.8;
+  }
+
+  /* Ensure asset pair lozenges are properly sized on very small screens */
+  .mobile-truncate-small {
+    min-width: 110px !important;
+    max-width: 130px !important;
+  }
+}
+
+/* Specific styles for very small screens */
+@media (max-width: 375px) {
+  .mobile-truncate {
+    min-width: 110px !important;
+    max-width: 130px !important;
+  }
 }
 
 /* Animations */

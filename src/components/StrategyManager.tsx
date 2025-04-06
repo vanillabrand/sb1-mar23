@@ -1,5 +1,6 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { SwipeAnimation } from './ui/SwipeAnimation';
 import { Brain, Plus, Search, Filter, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import { useStrategies } from '../hooks/useStrategies';
@@ -21,6 +22,8 @@ import { StrategyLibrary } from './StrategyLibrary';
 import { EmptyState } from './ui/EmptyState';
 import { LoadingSpinner } from './LoadingStates';
 import { Pagination } from './ui/Pagination';
+import { MetallicPagination } from './ui/MetallicPagination';
+import { SwipeableCardList } from './ui/SwipeableCardList';
 import type {
   Strategy,
   SortOption,
@@ -1084,48 +1087,67 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 gap-6 mb-6">
-                    {(paginatedStrategies || []).map((strategy) => (
-                      <motion.div
-                        key={strategy.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="strategy-card rounded-xl"
-                      >
-                        <StrategyCard
+                  {screenSize === 'sm' ? (
+                    <SwipeableCardList
+                      items={filteredStrategies || []}
+                      renderItem={(strategy, index) => (
+                        <SwipeAnimation
                           key={strategy.id}
-                          strategy={strategy}
-                          isExpanded={false}
-                          onToggleExpand={() => {}}
-                          onRefresh={refreshStrategies}
-                          onEdit={handleEditStrategy}
-                          onDelete={handleDeleteStrategy}
-                          hideExpandArrow={true} // Hide the expand arrow in Your Strategies section
-                          // Deliberately not passing onActivate and onDeactivate to hide those buttons
-                        />
-                      </motion.div>
-                    ))}
-                  </div>
+                          onComplete={() => {}}
+                        >
+                          <StrategyCard
+                            key={strategy.id}
+                            strategy={strategy}
+                            isExpanded={false}
+                            onToggleExpand={() => {}}
+                            onRefresh={refreshStrategies}
+                            onEdit={handleEditStrategy}
+                            onDelete={handleDeleteStrategy}
+                            hideExpandArrow={true}
+                            // Deliberately not passing onActivate and onDeactivate to hide those buttons
+                          />
+                        </SwipeAnimation>
+                      )}
+                      itemsPerPage={ITEMS_PER_PAGE}
+                      currentPage={currentPage}
+                      totalPages={totalPages}
+                      onPageChange={setCurrentPage}
+                      className="mb-4"
+                    />
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-3 relative pt-8 pb-4">
+                      {/* Metallic pagination with tabs */}
+                      <MetallicPagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={setCurrentPage}
+                      />
 
-                  {/* Pagination */}
-                  <Pagination
-                    currentPage={currentPage}
-                    totalPages={totalPages}
-                    onPageChange={handlePageChange}
-                    itemsPerPage={ITEMS_PER_PAGE}
-                    totalItems={filteredStrategies?.length || 0}
-                    showPageNumbers={true}
-                    className="mt-4"
-                    showItemsPerPage={true}
-                    itemsPerPageOptions={[6, 12, 24]}
-                    onItemsPerPageChange={(newItemsPerPage) => {
-                      // Update the items per page
-                      setItemsPerPage(newItemsPerPage);
-                      // Reset to first page
-                      setCurrentPage(1);
-                    }}
-                  />
+                      {(paginatedStrategies || []).map((strategy) => (
+                        <motion.div
+                          key={strategy.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -20 }}
+                          className="strategy-card rounded-xl"
+                        >
+                          <StrategyCard
+                            key={strategy.id}
+                            strategy={strategy}
+                            isExpanded={false}
+                            onToggleExpand={() => {}}
+                            onRefresh={refreshStrategies}
+                            onEdit={handleEditStrategy}
+                            onDelete={handleDeleteStrategy}
+                            hideExpandArrow={true} // Hide the expand arrow in Your Strategies section
+                            // Deliberately not passing onActivate and onDeactivate to hide those buttons
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Pagination is now handled by MetallicPagination */}
                 </>
               )}
             </div>
@@ -1163,7 +1185,14 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-3 relative pt-8 pb-4">
+                    {/* Metallic pagination with tabs */}
+                    <MetallicPagination
+                      currentPage={0}
+                      totalPages={Math.ceil(filteredTemplates.length / 6)}
+                      onPageChange={() => {}}
+                    />
+
                     {filteredTemplates.slice(0, 6).map((template) => (
                       <motion.div
                         key={template.id}
@@ -1172,32 +1201,65 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                         exit={{ opacity: 0, y: -20 }}
                         className="bg-gunmetal-800/50 rounded-xl p-6"
                       >
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
-                          <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
-                            {template.riskLevel} Risk
-                          </div>
-                        </div>
+                        {screenSize === 'sm' ? (
+                          <SwipeAnimation>
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
+                              <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
+                                {template.riskLevel} Risk
+                              </div>
+                            </div>
 
-                        <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
+                            <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
 
-                        <div className="flex items-center justify-between mt-4">
-                          <div className="text-sm">
-                            <span className="text-gray-400">Win Rate: </span>
-                            <span className="text-neon-turquoise">
-                              {template.metrics?.winRate
-                                ? `${Number(template.metrics.winRate).toFixed(1)}%`
-                                : 'N/A'}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => handleUseTemplate(template)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 btn-text-small"
-                          >
-                            <Plus className="w-4 h-4" />
-                            Use Template
-                          </button>
-                        </div>
+                            <div className="flex items-center justify-between mt-4">
+                              <div className="text-sm">
+                                <span className="text-gray-400">Win Rate: </span>
+                                <span className="text-neon-turquoise">
+                                  {template.metrics?.winRate
+                                    ? `${Number(template.metrics.winRate).toFixed(1)}%`
+                                    : 'N/A'}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => handleUseTemplate(template)}
+                                className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 btn-text-small"
+                              >
+                                <Plus className="w-4 h-4" />
+                                Use Template
+                              </button>
+                            </div>
+                          </SwipeAnimation>
+                        ) : (
+                          <>
+                            <div className="flex items-center justify-between mb-4">
+                              <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
+                              <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
+                                {template.riskLevel} Risk
+                              </div>
+                            </div>
+
+                            <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
+
+                            <div className="flex items-center justify-between mt-4">
+                              <div className="text-sm">
+                                <span className="text-gray-400">Win Rate: </span>
+                                <span className="text-neon-turquoise">
+                                  {template.metrics?.winRate
+                                    ? `${Number(template.metrics.winRate).toFixed(1)}%`
+                                    : 'N/A'}
+                                </span>
+                              </div>
+                              <button
+                                onClick={() => handleUseTemplate(template)}
+                                className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 btn-text-small"
+                              >
+                                <Plus className="w-4 h-4" />
+                                Use Template
+                              </button>
+                            </div>
+                          </>
+                        )}
                       </motion.div>
                     ))}
                   </div>

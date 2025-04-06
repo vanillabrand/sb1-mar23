@@ -893,13 +893,13 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   return (
     <>
       <motion.div
-        className={`panel-metallic rounded-xl p-6 shadow-lg cursor-pointer strategy-card border-0`}
+        className={`panel-metallic rounded-xl p-4 sm:p-6 shadow-lg cursor-pointer strategy-card border-0`}
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
         onClick={() => onToggleExpand(strategy.id)}
       >
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 sm:gap-0">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg ${strategy.status === 'active' ? 'bg-neon-turquoise/10' : 'bg-gunmetal-800'}`}>
               <Activity className={`w-5 h-5 ${strategy.status === 'active' ? 'text-neon-turquoise' : 'text-gray-400'}`} />
@@ -912,21 +912,21 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{strategy.description || 'No description available'}</p>
-              <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+              <div className="flex flex-wrap items-center gap-1.5 mt-1.5 max-w-full overflow-hidden">
                 <span className={`text-xs px-2 py-0.5 rounded-full ${strategy.status === 'active' ? 'bg-neon-turquoise/10 text-neon-turquoise' : 'bg-gunmetal-700 text-gray-400'}`}>
                   {strategy.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
                 </span>
                 {/* Trading pairs as lozenges with price indicators */}
                 {(strategy.selected_pairs || []).slice(0, 3).map((pair, index) => (
-                  <div key={index} className="flex items-center text-xs px-2 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap">
-                    <span>{pair}</span>
-                    <div className="ml-1 border-l border-gunmetal-700 pl-1">
+                  <div key={index} className="flex items-center text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap mobile-truncate min-w-[110px] justify-between">
+                    <span className="mr-2">{pair}</span>
+                    <div className="border-l border-gunmetal-700 pl-2">
                       <AssetPriceIndicator symbol={pair} compact={true} />
                     </div>
                   </div>
                 ))}
                 {(strategy.selected_pairs || []).length > 3 && (
-                  <span className="text-xs px-2 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap">
+                  <span className="text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap min-w-[90px] text-center">
                     +{(strategy.selected_pairs || []).length - 3} more
                   </span>
                 )}
@@ -1095,12 +1095,15 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               {showTradingPairs && (
                 <div className="flex flex-wrap gap-2 animate-fadeIn">
                   {(strategy as any).selected_pairs?.map((pair: string) => (
-                    <span
+                    <div
                       key={pair}
-                      className="px-2 py-1 bg-gunmetal-800 rounded-md text-xs text-neon-turquoise border border-gunmetal-700/50"
+                      className="flex items-center px-3 py-1 bg-gunmetal-800 rounded-md text-xs border border-gunmetal-700/50 min-w-[130px] mobile-truncate justify-between"
                     >
-                      {pair}
-                    </span>
+                      <span className="text-neon-turquoise mr-2">{pair}</span>
+                      <div className="border-l border-gunmetal-700 pl-2">
+                        <AssetPriceIndicator symbol={pair} compact={true} />
+                      </div>
+                    </div>
                   )) || (
                     <span className="text-sm text-gray-500">No trading pairs selected</span>
                   )}

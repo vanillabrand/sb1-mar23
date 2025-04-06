@@ -132,6 +132,7 @@ export const Sidebar: React.FC = () => {
   const connectionContainerRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [isPanelHighlighted, setIsPanelHighlighted] = useState(true);
 
   // Connection steps state
   const [connectionSteps, setConnectionSteps] = useState([
@@ -262,6 +263,16 @@ export const Sidebar: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Panel highlight effect on page load
+  useEffect(() => {
+    // Remove highlight after 2 seconds (same duration as the animation)
+    const timer = setTimeout(() => {
+      setIsPanelHighlighted(false);
+    }, 2000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   // Check connection status
   useEffect(() => {
     // Check connection status initially and every 30 seconds
@@ -324,7 +335,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className={`${isMobile ? 'w-full h-auto shadow-md z-50' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'}`}>
+    <div className={`${isMobile ? 'w-full h-auto shadow-md z-50' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'} ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
       {/* Logo and Header - Always visible and fully interactive */}
       <div
         className={`${isMobile ? 'w-full px-4 py-2' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-between' : ''} ${isMobile ? 'cursor-pointer' : ''}`}
@@ -538,6 +549,24 @@ export const Sidebar: React.FC = () => {
           isMobile={isMobile}
         />
       </div>
+
+      {/* Bottom Chevron - Only visible on desktop */}
+      {!isMobile && (
+        <div
+          className="absolute bottom-0 left-0 right-0 flex justify-center cursor-pointer hover:opacity-100 z-10 transform translate-y-1/2"
+          onClick={toggleMobileMenu}
+        >
+          <div className={`panel-metallic px-4 pt-1 pb-3 rounded-b-lg shadow-lg border border-gunmetal-700 border-t-0 ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
+            <div className="w-10 h-10 flex items-center justify-center bg-gunmetal-800 rounded-full shadow-md border border-gunmetal-700">
+              {isMobileMenuOpen ? (
+                <ChevronUp className="w-6 h-6 text-gray-200 chevron-pulse" />
+              ) : (
+                <ChevronDown className="w-6 h-6 text-gray-200 chevron-pulse" />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

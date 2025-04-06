@@ -21,17 +21,17 @@ export function AssetPriceIndicator({ symbol, className = '', compact = false }:
 
     // Normalize symbol format
     const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
-    
+
     const fetchInitialPrice = async () => {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Get initial price data
         const ticker = await bitmartService.getTicker(normalizedSymbol);
         if (ticker) {
           setPrice(parseFloat(ticker.last_price));
-          
+
           // Calculate 24h change if available
           if (ticker.open_24h) {
             const open24h = parseFloat(ticker.open_24h);
@@ -39,7 +39,7 @@ export function AssetPriceIndicator({ symbol, className = '', compact = false }:
             setChange24h(((currentPrice - open24h) / open24h) * 100);
           }
         }
-        
+
         setLoading(false);
       } catch (err) {
         logService.log('error', `Failed to fetch initial price for ${normalizedSymbol}`, err, 'AssetPriceIndicator');
@@ -48,27 +48,31 @@ export function AssetPriceIndicator({ symbol, className = '', compact = false }:
       }
     };
 
-    // Subscribe to price updates
+    // Subscribe to price updates with higher priority
     const subscribeToPrice = async () => {
       try {
-        await bitmartService.subscribeToSymbol(normalizedSymbol);
+        // Set higher priority for real-time updates
+        await bitmartService.subscribeToSymbol(normalizedSymbol, { priority: 'high' });
       } catch (err) {
         logService.log('error', `Failed to subscribe to ${normalizedSymbol}`, err, 'AssetPriceIndicator');
       }
     };
 
-    // Handle price updates
+    // Handle price updates with optimized rendering
     const handlePriceUpdate = (data: any) => {
       if (data.symbol === normalizedSymbol) {
-        setPrice(parseFloat(data.price || data.last_price));
-        setChange24h(data.change24h || 0);
-        setLoading(false);
+        // Use requestAnimationFrame for smoother updates
+        requestAnimationFrame(() => {
+          setPrice(parseFloat(data.price || data.last_price));
+          setChange24h(data.change24h || 0);
+          setLoading(false);
+        });
       }
     };
 
     // Listen for price updates
     bitmartService.on('priceUpdate', handlePriceUpdate);
-    
+
     // Initial setup
     fetchInitialPrice();
     subscribeToPrice();

@@ -254,35 +254,37 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             // If we found a matching active strategy, assign the trade to it
             binanceTrade.strategyId = matchingStrategy.id;
 
-            // Update the trades for this strategy
-            setStrategyTrades(prev => {
-              const updatedTrades = [...(prev[matchingStrategy.id] || []), binanceTrade];
-              // Sort by timestamp, newest first
-              updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
-              // Keep only the latest 100 trades
-              const limitedTrades = updatedTrades.slice(0, 100);
+            // Check if this trade already exists to prevent duplicates
+            const tradeExists = trades.some(t => t.id === binanceTrade.id);
+            if (!tradeExists) {
+              // Update the trades for this strategy
+              setStrategyTrades(prev => {
+                const existingTrades = prev[matchingStrategy.id] || [];
+                const tradeAlreadyExists = existingTrades.some(t => t.id === binanceTrade.id);
 
-              return {
-                ...prev,
-                [matchingStrategy.id]: limitedTrades
-              };
-            });
+                if (tradeAlreadyExists) return prev;
 
-            // Also update the global trades list
-            setTrades(prev => {
-              const updatedTrades = [...prev, binanceTrade];
-              // Sort by timestamp, newest first
-              updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
-              // Keep only the latest 100 trades
-              return updatedTrades.slice(0, 100);
-            });
+                const updatedTrades = [binanceTrade, ...existingTrades];
+                // Sort by timestamp, newest first
+                updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+                // Keep only the latest 100 trades
+                const limitedTrades = updatedTrades.slice(0, 100);
 
-            // Update the live trades list
-            setLiveTrades(prev => {
-              const updatedTrades = [binanceTrade, ...prev];
-              // Keep only the latest 50 trades
-              return updatedTrades.slice(0, 50);
-            });
+                return {
+                  ...prev,
+                  [matchingStrategy.id]: limitedTrades
+                };
+              });
+
+              // Also update the global trades list
+              setTrades(prev => {
+                const updatedTrades = [binanceTrade, ...prev];
+                // Sort by timestamp, newest first
+                updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+                // Keep only the latest 100 trades
+                return updatedTrades.slice(0, 100);
+              });
+            }
 
             // Log the Binance trade for debugging
             logService.log('debug', `Assigned Binance trade for ${data.s} to strategy ${matchingStrategy.id}`, { binanceTrade }, 'TradeMonitor');
@@ -459,20 +461,47 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       fetchStrategies().then(() => fetchTradeData());
     });
 
-    // Subscribe to trade events
+    // Subscribe to trade events with optimized updates
     const tradeCreatedUnsubscribe = eventBus.subscribe('trade:created', (data) => {
       console.log('Trade created:', data);
-      fetchStrategies().then(() => fetchTradeData());
+      // Only update strategies, not the entire trade list
+      fetchStrategies();
+
+      // Add the new trade to the list without a full refresh
+      if (data && data.trade) {
+        setTrades(prevTrades => {
+          // Check if trade already exists
+          const exists = prevTrades.some(t => t.id === data.trade.id);
+          if (exists) return prevTrades;
+
+          // Add new trade and sort
+          const updatedTrades = [data.trade, ...prevTrades];
+          return updatedTrades.slice(0, 100); // Keep only latest 100
+        });
+      }
     });
 
     const tradeUpdatedUnsubscribe = eventBus.subscribe('trade:update', (data) => {
       console.log('Trade updated:', data);
-      fetchStrategies().then(() => fetchTradeData());
+      // Only update the specific trade that changed
+      if (data && (data.orderId || (data.status && data.status.id))) {
+        const tradeId = data.orderId || data.status.id;
+        setTrades(prevTrades => {
+          return prevTrades.map(trade => {
+            if (trade.id === tradeId) {
+              // Merge the updated data with existing trade
+              return { ...trade, ...data.status };
+            }
+            return trade;
+          });
+        });
+      }
     });
 
     const tradesUpdatedUnsubscribe = eventBus.subscribe('tradesUpdated', (data) => {
       console.log('Trades updated:', data);
-      fetchStrategies().then(() => fetchTradeData());
+      // Only update strategies, not the entire trade list
+      fetchStrategies();
     });
 
     // Subscribe to strategy deleted events
@@ -1113,7 +1142,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           <div className="flex gap-6">
             {/* Left side - Strategies */}
             <div className="flex-1">
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
                 <div className="relative w-full max-w-xs">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
@@ -1125,21 +1154,21 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                   />
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex gap-2 w-full sm:w-auto">
                   <button
-                    className={`px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('all')}
                   >
                     All
                   </button>
                   <button
-                    className={`px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'active' ? 'bg-pink-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'active' ? 'bg-pink-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('active')}
                   >
                     Active
                   </button>
                   <button
-                    className={`px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'inactive' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'inactive' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('inactive')}
                   >
                     Inactive

@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Activity, 
-  RefreshCw, 
-  Loader2, 
-  ArrowUpRight, 
+import {
+  Activity,
+  RefreshCw,
+  Loader2,
+  ArrowUpRight,
   ArrowDownRight,
   TrendingUp,
   TrendingDown,
@@ -54,7 +54,7 @@ export function StrategyAssetPanel({ strategies, className }: StrategyAssetPanel
       try {
         setLoading(true);
         await updateAssetData();
-        
+
         // Set up WebSocket connections for each asset
         activeAssets.forEach(symbol => {
           bitmartService.subscribeToSymbol(symbol);
@@ -165,20 +165,20 @@ export function StrategyAssetPanel({ strategies, className }: StrategyAssetPanel
         <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
+          className="p-1.5 sm:p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
         >
           {refreshing ? (
-            <Loader2 className="w-5 h-5 animate-spin" />
+            <Loader2 className="w-4 h-4 sm:w-5 sm:h-5 animate-spin" />
           ) : (
-            <RefreshCw className="w-5 h-5" />
+            <RefreshCw className="w-4 h-4 sm:w-5 sm:h-5" />
           )}
         </button>
       </div>
 
       <div className="space-y-4">
         {Array.from(assetData.entries()).map(([symbol, data], index) => (
-          <PanelWrapper 
-            key={symbol} 
+          <PanelWrapper
+            key={symbol}
             index={index}
             className="rounded-lg p-4"
           >
@@ -215,14 +215,14 @@ export function StrategyAssetPanel({ strategies, className }: StrategyAssetPanel
                 <AreaChart data={data.priceHistory}>
                   <defs>
                     <linearGradient id={`gradient-${symbol}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop 
-                        offset="5%" 
-                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"} 
+                      <stop
+                        offset="5%"
+                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"}
                         stopOpacity={0.3}
                       />
-                      <stop 
-                        offset="95%" 
-                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"} 
+                      <stop
+                        offset="95%"
+                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"}
                         stopOpacity={0}
                       />
                     </linearGradient>

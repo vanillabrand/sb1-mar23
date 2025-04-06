@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import type { Trade } from '../lib/types';
 import { Pagination } from './ui/Pagination';
@@ -57,7 +57,7 @@ export const TradeList: React.FC<TradeListProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="bg-gunmetal-800 rounded-lg overflow-hidden">
+      <div className="bg-gunmetal-800 rounded-lg table-container">
         <table className="w-full">
           <thead>
             <tr className="bg-gunmetal-900">
@@ -70,13 +70,18 @@ export const TradeList: React.FC<TradeListProps> = ({
             </tr>
           </thead>
           <tbody>
-            {displayedTrades.map((trade) => (
-              <motion.tr
-                key={trade.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="border-t border-gunmetal-700"
-              >
+            <AnimatePresence mode="popLayout">
+              {displayedTrades.map((trade) => (
+                <motion.tr
+                  key={trade.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.3 }}
+                  layout
+                  layoutId={`trade-${trade.id}`}
+                  className="border-t border-gunmetal-700"
+                >
                 <td className="px-4 py-3 text-sm text-white">{trade.symbol || '-'}</td>
                 <td className="px-4 py-3 text-sm text-white">
                   <span className={`flex items-center gap-1 ${
@@ -118,6 +123,7 @@ export const TradeList: React.FC<TradeListProps> = ({
                 </td>
               </motion.tr>
             ))}
+            </AnimatePresence>
           </tbody>
         </table>
       </div>

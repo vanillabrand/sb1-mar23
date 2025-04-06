@@ -1,6 +1,7 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useScreenSize } from '../../lib/hooks/useScreenSize';
 
 interface PaginationProps {
   currentPage: number;
@@ -29,7 +30,11 @@ export function Pagination({
   itemsPerPageOptions = [6, 12, 24],
   onItemsPerPageChange
 }: PaginationProps) {
-  if (totalPages <= 1) return null;
+  const screenSize = useScreenSize();
+  const isMobile = screenSize === 'sm';
+
+  // Don't render pagination on mobile or if there's only one page
+  if (isMobile || totalPages <= 1) return null;
 
   // Calculate page numbers to show
   const getPageNumbers = () => {

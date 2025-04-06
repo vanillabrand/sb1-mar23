@@ -328,9 +328,13 @@ class BitmartService extends EventEmitter {
   /**
    * Subscribe to updates for a specific trading symbol
    * @param symbol The trading symbol to subscribe to (e.g., 'BTC_USDT')
+   * @param options Optional configuration for the subscription
    */
-  async subscribeToSymbol(symbol: string): Promise<void> {
+  async subscribeToSymbol(symbol: string, options: { priority?: 'normal' | 'high' } = {}): Promise<void> {
     try {
+      // Get priority from options or default to normal
+      const priority = options.priority || 'normal';
+
       // Normalize the symbol format if needed
       const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
 
@@ -348,7 +352,16 @@ class BitmartService extends EventEmitter {
         const basePrice = this.getBasePriceForSymbol(normalizedSymbol);
         const demoData = this.generateDemoMarketData(normalizedSymbol, basePrice);
         this.assetData.set(normalizedSymbol, demoData);
-        logService.log('info', `Subscribed to ${normalizedSymbol} in demo mode`, null, 'BitmartService');
+
+        // If high priority, update more frequently
+        if (priority === 'high') {
+          // Set up a more frequent update interval for this specific symbol
+          setInterval(() => {
+            this.updateSpecificSymbol(normalizedSymbol);
+          }, 1000); // Update every second for high priority symbols
+        }
+
+        logService.log('info', `Subscribed to ${normalizedSymbol} in demo mode with ${priority} priority`, null, 'BitmartService');
         return;
       }
 
@@ -357,13 +370,14 @@ class BitmartService extends EventEmitter {
         // Use send method instead of subscribe
         await websocketService.send({
           type: 'subscribe',
-          channels: [`spot/ticker:${normalizedSymbol}`]
+          channels: [`spot/ticker:${normalizedSymbol}`],
+          priority: priority // Add priority to the subscription
         });
-        logService.log('info', `Subscribed to ${normalizedSymbol}`, null, 'BitmartService');
+        logService.log('info', `Subscribed to ${normalizedSymbol} with ${priority} priority`, null, 'BitmartService');
       } catch (wsError) {
         logService.log('error', `Failed to subscribe to ${normalizedSymbol} via WebSocket`, wsError, 'BitmartService');
         // Fall back to polling if WebSocket fails
-        this.pollSymbol(normalizedSymbol);
+        this.pollSymbol(normalizedSymbol, priority === 'high');
       }
     } catch (error) {
       logService.log('error', `Failed to subscribe to symbol ${symbol}`, error, 'BitmartService');
@@ -372,11 +386,61 @@ class BitmartService extends EventEmitter {
   }
 
   /**
+   * Update a specific symbol with new price data
+   * @param symbol The symbol to update
+   */
+  private updateSpecificSymbol(symbol: string): void {
+    try {
+      const existingData = this.assetData.get(symbol);
+      if (!existingData) return;
+
+      const basePrice = existingData.price;
+      const priceVariance = basePrice * 0.001; // 0.1% variance for real-time updates
+      const newPrice = basePrice + (Math.random() * priceVariance * 2 - priceVariance);
+      const now = Date.now();
+
+      // Update price history
+      const newHistory = [...existingData.priceHistory];
+
+      // Remove data points older than 1 hour
+      const hourAgo = now - 3600000;
+      while (newHistory.length > 0 && newHistory[0].timestamp < hourAgo) {
+        newHistory.shift();
+      }
+
+      // Add new price point if enough time has passed or for high priority updates
+      if (newHistory.length === 0 || now - newHistory[newHistory.length - 1].timestamp >= 1000) {
+        newHistory.push({ timestamp: now, price: newPrice });
+      }
+
+      // Calculate 24h change
+      const open24h = newHistory.length > 0 ? newHistory[0].price : basePrice;
+      const change24h = ((newPrice - open24h) / open24h) * 100;
+
+      // Update asset data
+      const updatedData: AssetData = {
+        ...existingData,
+        price: newPrice,
+        change24h,
+        lastUpdate: now,
+        priceHistory: newHistory
+      };
+
+      this.assetData.set(symbol, updatedData);
+      this.emit('priceUpdate', updatedData);
+    } catch (error) {
+      logService.log('error', `Failed to update specific symbol ${symbol}`, error, 'BitmartService');
+    }
+  }
+
+  /**
    * Poll for updates for a symbol when WebSocket is not available
    * @param symbol The symbol to poll for
+   * @param highPriority Whether to poll with high priority (more frequently)
    */
-  private pollSymbol(symbol: string): void {
-    // Set up polling for this symbol
+  private pollSymbol(symbol: string, highPriority: boolean = false): void {
+    // Set up polling for this symbol with appropriate interval based on priority
+    const pollIntervalTime = highPriority ? 1000 : 5000; // 1 second for high priority, 5 seconds for normal
     const pollInterval = setInterval(async () => {
       try {
         try {
@@ -418,7 +482,7 @@ class BitmartService extends EventEmitter {
       } catch (error) {
         logService.log('error', `Failed to poll symbol ${symbol}`, error, 'BitmartService');
       }
-    }, 5000); // Poll every 5 seconds
+    }, pollIntervalTime); // Poll at the appropriate interval
 
     // Store the interval ID for cleanup
     // (You might want to add a map to store these intervals)

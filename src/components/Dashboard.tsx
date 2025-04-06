@@ -277,7 +277,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         <NetworkStatus />
       </div>
 
-      <div className={`grid grid-cols-12 gap-8 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
+      <div className={`grid grid-cols-12 gap-3 sm:gap-4 md:gap-6 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
         {/* DEFCON Monitor - Only shown at the top on mobile */}
         {screenSize === 'sm' && (
           <div className="col-span-12 mb-4">
@@ -290,12 +290,12 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           </div>
         )}
 
-        <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-8`}>
-          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-8 shadow-lg">
+        <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-4`}>
+          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <StrategyStatus strategies={activeStrategies} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={1} className="panel-metallic rounded-xl p-8 shadow-lg">
+          <AnimatedPanel index={1} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <AIMarketInsight assets={new Set(allAssets)} />
           </AnimatedPanel>
 
@@ -303,11 +303,11 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             <PortfolioPerformance />
           </AnimatedPanel>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <AnimatedPanel index={3} className="panel-metallic rounded-xl p-8 shadow-lg">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+            <AnimatedPanel index={3} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
               <RiskExposure assets={new Set(allAssets)} />
             </AnimatedPanel>
-            <AnimatedPanel index={4} className="panel-metallic rounded-xl p-8 shadow-lg">
+            <AnimatedPanel index={4} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
               <div className="flex flex-col h-full">
                 <EmergencyStopButton />
               </div>
@@ -315,8 +315,8 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           </div>
         </div>
 
-        <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-5'} space-y-8`}>
-          <AnimatedPanel index={5} className="panel-metallic rounded-xl p-8 shadow-lg">
+        <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-5'} space-y-4`}>
+          <AnimatedPanel index={5} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-neon-turquoise" />
@@ -346,11 +346,11 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             </AnimatedPanel>
           )}
 
-          <AnimatedPanel index={7} className="panel-metallic rounded-xl p-8 shadow-lg">
+          <AnimatedPanel index={7} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <NewsWidget assets={newsAssets} limit={screenSize === 'sm' ? 2 : 4} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={8} className="panel-metallic rounded-xl p-8 shadow-lg">
+          <AnimatedPanel index={8} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <AssetDistribution assets={new Set(allAssets)} />
           </AnimatedPanel>
         </div>

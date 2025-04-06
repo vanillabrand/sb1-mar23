@@ -343,19 +343,19 @@ export function PortfolioPerformance() {
   };
 
   return (
-    <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-8 shadow-lg border border-gunmetal-800/50">
+    <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-4 sm:p-6 md:p-8 shadow-lg border border-gunmetal-800/50">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <Activity className="w-6 h-6 text-neon-raspberry" />
           <h2 className="text-xl font-bold gradient-text">Portfolio Performance</h2>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex gap-2 bg-gunmetal-800 rounded-lg p-1">
+          <div className="flex gap-1 bg-gunmetal-800 rounded-lg p-1">
             {(['1h', '1d', '1w', '1m'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
-                className={`px-3 py-1 rounded text-sm ${
+                className={`px-2 py-1 rounded text-xs sm:text-sm ${
                   timeframe === tf
                     ? 'bg-neon-raspberry text-white'
                     : 'text-gray-400 hover:text-white'
@@ -527,7 +527,7 @@ export function PortfolioPerformance() {
                 </div>
 
                 {/* Strategy Performance Table */}
-                <div className="lg:col-span-2 overflow-x-auto">
+                <div className="lg:col-span-2 table-container">
                   <table className="w-full text-sm text-left">
                     <thead className="text-xs text-gray-400 uppercase bg-gunmetal-800/50">
                       <tr>

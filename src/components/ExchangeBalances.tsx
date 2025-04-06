@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { 
-  ArrowUpRight, 
+import {
+  ArrowUpRight,
   ArrowDownRight,
-  Loader2, 
+  Loader2,
   RefreshCw,
   Search,
   Filter,
@@ -49,10 +49,10 @@ export function ExchangeBalances() {
         // Apply search filter
         const matchesSearch = balance.symbol.toLowerCase().includes(searchTerm.toLowerCase()) ||
                             balance.name.toLowerCase().includes(searchTerm.toLowerCase());
-        
+
         // Apply zero balance filter
         const hasBalance = showZeroBalances || balance.total > 0;
-        
+
         return matchesSearch && hasBalance;
       })
       .sort((a, b) => {
@@ -101,7 +101,7 @@ export function ExchangeBalances() {
 
   const handleBalanceUpdate = (data: any) => {
     if (!data?.symbol) return;
-    
+
     setBalances(prev => {
       const updated = [...prev];
       const index = updated.findIndex(b => b.symbol === data.symbol);
@@ -119,19 +119,19 @@ export function ExchangeBalances() {
 
   const handleTickerUpdate = (data: any) => {
     if (!data?.symbol) return;
-    
+
     // Update price history
     const history = priceHistoryMap.current.get(data.symbol) || [];
     const price = Number(data.price) || 0;
     const now = Date.now();
-    
+
     // Keep last 50 price points
     history.push({ timestamp: now, price });
     if (history.length > 50) {
       history.shift();
     }
     priceHistoryMap.current.set(data.symbol, history);
-    
+
     setBalances(prev => {
       const updated = [...prev];
       const index = updated.findIndex(b => b.symbol === data.symbol);
@@ -156,7 +156,7 @@ export function ExchangeBalances() {
     const interval = setInterval(() => {
       fetchBalances();
     }, 30000); // Update every 30 seconds
-    
+
     return () => clearInterval(interval);
   }, [initialized]);
 
@@ -186,7 +186,7 @@ export function ExchangeBalances() {
       for (const symbol in balanceData) {
         const balance = balanceData[symbol];
         if (!balance) continue;
-        
+
         const total = Number(balance.total) || 0;
         if (total <= 0 && !showZeroBalances) continue;
 
@@ -246,13 +246,13 @@ export function ExchangeBalances() {
     return demoAssets.map(asset => {
       const total = Math.random() * 10;
       const price = asset.price * (1 + (Math.random() - 0.5) * 0.002);
-      
+
       // Generate synthetic price history
       const history = Array.from({ length: 50 }, (_, i) => ({
         timestamp: Date.now() - (50 - i) * 60000,
         price: asset.price * (1 + (Math.random() - 0.5) * 0.1)
       }));
-      
+
       priceHistoryMap.current.set(asset.symbol, history);
 
       return {
@@ -358,8 +358,8 @@ export function ExchangeBalances() {
           <button
             onClick={() => setShowZeroBalances(!showZeroBalances)}
             className={`p-2 rounded-lg transition-colors ${
-              showZeroBalances 
-                ? 'bg-neon-turquoise/20 text-neon-turquoise' 
+              showZeroBalances
+                ? 'bg-neon-turquoise/20 text-neon-turquoise'
                 : 'bg-gunmetal-800 text-gray-400 hover:text-neon-turquoise'
             }`}
             title={showZeroBalances ? 'Hide zero balances' : 'Show zero balances'}
@@ -384,7 +384,7 @@ export function ExchangeBalances() {
           No assets found
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div className="table-container">
           <table className="w-full">
             <thead className="bg-gunmetal-800/50">
               <tr>
@@ -452,14 +452,14 @@ export function ExchangeBalances() {
                             <AreaChart data={balance.priceHistory}>
                               <defs>
                                 <linearGradient id={`gradient-${balance.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                                  <stop 
-                                    offset="5%" 
-                                    stopColor={(balance.change24h || 0) >= 0 ? "#2dd4bf" : "#ec4899"} 
+                                  <stop
+                                    offset="5%"
+                                    stopColor={(balance.change24h || 0) >= 0 ? "#2dd4bf" : "#ec4899"}
                                     stopOpacity={0.3}
                                   />
-                                  <stop 
-                                    offset="95%" 
-                                    stopColor={(balance.change24h || 0) >= 0 ? "#2dd4bf" : "#ec4899"} 
+                                  <stop
+                                    offset="95%"
+                                    stopColor={(balance.change24h || 0) >= 0 ? "#2dd4bf" : "#ec4899"}
                                     stopOpacity={0}
                                   />
                                 </linearGradient>
