@@ -186,21 +186,11 @@ export const Analytics: React.FC = () => {
     // Set up websocket connection
     setupWebsocket();
 
-    // Set up refresh interval for other analytics data
-    const analyticsRefreshInterval = setInterval(() => {
-      Promise.all([
-        fetchRiskPerformance(),
-        fetchPortfolioPerformance(),
-        fetchPerformanceOverTime(),
-        fetchStrategyLeaderboard()
-      ]);
-      setLastUpdated(new Date());
-    }, 60000); // Refresh other analytics every minute
+    // No periodic refresh - data is updated in real-time via websockets
 
     return () => {
       // Clean up intervals on component unmount
       if (priceUpdateInterval) clearInterval(priceUpdateInterval);
-      if (analyticsRefreshInterval) clearInterval(analyticsRefreshInterval);
     };
   }, []);
 

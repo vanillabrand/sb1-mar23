@@ -1,16 +1,13 @@
 import React from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
 
 interface PaginationProps {
   currentPage: number;
   totalPages: number;
   onPageChange: (page: number) => void;
-  className?: string;
-  showPageNumbers?: boolean;
   itemsPerPage?: number;
   totalItems?: number;
-  loading?: boolean;
+  className?: string;
   showItemsPerPage?: boolean;
   itemsPerPageOptions?: number[];
   onItemsPerPageChange?: (itemsPerPage: number) => void;
@@ -20,22 +17,18 @@ export function Pagination({
   currentPage,
   totalPages,
   onPageChange,
-  className = '',
-  showPageNumbers = true,
   itemsPerPage = 6,
   totalItems,
-  loading = false,
+  className = '',
   showItemsPerPage = false,
   itemsPerPageOptions = [6, 12, 24],
   onItemsPerPageChange
 }: PaginationProps) {
-  if (totalPages <= 1) return null;
-
   // Calculate page numbers to show
   const getPageNumbers = () => {
     const pageNumbers = [];
     const maxPagesToShow = 5; // Show at most 5 page numbers
-
+    
     if (totalPages <= maxPagesToShow) {
       // If we have 5 or fewer pages, show all of them
       for (let i = 1; i <= totalPages; i++) {
@@ -44,38 +37,45 @@ export function Pagination({
     } else {
       // Always include first page
       pageNumbers.push(1);
-
+      
       // Calculate start and end of page range
       let start = Math.max(2, currentPage - 1);
       let end = Math.min(totalPages - 1, currentPage + 1);
-
+      
       // Adjust if we're at the beginning or end
       if (currentPage <= 2) {
         end = 3;
       } else if (currentPage >= totalPages - 1) {
         start = totalPages - 2;
       }
-
+      
       // Add ellipsis if needed
       if (start > 2) {
         pageNumbers.push('...');
       }
-
+      
       // Add middle pages
       for (let i = start; i <= end; i++) {
         pageNumbers.push(i);
       }
-
+      
       // Add ellipsis if needed
       if (end < totalPages - 1) {
         pageNumbers.push('...');
       }
-
+      
       // Always include last page
       pageNumbers.push(totalPages);
     }
-
+    
     return pageNumbers;
+  };
+
+  // Handle page change
+  const handlePageChange = (page: number) => {
+    if (page >= 1 && page <= totalPages) {
+      onPageChange(page);
+    }
   };
 
   // Handle items per page change
@@ -86,15 +86,13 @@ export function Pagination({
     }
   };
 
-  // Calculate start and end items for display
-  const startItem = totalItems ? (currentPage - 1) * itemsPerPage + 1 : 0;
-  const endItem = totalItems ? Math.min(currentPage * itemsPerPage, totalItems) : 0;
+  // Don't render pagination if there's only one page
+  if (totalPages <= 1) {
+    return null;
+  }
 
   return (
-    <motion.div
-      layout
-      className={`flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 ${className}`}
-    >
+    <div className={`flex flex-col sm:flex-row items-center justify-between gap-4 mt-4 ${className}`}>
       {/* Items per page selector */}
       {showItemsPerPage && onItemsPerPageChange && (
         <div className="flex items-center gap-2 text-sm text-gray-400">
@@ -112,22 +110,22 @@ export function Pagination({
           </select>
         </div>
       )}
-
+      
       {/* Page info */}
       {totalItems !== undefined && (
         <div className="text-sm text-gray-400">
-          Showing {startItem} - {endItem} of {totalItems}
+          Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}
         </div>
       )}
-
+      
       {/* Pagination controls */}
       <div className="flex items-center gap-1">
         {/* Previous button */}
         <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1 || loading}
+          onClick={() => handlePageChange(currentPage - 1)}
+          disabled={currentPage === 1}
           className={`p-2 rounded-full ${
-            currentPage === 1 || loading
+            currentPage === 1
               ? 'text-gray-600 cursor-not-allowed'
               : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
           } transition-colors`}
@@ -135,70 +133,39 @@ export function Pagination({
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
-
+        
         {/* Page numbers */}
-        <AnimatePresence mode="sync">
-          {showPageNumbers ? (
-            <motion.div
-              className="flex items-center gap-1"
-              layout
-              key="page-numbers"
-            >
-              {getPageNumbers().map((page, index) => (
-                <React.Fragment key={index}>
-                  {typeof page === 'number' ? (
-                    <motion.button
-                      onClick={() => onPageChange(page)}
-                      className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-all duration-300 ${
-                        currentPage === page
-                          ? 'bg-neon-turquoise text-black font-medium scale-110 ping-animation'
-                          : 'text-gray-300 hover:bg-gunmetal-800'
-                      }`}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                      aria-label={`Page ${page}`}
-                      aria-current={currentPage === page ? 'page' : undefined}
-                    >
-                      {page}
-                    </motion.button>
-                  ) : (
-                    <span className="w-8 flex items-center justify-center text-gray-500">
-                      {page}
-                    </span>
-                  )}
-                </React.Fragment>
-              ))}
-            </motion.div>
-          ) : (
-            <motion.div
-              className="flex gap-2"
-              layout
-              key="dots"
-            >
-              {Array.from({ length: totalPages }).map((_, index) => (
-                <motion.button
-                  key={index}
-                  onClick={() => onPageChange(index + 1)}
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    index + 1 === currentPage
-                      ? 'bg-neon-turquoise w-8 ping-animation'
-                      : 'bg-gunmetal-700 hover:bg-gunmetal-600'
+        <div className="flex items-center">
+          {getPageNumbers().map((page, index) => (
+            <React.Fragment key={index}>
+              {typeof page === 'number' ? (
+                <button
+                  onClick={() => handlePageChange(page)}
+                  className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-all duration-300 ${
+                    currentPage === page
+                      ? 'bg-neon-turquoise text-black font-medium scale-110 ping-animation'
+                      : 'text-gray-300 hover:bg-gunmetal-800'
                   }`}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                  aria-label={`Go to page ${index + 1}`}
-                />
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
+                  aria-label={`Page ${page}`}
+                  aria-current={currentPage === page ? 'page' : undefined}
+                >
+                  {page}
+                </button>
+              ) : (
+                <span className="w-8 flex items-center justify-center text-gray-500">
+                  {page}
+                </span>
+              )}
+            </React.Fragment>
+          ))}
+        </div>
+        
         {/* Next button */}
         <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages || loading}
+          onClick={() => handlePageChange(currentPage + 1)}
+          disabled={currentPage === totalPages}
           className={`p-2 rounded-full ${
-            currentPage === totalPages || loading
+            currentPage === totalPages
               ? 'text-gray-600 cursor-not-allowed'
               : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
           } transition-colors`}
@@ -207,6 +174,6 @@ export function Pagination({
           <ChevronRight className="w-5 h-5" />
         </button>
       </div>
-    </motion.div>
+    </div>
   );
 }

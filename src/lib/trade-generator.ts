@@ -876,6 +876,13 @@ Return ONLY a JSON object with the updated strategy configuration:
       // Emit initial checking event to update UI
       eventBus.emit(`trade:checking:${strategy.id}`, { strategyId: strategy.id });
 
+      // Force immediate check for trade opportunities
+      setTimeout(() => {
+        this.checkStrategyForTrades(strategy).catch(error => {
+          logService.log('error', `Error in initial trade check for strategy ${strategy.id}`, error, 'TradeGenerator');
+        });
+      }, 1000);
+
       // Subscribe to market data for each asset
       for (const symbol of strategy.strategy_config.assets) {
         try {

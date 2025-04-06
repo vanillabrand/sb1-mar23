@@ -67,7 +67,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('performance');
-  const [currentPage, setCurrentPage] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
     status: 'all',
     riskLevel: 'all',
@@ -79,8 +79,8 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [loadingStrategy, setLoadingStrategy] = useState<string | null>(null);
 
   // Constants for pagination
-  const ITEMS_PER_PAGE = 6; // For user strategies
-  const TEMPLATES_PER_PAGE = 6; // For template strategies
+  const [ITEMS_PER_PAGE, setItemsPerPage] = useState(6); // For user strategies
+  const [TEMPLATES_PER_PAGE, setTemplatesPerPage] = useState(6); // For template strategies
 
   // Add event listener for budget modal
   useEffect(() => {
@@ -96,20 +96,10 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     };
   }, []);
 
-  // Set up periodic refresh of strategies
+  // Initial refresh of strategies
   useEffect(() => {
     // Initial refresh
     refreshStrategies();
-
-    // Set up periodic refresh every 30 seconds
-    const refreshInterval = setInterval(() => {
-      console.log('Performing periodic refresh of strategies');
-      refreshStrategies();
-    }, 30000); // 30 seconds
-
-    return () => {
-      clearInterval(refreshInterval);
-    };
   }, [refreshStrategies]);
 
   // Define the handlePageChange function
@@ -145,7 +135,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         }
 
         // Force a refresh of the pagination
-        handlePageChange(0);
+        handlePageChange(1);
 
         // Force a refresh to ensure everything is in sync
         setTimeout(() => {
@@ -348,8 +338,8 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   // Update paginated strategies whenever filtered strategies or page changes
   useEffect(() => {
     const paginated = filteredStrategies.slice(
-      currentPage * ITEMS_PER_PAGE,
-      (currentPage + 1) * ITEMS_PER_PAGE
+      (currentPage - 1) * ITEMS_PER_PAGE,
+      currentPage * ITEMS_PER_PAGE
     );
     setPaginatedStrategies(paginated);
   }, [filteredStrategies, currentPage, ITEMS_PER_PAGE]);
@@ -1056,109 +1046,9 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             </div>
           </div>
 
-          <div className="flex flex-col lg:flex-row gap-8 mb-8">
-            {/* Template Strategies Section */}
-            <div className="lg:w-1/2 panel-metallic rounded-xl p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-200">Template Strategies</h2>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleRegenerateTemplates}
-                    className="flex items-center gap-2 px-3 py-1 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all duration-300 text-sm"
-                    disabled={loadingTemplates}
-                  >
-                    {loadingTemplates ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <RefreshCw className="w-3 h-3" />
-                    )}
-                    Regenerate
-                  </button>
-                  <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
-                </div>
-              </div>
-
-              {loadingTemplates ? (
-                <div className="flex justify-center items-center py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
-                </div>
-              ) : templateError ? (
-                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
-                  <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
-                  <p className="text-gray-300 mb-2">Failed to load templates</p>
-                  <p className="text-gray-400 text-sm mb-4">{templateError}</p>
-                  <button
-                    onClick={loadTemplates}
-                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
-                  >
-                    Try Again
-                  </button>
-                </div>
-              ) : paginatedTemplates.length === 0 ? (
-                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
-                  <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
-                  <p className="text-gray-300 mb-2">No templates available</p>
-                  <p className="text-gray-400 text-sm">Check back later for new templates</p>
-                </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    {paginatedTemplates.map((template) => (
-                      <motion.div
-                        key={template.id}
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="bg-gunmetal-800/50 rounded-xl p-6 border border-gunmetal-700/50 hover:border-neon-turquoise/30 transition-all duration-300"
-                      >
-                        <div className="flex items-center justify-between mb-4">
-                          <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
-                          <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
-                            {template.riskLevel} Risk
-                          </div>
-                        </div>
-
-                        <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
-
-                        <div className="flex items-center justify-between mt-4">
-                          <div className="text-sm">
-                            <span className="text-gray-400">Win Rate: </span>
-                            <span className="text-neon-turquoise">
-                              {template.metrics?.winRate
-                                ? `${Number(template.metrics.winRate).toFixed(1)}%`
-                                : 'N/A'}
-                            </span>
-                          </div>
-                          <button
-                            onClick={() => handleUseTemplate(template)}
-                            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300"
-                          >
-                            <Plus className="w-4 h-4" />
-                            Use Template
-                          </button>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
-
-                  {/* Template Pagination */}
-                  {totalTemplatePages > 1 && (
-                    <Pagination
-                      currentPage={templatePage}
-                      totalPages={totalTemplatePages}
-                      onPageChange={setTemplatePage}
-                      itemsPerPage={TEMPLATES_PER_PAGE}
-                      totalItems={filteredTemplates.length}
-                      showPageNumbers={true}
-                      className="mt-4"
-                    />
-                  )}
-                </>
-              )}
-            </div>
-
+          <div className="flex flex-col gap-8 mb-8">
             {/* Your Strategies Section */}
-            <div className="lg:w-1/2 panel-metallic rounded-xl p-6">
+            <div className="w-full panel-metallic rounded-xl p-6 bg-black">
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-xl font-semibold gradient-text">Your Strategies</h2>
                 <span className="text-sm text-gray-400">{filteredStrategies.length} strategies</span>
@@ -1170,7 +1060,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
                 </div>
               ) : strategiesError ? (
-                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
+                <div className="bg-black rounded-xl p-6 text-center">
                   <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
                   <p className="text-gray-300 mb-2">Error loading strategies</p>
                   <p className="text-gray-400 text-sm mb-4">Please try refreshing the page</p>
@@ -1182,7 +1072,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   </button>
                 </div>
               ) : (filteredStrategies?.length || 0) === 0 ? (
-                <div className="bg-gunmetal-800/50 rounded-xl p-6 text-center">
+                <div className="bg-black rounded-xl p-6 text-center">
                   <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
                   <p className="text-gray-300 mb-2">No strategies found</p>
                   <p className="text-gray-400 text-sm mb-4">{searchTerm ? "Try adjusting your search" : "Create your first strategy"}</p>
@@ -1219,17 +1109,110 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   </div>
 
                   {/* Pagination */}
-                  {totalPages > 1 && (
-                    <Pagination
-                      currentPage={currentPage}
-                      totalPages={totalPages}
-                      onPageChange={handlePageChange}
-                      itemsPerPage={ITEMS_PER_PAGE}
-                      totalItems={filteredStrategies?.length || 0}
-                      showPageNumbers={true}
-                      className="mt-4"
-                    />
-                  )}
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    onPageChange={handlePageChange}
+                    itemsPerPage={ITEMS_PER_PAGE}
+                    totalItems={filteredStrategies?.length || 0}
+                    showPageNumbers={true}
+                    className="mt-4"
+                    showItemsPerPage={true}
+                    itemsPerPageOptions={[6, 12, 24]}
+                    onItemsPerPageChange={(newItemsPerPage) => {
+                      // Update the items per page
+                      setItemsPerPage(newItemsPerPage);
+                      // Reset to first page
+                      setCurrentPage(1);
+                    }}
+                  />
+                </>
+              )}
+            </div>
+
+            {/* Template Strategies Section */}
+            <div className="w-full panel-metallic rounded-xl p-6 bg-black">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-xl font-semibold text-gray-200">Template Strategies</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={loadTemplates}
+                    className="flex items-center gap-2 px-3 py-1 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all duration-300 text-sm"
+                    disabled={loadingTemplates}
+                  >
+                    {loadingTemplates ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="w-3 h-3" />
+                    )}
+                    Refresh Templates
+                  </button>
+                  <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
+                </div>
+              </div>
+
+              {loadingTemplates ? (
+                <div className="flex justify-center items-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
+                </div>
+              ) : templateError ? (
+                <div className="bg-black rounded-xl p-6 text-center">
+                  <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">Failed to load templates</p>
+                  <p className="text-gray-400 text-sm mb-4">{templateError}</p>
+                  <button
+                    onClick={loadTemplates}
+                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              ) : filteredTemplates.length === 0 ? (
+                <div className="bg-black rounded-xl p-6 text-center">
+                  <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
+                  <p className="text-gray-300 mb-2">No templates available</p>
+                  <p className="text-gray-400 text-sm">Check back later for new templates</p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+                    {filteredTemplates.slice(0, 6).map((template) => (
+                      <motion.div
+                        key={template.id}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -20 }}
+                        className="bg-gunmetal-800/50 rounded-xl p-6 hover:border-neon-turquoise/30 transition-all duration-300"
+                      >
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
+                          <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
+                            {template.riskLevel} Risk
+                          </div>
+                        </div>
+
+                        <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
+
+                        <div className="flex items-center justify-between mt-4">
+                          <div className="text-sm">
+                            <span className="text-gray-400">Win Rate: </span>
+                            <span className="text-neon-turquoise">
+                              {template.metrics?.winRate
+                                ? `${Number(template.metrics.winRate).toFixed(1)}%`
+                                : 'N/A'}
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => handleUseTemplate(template)}
+                            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Use Template
+                          </button>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
                 </>
               )}
             </div>

@@ -104,6 +104,25 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           const lastChecked = tradeGenerator.getLastCheckTime(strategy.id);
           const lastGenerated = tradeGenerator.getLastGeneratedTime(strategy.id);
 
+          // If the strategy is not being monitored, try to add it to the trade generator
+          if (!isMonitored) {
+            try {
+              // Force the strategy to be added to the trade generator
+              tradeGenerator.addStrategy(strategy).catch(error => {
+                console.error(`Error adding strategy ${strategy.id} to trade generator:`, error);
+              });
+
+              // Also try to add it to the strategy monitor
+              strategyMonitor.addStrategy(strategy).catch(error => {
+                console.error(`Error adding strategy ${strategy.id} to strategy monitor:`, error);
+              });
+
+              logService.log('info', `Forced strategy ${strategy.id} to be added to monitoring`, null, 'StrategyCard');
+            } catch (error) {
+              logService.log('error', `Failed to force strategy ${strategy.id} into monitoring`, error, 'StrategyCard');
+            }
+          }
+
           setTradeGenerationStatus({
             status: isMonitored ? 'checking' : 'idle',
             lastChecked,

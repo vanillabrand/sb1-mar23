@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
+import {
   StickyNote,
   Plus,
   Trash2,
@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 import createDOMPurify from 'dompurify';
 import { useAuth } from '../hooks/useAuth';
+import { Pagination } from './ui/Pagination';
 
 // Initialize DOMPurify
 const DOMPurify = createDOMPurify(window);
@@ -33,9 +34,26 @@ export function Notes() {
   const [isAdding, setIsAdding] = useState(false);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(5);
+  const [paginatedNotes, setPaginatedNotes] = useState<Note[]>([]);
+
   useEffect(() => {
     loadNotes();
   }, []);
+
+  // Update paginated notes when notes, page, or items per page changes
+  useEffect(() => {
+    updatePaginatedNotes();
+  }, [notes, currentPage, itemsPerPage]);
+
+  // Function to update paginated notes
+  const updatePaginatedNotes = () => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    setPaginatedNotes(notes.slice(startIndex, endIndex));
+  };
 
   const loadNotes = async () => {
     try {
@@ -69,9 +87,9 @@ export function Notes() {
 
       const { data, error } = await supabase
         .from('user_notes')
-        .insert([{ 
+        .insert([{
           user_id: user.id,
-          content: sanitizedContent 
+          content: sanitizedContent
         }])
         .select()
         .single();
@@ -164,8 +182,8 @@ export function Notes() {
 
       {/* Notes List */}
       <div className="space-y-4">
-        <AnimatePresence mode="sync"> {/* Changed from popLayout to sync */}
-          {notes.map(note => (
+        <AnimatePresence mode="sync">
+          {paginatedNotes.map(note => (
             <motion.div
               key={note.id}
               initial={{ opacity: 0, y: 20 }}
@@ -203,6 +221,25 @@ export function Notes() {
           <div className="text-center py-8 text-gray-400">
             No notes yet. Add your first note above.
           </div>
+        )}
+
+        {/* Pagination */}
+        {notes.length > itemsPerPage && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(notes.length / itemsPerPage)}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={notes.length}
+            showPageNumbers={true}
+            showItemsPerPage={true}
+            itemsPerPageOptions={[5, 10, 20]}
+            onItemsPerPageChange={(newItemsPerPage) => {
+              setItemsPerPage(newItemsPerPage);
+              setCurrentPage(1); // Reset to first page when changing items per page
+            }}
+            className="mt-6"
+          />
         )}
       </div>
     </div>

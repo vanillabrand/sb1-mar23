@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Clock, RefreshCw, Loader2 } from 'lucide-react';
 import { globalCacheService } from '../lib/global-cache-service';
 import { formatDistanceToNow } from 'date-fns';
+import { Pagination } from './ui/Pagination';
 
 interface NewsWidgetProps {
   assets: string[];
@@ -10,11 +11,14 @@ interface NewsWidgetProps {
 }
 
 export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
+  const [allNews, setAllNews] = useState<any[]>([]);
   const [news, setNews] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [lastUpdateTime, setLastUpdateTime] = useState<number>(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(4);
 
   const fetchNews = useCallback(async () => {
     try {
@@ -25,7 +29,10 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
 
       // Use the global cache service instead of direct API call
       const newsItems = await globalCacheService.getNewsForAssets(newsAssets);
-      setNews(newsItems.slice(0, limit));
+      setAllNews(newsItems);
+
+      // Update the paginated news
+      updatePaginatedNews(newsItems);
 
       // Get the last update time from the cache service
       const lastUpdate = globalCacheService.getNewsLastUpdate();
@@ -37,7 +44,14 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [assets, limit, refreshing]);
+  }, [assets, refreshing]);
+
+  // Function to update paginated news
+  const updatePaginatedNews = useCallback((items = allNews) => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    setNews(items.slice(startIndex, endIndex));
+  }, [currentPage, itemsPerPage, allNews]);
 
   const handleRefresh = async () => {
     try {
@@ -57,6 +71,11 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
   useEffect(() => {
     fetchNews();
   }, [fetchNews]);
+
+  // Update paginated news when page or items per page changes
+  useEffect(() => {
+    updatePaginatedNews();
+  }, [updatePaginatedNews, currentPage, itemsPerPage]);
 
   if (loading) {
     return (
@@ -126,6 +145,24 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
             </a>
           </motion.div>
         ))}
+
+        {/* Pagination */}
+        {allNews.length > itemsPerPage && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(allNews.length / itemsPerPage)}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={allNews.length}
+            showPageNumbers={false} // Use dots for news pagination
+            showItemsPerPage={true}
+            itemsPerPageOptions={[4, 6, 8]}
+            onItemsPerPageChange={(newItemsPerPage) => {
+              setItemsPerPage(newItemsPerPage);
+              setCurrentPage(1); // Reset to first page when changing items per page
+            }}
+          />
+        )}
       </div>
     </div>
   );

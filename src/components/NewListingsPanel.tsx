@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  Coins, 
-  RefreshCw, 
-  Loader2, 
+import {
+  Coins,
+  RefreshCw,
+  Loader2,
   Clock,
   Sparkles,
   TrendingUp,
@@ -13,6 +13,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { bitmartService } from '../lib/bitmart-service';
+import { Pagination } from './ui/Pagination';
 
 interface NewListing {
   symbol: string;
@@ -32,13 +33,30 @@ export function NewListingsPanel({ className = "" }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(4);
+  const [paginatedListings, setPaginatedListings] = useState<NewListing[]>([]);
+
   useEffect(() => {
     fetchListings();
-    
+
     // Update every 5 minutes
     const interval = setInterval(fetchListings, 300000);
     return () => clearInterval(interval);
   }, []);
+
+  // Update paginated listings when listings, page, or items per page changes
+  useEffect(() => {
+    updatePaginatedListings();
+  }, [listings, currentPage, itemsPerPage]);
+
+  // Function to update paginated listings
+  const updatePaginatedListings = () => {
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    setPaginatedListings(listings.slice(startIndex, endIndex));
+  };
 
   const fetchListings = async () => {
     try {
@@ -91,7 +109,7 @@ export function NewListingsPanel({ className = "" }) {
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();
     const diffMins = Math.floor(diffMs / 60000);
-    
+
     if (diffMins < 60) return `${diffMins}m ago`;
     const diffHours = Math.floor(diffMins / 60);
     if (diffHours < 24) return `${diffHours}h ago`;
@@ -139,7 +157,7 @@ export function NewListingsPanel({ className = "" }) {
 
       <div className="space-y-3">
         <AnimatePresence>
-          {listings.map((listing) => (
+          {paginatedListings.map((listing) => (
             <motion.div
               key={listing.symbol}
               initial={{ opacity: 0, y: 20 }}
@@ -214,6 +232,25 @@ export function NewListingsPanel({ className = "" }) {
             </motion.div>
           ))}
         </AnimatePresence>
+
+        {/* Pagination */}
+        {listings.length > itemsPerPage && (
+          <Pagination
+            currentPage={currentPage}
+            totalPages={Math.ceil(listings.length / itemsPerPage)}
+            onPageChange={setCurrentPage}
+            itemsPerPage={itemsPerPage}
+            totalItems={listings.length}
+            showPageNumbers={false} // Use dots for compact pagination
+            showItemsPerPage={true}
+            itemsPerPageOptions={[4, 8, 12]}
+            onItemsPerPageChange={(newItemsPerPage) => {
+              setItemsPerPage(newItemsPerPage);
+              setCurrentPage(1); // Reset to first page when changing items per page
+            }}
+            className="mt-4"
+          />
+        )}
       </div>
     </div>
   );

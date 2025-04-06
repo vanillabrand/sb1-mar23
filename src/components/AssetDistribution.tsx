@@ -18,23 +18,23 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
     setLoading(true);
     try {
       const assetColors = [
-        "#2dd4bf", "#facc15", "#fb923c", "#ec4899", "#8b5cf6", 
+        "#2dd4bf", "#facc15", "#fb923c", "#ec4899", "#8b5cf6",
         "#34d399", "#fbbf24", "#f87171", "#a78bfa", "#60a5fa"
       ];
-      
+
       const assetList = Array.from(assets);
       if (assetList.length === 0) {
         assetList.push('BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT');
       }
-      
+
       const distributionData = await Promise.all(assetList.slice(0, 7).map(async (asset, index) => {
         // Try to get real-time price data to inform distribution
         const realTimeData = bitmartService.getAssetData(asset);
         const analyticsData = analyticsService.getLatestAnalytics(asset);
-        
+
         let weight = 0;
         let sentiment = 'neutral';
-        
+
         // Calculate weight based on real data if available
         if (realTimeData?.price) {
           weight = (realTimeData.price / 1000) * (Math.abs(realTimeData.change24h) + 1);
@@ -50,7 +50,7 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
                      Math.random() < 0.4 ? 'bearish' :
                      'neutral';
         }
-        
+
         return {
           name: asset.replace('_', '/'),
           value: Math.max(5, Math.min(50, weight)),
@@ -58,7 +58,7 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
           sentiment
         };
       }));
-      
+
       // Add "Other" category if needed
       if (assetList.length > 7) {
         distributionData.push({
@@ -68,11 +68,11 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
           sentiment: 'neutral'
         });
       }
-      
+
       setDistributionData(distributionData);
     } catch (error) {
       console.error('Error updating asset distribution:', error);
-      
+
       // Fallback to synthetic data
       const fallbackData = [
         { name: "BTC/USDT", value: 35, color: "#2dd4bf", sentiment: 'bullish' },
@@ -91,13 +91,10 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
 
   useEffect(() => {
     updateAssetDistribution();
-    
-    // Set up interval for periodic updates
-    const interval = setInterval(() => {
-      updateAssetDistribution();
-    }, 60000); // Update every minute
-    
-    return () => clearInterval(interval);
+
+    // No periodic refresh - data is updated in real-time via websockets
+
+    return () => {};
   }, [assets]);
 
   const handleRefresh = () => {
@@ -134,7 +131,7 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
           <PieChartIcon className="w-5 h-5 text-neon-yellow" />
           <h2 className="text-xl font-semibold gradient-text">Asset Distribution</h2>
         </div>
-        <button 
+        <button
           onClick={handleRefresh}
           disabled={refreshing}
           className="p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
@@ -146,7 +143,7 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
           )}
         </button>
       </div>
-      
+
       {loading && distributionData.length === 0 ? (
         <div className="h-[180px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-neon-turquoise animate-spin" />
@@ -165,8 +162,8 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
                 label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
               >
                 {distributionData.map((entry, index) => (
-                  <Cell 
-                    key={`cell-${index}`} 
+                  <Cell
+                    key={`cell-${index}`}
                     fill={entry.color}
                     strokeWidth={0}
                   />

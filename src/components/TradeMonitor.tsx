@@ -420,11 +420,35 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     // Add the event listener
     document.addEventListener('strategy:remove', handleStrategyRemove);
 
-    // Set up subscription to trade updates
+    // Set up subscription to trade updates using WebSockets instead of fetching all data
     const tradeSubscription = supabase
       .channel('trades')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'trades' }, () => {
-        fetchTradeData();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trades' }, (payload) => {
+        // Handle trade updates in real-time without fetching all data
+        if (payload.eventType === 'INSERT') {
+          // Add new trade to the list
+          const newTrade = payload.new as Trade;
+          setTrades(prevTrades => {
+            // Add the new trade at the beginning of the array
+            const updatedTrades = [newTrade, ...prevTrades];
+            // Limit to 10 trades per strategy if needed
+            return updatedTrades;
+          });
+        } else if (payload.eventType === 'UPDATE') {
+          // Update existing trade
+          const updatedTrade = payload.new as Trade;
+          setTrades(prevTrades => {
+            return prevTrades.map(trade =>
+              trade.id === updatedTrade.id ? updatedTrade : trade
+            );
+          });
+        } else if (payload.eventType === 'DELETE') {
+          // Remove deleted trade
+          const deletedTradeId = payload.old.id;
+          setTrades(prevTrades => {
+            return prevTrades.filter(trade => trade.id !== deletedTradeId);
+          });
+        }
       })
       .subscribe();
 
@@ -569,7 +593,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   // Helper function to get strategy name
   const getStrategyName = (strategyId: string, strategies: Strategy[]): string => {
     const strategy = strategies.find(s => s.id === strategyId);
-    return strategy ? (strategy.name || strategy.title || 'Unknown Strategy') : 'Unknown Strategy';
+    return strategy ? ((strategy as any).name || (strategy as any).title || 'Unknown Strategy') : 'Unknown Strategy';
   };
 
   // Fetch trade data from exchange or TestNet
@@ -1273,8 +1297,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                         <p className="text-gray-500 text-sm mt-1">Activate a strategy to start trading</p>
                       </div>
                     ) : (
-                      <div className="space-y-2 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
-                        {liveTrades.map((trade, index) => (
+                      <div className="space-y-2 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                        {/* Limit to 10 most recent trades */}
+                        {liveTrades.slice(0, 10).map((trade, index) => (
                           <div
                             key={`${trade.id}-${index}`}
                             className={`p-3 rounded-lg border ${index === 0 ? 'border-blue-500/50 bg-blue-500/10 animate-pulse' : 'border-gunmetal-700 bg-gunmetal-800/50'}`}
@@ -1292,10 +1317,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                             </div>
                             <div className="flex justify-between items-center text-sm">
                               <span className="text-gray-300">
-                                {trade.amount.toFixed(4)} @ ${trade.price.toFixed(2)}
+                                {parseFloat(trade.amount?.toString() || '0').toFixed(4)} @ ${parseFloat(trade.price?.toString() || '0').toFixed(2)}
                               </span>
                               <span className="text-gray-400">
-                                ${(trade.amount * trade.price).toFixed(2)}
+                                ${(parseFloat(trade.amount?.toString() || '0') * parseFloat(trade.price?.toString() || '0')).toFixed(2)}
                               </span>
                             </div>
                             <div className="flex justify-between items-center mt-1">
@@ -1303,7 +1328,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                                 {trade.status.toUpperCase()}
                               </span>
                               <span className="text-xs text-gray-500">
-                                {getStrategyName(trade.strategyId, strategies)}
+                                {getStrategyName(trade.strategyId || '', strategies)}
                               </span>
                             </div>
                           </div>

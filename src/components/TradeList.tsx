@@ -1,20 +1,59 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowUpRight, ArrowDownRight } from 'lucide-react';
 import type { Trade } from '../lib/types';
+import { Pagination } from './ui/Pagination';
 
 interface TradeListProps {
   trades: Trade[];
   currentPage?: number;
   onPageChange?: (page: number) => void;
+  itemsPerPage?: number;
+  onItemsPerPageChange?: (itemsPerPage: number) => void;
 }
 
-const ITEMS_PER_PAGE = 10;
+export const TradeList: React.FC<TradeListProps> = ({
+  trades,
+  currentPage: externalCurrentPage,
+  onPageChange: externalOnPageChange,
+  itemsPerPage: externalItemsPerPage,
+  onItemsPerPageChange: externalOnItemsPerPageChange
+}) => {
+  // Use internal state if no external control is provided
+  const [internalCurrentPage, setInternalCurrentPage] = useState(1);
+  const [internalItemsPerPage, setInternalItemsPerPage] = useState(10);
 
-export const TradeList: React.FC<TradeListProps> = ({ trades, currentPage = 0, onPageChange }) => {
-  const totalPages = Math.ceil(trades.length / ITEMS_PER_PAGE);
-  const startIndex = currentPage * ITEMS_PER_PAGE;
-  const displayedTrades = trades.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  // Use either external or internal state
+  const currentPage = externalCurrentPage !== undefined ? externalCurrentPage : internalCurrentPage;
+  const itemsPerPage = externalItemsPerPage !== undefined ? externalItemsPerPage : internalItemsPerPage;
+
+  // Handle page changes
+  const handlePageChange = (page: number) => {
+    if (externalOnPageChange) {
+      externalOnPageChange(page);
+    } else {
+      setInternalCurrentPage(page);
+    }
+  };
+
+  // Handle items per page changes
+  const handleItemsPerPageChange = (newItemsPerPage: number) => {
+    if (externalOnItemsPerPageChange) {
+      externalOnItemsPerPageChange(newItemsPerPage);
+    } else {
+      setInternalItemsPerPage(newItemsPerPage);
+      // Reset to first page when changing items per page
+      if (externalOnPageChange) {
+        externalOnPageChange(1);
+      } else {
+        setInternalCurrentPage(1);
+      }
+    }
+  };
+
+  const totalPages = Math.ceil(trades.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const displayedTrades = trades.slice(startIndex, startIndex + itemsPerPage);
 
   return (
     <div className="space-y-4">
@@ -83,29 +122,18 @@ export const TradeList: React.FC<TradeListProps> = ({ trades, currentPage = 0, o
         </table>
       </div>
 
-      {totalPages > 1 && onPageChange && (
-        <div className="flex justify-between items-center pt-4">
-          <button
-            onClick={() => onPageChange(currentPage - 1)}
-            disabled={currentPage === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800 rounded-lg text-white disabled:opacity-50"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Previous
-          </button>
-          <span className="text-gray-400">
-            Page {currentPage + 1} of {totalPages}
-          </span>
-          <button
-            onClick={() => onPageChange(currentPage + 1)}
-            disabled={currentPage === totalPages - 1}
-            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800 rounded-lg text-white disabled:opacity-50"
-          >
-            Next
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+      <Pagination
+        currentPage={currentPage + 1} // Convert from 0-indexed to 1-indexed
+        totalPages={totalPages}
+        onPageChange={(page) => handlePageChange(page - 1)} // Convert from 1-indexed to 0-indexed
+        itemsPerPage={itemsPerPage}
+        totalItems={trades.length}
+        showPageNumbers={true}
+        showItemsPerPage={true}
+        itemsPerPageOptions={[10, 20, 50]}
+        onItemsPerPageChange={handleItemsPerPageChange}
+        className="mt-4"
+      />
     </div>
   );
 };
