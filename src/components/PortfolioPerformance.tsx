@@ -350,12 +350,12 @@ export function PortfolioPerformance() {
           <h2 className="text-xl font-bold gradient-text">Portfolio Performance</h2>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex gap-1 bg-gunmetal-800 rounded-lg p-1">
+          <div className="flex gap-0.5 bg-gunmetal-800 rounded-lg p-0.5">
             {(['1h', '1d', '1w', '1m'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
-                className={`px-2 py-1 rounded text-xs sm:text-sm ${
+                className={`px-1.5 py-1 rounded text-xs ${
                   timeframe === tf
                     ? 'bg-neon-raspberry text-white'
                     : 'text-gray-400 hover:text-white'

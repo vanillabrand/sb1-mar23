@@ -279,12 +279,12 @@ export function MarketTrendsPanel({ className = "" }: MarketTrendsPanelProps) {
           <h2 className="text-xl font-bold gradient-text">Market Trends</h2>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex gap-2 bg-gunmetal-800 rounded-lg p-1">
+          <div className="flex gap-0.5 bg-gunmetal-800 rounded-lg p-0.5">
             {(['1h', '24h', '7d'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setSelectedTimeframe(tf)}
-                className={`px-3 py-1 rounded text-sm ${
+                className={`px-1.5 py-1 rounded text-xs ${
                   selectedTimeframe === tf
                     ? 'bg-neon-raspberry text-white'
                     : 'text-gray-400 hover:text-white'
@@ -297,12 +297,12 @@ export function MarketTrendsPanel({ className = "" }: MarketTrendsPanelProps) {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-2 rounded-lg text-gray-400 hover:text-neon-turquoise transition-colors disabled:opacity-50"
+            className="p-1.5 sm:p-2 rounded-lg text-gray-400 hover:text-neon-turquoise transition-colors disabled:opacity-50"
           >
             {refreshing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
             ) : (
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             )}
           </button>
         </div>

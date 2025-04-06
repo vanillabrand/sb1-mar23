@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { CollapsibleDescription } from './CollapsibleDescription';
 import { Activity, TrendingUp, BarChart3, Clock } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -283,6 +284,15 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
 
   return (
     <div className="grid gap-4">
+      <div className="mb-4">
+        <div className="flex items-center gap-2">
+          <Activity className="w-6 h-6 text-neon-yellow" />
+          <h2 className="gradient-text">Active Strategies</h2>
+        </div>
+        <CollapsibleDescription id="strategy-status-description" className="ml-8 mt-2 mb-4">
+          <p className="description-text">Your currently running trading strategies with real-time performance metrics.</p>
+        </CollapsibleDescription>
+      </div>
       {loading ? (
         <div className="p-4 text-center">
           <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise mx-auto"></div>

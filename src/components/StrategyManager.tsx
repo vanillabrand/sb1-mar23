@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import { CollapsibleDescription } from './CollapsibleDescription';
 import { motion, AnimatePresence } from 'framer-motion';
 import { SwipeAnimation } from './ui/SwipeAnimation';
 import { Brain, Plus, Search, Filter, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
@@ -1017,7 +1018,9 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           {/* Header */}
           <div className="mb-8">
             <h1 className="gradient-text mb-2">Strategy Manager</h1>
-            <p className="description-text mb-4">Create, manage, and monitor your trading strategies. Activate strategies to generate real-time trades based on market conditions.</p>
+            <CollapsibleDescription id="strategy-manager-description" className="mb-4">
+              <p className="description-text">Create, manage, and monitor your trading strategies. Activate strategies to generate real-time trades based on market conditions.</p>
+            </CollapsibleDescription>
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowCreateModal(true)}
@@ -1155,7 +1158,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             {/* Template Strategies Section */}
             <div className="w-full panel-metallic rounded-xl p-6 bg-black">
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold text-gray-200">Template Strategies</h2>
+                <h2 className="text-xl font-semibold gradient-text">Template Strategies</h2>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
                 </div>

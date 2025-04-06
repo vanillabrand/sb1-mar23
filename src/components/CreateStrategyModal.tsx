@@ -180,7 +180,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
                     {formData.selected_pairs.map((pair) => (
                       <div
                         key={pair}
-                        className="flex items-center gap-1.5 bg-gunmetal-800 text-gray-200 px-3 py-1.5 rounded-full text-sm min-w-[130px] mobile-truncate"
+                        className="flex items-center gap-1.5 bg-gunmetal-800 text-gray-200 px-3 py-1.5 rounded-full text-sm min-w-[130px] md:min-w-[130px] mobile-truncate"
                       >
                         <span>{pair.replace('_', '/')}</span>
                         <button

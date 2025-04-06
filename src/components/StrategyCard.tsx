@@ -918,7 +918,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 </span>
                 {/* Trading pairs as lozenges with price indicators */}
                 {(strategy.selected_pairs || []).slice(0, 3).map((pair, index) => (
-                  <div key={index} className="flex items-center text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap mobile-truncate min-w-[110px] justify-between">
+                  <div key={index} className="flex items-center text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap mobile-truncate min-w-[110px] md:min-w-[110px] justify-between">
                     <span className="mr-2">{pair}</span>
                     <div className="border-l border-gunmetal-700 pl-2">
                       <AssetPriceIndicator symbol={pair} compact={true} />
@@ -1097,7 +1097,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   {(strategy as any).selected_pairs?.map((pair: string) => (
                     <div
                       key={pair}
-                      className="flex items-center px-3 py-1 bg-gunmetal-800 rounded-md text-xs border border-gunmetal-700/50 min-w-[130px] mobile-truncate justify-between"
+                      className="flex items-center px-3 py-1 bg-gunmetal-800 rounded-md text-xs border border-gunmetal-700/50 min-w-[130px] md:min-w-[130px] mobile-truncate justify-between"
                     >
                       <span className="text-neon-turquoise mr-2">{pair}</span>
                       <div className="border-l border-gunmetal-700 pl-2">

@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  AlertTriangle, 
-  ArrowUpRight, 
+import {
+  AlertTriangle,
+  ArrowUpRight,
   ArrowDownRight,
   Shield,
   TrendingDown,
@@ -75,7 +75,7 @@ const RiskManager = () => {
 
       // Get active strategies
       const activeStrategies = strategies.filter(s => s.status === 'active');
-      
+
       if (activeStrategies.length === 0) {
         setRiskMetrics(defaultRiskMetrics);
         setDrawdownHistory([]);
@@ -122,7 +122,7 @@ const RiskManager = () => {
 
   useEffect(() => {
     loadRiskData();
-    
+
     // More frequent updates for critical metrics
     const fastInterval = setInterval(() => {
       calculateAssetVolatility(strategies.filter(s => s.status === 'active'))
@@ -131,7 +131,7 @@ const RiskManager = () => {
 
     // Regular updates for complete risk assessment
     const regularInterval = setInterval(loadRiskData, 60000); // Every minute
-    
+
     return () => {
       clearInterval(fastInterval);
       clearInterval(regularInterval);
@@ -152,7 +152,7 @@ const RiskManager = () => {
         const activeTrades = trades.filter(t => t.status === 'open');
 
         // Calculate exposure
-        const exposure = activeTrades.reduce((sum, trade) => 
+        const exposure = activeTrades.reduce((sum, trade) =>
           sum + (trade.entry_price * trade.amount), 0);
         totalExposure += exposure;
 
@@ -218,13 +218,13 @@ const RiskManager = () => {
     try {
       const now = new Date();
       const data = [];
-      
+
       // Determine timeframe in days
       let days = 30; // Default 1M
       if (timeframe === '1W') days = 7;
       else if (timeframe === '3M') days = 90;
       else if (timeframe === '6M') days = 180;
-      
+
       // Get historical equity data for each strategy
       const equityData = await Promise.all(
         strategies.map(s => analyticsService.getEquityCurve(s.id))
@@ -234,17 +234,17 @@ const RiskManager = () => {
       for (let i = days; i >= 0; i--) {
         const date = new Date(now);
         date.setDate(date.getDate() - i);
-        
+
         let totalDrawdown = 0;
         let strategyCount = 0;
 
         equityData.forEach(equity => {
           if (equity.length > 0) {
             const peak = Math.max(...equity.map(e => e.value));
-            const current = equity.find(e => 
+            const current = equity.find(e =>
               new Date(e.date).toDateString() === date.toDateString()
             )?.value || peak;
-            
+
             const drawdown = ((peak - current) / peak) * 100;
             totalDrawdown += drawdown;
             strategyCount++;
@@ -280,7 +280,7 @@ const RiskManager = () => {
             const ticker = await bitmartService.getTicker(asset);
             const price = parseFloat(ticker.last_price);
             const priceChange = parseFloat(ticker.change24h) || 0;
-            
+
             // Calculate volatility score (1-10)
             const volatilityScore = Math.min(10, Math.abs(priceChange));
 
@@ -357,7 +357,7 @@ const RiskManager = () => {
 
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold gradient-text">Risk Manager</h1>
-        
+
         <div className="flex items-center gap-3">
           <button
             onClick={handleRefresh}
@@ -378,7 +378,7 @@ const RiskManager = () => {
       )}
 
       {/* DEFCON Monitor */}
-      <DefconMonitor 
+      <DefconMonitor
         volatility={riskMetrics.volatility * 10}
         marketConditions={marketConditions}
         className="mb-6"
@@ -433,41 +433,41 @@ const RiskManager = () => {
         <div className="bg-gunmetal-800/20 rounded-xl p-5">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-semibold text-gray-100">Portfolio Drawdown</h2>
-            <div className="flex gap-2">
-              <button 
+            <div className="flex gap-1">
+              <button
                 onClick={() => {
                   setTimeframe('1W');
                   loadRiskData();
                 }}
-                className={`px-3 py-1 text-sm rounded-lg transition-colors ${
+                className={`px-2 py-1 text-xs rounded-lg transition-colors ${
                   timeframe === '1W'
-                    ? 'bg-neon-pink/20 text-neon-pink' 
+                    ? 'bg-neon-pink/20 text-neon-pink'
                     : 'text-gray-400 hover:text-neon-pink'
                 }`}
               >
                 1W
               </button>
-              <button 
+              <button
                 onClick={() => {
                   setTimeframe('1M');
                   loadRiskData();
                 }}
-                className={`px-3 py-1 text-sm rounded-lg transition-colors ${
+                className={`px-2 py-1 text-xs rounded-lg transition-colors ${
                   timeframe === '1M'
-                    ? 'bg-neon-pink/20 text-neon-pink' 
+                    ? 'bg-neon-pink/20 text-neon-pink'
                     : 'text-gray-400 hover:text-neon-pink'
                 }`}
               >
                 1M
               </button>
-              <button 
+              <button
                 onClick={() => {
                   setTimeframe('3M');
                   loadRiskData();
                 }}
-                className={`px-3 py-1 text-sm rounded-lg transition-colors ${
+                className={`px-2 py-1 text-xs rounded-lg transition-colors ${
                   timeframe === '3M'
-                    ? 'bg-neon-pink/20 text-neon-pink' 
+                    ? 'bg-neon-pink/20 text-neon-pink'
                     : 'text-gray-400 hover:text-neon-pink'
                 }`}
               >
@@ -475,7 +475,7 @@ const RiskManager = () => {
               </button>
             </div>
           </div>
-          
+
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="w-8 h-8 text-neon-turquoise animate-spin" />
@@ -491,12 +491,12 @@ const RiskManager = () => {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(55, 65, 81, 0.3)" />
-                  <XAxis 
-                    dataKey="date" 
+                  <XAxis
+                    dataKey="date"
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF' }}
                   />
-                  <YAxis 
+                  <YAxis
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF' }}
                     tickFormatter={(value) => `${value}%`}
@@ -519,7 +519,7 @@ const RiskManager = () => {
         {/* Asset Volatility Chart */}
         <div className="bg-gunmetal-800/20 rounded-xl p-5">
           <h2 className="text-xl font-semibold text-gray-100 mb-6">Asset Volatility</h2>
-          
+
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <Loader2 className="w-8 h-8 text-neon-turquoise animate-spin" />
@@ -533,21 +533,21 @@ const RiskManager = () => {
                   margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(55, 65, 81, 0.3)" />
-                  <XAxis 
+                  <XAxis
                     type="number"
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF' }}
                     domain={[0, 10]}
                   />
-                  <YAxis 
-                    dataKey="asset" 
+                  <YAxis
+                    dataKey="asset"
                     type="category"
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF' }}
                   />
                   <Tooltip content={<CustomBarTooltip />} />
-                  <Bar 
-                    dataKey="volatility" 
+                  <Bar
+                    dataKey="volatility"
                     fill="#facc15"
                     radius={[0, 4, 4, 0]}
                   />

@@ -1109,7 +1109,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             <button
               onClick={refresh}
               disabled={refreshing}
-              className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors flex items-center gap-2 btn-text-small"
+              className="px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-neon-raspberry/90 transition-colors flex items-center gap-2 btn-text-small"
             >
               {refreshing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1156,7 +1156,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
                 <div className="flex gap-2 w-full sm:w-auto">
                   <button
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'all' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'all' ? 'bg-neon-raspberry text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('all')}
                   >
                     All
@@ -1168,7 +1168,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                     Active
                   </button>
                   <button
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'inactive' ? 'bg-blue-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'inactive' ? 'bg-neon-raspberry text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('inactive')}
                   >
                     Inactive

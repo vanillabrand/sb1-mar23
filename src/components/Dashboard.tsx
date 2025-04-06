@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Clock, Calendar, Activity, TrendingUp, BarChart3 } from 'lucide-react';
+import { CollapsibleDescription } from './CollapsibleDescription';
 import { useNavigate } from 'react-router-dom';
 import {
   analyticsService,
@@ -272,7 +273,9 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
               })}
             </h1>
           </div>
-          <p className="description-text ml-8 mt-2">Your trading command center with real-time strategy performance, market insights, and system status.</p>
+          <CollapsibleDescription id="dashboard-description" className="ml-8 mt-2 mb-6">
+            <p className="description-text">Your trading command center with real-time strategy performance, market insights, and system status.</p>
+          </CollapsibleDescription>
         </div>
         <NetworkStatus />
       </div>
@@ -281,10 +284,11 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         {/* DEFCON Monitor - Only shown at the top on mobile */}
         {screenSize === 'sm' && (
           <div className="col-span-12 mb-4">
-            <AnimatedPanel index={6} className="panel-metallic rounded-xl p-4 shadow-lg">
+            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 shadow-lg">
               <DefconMonitor
                 strategies={activeStrategies}
                 className="mb-2 sm:mb-3"
+                volatility={volatility}
               />
             </AnimatedPanel>
           </div>
@@ -295,19 +299,19 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             <StrategyStatus strategies={activeStrategies} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={1} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
+          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <AIMarketInsight assets={new Set(allAssets)} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={2} className="w-full">
+          <AnimatedPanel index={0} className="w-full">
             <PortfolioPerformance />
           </AnimatedPanel>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-            <AnimatedPanel index={3} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
+            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
               <RiskExposure assets={new Set(allAssets)} />
             </AnimatedPanel>
-            <AnimatedPanel index={4} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
+            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
               <div className="flex flex-col h-full">
                 <EmergencyStopButton />
               </div>
@@ -316,7 +320,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         </div>
 
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-5'} space-y-4`}>
-          <AnimatedPanel index={5} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
+          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-neon-turquoise" />
@@ -338,19 +342,20 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
 
           {/* DEFCON Monitor - Only shown in sidebar on non-mobile */}
           {screenSize !== 'sm' && (
-            <AnimatedPanel index={6} className="panel-metallic rounded-xl p-4 sm:p-5 shadow-lg">
+            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-5 shadow-lg">
               <DefconMonitor
                 strategies={activeStrategies}
                 className="mb-2 sm:mb-3"
+                volatility={volatility}
               />
             </AnimatedPanel>
           )}
 
-          <AnimatedPanel index={7} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
+          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <NewsWidget assets={newsAssets} limit={screenSize === 'sm' ? 2 : 4} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={8} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
+          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
             <AssetDistribution assets={new Set(allAssets)} />
           </AnimatedPanel>
         </div>

@@ -103,12 +103,12 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
           <button
             onClick={handleRefresh}
             disabled={refreshing}
-            className="p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
+            className="p-1.5 sm:p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
           >
             {refreshing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
             ) : (
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
             )}
           </button>
         </div>

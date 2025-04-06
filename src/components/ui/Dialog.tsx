@@ -12,12 +12,12 @@ export function Dialog({ open, onOpenChange, children }: DialogProps) {
 
   return (
     <div className="fixed inset-0 z-50">
-      <div 
+      <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
         onClick={() => onOpenChange(false)}
       />
       <div className="fixed inset-0 flex items-center justify-center p-4">
-        <div className="relative bg-gunmetal-900 rounded-xl max-w-md w-full">
+        <div className="relative modal-dark-metal max-w-md w-full">
           <button
             onClick={() => onOpenChange(false)}
             className="absolute right-4 top-4 text-gray-400 hover:text-gray-200"

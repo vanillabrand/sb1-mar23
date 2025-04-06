@@ -23,6 +23,12 @@ import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 import { websocketService } from '../lib/websocket-service';
 
+interface SidebarProps {
+  isOpen?: boolean;
+  onToggle?: () => void;
+  hasBottomNav?: boolean;
+}
+
 interface NavItemProps {
   to?: string;
   icon: React.ReactNode;
@@ -35,6 +41,7 @@ interface NavItemProps {
   onNavClick?: () => void;
 }
 
+// Regular NavItem for desktop
 const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className, onMenuClick, index, isMobile, onNavClick }) => {
   const navRef = useRef<HTMLAnchorElement | HTMLButtonElement>(null);
   const baseClass = `nav-item flex items-center transition-all duration-200 ${isMobile ? 'py-3 border-b border-gray-800' : ''} ${className || ''}`;
@@ -124,13 +131,13 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className, 
   );
 };
 
-export const Sidebar: React.FC = () => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav }) => {
   const navigate = useNavigate();
   const [isConnected, setIsConnected] = useState(false);
   const [isExchangeDetailsExpanded, setIsExchangeDetailsExpanded] = useState(false);
   const [rainbowElements, setRainbowElements] = useState<HTMLElement[]>([]);
   const connectionContainerRef = useRef<HTMLDivElement>(null);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(isOpen || false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isPanelHighlighted, setIsPanelHighlighted] = useState(true);
 
@@ -263,6 +270,13 @@ export const Sidebar: React.FC = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // Sync with isOpen prop
+  useEffect(() => {
+    if (isOpen !== undefined) {
+      setIsMobileMenuOpen(isOpen);
+    }
+  }, [isOpen]);
+
   // Panel highlight effect on page load
   useEffect(() => {
     // Remove highlight after 2 seconds (same duration as the animation)
@@ -324,7 +338,10 @@ export const Sidebar: React.FC = () => {
 
   // Toggle mobile menu
   const toggleMobileMenu = () => {
-    setIsMobileMenuOpen(prev => !prev);
+    if (onToggle) {
+      onToggle();
+    }
+    setIsMobileMenuOpen((prev: boolean) => !prev);
   };
 
   // Contract menu when nav item is clicked
@@ -335,26 +352,26 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <div className={`${isMobile ? 'w-full h-auto shadow-md z-50' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'} ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
+    <div className={`${isMobile ? 'w-full shadow-md z-50 mobile-top-nav' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'} ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
       {/* Logo and Header - Always visible and fully interactive */}
       <div
-        className={`${isMobile ? 'w-full px-4 py-2' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-between' : ''} ${isMobile ? 'cursor-pointer' : ''}`}
+        className={`${isMobile ? 'w-full px-4 py-1' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-center' : ''} ${isMobile ? 'cursor-pointer' : ''}`}
         onClick={isMobile ? toggleMobileMenu : undefined}
       >
-        <div className="flex items-center">
+        <div className={`flex items-center ${isMobile ? 'scale-75 mobile-logo' : ''}`}>
           <div className="rounded-xl bg-gradient-to-br from-green-400 via-yellow-400 to-pink-500 p-0.5">
             <div className="bg-black rounded-xl p-2">
-              <Zap className="w-6 h-6 text-yellow-400" />
+              <Zap className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-yellow-400`} />
             </div>
           </div>
           <div className="ml-3">
-            <div className="text-2xl font-bold bg-gradient-to-r from-pink-500 to-pink-400 text-transparent bg-clip-text">GIGAntic</div>
-            <div className="text-gray-400 text-sm">AI Trading Platform</div>
+            <div className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold bg-gradient-to-r from-pink-500 to-pink-400 text-transparent bg-clip-text`}>GIGAntic</div>
+            <div className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>AI Trading Platform</div>
           </div>
         </div>
 
-        {/* Mobile Menu Toggle Button */}
-        {isMobile && (
+        {/* Mobile Menu Toggle Button - Only shown when bottom nav is not active */}
+        {isMobile && !hasBottomNav && (
           <button
             onClick={toggleMobileMenu}
             className="text-gray-400 hover:text-gray-200 focus:outline-none"

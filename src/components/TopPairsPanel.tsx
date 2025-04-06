@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Coins, 
-  RefreshCw, 
-  Loader2, 
-  ArrowUpRight, 
+import {
+  Coins,
+  RefreshCw,
+  Loader2,
+  ArrowUpRight,
   ArrowDownRight,
   ChevronDown,
   Clock,
@@ -39,18 +39,18 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
 
   useEffect(() => {
     updateAssetData();
-    
+
     // Set up WebSocket subscription
     const pairs = Array.from(assets).length > 0 ? Array.from(assets) : ['BTC_USDT', 'ETH_USDT'];
     pairs.forEach(pair => {
       bitmartService.subscribeToSymbol(pair);
     });
-    
+
     // Set up interval for periodic updates
     const interval = setInterval(() => {
       updateAssetData();
     }, 5000);
-    
+
     return () => {
       clearInterval(interval);
       pairs.forEach(pair => {
@@ -65,13 +65,13 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
       if (pairs.length === 0) {
         pairs = ['BTC_USDT', 'ETH_USDT'];
       }
-      
+
       const data = await Promise.all(pairs.map(async (pair) => {
         const ticker = await bitmartService.getTicker(pair);
         const price = parseFloat(ticker.last_price);
         const open24h = parseFloat(ticker.open_24h || '0');
         const change24h = open24h ? ((price - open24h) / open24h) * 100 : 0;
-        
+
         // Get historical data based on timeframe
         const now = Date.now();
         const timeframeMs = {
@@ -95,11 +95,11 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
           priceHistory
         };
       }));
-      
+
       setAssetData(data);
     } catch (error) {
       console.error('Error updating asset data:', error);
-      
+
       // Generate synthetic data if fetch fails
       const syntheticData = [
         'BTC/USDT',
@@ -166,12 +166,12 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
         </div>
         <div className="flex items-center gap-2">
           {/* Timeframe Selector */}
-          <div className="flex items-center gap-1 bg-gunmetal-800/50 rounded-lg p-1">
+          <div className="flex items-center gap-0.5 bg-gunmetal-800/50 rounded-lg p-0.5">
             {(['1m', '5m', '10m', '1h'] as TimeFrame[]).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
-                className={`px-2 py-1 rounded text-xs font-medium ${
+                className={`px-1.5 py-1 rounded text-xs ${
                   timeframe === tf
                     ? 'bg-neon-raspberry text-white'
                     : 'text-gray-400 hover:text-white'
@@ -181,8 +181,8 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
               </button>
             ))}
           </div>
-          
-          <button 
+
+          <button
             onClick={handleRefresh}
             disabled={refreshing}
             className="p-2 rounded-lg text-gray-400 hover:text-neon-turquoise transition-colors disabled:opacity-50"
@@ -198,7 +198,7 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
 
       <div className="space-y-4">
         {displayedAssets.map((asset) => (
-          <div 
+          <div
             key={asset.symbol}
             className="bg-gunmetal-900/30 rounded-lg p-4"
           >
@@ -227,19 +227,19 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
                 <AreaChart data={asset.priceHistory}>
                   <defs>
                     <linearGradient id={`gradient-${asset.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop 
-                        offset="5%" 
-                        stopColor={asset.change24h >= 0 ? "#2dd4bf" : "#ec4899"} 
+                      <stop
+                        offset="5%"
+                        stopColor={asset.change24h >= 0 ? "#2dd4bf" : "#ec4899"}
                         stopOpacity={0.3}
                       />
-                      <stop 
-                        offset="95%" 
-                        stopColor={asset.change24h >= 0 ? "#2dd4bf" : "#ec4899"} 
+                      <stop
+                        offset="95%"
+                        stopColor={asset.change24h >= 0 ? "#2dd4bf" : "#ec4899"}
                         stopOpacity={0}
                       />
                     </linearGradient>
                   </defs>
-                  <XAxis 
+                  <XAxis
                     dataKey="timestamp"
                     type="number"
                     domain={['dataMin', 'dataMax']}
@@ -247,7 +247,7 @@ export function TopPairsPanel({ assets, className = "" }: TopPairsPanelProps) {
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF', fontSize: 10 }}
                   />
-                  <YAxis 
+                  <YAxis
                     domain={['auto', 'auto']}
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF', fontSize: 10 }}

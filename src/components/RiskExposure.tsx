@@ -21,15 +21,15 @@ export function RiskExposure({ assets, className = "" }: RiskExposureProps) {
       if (assetList.length === 0) {
         assetList.push('BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT', 'XRP_USDT');
       }
-      
+
       const exposureData = await Promise.all(assetList.slice(0, 6).map(async (asset) => {
         const realTimeData = bitmartService.getAssetData(asset);
         const analyticsData = analyticsService.getLatestAnalytics(asset);
-        
+
         let value = 0;
         let risk = 0;
         let sentiment = 'neutral';
-        
+
         // Use real data if available
         if (analyticsData?.metrics?.exposure) {
           value = analyticsData.metrics.exposure;
@@ -52,7 +52,7 @@ export function RiskExposure({ assets, className = "" }: RiskExposureProps) {
                      Math.random() < 0.4 ? 'bearish' :
                      'neutral';
         }
-        
+
         return {
           asset: asset.replace('_', '/'),
           value: Math.round(value),
@@ -60,14 +60,14 @@ export function RiskExposure({ assets, className = "" }: RiskExposureProps) {
           sentiment
         };
       }));
-      
+
       // Sort by exposure value in descending order
       exposureData.sort((a, b) => b.value - a.value);
-      
+
       setRiskExposureData(exposureData);
     } catch (error) {
       console.error('Error updating risk exposure data:', error);
-      
+
       // Fallback to synthetic data
       const fallbackData = [
         { asset: 'BTC/USDT', value: 8500, risk: 7.2, sentiment: 'bullish' },
@@ -85,12 +85,12 @@ export function RiskExposure({ assets, className = "" }: RiskExposureProps) {
 
   useEffect(() => {
     updateRiskExposure();
-    
+
     // Set up interval for periodic updates
     const interval = setInterval(() => {
       updateRiskExposure();
     }, 60000); // Update every minute
-    
+
     return () => clearInterval(interval);
   }, [assets]);
 
@@ -139,19 +139,19 @@ export function RiskExposure({ assets, className = "" }: RiskExposureProps) {
           <AlertTriangle className="w-5 h-5 text-neon-orange" />
           <h2 className="text-xl font-semibold gradient-text">Risk Exposure</h2>
         </div>
-        <button 
+        <button
           onClick={handleRefresh}
           disabled={refreshing}
-          className="p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
+          className="p-1.5 sm:p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
         >
           {refreshing ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
+            <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
           ) : (
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
           )}
         </button>
       </div>
-      
+
       {loading && riskExposureData.length === 0 ? (
         <div className="h-[220px] flex items-center justify-center">
           <Loader2 className="w-8 h-8 text-neon-turquoise animate-spin" />
@@ -159,30 +159,30 @@ export function RiskExposure({ assets, className = "" }: RiskExposureProps) {
       ) : (
         <div className="h-[220px]">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart 
-              data={riskExposureData} 
+            <BarChart
+              data={riskExposureData}
               layout="vertical"
               margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
             >
-              <XAxis 
-                type="number" 
+              <XAxis
+                type="number"
                 tick={{ fill: chartStyles.textColor, fontSize: 12 }}
                 axisLine={false}
                 tickLine={false}
                 tickFormatter={(value) => `$${value.toLocaleString()}`}
               />
-              <YAxis 
-                dataKey="asset" 
-                type="category" 
+              <YAxis
+                dataKey="asset"
+                type="category"
                 tick={{ fill: chartStyles.textColor, fontSize: 12 }}
                 axisLine={false}
                 tickLine={false}
               />
               <CartesianGrid strokeDasharray="3 3" stroke={chartStyles.gridColor} horizontal={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Bar 
-                dataKey="value" 
-                fill={chartStyles.barColor} 
+              <Bar
+                dataKey="value"
+                fill={chartStyles.barColor}
                 radius={[0, 4, 4, 0]}
                 barSize={20}
               />

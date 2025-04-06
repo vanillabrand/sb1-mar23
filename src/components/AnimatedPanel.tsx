@@ -23,13 +23,14 @@ export function AnimatedPanel({
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
+            // Use a consistent animation for all panels
             controls.start({
               opacity: 1,
               y: 0,
               transition: {
-                duration: 0.3, // Animation duration of 0.3 seconds
-                delay: delay + index * 0.2, // Stagger by 0.2 seconds per panel
-                ease: [0.4, 0, 0.2, 1] // Smooth easing
+                duration: 0.3, // Consistent duration
+                delay: 0, // No delay based on index
+                ease: "easeOut" // Consistent easing
               }
             });
           }
@@ -43,12 +44,12 @@ export function AnimatedPanel({
     }
 
     return () => observer.disconnect();
-  }, [controls, index, delay]);
+  }, [controls]);
 
   return (
     <motion.div
       ref={panelRef}
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 10 }} // Reduced initial offset for more subtle animation
       animate={controls}
       className={className}
     >

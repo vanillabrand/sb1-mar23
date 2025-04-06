@@ -31,9 +31,9 @@ export function PanelWrapper({
               opacity: 1,
               y: 0,
               transition: {
-                duration: 0.5,
-                delay: delay + index * 0.1,
-                ease: [0.4, 0, 0.2, 1]
+                duration: 0,
+                delay: 0,
+                ease: [0, 0, 1, 1]
               }
             });
           }

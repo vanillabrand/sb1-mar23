@@ -1,15 +1,111 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { AlertTriangle, Shield, ShieldCheck, AlertCircle } from 'lucide-react';
 import type { Strategy } from '../lib/types';
+import { marketService } from '../lib/market-service';
+import { exchangeService } from '../lib/exchange-service';
+import { logService } from '../lib/log-service';
+
+interface MarketCondition {
+  volatility: number;  // 0-1 scale
+  trend: 'bullish' | 'bearish' | 'neutral';
+  volume: 'high' | 'normal' | 'low';
+  sentiment: 'positive' | 'negative' | 'neutral';
+  timestamp: number;
+}
 
 interface DefconMonitorProps {
   strategies: Strategy[];
   className?: string;
+  // Optional props for direct market data input
+  volatility?: number;  // 0-10 scale
+  marketConditions?: MarketCondition;
 }
 
-export function DefconMonitor({ strategies, className = '' }: DefconMonitorProps) {
+export function DefconMonitor({ strategies, className = '', volatility, marketConditions }: DefconMonitorProps) {
+  const [marketData, setMarketData] = useState<{
+    volatility: number;
+    marketConditions?: MarketCondition;
+  }>({ volatility: 0 });
+
+  // Fetch market data if not provided via props
+  useEffect(() => {
+    if (volatility !== undefined) {
+      setMarketData(prev => ({ ...prev, volatility }));
+    } else {
+      // Fetch market volatility from service
+      const fetchMarketData = async () => {
+        try {
+          // Get volatility data for major assets
+          const assets = ['BTC/USDT', 'ETH/USDT'];
+          let totalVolatility = 0;
+
+          for (const asset of assets) {
+            try {
+              const candles = await exchangeService.getCandles(asset, '1h', 24);
+              if (candles && candles.length > 0) {
+                // Calculate volatility based on price movements
+                const prices = candles.map((c: any) => c.close);
+                const volatility = calculateVolatility(prices);
+                totalVolatility += volatility;
+              }
+            } catch (error) {
+              logService.log('warn', `Failed to fetch candles for ${asset}`, error, 'DefconMonitor');
+            }
+          }
+
+          // Average volatility and scale to 0-10
+          const avgVolatility = assets.length > 0 ? (totalVolatility / assets.length) * 10 : 0;
+          setMarketData(prev => ({ ...prev, volatility: avgVolatility }));
+        } catch (error) {
+          logService.log('error', 'Failed to fetch market data', error, 'DefconMonitor');
+        }
+      };
+
+      fetchMarketData();
+
+      // Set up interval to refresh data every 5 minutes
+      const interval = setInterval(fetchMarketData, 5 * 60 * 1000);
+      return () => clearInterval(interval);
+    }
+  }, [volatility]);
+
+  // Update market conditions if provided via props
+  useEffect(() => {
+    if (marketConditions) {
+      setMarketData(prev => ({ ...prev, marketConditions }));
+    }
+  }, [marketConditions]);
+
+  // Helper function to calculate volatility
+  const calculateVolatility = (prices: number[]): number => {
+    if (prices.length < 2) return 0;
+
+    // Calculate percentage changes
+    const changes: number[] = [];
+    for (let i = 1; i < prices.length; i++) {
+      const change = (prices[i] - prices[i-1]) / prices[i-1];
+      changes.push(change);
+    }
+
+    // Calculate standard deviation of changes
+    const mean = changes.reduce((sum, val) => sum + val, 0) / changes.length;
+    const squaredDiffs = changes.map(val => Math.pow(val - mean, 2));
+    const variance = squaredDiffs.reduce((sum, val) => sum + val, 0) / squaredDiffs.length;
+    const stdDev = Math.sqrt(variance);
+
+    // Normalize to 0-1 scale (typical daily volatility ranges from 0-5%)
+    return Math.min(stdDev * 20, 1);
+  };
+
   const defconLevel = useMemo(() => {
-    if (!strategies.length) return 5;
+    // Start with strategy-based checks
+    if (!strategies.length) {
+      // If no strategies, base level purely on market conditions
+      if (marketData.volatility > 7) return 1; // Extreme volatility
+      if (marketData.volatility > 5) return 2; // High volatility
+      if (marketData.volatility > 3) return 3; // Moderate volatility
+      return 4; // Low volatility
+    }
 
     // Check for custom properties that might indicate errors
     const hasErrors = strategies.some(s => {
@@ -25,11 +121,23 @@ export function DefconMonitor({ strategies, className = '' }: DefconMonitorProps
     });
     if (hasWarnings) return 2;
 
-    const allHealthy = strategies.every(s => s.status === 'active');
-    if (allHealthy) return 5;
+    // Consider market conditions
+    if (marketData.volatility > 7) return 2; // High volatility = DEFCON 2
+    if (marketData.volatility > 5) return 3; // Moderate volatility = DEFCON 3
 
-    return 3;
-  }, [strategies]);
+    // Check market trend if available
+    if (marketData.marketConditions) {
+      if (marketData.marketConditions.trend === 'bearish' &&
+          marketData.marketConditions.sentiment === 'negative') {
+        return 3; // Bearish trend with negative sentiment = DEFCON 3
+      }
+    }
+
+    const allHealthy = strategies.every(s => s.status === 'active');
+    if (allHealthy && marketData.volatility < 3) return 5; // All healthy and low volatility
+
+    return 4; // Default to DEFCON 4 for normal conditions
+  }, [strategies, marketData]);
 
   const getDefconColor = (level: number) => {
     switch (level) {
@@ -108,10 +216,61 @@ export function DefconMonitor({ strategies, className = '' }: DefconMonitorProps
         rounded-xl backdrop-blur-sm
       `}>
         <div className="px-3 py-3 sm:px-4">
-          <div className="flex items-center gap-2.5 sm:gap-3">
+          {/* Mobile layout (stacked) */}
+          <div className="md:hidden">
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-y-2">
+              <div className="flex items-center gap-2">
+                <div className={`
+                  ${getDefconColor(defconLevel)}
+                  p-1.5
+                  rounded-full
+                  ring-1
+                  ${getDefconRingColor(defconLevel)}
+                  bg-gunmetal-950
+                  shadow-lg
+                  ${getDefconGlowColor(defconLevel)}
+                  flex-shrink-0
+                `}>
+                  {getDefconIcon(defconLevel)}
+                </div>
+                <h3 className={`text-base font-mono font-bold tracking-wider ${getDefconColor(defconLevel)}`}>
+                  DEFCON {defconLevel}
+                </h3>
+              </div>
+              <span className="text-[10px] text-gray-500 font-mono tracking-wider bg-gunmetal-900/50 px-2 py-1 rounded-full">
+                VOL: {marketData.volatility.toFixed(1)}/10
+              </span>
+            </div>
+
+            <div className="pl-9"> {/* Align with the icon */}
+              <p className="text-[10px] text-gray-400 font-mono tracking-wider mb-1">
+                {getDefconDescription(defconLevel)}
+              </p>
+
+              <div className="flex flex-wrap gap-2 mt-2">
+                <span className="text-[10px] text-gray-500 font-mono tracking-wider bg-gunmetal-900/50 px-2 py-0.5 rounded-full">
+                  {strategies.length} STRATEGIES
+                </span>
+
+                {marketData.marketConditions && (
+                  <>
+                    <span className="text-[10px] text-gray-500 font-mono tracking-wider bg-gunmetal-900/50 px-2 py-0.5 rounded-full">
+                      {marketData.marketConditions.trend.toUpperCase()}
+                    </span>
+                    <span className="text-[10px] text-gray-500 font-mono tracking-wider bg-gunmetal-900/50 px-2 py-0.5 rounded-full">
+                      {marketData.marketConditions.sentiment.toUpperCase()}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Desktop layout (horizontal) */}
+          <div className="hidden md:flex items-center gap-3">
             <div className={`
               ${getDefconColor(defconLevel)}
-              p-1 sm:p-1.5
+              p-1.5
               rounded-full
               ring-1
               ${getDefconRingColor(defconLevel)}
@@ -124,16 +283,24 @@ export function DefconMonitor({ strategies, className = '' }: DefconMonitorProps
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                <h3 className={`text-base sm:text-lg font-mono font-bold tracking-wider ${getDefconColor(defconLevel)}`}>
+                <h3 className={`text-lg font-mono font-bold tracking-wider ${getDefconColor(defconLevel)}`}>
                   DEFCON {defconLevel}
                 </h3>
-                <span className="text-[10px] sm:text-xs text-gray-500 font-mono tracking-wider">
+                <span className="text-xs text-gray-500 font-mono tracking-wider">
                   {strategies.length} STRATEGIES MONITORED
                 </span>
+                <span className="text-xs text-gray-500 font-mono tracking-wider ml-auto">
+                  VOLATILITY: {marketData.volatility.toFixed(1)}/10
+                </span>
               </div>
-              <p className="text-[10px] sm:text-xs text-gray-400 font-mono tracking-wider mt-0.5 truncate">
+              <p className="text-xs text-gray-400 font-mono tracking-wider mt-0.5">
                 {getDefconDescription(defconLevel)}
               </p>
+              {marketData.marketConditions && (
+                <p className="text-xs text-gray-400 font-mono tracking-wider mt-0.5">
+                  MARKET: {marketData.marketConditions.trend.toUpperCase()} | SENTIMENT: {marketData.marketConditions.sentiment.toUpperCase()}
+                </p>
+              )}
             </div>
           </div>
         </div>
