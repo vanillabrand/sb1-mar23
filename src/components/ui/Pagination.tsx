@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+// No chevron icons needed
 import { motion, AnimatePresence } from 'framer-motion';
 import { useScreenSize } from '../../lib/hooks/useScreenSize';
 
@@ -131,14 +131,14 @@ export function Pagination({
         <button
           onClick={() => onPageChange(currentPage - 1)}
           disabled={currentPage === 1 || loading}
-          className={`p-2 rounded-full ${
+          className={`px-3 py-1 rounded-lg ${
             currentPage === 1 || loading
               ? 'text-gray-600 cursor-not-allowed'
               : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
           } transition-colors`}
           aria-label="Previous page"
         >
-          <ChevronLeft className="w-5 h-5" />
+          <span className="text-xs">Prev</span>
         </button>
 
         {/* Page numbers */}
@@ -202,14 +202,14 @@ export function Pagination({
         <button
           onClick={() => onPageChange(currentPage + 1)}
           disabled={currentPage === totalPages || loading}
-          className={`p-2 rounded-full ${
+          className={`px-3 py-1 rounded-lg ${
             currentPage === totalPages || loading
               ? 'text-gray-600 cursor-not-allowed'
               : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
           } transition-colors`}
           aria-label="Next page"
         >
-          <ChevronRight className="w-5 h-5" />
+          <span className="text-xs">Next</span>
         </button>
       </div>
     </motion.div>

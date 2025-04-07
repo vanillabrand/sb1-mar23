@@ -115,7 +115,7 @@ export function Hero() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(250,204,21,0.1),transparent_70%)]" />
 
       {/* Main Content */}
-      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
+      <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24">
         {/* Hero Section */}
         <div className="text-center mb-24">
           <motion.div
@@ -127,44 +127,43 @@ export function Hero() {
 
 
             {/* Main Headline */}
-            <h1 className="text-5xl md:text-7xl font-bold mb-10 leading-tight">
-              <span className="gradient-text">Tell GIGAntic Your Goals</span>
+            <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold mb-6 sm:mb-10 leading-tight">
+              <span className="gradient-text home-headline">Tell GIGAntic Your Goals</span>
               <br />
-              <span className="text-white mt-4 block">Let AI Handle the Rest</span>
+              <span className="text-white mt-2 sm:mt-4 block home-subheadline">Let AI Handle the Rest</span>
             </h1>
 
-            <p className="text-2xl md:text-3xl text-gray-300 mb-8 leading-relaxed">
+            <p className="text-xl sm:text-2xl md:text-3xl text-gray-300 mb-4 sm:mb-8 leading-relaxed home-description">
               Your personal AI trading assistant that turns
-              <br />
-              <span className="text-neon-raspberry">simple instructions</span> into
-              <span className="text-neon-yellow"> profitable strategies</span>
+              <span className="text-neon-raspberry font-bold"> simple instructions</span> into
+              <span className="text-neon-yellow font-bold"> profitable strategies</span>
             </p>
 
-            <p className="text-xl text-gray-400 mb-12 max-w-3xl mx-auto leading-relaxed">
+            <p className="text-base sm:text-lg md:text-xl text-gray-400 mb-8 sm:mb-12 max-w-3xl mx-auto leading-relaxed home-description">
               No complex charts or trading jargon. Just tell GIGAntic what you want to achieve,
               and our AI will create, execute, and manage your trading strategy 24/7.
               Earn passive income while our AI works tirelessly for you.
             </p>
 
-            <div className="flex items-center justify-center gap-6 mb-16">
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mb-8 sm:mb-16">
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowSignup(true)}
-                className="group flex items-center gap-3 px-8 py-4 bg-neon-raspberry text-white rounded-xl hover:bg-[#FF69B4] transition-all duration-300 shadow-[0_0_20px_rgba(255,20,147,0.3)] hover:shadow-[0_0_30px_rgba(255,105,180,0.4)]"
+                className="group flex items-center gap-3 px-4 sm:px-8 py-3 sm:py-4 bg-neon-raspberry text-white rounded-xl hover:bg-[#FF69B4] transition-all duration-300 shadow-[0_0_20px_rgba(255,20,147,0.3)] hover:shadow-[0_0_30px_rgba(255,105,180,0.4)] w-full sm:w-auto"
               >
                 <Brain className="w-6 h-6 group-hover:rotate-12 transition-transform" />
-                <span className="text-lg font-medium">Start Your AI Trading Journey</span>
+                <span className="text-base sm:text-lg font-medium">Start Your AI Trading Journey</span>
               </motion.button>
 
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => navigate('/how-it-works')}
-                className="group flex items-center gap-3 px-8 py-4 bg-gunmetal-800/50 text-gray-300 rounded-xl hover:bg-gunmetal-700/50 transition-all duration-300 backdrop-blur-sm"
+                className="group flex items-center gap-3 px-4 sm:px-8 py-3 sm:py-4 bg-gunmetal-800/50 text-gray-300 rounded-xl hover:bg-gunmetal-700/50 transition-all duration-300 backdrop-blur-sm w-full sm:w-auto"
               >
                 <Star className="w-6 h-6 text-neon-yellow group-hover:rotate-45 transition-transform" />
-                <span className="text-lg">See How It Works</span>
+                <span className="text-base sm:text-lg">See How It Works</span>
               </motion.button>
             </div>
           </motion.div>

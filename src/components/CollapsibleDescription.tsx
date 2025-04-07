@@ -44,17 +44,15 @@ export function CollapsibleDescription({
           {children}
         </div>
 
-        {/* Toggle button - positioned on the left, aligned with content */}
+        {/* Toggle button - without chevron */}
         <button
           onClick={() => setIsExpanded(prev => !prev)}
           className={`p-0 bg-transparent border-0 outline-none focus:outline-none z-10 transition-all duration-300 hover:opacity-80 ${isExpanded ? 'mt-0' : '-mt-1'}`}
           aria-label={isExpanded ? 'Collapse description' : 'Expand description'}
         >
-          {isExpanded ? (
-            <ChevronUp className="w-4 h-4 text-gray-500 align-middle" />
-          ) : (
-            <ChevronDown className="w-4 h-4 text-gray-500 align-middle" />
-          )}
+          <span className="text-xs text-gray-500">
+            {isExpanded ? 'Less' : 'More'}
+          </span>
         </button>
       </div>
 

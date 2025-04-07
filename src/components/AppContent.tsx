@@ -77,8 +77,8 @@ export const AppContent = () => {
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
 
-        {/* Mobile Bottom Navigation - Only shown on mobile */}
-        {isMobile && <MobileBottomNav onMenuToggle={handleMenuToggle} />}
+        {/* Mobile Bottom Navigation - Always rendered but only visible on mobile */}
+        <MobileBottomNav onMenuToggle={handleMenuToggle} />
       </main>
     </div>
   );

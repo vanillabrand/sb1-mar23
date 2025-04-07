@@ -10,8 +10,6 @@ import {
   LogOut,
   Wifi,
   WifiOff,
-  ChevronDown,
-  ChevronUp,
   Zap,
   CheckCircle,
   Shield,
@@ -367,7 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
       <div
         className={`${isMobile ? 'w-full px-4 py-0 relative' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-center h-full' : ''}`}
       >
-        <div className={`flex items-center ${isMobile ? 'scale-75 mobile-logo' : ''}`}>
+        <div className={`flex items-center ${isMobile ? 'mobile-logo' : ''}`}>
           <div className="rounded-xl bg-gradient-to-br from-green-400 via-yellow-400 to-pink-500 p-0.5">
             <div className="bg-black rounded-xl p-2">
               <Zap className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-yellow-400`} />
@@ -379,20 +377,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
           </div>
         </div>
 
-        {/* Mobile Menu Toggle Button - Always shown on mobile */}
-        {isMobile && (
-          <button
-            onClick={(e) => toggleMobileMenu(e)}
-            className="text-gray-400 hover:text-gray-200 focus:outline-none p-2 z-50 mobile-chevron-btn absolute left-2"
-            style={{ top: 'calc(50% - 20px)', transform: 'translateY(-50%)' }}
-          >
-            {isMobileMenuOpen ? (
-              <ChevronUp className="w-5 h-5" />
-            ) : (
-              <ChevronDown className="w-5 h-5" />
-            )}
-          </button>
-        )}
+        {/* Mobile Menu Toggle Button removed as requested */}
       </div>
 
       {/* Connection Status Indicator - Conditionally rendered based on mobile state */}
@@ -421,11 +406,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
               <span className="text-xs text-neon-turquoise/70 ml-1">{latency}ms</span>
             )}
           </div>
-          {isExchangeDetailsExpanded ? (
-            <ChevronUp className={`w-4 h-4 ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`} />
-          ) : (
-            <ChevronDown className={`w-4 h-4 ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`} />
-          )}
+          <span className={`text-xs ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`}>
+            {isExchangeDetailsExpanded ? 'Less' : 'More'}
+          </span>
         </div>
 
         {/* Expanded Connection Details - Using simple transition */}
@@ -577,7 +560,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
         />
       </div>
 
-      {/* Bottom Chevron - Only visible on desktop */}
+      {/* Bottom button - Only visible on desktop */}
       {!isMobile && (
         <div
           className="absolute bottom-0 left-0 right-0 flex justify-center cursor-pointer hover:opacity-100 z-10 transform translate-y-1/2"
@@ -585,11 +568,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
         >
           <div className={`panel-metallic px-4 pt-1 pb-3 rounded-b-lg shadow-lg border border-gunmetal-700 border-t-0 ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
             <div className="w-10 h-10 flex items-center justify-center bg-gunmetal-800 rounded-full shadow-md border border-gunmetal-700">
-              {isMobileMenuOpen ? (
-                <ChevronUp className="w-6 h-6 text-gray-200 chevron-pulse" />
-              ) : (
-                <ChevronDown className="w-6 h-6 text-gray-200 chevron-pulse" />
-              )}
+              <span className="text-xs text-gray-200">
+                {isMobileMenuOpen ? 'Less' : 'More'}
+              </span>
             </div>
           </div>
         </div>

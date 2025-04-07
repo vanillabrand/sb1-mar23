@@ -1,5 +1,4 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface PaginationProps {
   currentPage: number;
@@ -28,7 +27,7 @@ export function Pagination({
   const getPageNumbers = () => {
     const pageNumbers = [];
     const maxPagesToShow = 5; // Show at most 5 page numbers
-    
+
     if (totalPages <= maxPagesToShow) {
       // If we have 5 or fewer pages, show all of them
       for (let i = 1; i <= totalPages; i++) {
@@ -37,37 +36,37 @@ export function Pagination({
     } else {
       // Always include first page
       pageNumbers.push(1);
-      
+
       // Calculate start and end of page range
       let start = Math.max(2, currentPage - 1);
       let end = Math.min(totalPages - 1, currentPage + 1);
-      
+
       // Adjust if we're at the beginning or end
       if (currentPage <= 2) {
         end = 3;
       } else if (currentPage >= totalPages - 1) {
         start = totalPages - 2;
       }
-      
+
       // Add ellipsis if needed
       if (start > 2) {
         pageNumbers.push('...');
       }
-      
+
       // Add middle pages
       for (let i = start; i <= end; i++) {
         pageNumbers.push(i);
       }
-      
+
       // Add ellipsis if needed
       if (end < totalPages - 1) {
         pageNumbers.push('...');
       }
-      
+
       // Always include last page
       pageNumbers.push(totalPages);
     }
-    
+
     return pageNumbers;
   };
 
@@ -110,30 +109,30 @@ export function Pagination({
           </select>
         </div>
       )}
-      
+
       {/* Page info */}
       {totalItems !== undefined && (
         <div className="text-sm text-gray-400">
           Showing {Math.min((currentPage - 1) * itemsPerPage + 1, totalItems)} - {Math.min(currentPage * itemsPerPage, totalItems)} of {totalItems}
         </div>
       )}
-      
+
       {/* Pagination controls */}
       <div className="flex items-center gap-1">
         {/* Previous button */}
         <button
           onClick={() => handlePageChange(currentPage - 1)}
           disabled={currentPage === 1}
-          className={`p-2 rounded-full ${
+          className={`px-3 py-1 rounded-lg ${
             currentPage === 1
               ? 'text-gray-600 cursor-not-allowed'
               : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
           } transition-colors`}
           aria-label="Previous page"
         >
-          <ChevronLeft className="w-5 h-5" />
+          <span className="text-xs">Prev</span>
         </button>
-        
+
         {/* Page numbers */}
         <div className="flex items-center">
           {getPageNumbers().map((page, index) => (
@@ -159,19 +158,19 @@ export function Pagination({
             </React.Fragment>
           ))}
         </div>
-        
+
         {/* Next button */}
         <button
           onClick={() => handlePageChange(currentPage + 1)}
           disabled={currentPage === totalPages}
-          className={`p-2 rounded-full ${
+          className={`px-3 py-1 rounded-lg ${
             currentPage === totalPages
               ? 'text-gray-600 cursor-not-allowed'
               : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
           } transition-colors`}
           aria-label="Next page"
         >
-          <ChevronRight className="w-5 h-5" />
+          <span className="text-xs">Next</span>
         </button>
       </div>
     </div>

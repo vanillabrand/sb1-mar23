@@ -35,7 +35,6 @@ export function StatusIndicator({ status, size = 'md', showLabel = false }: Stat
         ${getSizeClasses()}
         ${getStatusColor()}
         rounded-full
-        animate-pulse
       `} />
       {showLabel && (
         <span className="text-sm text-gray-400 capitalize">

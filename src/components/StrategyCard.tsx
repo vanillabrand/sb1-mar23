@@ -977,12 +977,10 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               </button>
             )}
             {!hideExpandArrow && (
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors border border-gunmetal-700 shadow-inner">
-                {isExpanded ? (
-                  <ChevronUp className="w-5 h-5 text-neon-turquoise" />
-                ) : (
-                  <ChevronDown className="w-5 h-5 text-neon-turquoise" />
-                )}
+              <div className="flex items-center justify-center px-3 py-1 rounded-lg bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors border border-gunmetal-700 shadow-inner">
+                <span className="text-xs text-neon-turquoise">
+                  {isExpanded ? 'Less' : 'More'}
+                </span>
               </div>
             )}
           </div>
@@ -1004,11 +1002,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   <BarChart3 className="w-4 h-4" />
                   Trading Parameters
                 </div>
-                {showTradingParameters ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                )}
+                <span className="text-xs text-gray-400">
+                  {showTradingParameters ? 'Hide' : 'Show'}
+                </span>
               </h4>
               {showTradingParameters && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
@@ -1124,11 +1120,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   <DollarSign className="w-4 h-4" />
                   Trading Budget
                 </div>
-                {showBudget ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                )}
+                <span className="text-xs text-gray-400">
+                  {showBudget ? 'Hide' : 'Show'}
+                </span>
               </h4>
               {showBudget && (
                 <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner animate-fadeIn">
@@ -1188,11 +1182,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                     <Activity className="w-4 h-4" />
                     Live Trades
                   </div>
-                  {showTrades ? (
-                    <ChevronUp className="w-4 h-4 text-gray-400" />
-                  ) : (
-                    <ChevronDown className="w-4 h-4 text-gray-400" />
-                  )}
+                  <span className="text-xs text-gray-400">
+                    {showTrades ? 'Hide' : 'Show'}
+                  </span>
                 </h4>
                 {showTrades && (
                   isLoadingTrades ? (

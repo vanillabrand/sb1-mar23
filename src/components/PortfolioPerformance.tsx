@@ -55,42 +55,74 @@ export function PortfolioPerformance() {
   const handleDownloadCSV = async () => {
     try {
       setDownloadingCSV(true);
+      setError(null);
 
-      // Get date range based on timeframe
-      const endDate = new Date();
-      let startDate = new Date();
+      // If modal is open, use the date range from the modal
+      if (showTransactionModal && startDate && endDate) {
+        // Validate date range
+        const start = new Date(startDate);
+        const end = new Date(endDate);
 
-      switch (timeframe) {
-        case '1h':
-          startDate.setHours(startDate.getHours() - 1);
-          break;
-        case '1d':
-          startDate.setDate(startDate.getDate() - 1);
-          break;
-        case '1w':
-          startDate.setDate(startDate.getDate() - 7);
-          break;
-        case '1m':
-          startDate.setMonth(startDate.getMonth() - 1);
-          break;
+        if (start > end) {
+          throw new Error('Start date must be before end date');
+        }
+
+        // Get CSV data from portfolio service
+        const csv = await portfolioService.exportTransactionsCSV(start, end, transactionType);
+
+        // Create download link
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `transactions_${startDate}_${endDate}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        // Close modal after successful download
+        setShowTransactionModal(false);
+      } else {
+        // Use timeframe for date range
+        const end = new Date();
+        let start = new Date();
+
+        switch (timeframe) {
+          case '1h':
+            start.setHours(start.getHours() - 1);
+            break;
+          case '1d':
+            start.setDate(start.getDate() - 1);
+            break;
+          case '1w':
+            start.setDate(start.getDate() - 7);
+            break;
+          case '1m':
+            start.setMonth(start.getMonth() - 1);
+            break;
+        }
+
+        // Get CSV data from portfolio service
+        const csv = await portfolioService.exportTransactionsCSV(start, end, 'all');
+
+        // Create download link
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.setAttribute('href', url);
+        link.setAttribute('download', `portfolio_transactions_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
       }
-
-      // Get CSV data from portfolio service
-      const csv = await portfolioService.exportTransactionsCSV(startDate, endDate, 'all');
-
-      // Create download link
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.setAttribute('href', url);
-      link.setAttribute('download', `portfolio_transactions_${new Date().toISOString().split('T')[0]}.csv`);
-      link.style.visibility = 'hidden';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to download transactions';
       logService.log('error', 'Failed to download transactions as CSV', error, 'PortfolioPerformance');
-      setError('Failed to download transactions. Please try again later.');
+      setError(errorMessage);
     } finally {
       setDownloadingCSV(false);
     }
@@ -320,75 +352,7 @@ export function PortfolioPerformance() {
     return data;
   };
 
-  const handleDownloadCSV = async () => {
-    try {
-      setDownloadingCSV(true);
-      setError(null);
 
-      if (!startDate || !endDate) {
-        throw new Error('Please select a date range');
-      }
-
-      // Convert string dates to Date objects
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-
-      // Get transactions for selected date range
-      const transactions = await transactionService.getTransactionsForUser(start, end);
-
-      if (transactions.length === 0) {
-        throw new Error('No transactions found for the selected period');
-      }
-
-      // Format transactions for CSV - Include all available fields
-      const csvData = transactions.map((tx: any) => ({
-        Date: new Date(tx.created_at).toLocaleString(),
-        Type: tx.type.charAt(0).toUpperCase() + tx.type.slice(1),
-        Amount: tx.amount.toFixed(2),
-        'Balance Before': tx.balance_before.toFixed(2),
-        'Balance After': tx.balance_after.toFixed(2),
-        Status: tx.status.charAt(0).toUpperCase() + tx.status.slice(1),
-        Description: tx.description || '',
-        'Reference ID': tx.reference_id || '',
-        'Reference Type': tx.reference_type || '',
-        'Transaction ID': tx.id || '',
-        'Created At': tx.created_at || '',
-        'Updated At': tx.updated_at || ''
-      }));
-
-      // Generate CSV
-      const headers = Object.keys(csvData[0]);
-      const csv = [
-        headers.join(','),
-        ...csvData.map((row: Record<string, string>) => headers.map(header => {
-          const value = row[header];
-          // Escape commas and quotes in values
-          return /[,"]/.test(value)
-            ? `"${value.replace(/"/g, '""')}"`
-            : value;
-        }).join(','))
-      ].join('\n');
-
-      // Download file
-      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `transactions_${startDate}_${endDate}.csv`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
-
-      setShowTransactionModal(false);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to download transactions';
-      setError(errorMessage);
-      logService.log('error', 'Failed to download CSV', err, 'PortfolioPerformance');
-    } finally {
-      setDownloadingCSV(false);
-    }
-  };
 
   return (
     <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-4 sm:p-6 md:p-8 shadow-lg border border-gunmetal-800/50">

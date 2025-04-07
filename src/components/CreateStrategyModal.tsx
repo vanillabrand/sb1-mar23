@@ -87,7 +87,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
   return (
     <AnimatePresence mode="wait">
       <motion.div
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center mobile-modal-container"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         onClick={(e) => {

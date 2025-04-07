@@ -37,8 +37,8 @@ export function MobileModal({ isOpen, onClose, title, children, className = '' }
             exit={{ opacity: 0 }}
           />
 
-          {/* Modal container */}
-          <div className="fixed inset-0 flex items-center justify-center p-4">
+          {/* Modal container - adjusted to stay within main content area */}
+          <div className="fixed inset-0 flex items-center justify-center p-4 mobile-modal-container">
             <Dialog.Panel
               as={motion.div}
               className={`${isMobile ? 'mobile-modal w-full max-w-full' : 'w-full max-w-md'} modal-dark-metal ${className}`}
