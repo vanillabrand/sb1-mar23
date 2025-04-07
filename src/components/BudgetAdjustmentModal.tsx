@@ -86,7 +86,7 @@ export function BudgetAdjustmentModal({
           <AlertCircle className="w-5 h-5 text-neon-orange mt-0.5" />
           <div>
             <p className="text-gray-300">
-              {demoService.isInDemoMode() 
+              {demoService.isInDemoMode()
                 ? "Your TestNet balance is too low for the requested budget."
                 : "Your wallet balance is insufficient for the requested budget."}
             </p>
@@ -124,7 +124,44 @@ export function BudgetAdjustmentModal({
                 disabled={isSubmitting}
               />
             </div>
-            <p className="mt-1 text-sm text-gray-400">
+
+            {/* Quick select buttons */}
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={() => setAdjustedBudget(Number((availableBalance * 0.05).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-green border border-neon-green/30 rounded transition-colors"
+                disabled={isSubmitting}
+              >
+                5%
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdjustedBudget(Number((availableBalance * 0.1).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-yellow border border-neon-yellow/30 rounded transition-colors"
+                disabled={isSubmitting}
+              >
+                10%
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdjustedBudget(Number((availableBalance * 0.2).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-orange border border-neon-orange/30 rounded transition-colors"
+                disabled={isSubmitting}
+              >
+                20%
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdjustedBudget(Number((availableBalance * 0.5).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-raspberry border border-neon-raspberry/30 rounded transition-colors"
+                disabled={isSubmitting}
+              >
+                50%
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm text-gray-400">
               Maximum allowed: ${availableBalance.toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,

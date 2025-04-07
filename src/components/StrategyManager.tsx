@@ -25,6 +25,7 @@ import { LoadingSpinner } from './LoadingStates';
 import { Pagination } from './ui/Pagination';
 import { MetallicPagination } from './ui/MetallicPagination';
 import { SwipeableCardList } from './ui/SwipeableCardList';
+import { MultiWalletBalanceDisplay } from './MultiWalletBalanceDisplay';
 import type {
   Strategy,
   SortOption,
@@ -87,13 +88,14 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const screenSize = useScreenSize();
 
   // Constants for pagination
-  const [ITEMS_PER_PAGE, setItemsPerPage] = useState(screenSize === 'sm' ? 3 : 6); // For user strategies
-  const [TEMPLATES_PER_PAGE, setTemplatesPerPage] = useState(screenSize === 'sm' ? 3 : 6); // For template strategies
+  const [ITEMS_PER_PAGE, setItemsPerPage] = useState(6); // Show 6 strategies at a time on all screen sizes
+  const [TEMPLATES_PER_PAGE, setTemplatesPerPage] = useState(6); // Show 6 templates at a time on all screen sizes
 
   // Update items per page when screen size changes
   useEffect(() => {
-    setItemsPerPage(screenSize === 'sm' ? 3 : 6);
-    setTemplatesPerPage(screenSize === 'sm' ? 3 : 6);
+    // Always show 6 strategies at a time on all screen sizes
+    setItemsPerPage(6);
+    setTemplatesPerPage(6);
   }, [screenSize]);
 
   // Add event listener for budget modal
@@ -1032,8 +1034,15 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             </div>
           </div>
 
-          {/* Stats */}
-          <StrategyStats strategies={strategies} className="mb-8" />
+          {/* Stats and Balance */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+            <div className="md:col-span-3">
+              <StrategyStats strategies={strategies} />
+            </div>
+            <div className="md:col-span-1">
+              <MultiWalletBalanceDisplay compact={true} />
+            </div>
+          </div>
 
           {/* Filters Section */}
           <div className="panel-metallic rounded-xl p-6 mb-8">

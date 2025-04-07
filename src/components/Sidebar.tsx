@@ -272,6 +272,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
 
   // Sync with isOpen prop
   useEffect(() => {
+    console.log('Sidebar isOpen prop changed:', isOpen);
     if (isOpen !== undefined) {
       setIsMobileMenuOpen(isOpen);
     }
@@ -338,10 +339,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
 
   // Toggle mobile menu
   const toggleMobileMenu = () => {
+    console.log('Sidebar toggleMobileMenu called, current state:', isMobileMenuOpen);
     if (onToggle) {
       onToggle();
     }
-    setIsMobileMenuOpen((prev: boolean) => !prev);
+    setIsMobileMenuOpen((prev: boolean) => {
+      const newState = !prev;
+      console.log('Sidebar setting isMobileMenuOpen to:', newState);
+      return newState;
+    });
   };
 
   // Contract menu when nav item is clicked

@@ -524,7 +524,50 @@ class CCXTService {
       return exchange;
 
     } catch (error) {
-      logService.log('error', 'Failed to create exchange instance', error, 'CCXTService');
+      // Enhanced error logging with more details
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      logService.log('error', 'Failed to create exchange instance', {
+        error,
+        errorMessage,
+        exchangeId,
+        testnet,
+        hasApiKey: !!credentials.apiKey,
+        hasSecret: !!credentials.secret,
+        apiKeyLength: credentials.apiKey ? credentials.apiKey.length : 0,
+        secretLength: credentials.secret ? credentials.secret.length : 0
+      }, 'CCXTService');
+
+      console.error(`Failed to create ${exchangeId} exchange instance:`, {
+        error: errorMessage,
+        testnet,
+        hasApiKey: !!credentials.apiKey,
+        hasSecret: !!credentials.secret
+      });
+
+      // Provide more specific error messages based on the error type
+      if (errorMessage.includes('proxy') || errorMessage.includes('ECONNREFUSED')) {
+        throw new Error(`Failed to connect to proxy server. Please ensure the proxy server is running at ${import.meta.env.VITE_PROXY_BASE_URL || 'http://localhost:3001'}`);
+      }
+
+      if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+        throw new Error(`Connection to ${exchangeId} timed out. The exchange may be experiencing high load or your internet connection is slow.`);
+      }
+
+      if (errorMessage.includes('key') || errorMessage.includes('signature') || errorMessage.includes('auth')) {
+        throw new Error(`Authentication failed for ${exchangeId}. Please check your API key and secret.`);
+      }
+
+      if (errorMessage.includes('permission') || errorMessage.includes('access')) {
+        throw new Error(`Your API key doesn't have the required permissions for ${exchangeId}. Please ensure it has 'Read' access at minimum.`);
+      }
+
+      // Check for CORS errors
+      if (errorMessage.includes('CORS') || errorMessage.includes('blocked by CORS policy')) {
+        throw new Error(`CORS error detected when connecting to ${exchangeId}. Please ensure the proxy server is configured correctly with the appropriate CORS headers. Try restarting the proxy server with 'node proxy-server.js'.`);
+      }
+
+      // If no specific error was identified, throw the original error
       throw error;
     }
   }

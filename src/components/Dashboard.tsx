@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Clock, Calendar, Activity, TrendingUp, BarChart3 } from 'lucide-react';
+import { Calendar, Activity, TrendingUp, BarChart3 } from 'lucide-react';
 import { CollapsibleDescription } from './CollapsibleDescription';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -24,7 +24,10 @@ import {
   WorldClock,
   DefconMonitor,
   AssetDistribution,
-  AnimatedPanel
+  AnimatedPanel,
+  MultiWorldClock,
+  AvailableBalanceDisplay,
+  MultiWalletBalanceDisplay
 } from './index';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type {
@@ -41,18 +44,7 @@ interface MonitoringStatus {
   [key: string]: any; // Allow additional properties
 }
 
-const TIMEZONES = [
-  { id: 'UTC', name: 'UTC' },
-  { id: 'America/New_York', name: 'New York (EST)' },
-  { id: 'America/Los_Angeles', name: 'Los Angeles (PST)' },
-  { id: 'Europe/London', name: 'London (GMT)' },
-  { id: 'Asia/Tokyo', name: 'Tokyo (JST)' },
-  { id: 'Asia/Shanghai', name: 'Shanghai (CST)' },
-  { id: 'Asia/Singapore', name: 'Singapore (SGT)' },
-  { id: 'Australia/Sydney', name: 'Sydney (AEST)' },
-  { id: 'Europe/Frankfurt', name: 'Frankfurt (CET)' },
-  { id: 'Asia/Dubai', name: 'Dubai (GST)' }
-];
+
 
 interface DashboardProps {
   strategies: Strategy[];
@@ -62,7 +54,6 @@ interface DashboardProps {
 export function Dashboard({ strategies: initialStrategies, monitoringStatuses: initialStatuses }: DashboardProps) {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
   const [volatility, setVolatility] = useState(0);
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -281,7 +272,25 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
       </div>
 
       <div className={`grid grid-cols-12 gap-3 sm:gap-4 md:gap-6 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
-        {/* DEFCON Monitor - Only shown at the top on mobile */}
+        {/* Multi-Wallet Balance Display - Shown at the top on mobile */}
+        {screenSize === 'sm' && (
+          <div className="col-span-12 mb-4">
+            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 shadow-lg">
+              <MultiWalletBalanceDisplay compact={true} />
+            </AnimatedPanel>
+          </div>
+        )}
+
+        {/* World Clock Panel - Shown below Available Balance on mobile */}
+        {screenSize === 'sm' && (
+          <div className="col-span-12 mb-4">
+            <AnimatedPanel index={1} className="panel-metallic rounded-xl p-4 shadow-lg">
+              <MultiWorldClock />
+            </AnimatedPanel>
+          </div>
+        )}
+
+        {/* DEFCON Monitor - Shown below World Clock on mobile */}
         {screenSize === 'sm' && (
           <div className="col-span-12 mb-4">
             <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 shadow-lg">
@@ -320,24 +329,14 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         </div>
 
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-5'} space-y-4`}>
+          {/* Multi-Wallet Balance Display */}
           <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <Clock className="w-5 h-5 text-neon-turquoise" />
-                <select
-                  value={selectedTimezone}
-                  onChange={(e) => setSelectedTimezone(e.target.value)}
-                  className="bg-transparent text-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-neon-turquoise rounded-lg"
-                >
-                  {TIMEZONES.map(tz => (
-                    <option key={tz.id} value={tz.id} className="bg-gunmetal-900">
-                      {tz.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <WorldClock timezone={selectedTimezone} />
+            <MultiWalletBalanceDisplay />
+          </AnimatedPanel>
+
+          {/* World Clock Panel - Now shows all clocks */}
+          <AnimatedPanel index={1} className="panel-metallic rounded-xl p-4 sm:p-6 shadow-lg">
+            <MultiWorldClock />
           </AnimatedPanel>
 
           {/* DEFCON Monitor - Only shown in sidebar on non-mobile */}

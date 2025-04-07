@@ -149,6 +149,14 @@ export interface WalletBalance {
   currency: string;
 }
 
+// Multi-wallet balance interface
+export interface MultiWalletBalance {
+  spot: WalletBalance;
+  margin?: WalletBalance;
+  futures?: WalletBalance;
+  timestamp: number;
+}
+
 export interface StrategyTemplate {
   id: string;
   title: string;

@@ -29,9 +29,9 @@ export function useScreenSize(): ScreenSize {
 }
 
 export const ITEMS_PER_PAGE = {
-  sm: 3,  // Mobile
-  md: 3,  // Tablet
-  lg: 3,  // Desktop
-  xl: 3,  // Large Desktop
-  '2xl': 3 // Extra Large Desktop
+  sm: 6,  // Mobile - updated to show 6 strategies at a time
+  md: 6,  // Tablet
+  lg: 6,  // Desktop
+  xl: 6,  // Large Desktop
+  '2xl': 6 // Extra Large Desktop
 };

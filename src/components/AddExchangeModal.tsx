@@ -37,6 +37,17 @@ export function AddExchangeModal({
       return;
     }
 
+    // Validate API key and secret format
+    if (apiKey.trim().length < 10) {
+      setError('API key appears to be too short. Please check your API key.');
+      return;
+    }
+
+    if (secret.trim().length < 10) {
+      setError('API secret appears to be too short. Please check your API secret.');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
       setError(null);
@@ -57,7 +68,20 @@ export function AddExchangeModal({
       setMemo('');
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add exchange');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to add exchange';
+
+      // Format error message for better readability
+      if (errorMessage.includes('proxy server')) {
+        setError('Cannot connect to proxy server. Please ensure the proxy server is running.');
+      } else if (errorMessage.includes('timeout') || errorMessage.includes('timed out')) {
+        setError('Connection timed out. The exchange may be experiencing high load or your internet connection is slow.');
+      } else if (errorMessage.includes('API key') || errorMessage.includes('authentication') || errorMessage.includes('signature')) {
+        setError('Invalid API key or secret. Please double-check your credentials.');
+      } else if (errorMessage.includes('permission') || errorMessage.includes('access')) {
+        setError('Your API key doesn\'t have the required permissions. Please ensure it has "Read" access at minimum.');
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -70,9 +94,31 @@ export function AddExchangeModal({
 
         {error && (
           <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4">
-            <div className="flex items-center gap-2 text-red-400">
-              <AlertCircle className="w-5 h-5" />
-              <p>{error}</p>
+            <div className="flex items-start gap-2 text-red-400">
+              <AlertCircle className="w-5 h-5 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="font-medium">{error}</p>
+                {error.includes('proxy server') && (
+                  <ul className="text-sm mt-2 list-disc pl-4 space-y-1">
+                    <li>Make sure the proxy server is running (npm run proxy)</li>
+                    <li>Check if port 3001 is available and not blocked by a firewall</li>
+                    <li>Try restarting the application with npm run start</li>
+                  </ul>
+                )}
+                {error.includes('API key') && (
+                  <ul className="text-sm mt-2 list-disc pl-4 space-y-1">
+                    <li>Double-check that you've copied the API key and secret correctly</li>
+                    <li>Ensure there are no extra spaces or characters</li>
+                    <li>Try generating new API keys if the problem persists</li>
+                  </ul>
+                )}
+                {error.includes('permissions') && (
+                  <ul className="text-sm mt-2 list-disc pl-4 space-y-1">
+                    <li>Your API key needs at least "Read" permissions</li>
+                    <li>Go to your exchange account and update the API key permissions</li>
+                  </ul>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -147,18 +193,59 @@ export function AddExchangeModal({
             </label>
           </div>
 
-          {selectedExchange === 'binance' && (
+          {selectedExchange && (
             <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-4 mt-4">
               <div className="flex items-start gap-2 text-blue-400">
                 <Info className="w-5 h-5 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-sm font-medium mb-1">Binance API Key Requirements:</p>
-                  <ul className="text-xs list-disc pl-4 space-y-1">
-                    <li>Create API keys from your Binance account settings</li>
-                    <li>Enable at minimum "Read-Only" permissions</li>
-                    <li>If using TestNet, create keys at <a href="https://testnet.binance.vision/" target="_blank" rel="noopener noreferrer" className="underline">testnet.binance.vision</a></li>
-                    <li>Some regions may require a VPN to access Binance API</li>
-                  </ul>
+                  {selectedExchange === 'binance' && (
+                    <>
+                      <p className="text-sm font-medium mb-1">Binance API Key Requirements:</p>
+                      <ul className="text-xs list-disc pl-4 space-y-1">
+                        <li>Create API keys from your Binance account settings</li>
+                        <li>Enable at minimum "Read-Only" permissions</li>
+                        <li>If using TestNet, create keys at <a href="https://testnet.binance.vision/" target="_blank" rel="noopener noreferrer" className="underline">testnet.binance.vision</a></li>
+                        <li>Some regions may require a VPN to access Binance API</li>
+                        <li>Make sure the proxy server is running (npm run proxy)</li>
+                      </ul>
+                    </>
+                  )}
+
+                  {selectedExchange === 'bybit' && (
+                    <>
+                      <p className="text-sm font-medium mb-1">Bybit API Key Requirements:</p>
+                      <ul className="text-xs list-disc pl-4 space-y-1">
+                        <li>Create API keys from your Bybit account settings</li>
+                        <li>Enable at minimum "Read-Only" permissions</li>
+                        <li>If using TestNet, make sure to create TestNet API keys</li>
+                        <li>Make sure the proxy server is running (npm run proxy)</li>
+                      </ul>
+                    </>
+                  )}
+
+                  {selectedExchange === 'okx' && (
+                    <>
+                      <p className="text-sm font-medium mb-1">OKX API Key Requirements:</p>
+                      <ul className="text-xs list-disc pl-4 space-y-1">
+                        <li>Create API keys from your OKX account settings</li>
+                        <li>Enable at minimum "Read-Only" permissions</li>
+                        <li>You may need to provide a Passphrase in the Memo field</li>
+                        <li>Make sure the proxy server is running (npm run proxy)</li>
+                      </ul>
+                    </>
+                  )}
+
+                  {(selectedExchange !== 'binance' && selectedExchange !== 'bybit' && selectedExchange !== 'okx') && (
+                    <>
+                      <p className="text-sm font-medium mb-1">{selectedExchange} API Key Requirements:</p>
+                      <ul className="text-xs list-disc pl-4 space-y-1">
+                        <li>Create API keys from your {selectedExchange} account settings</li>
+                        <li>Enable at minimum "Read-Only" permissions</li>
+                        <li>Make sure the proxy server is running (npm run proxy)</li>
+                        <li>Some exchanges may require additional authentication</li>
+                      </ul>
+                    </>
+                  )}
                 </div>
               </div>
             </div>

@@ -19,7 +19,8 @@ export const AppContent = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
 
   const handleMenuToggle = () => {
-    setIsSidebarOpen(!isSidebarOpen);
+    console.log('Menu toggle clicked, current state:', isSidebarOpen);
+    setIsSidebarOpen(prevState => !prevState);
   };
 
   // If user is not authenticated, show public routes

@@ -127,7 +127,7 @@ export function SwipeableCardList<T>({
         onDragEnd={handleDragEnd}
         animate={controls}
       >
-        <div className="grid grid-cols-1 gap-3 pt-8 pb-4"> {/* Added padding for the home button */}
+        <div className="grid grid-cols-1 gap-3 pt-8 pb-4 mobile-strategy-grid"> {/* Added padding for the home button */}
           {visibleItems.map((item, index) => (
             <div key={index} className={isDragging ? 'pointer-events-none' : ''}>
               {renderItem(item, index)}

@@ -1287,6 +1287,8 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           }}
           maxBudget={availableBalance} // Use actual available balance
           isSubmitting={isSubmittingBudget}
+          strategy={selectedStrategy}
+          riskLevel={selectedStrategy.riskLevel || 'Medium'}
         />
       )}
 

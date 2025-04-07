@@ -2,7 +2,9 @@ import { EventEmitter } from './event-emitter';
 import { ccxtService } from './ccxt-service';
 import { logService } from './log-service';
 import { demoService } from './demo-service';
-import { WalletBalance } from './types';
+import { exchangeService } from './exchange-service';
+import { supabase } from './supabase';
+import { WalletBalance, MultiWalletBalance } from './types';
 
 /**
  * Service for managing wallet balances from exchanges
@@ -11,11 +13,13 @@ import { WalletBalance } from './types';
 class WalletBalanceService extends EventEmitter {
   private static instance: WalletBalanceService;
   private balances: Map<string, WalletBalance> = new Map();
+  private multiWalletBalances: Map<string, MultiWalletBalance> = new Map(); // userId -> MultiWalletBalance
   private lastUpdated: number = 0;
   private updateInterval: number = 30000; // 30 seconds
   private intervalId: number | null = null;
   private isInitialized: boolean = false;
   private isUpdating: boolean = false;
+  private userId: string | null = null;
 
   private constructor() {
     super();
@@ -40,11 +44,30 @@ class WalletBalanceService extends EventEmitter {
     if (this.isInitialized) return;
 
     try {
+      // Get current user ID
+      const { data: { session } } = await supabase.auth.getSession();
+      this.userId = session?.user?.id || null;
+
       // Fetch initial balances
       await this.fetchBalances();
 
       // Start periodic updates
       this.startPeriodicUpdates();
+
+      // Subscribe to auth state changes
+      supabase.auth.onAuthStateChange((event, session) => {
+        if (event === 'SIGNED_IN') {
+          this.userId = session?.user?.id || null;
+          this.fetchBalances().catch(error => {
+            logService.log('error', 'Failed to fetch balances after sign in', error, 'WalletBalanceService');
+          });
+        } else if (event === 'SIGNED_OUT') {
+          this.userId = null;
+          this.balances.clear();
+          this.multiWalletBalances.clear();
+          this.emit('balancesUpdated', this.getBalances());
+        }
+      });
 
       this.isInitialized = true;
       logService.log('info', 'Wallet balance service initialized', null, 'WalletBalanceService');
@@ -90,11 +113,31 @@ class WalletBalanceService extends EventEmitter {
       if (demoService.isInDemoMode()) {
         await this.fetchTestNetBalances();
       } else {
-        await this.fetchExchangeBalances();
+        // Check if user has saved exchange credentials
+        if (this.userId) {
+          const { data: userExchanges } = await supabase
+            .from('user_exchanges')
+            .select('*')
+            .eq('user_id', this.userId)
+            .eq('is_active', true)
+            .limit(1);
+
+          if (userExchanges && userExchanges.length > 0) {
+            // User has saved exchange credentials, use them
+            await this.fetchUserExchangeBalances(userExchanges[0]);
+          } else {
+            // No saved exchange, use default exchange
+            await this.fetchExchangeBalances();
+          }
+        } else {
+          // No user ID, use default exchange
+          await this.fetchExchangeBalances();
+        }
       }
 
       this.lastUpdated = Date.now();
       this.emit('balancesUpdated', this.getBalances());
+      this.emit('multiWalletBalancesUpdated', this.getMultiWalletBalances());
     } catch (error) {
       logService.log('error', 'Failed to fetch balances', error, 'WalletBalanceService');
     } finally {
@@ -224,38 +267,97 @@ class WalletBalanceService extends EventEmitter {
         // This avoids authentication issues with the TestNet API
         logService.log('info', 'Using realistic mock data for TestNet balances', null, 'WalletBalanceService');
 
-        // Create realistic mock balances
-        const mockBalances = {
+        // Create realistic mock balances for different wallet types
+        const mockSpotBalances = {
           free: {
             'BTC': 0.5,
             'ETH': 10.0,
             'USDT': 10000.0,
             'BNB': 100.0,
             'SOL': 200.0,
-            'ADA': 5000.0,
-            'DOT': 1000.0,
-            'DOGE': 50000.0
           },
           used: {
             'BTC': 0.1,
             'ETH': 2.0,
-            'USDT': 2000.0,
+            'USDT': 1000.0,
             'BNB': 20.0,
             'SOL': 50.0,
-            'ADA': 1000.0,
-            'DOT': 200.0,
-            'DOGE': 10000.0
           },
           total: {}
         };
 
-        // Calculate totals
-        Object.keys(mockBalances.free).forEach(asset => {
-          mockBalances.total[asset] = mockBalances.free[asset] + (mockBalances.used[asset] || 0);
+        const mockMarginBalances = {
+          free: {
+            'BTC': 0.2,
+            'ETH': 5.0,
+            'USDT': 5000.0,
+            'BNB': 50.0,
+          },
+          used: {
+            'BTC': 0.05,
+            'ETH': 1.0,
+            'USDT': 1000.0,
+            'BNB': 10.0,
+          },
+          total: {}
+        };
+
+        const mockFuturesBalances = {
+          free: {
+            'USDT': 8000.0,
+          },
+          used: {
+            'USDT': 2000.0,
+          },
+          total: {}
+        };
+
+        // Calculate totals for each wallet type
+        Object.keys(mockSpotBalances.free).forEach(asset => {
+          mockSpotBalances.total[asset] = mockSpotBalances.free[asset] + (mockSpotBalances.used[asset] || 0);
         });
 
-        // Use the mock balances
-        const balanceData = mockBalances;
+        Object.keys(mockMarginBalances.free).forEach(asset => {
+          mockMarginBalances.total[asset] = mockMarginBalances.free[asset] + (mockMarginBalances.used[asset] || 0);
+        });
+
+        Object.keys(mockFuturesBalances.free).forEach(asset => {
+          mockFuturesBalances.total[asset] = mockFuturesBalances.free[asset] + (mockFuturesBalances.used[asset] || 0);
+        });
+
+        // Create multi-wallet balance object
+        const multiWalletBalance: MultiWalletBalance = {
+          spot: {
+            free: parseFloat(mockSpotBalances.free.USDT.toString()),
+            used: parseFloat(mockSpotBalances.used.USDT.toString()),
+            total: parseFloat(mockSpotBalances.total.USDT.toString()),
+            currency: 'USDT'
+          },
+          margin: {
+            free: parseFloat(mockMarginBalances.free.USDT.toString()),
+            used: parseFloat(mockMarginBalances.used.USDT.toString()),
+            total: parseFloat(mockMarginBalances.total.USDT.toString()),
+            currency: 'USDT'
+          },
+          futures: {
+            free: parseFloat(mockFuturesBalances.free.USDT.toString()),
+            used: parseFloat(mockFuturesBalances.used.USDT.toString()),
+            total: parseFloat(mockFuturesBalances.total.USDT.toString()),
+            currency: 'USDT'
+          },
+          timestamp: Date.now()
+        };
+
+        // Store the multi-wallet balance
+        if (this.userId) {
+          this.multiWalletBalances.set(this.userId, multiWalletBalance);
+        } else {
+          // Use a default key for demo mode
+          this.multiWalletBalances.set('demo', multiWalletBalance);
+        }
+
+        // Also update the legacy balance with the spot balance for backward compatibility
+        this.balances.set('USDT', multiWalletBalance.spot);
 
         // For debugging, let's still try to fetch the real balances in the background
         // but we won't wait for it or use the result
@@ -270,26 +372,8 @@ class WalletBalanceService extends EventEmitter {
           // Ignore errors in the background fetch
         }
 
-        // Process and store the balances
-        if (balanceData && balanceData.total) {
-          // Store USDT balance
-          const usdtBalance = balanceData.free.USDT || 0;
-          const usdtUsed = balanceData.used.USDT || 0;
-          const usdtTotal = balanceData.total.USDT || 0;
-
-          this.balances.set('USDT', {
-            free: parseFloat(usdtBalance.toString()),
-            used: parseFloat(usdtUsed.toString()),
-            total: parseFloat(usdtTotal.toString())
-          });
-
-          logService.log('info', 'TestNet balances fetched successfully',
-            { USDT: this.balances.get('USDT') }, 'WalletBalanceService');
-        } else {
-          // If no balance data, use mock data
-          logService.log('warn', 'No balance data returned from TestNet, using mock data', null, 'WalletBalanceService');
-          this.generateMockBalances();
-        }
+        logService.log('info', 'TestNet balances fetched successfully',
+          { multiWalletBalance }, 'WalletBalanceService');
       } catch (fetchError) {
         // Handle fetch balance errors
         logService.log('error', 'Failed to fetch balance from TestNet', fetchError, 'WalletBalanceService');
@@ -344,7 +428,8 @@ class WalletBalanceService extends EventEmitter {
         this.balances.set('USDT', {
           free: parseFloat(usdtBalance.toString()),
           used: parseFloat(usdtUsed.toString()),
-          total: parseFloat(usdtTotal.toString())
+          total: parseFloat(usdtTotal.toString()),
+          currency: 'USDT'
         });
 
         logService.log('info', 'Exchange balances fetched successfully',
@@ -360,18 +445,170 @@ class WalletBalanceService extends EventEmitter {
   }
 
   /**
+   * Fetch balances from a user's saved exchange
+   * @param userExchange The user's exchange configuration
+   */
+  private async fetchUserExchangeBalances(userExchange: any): Promise<void> {
+    try {
+      logService.log('info', 'Fetching balances from user exchange', { exchangeId: userExchange.exchange_id }, 'WalletBalanceService');
+
+      // Create exchange instance
+      const exchange = await ccxtService.createExchange(
+        userExchange.exchange_id,
+        {
+          apiKey: userExchange.api_key,
+          secret: userExchange.api_secret,
+          memo: userExchange.memo || undefined
+        },
+        userExchange.testnet || false
+      );
+
+      if (!exchange) {
+        throw new Error('Failed to create exchange instance');
+      }
+
+      // Fetch balances for different market types
+      const multiWalletBalance: MultiWalletBalance = {
+        spot: {
+          free: 0,
+          used: 0,
+          total: 0,
+          currency: 'USDT'
+        },
+        timestamp: Date.now()
+      };
+
+      // Fetch spot balances
+      try {
+        const spotBalance = await exchange.fetchBalance({ type: 'spot' });
+        const usdtBalance = spotBalance.free.USDT || 0;
+        const usdtUsed = spotBalance.used.USDT || 0;
+        const usdtTotal = spotBalance.total.USDT || 0;
+
+        multiWalletBalance.spot = {
+          free: parseFloat(usdtBalance.toString()),
+          used: parseFloat(usdtUsed.toString()),
+          total: parseFloat(usdtTotal.toString()),
+          currency: 'USDT'
+        };
+      } catch (error) {
+        logService.log('warn', 'Failed to fetch spot balances', error, 'WalletBalanceService');
+      }
+
+      // Fetch margin balances if supported
+      try {
+        const marginBalance = await exchange.fetchBalance({ type: 'margin' });
+        const usdtBalance = marginBalance.free.USDT || 0;
+        const usdtUsed = marginBalance.used.USDT || 0;
+        const usdtTotal = marginBalance.total.USDT || 0;
+
+        multiWalletBalance.margin = {
+          free: parseFloat(usdtBalance.toString()),
+          used: parseFloat(usdtUsed.toString()),
+          total: parseFloat(usdtTotal.toString()),
+          currency: 'USDT'
+        };
+      } catch (error) {
+        logService.log('warn', 'Failed to fetch margin balances', error, 'WalletBalanceService');
+      }
+
+      // Fetch futures balances if supported
+      try {
+        const futuresBalance = await exchange.fetchBalance({ type: 'future' });
+        const usdtBalance = futuresBalance.free.USDT || 0;
+        const usdtUsed = futuresBalance.used.USDT || 0;
+        const usdtTotal = futuresBalance.total.USDT || 0;
+
+        multiWalletBalance.futures = {
+          free: parseFloat(usdtBalance.toString()),
+          used: parseFloat(usdtUsed.toString()),
+          total: parseFloat(usdtTotal.toString()),
+          currency: 'USDT'
+        };
+      } catch (error) {
+        logService.log('warn', 'Failed to fetch futures balances', error, 'WalletBalanceService');
+      }
+
+      // Store the multi-wallet balance
+      if (this.userId) {
+        this.multiWalletBalances.set(this.userId, multiWalletBalance);
+      }
+
+      // Also update the legacy balance with the spot balance for backward compatibility
+      this.balances.set('USDT', multiWalletBalance.spot);
+
+      // Save the balance data to the database
+      if (this.userId) {
+        try {
+          await supabase
+            .from('user_wallet_balances')
+            .upsert({
+              user_id: this.userId,
+              exchange_id: userExchange.id,
+              spot_balance: multiWalletBalance.spot.total,
+              margin_balance: multiWalletBalance.margin?.total || 0,
+              futures_balance: multiWalletBalance.futures?.total || 0,
+              updated_at: new Date().toISOString()
+            });
+        } catch (error) {
+          logService.log('warn', 'Failed to save wallet balances to database', error, 'WalletBalanceService');
+        }
+      }
+
+      logService.log('info', 'User exchange balances fetched successfully',
+        { multiWalletBalance }, 'WalletBalanceService');
+    } catch (error) {
+      logService.log('error', 'Failed to fetch user exchange balances, using mock data', error, 'WalletBalanceService');
+      this.generateMockBalances();
+    }
+  }
+
+  /**
    * Generate mock balances for demo mode
    */
   private generateMockBalances(): void {
-    // Create a mock USDT balance
-    this.balances.set('USDT', {
+    // Create mock balances for all wallet types
+    const mockSpotBalance: WalletBalance = {
       free: 10000,
       used: 0,
-      total: 10000
-    });
+      total: 10000,
+      currency: 'USDT'
+    };
 
-    logService.log('info', 'Generated mock balances',
-      { USDT: this.balances.get('USDT') }, 'WalletBalanceService');
+    const mockMarginBalance: WalletBalance = {
+      free: 5000,
+      used: 1000,
+      total: 6000,
+      currency: 'USDT'
+    };
+
+    const mockFuturesBalance: WalletBalance = {
+      free: 8000,
+      used: 2000,
+      total: 10000,
+      currency: 'USDT'
+    };
+
+    // Set the legacy balance (for backward compatibility)
+    this.balances.set('USDT', mockSpotBalance);
+
+    // Set the multi-wallet balance
+    const multiWalletBalance: MultiWalletBalance = {
+      spot: mockSpotBalance,
+      margin: mockMarginBalance,
+      futures: mockFuturesBalance,
+      timestamp: Date.now()
+    };
+
+    if (this.userId) {
+      this.multiWalletBalances.set(this.userId, multiWalletBalance);
+    } else {
+      // Use a default key for demo mode
+      this.multiWalletBalances.set('demo', multiWalletBalance);
+    }
+
+    logService.log('info', 'Generated mock multi-wallet balances',
+      { multiWalletBalance }, 'WalletBalanceService');
   }
 
   /**
@@ -422,6 +659,51 @@ class WalletBalanceService extends EventEmitter {
    */
   getLastUpdated(): number {
     return this.lastUpdated;
+  }
+
+  /**
+   * Get multi-wallet balances
+   */
+  getMultiWalletBalances(): Map<string, MultiWalletBalance> {
+    return new Map(this.multiWalletBalances);
+  }
+
+  /**
+   * Get multi-wallet balance for the current user
+   */
+  getCurrentUserMultiWalletBalance(): MultiWalletBalance | null {
+    if (this.userId) {
+      return this.multiWalletBalances.get(this.userId) || null;
+    }
+
+    // In demo mode, return the demo balance
+    return this.multiWalletBalances.get('demo') || null;
+  }
+
+  /**
+   * Get available balance for a specific wallet type
+   * @param walletType The wallet type ('spot', 'margin', 'futures')
+   * @param currency The currency symbol (e.g., 'USDT')
+   */
+  getWalletTypeAvailableBalance(walletType: 'spot' | 'margin' | 'futures', currency: string = 'USDT'): number {
+    const multiWalletBalance = this.getCurrentUserMultiWalletBalance();
+    if (!multiWalletBalance) return 0;
+
+    const wallet = multiWalletBalance[walletType];
+    return wallet ? wallet.free : 0;
+  }
+
+  /**
+   * Get total balance for a specific wallet type
+   * @param walletType The wallet type ('spot', 'margin', 'futures')
+   * @param currency The currency symbol (e.g., 'USDT')
+   */
+  getWalletTypeTotalBalance(walletType: 'spot' | 'margin' | 'futures', currency: string = 'USDT'): number {
+    const multiWalletBalance = this.getCurrentUserMultiWalletBalance();
+    if (!multiWalletBalance) return 0;
+
+    const wallet = multiWalletBalance[walletType];
+    return wallet ? wallet.total : 0;
   }
 
   /**

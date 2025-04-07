@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, AlertCircle, Loader2, Wallet, RefreshCw } from 'lucide-react';
 import { logService } from '../lib/log-service';
 import { walletBalanceService } from '../lib/wallet-balance-service';
+import { MultiWalletBalanceDisplay } from './MultiWalletBalanceDisplay';
 import type { StrategyBudget, Strategy, RiskLevel } from '../lib/types';
 
 interface BudgetModalProps {
@@ -144,6 +145,21 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
     }
   };
 
+  const getRiskBadgeColor = (risk: RiskLevel) => {
+    switch (risk) {
+      case 'Low':
+        return 'bg-neon-green/20 text-neon-green';
+      case 'Medium':
+        return 'bg-neon-yellow/20 text-neon-yellow';
+      case 'High':
+        return 'bg-neon-orange/20 text-neon-orange';
+      case 'Very High':
+        return 'bg-neon-raspberry/20 text-neon-raspberry';
+      default:
+        return 'bg-neon-yellow/20 text-neon-yellow';
+    }
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto"
@@ -170,31 +186,40 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Market Balance Info */}
-          <div className="bg-gunmetal-800/50 rounded-lg p-4 mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-3">
-                <Wallet className="w-5 h-5 text-neon-turquoise" />
-                <h3 className="text-sm font-medium text-gray-300">
-                  Available Balance
-                </h3>
-              </div>
-              <button
-                onClick={refreshBalance}
-                disabled={isLoadingBalance}
-                className="p-1 rounded-full hover:bg-gunmetal-700 transition-colors"
-                title="Refresh balance"
-              >
-                <RefreshCw className={`w-4 h-4 text-gray-400 ${isLoadingBalance ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
+          {/* Multi-Wallet Balance Display */}
+          <div className="mb-4">
+            <MultiWalletBalanceDisplay compact={true} showRefreshButton={true} />
+          </div>
 
-            <p className="text-2xl font-bold text-neon-turquoise">
-              ${(marketBalance || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </p>
+          {/* Recommended budget based on available balance */}
+          <div className="mt-3 pt-3 border-t border-gunmetal-700">
+            <div className="flex justify-between items-center">
+              <p className="text-sm text-gray-400">Recommended (10%):</p>
+              <p className="text-sm font-medium text-neon-yellow">
+                ${(marketBalance * 0.1).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+            <div className="flex justify-between items-center mt-1">
+              <p className="text-sm text-gray-400">Conservative (5%):</p>
+              <p className="text-sm font-medium text-neon-green">
+                ${(marketBalance * 0.05).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
+            <div className="flex justify-between items-center mt-1">
+              <p className="text-sm text-gray-400">Aggressive (20%):</p>
+              <p className="text-sm font-medium text-neon-orange">
+                ${(marketBalance * 0.2).toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </p>
+            </div>
           </div>
 
           <div>
@@ -215,7 +240,44 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
                 disabled={isSubmitting || isProcessing}
               />
             </div>
-            <p className="mt-1 text-sm text-gray-400">
+
+            {/* Quick select buttons */}
+            <div className="flex gap-2 mt-3">
+              <button
+                type="button"
+                onClick={() => setTotalBudget(Number((marketBalance * 0.05).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-green border border-neon-green/30 rounded transition-colors"
+                disabled={isSubmitting || isProcessing}
+              >
+                5%
+              </button>
+              <button
+                type="button"
+                onClick={() => setTotalBudget(Number((marketBalance * 0.1).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-yellow border border-neon-yellow/30 rounded transition-colors"
+                disabled={isSubmitting || isProcessing}
+              >
+                10%
+              </button>
+              <button
+                type="button"
+                onClick={() => setTotalBudget(Number((marketBalance * 0.2).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-orange border border-neon-orange/30 rounded transition-colors"
+                disabled={isSubmitting || isProcessing}
+              >
+                20%
+              </button>
+              <button
+                type="button"
+                onClick={() => setTotalBudget(Number((marketBalance * 0.5).toFixed(2)))}
+                className="flex-1 py-1 px-2 text-xs bg-gunmetal-800 hover:bg-gunmetal-700 text-neon-raspberry border border-neon-raspberry/30 rounded transition-colors"
+                disabled={isSubmitting || isProcessing}
+              >
+                50%
+              </button>
+            </div>
+
+            <p className="mt-3 text-sm text-gray-400">
               Maximum allowed: ${(maxBudget || 0).toLocaleString(undefined, {
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,

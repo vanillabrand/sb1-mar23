@@ -163,7 +163,46 @@ class ExchangeService extends EventEmitter {
 
   async testConnection(config: ExchangeConfig): Promise<void> {
     try {
+      // First, check if the proxy server is running
+      try {
+        const proxyHealthCheckUrl = `${config.proxyBaseUrl}/health`;
+        console.log(`Checking proxy server health at ${proxyHealthCheckUrl}`);
+
+        const response = await fetch(proxyHealthCheckUrl, {
+          method: 'GET',
+          headers: { 'Accept': 'application/json' },
+          // Short timeout to quickly detect proxy issues
+          signal: AbortSignal.timeout(5000)
+        });
+
+        if (!response.ok) {
+          throw new Error(`Proxy server health check failed with status: ${response.status}`);
+        }
+
+        console.log('Proxy server is running');
+      } catch (proxyError) {
+        console.error('Proxy server health check failed:', proxyError);
+        logService.log('error', 'Proxy server health check failed', proxyError, 'ExchangeService');
+
+        // Check if it's a CORS error
+        const errorMessage = proxyError instanceof Error ? proxyError.message : 'Unknown error';
+        if (errorMessage.includes('CORS') || errorMessage.includes('blocked by CORS policy')) {
+          throw new Error(`CORS error detected. Please ensure the proxy server is configured correctly with the appropriate CORS headers. Try restarting the proxy server with 'node proxy-server.js'.`);
+        }
+
+        throw new Error(`Cannot connect to proxy server. Please ensure the proxy server is running at ${config.proxyBaseUrl}. Error: ${errorMessage}`);
+      }
+
       // Create exchange instance with proper configuration
+      console.log(`Creating test instance for ${config.name} (testnet: ${config.testnet})`);
+      logService.log('info', `Testing connection for ${config.name}`, {
+        testnet: config.testnet,
+        hasApiKey: !!config.apiKey,
+        hasSecret: !!config.secret,
+        apiKeyLength: config.apiKey ? config.apiKey.length : 0,
+        secretLength: config.secret ? config.secret.length : 0
+      }, 'ExchangeService');
+
       const testInstance = await ccxtService.createExchange(
         config.name as ExchangeId,
         {
@@ -182,24 +221,54 @@ class ExchangeService extends EventEmitter {
 
       // Test basic API functionality with better error handling
       try {
+        console.log(`Testing loadMarkets for ${config.name}...`);
         await testInstance.loadMarkets();
         logService.log('info', 'Successfully loaded markets', null, 'ExchangeService');
+        console.log(`Successfully loaded markets for ${config.name}`);
       } catch (marketError) {
         logService.log('error', 'Failed to load markets', marketError, 'ExchangeService');
-        throw new Error(`Failed to load markets: ${marketError instanceof Error ? marketError.message : 'Unknown error'}`);
+        console.error(`Failed to load markets for ${config.name}:`, marketError);
+
+        // Check for specific error patterns
+        const errorMsg = marketError instanceof Error ? marketError.message : 'Unknown error';
+
+        if (errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT')) {
+          throw new Error(`Connection to ${config.name} timed out. The exchange may be experiencing high load or your internet connection is slow.`);
+        }
+
+        if (errorMsg.includes('proxy') || errorMsg.includes('ECONNREFUSED')) {
+          throw new Error(`Failed to connect through proxy. Please ensure the proxy server is running at ${config.proxyBaseUrl}.`);
+        }
+
+        throw new Error(`Failed to load markets: ${errorMsg}`);
       }
 
       try {
+        console.log(`Testing fetchBalance for ${config.name}...`);
         await testInstance.fetchBalance();
         logService.log('info', 'Successfully fetched balance', null, 'ExchangeService');
+        console.log(`Successfully fetched balance for ${config.name}`);
       } catch (balanceError) {
         // If balance fetch fails, it might be due to API permissions
         logService.log('error', 'Failed to fetch balance', balanceError, 'ExchangeService');
-        throw new Error(`Failed to fetch balance. Please ensure your API key has 'Read' permissions: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
+        console.error(`Failed to fetch balance for ${config.name}:`, balanceError);
+
+        const errorMsg = balanceError instanceof Error ? balanceError.message : 'Unknown error';
+
+        if (errorMsg.includes('key') || errorMsg.includes('signature') || errorMsg.includes('auth')) {
+          throw new Error(`Authentication failed. Please check your API key and secret for ${config.name}.`);
+        }
+
+        if (errorMsg.includes('permission') || errorMsg.includes('access')) {
+          throw new Error(`Your API key doesn't have the required permissions. Please ensure it has 'Read' access at minimum.`);
+        }
+
+        throw new Error(`Failed to fetch balance. Error: ${errorMsg}`);
       }
 
       // Skip additional checks if we've made it this far
       logService.log('info', 'Exchange connection test successful', null, 'ExchangeService');
+      console.log(`Exchange connection test successful for ${config.name}`);
 
     } catch (error) {
       // Handle network errors specifically
@@ -233,13 +302,16 @@ class ExchangeService extends EventEmitter {
         throw formattedError;
       }
 
-      if (errorMessage.includes('Invalid API-key') || errorMessage.includes('API-key format invalid')) {
-        throw new Error(`Invalid API key or secret. Please double-check your credentials.`);
+      if (errorMessage.includes('Invalid API-key') || errorMessage.includes('API-key format invalid') ||
+          errorMessage.includes('signature') || errorMessage.includes('authentication')) {
+        throw new Error(`Invalid API key or secret for ${config.name}. Please double-check your credentials.`);
       }
 
-      if (errorMessage.includes('permission') || errorMessage.includes('permissions')) {
-        throw new Error(`Your API key doesn't have the required permissions. Please ensure it has 'Read' access at minimum.`);
+      if (errorMessage.includes('permission') || errorMessage.includes('permissions') ||
+          errorMessage.includes('access denied') || errorMessage.includes('not authorized')) {
+        throw new Error(`Your API key doesn't have the required permissions for ${config.name}. Please ensure it has 'Read' access at minimum.`);
       }
+
       throw new Error(`Connection test failed: ${errorMessage}`);
     }
   }
@@ -720,7 +792,7 @@ class ExchangeService extends EventEmitter {
   ): Promise<any[]> {
     try {
       // Normalize the symbol format if needed
-      const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
+      const normalizedSymbol = this.normalizeSymbol(symbol);
 
       // Log the request details
       logService.log('info', `Fetching candles for ${normalizedSymbol}`, {

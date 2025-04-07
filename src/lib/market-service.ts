@@ -1,7 +1,7 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { ccxtService } from './ccxt-service';
-import { indicatorService } from './indicators';
+import { indicatorService } from './indicators/index';
 import type { MarketData, Strategy, MarketCondition } from './types';
 
 export class MarketService extends EventEmitter {
@@ -93,7 +93,7 @@ export class MarketService extends EventEmitter {
 
   private async fetchMarketData(strategy: Strategy): Promise<MarketData> {
     // Check if ccxtService is properly initialized and has the executeWithRetry method
-    if (!this.ccxtService || typeof this.ccxtService.executeWithRetry !== 'function') {
+    if (!ccxtService || typeof ccxtService.executeWithRetry !== 'function') {
       logService.log('error', 'CCXT Service not properly initialized', { strategy }, 'MarketService');
 
       // Return default market data to prevent errors
@@ -119,11 +119,11 @@ export class MarketService extends EventEmitter {
     }
 
     try {
-      return await this.ccxtService.executeWithRetry(
+      return await ccxtService.executeWithRetry(
         async () => {
-          const ticker = await this.ccxtService.fetchTicker(strategy.symbol);
-          const orderBook = await this.ccxtService.fetchOrderBook(strategy.symbol);
-          const trades = await this.ccxtService.fetchRecentTrades(strategy.symbol);
+          const ticker = await ccxtService.fetchTicker(strategy.symbol);
+          const orderBook = await ccxtService.fetchOrderBook(strategy.symbol);
+          const trades = await ccxtService.fetchRecentTrades(strategy.symbol);
 
         return {
           timestamp: Date.now(),
@@ -166,7 +166,7 @@ export class MarketService extends EventEmitter {
     try {
       const indicators = await Promise.all(
         strategy.indicators.map(config =>
-          IndicatorService.calculateIndicator(config, data.recentTrades)
+          indicatorService.calculateIndicator(config, data.recentTrades)
         )
       );
 
@@ -202,6 +202,68 @@ export class MarketService extends EventEmitter {
     // Implement liquidity analysis logic based on order book
     // This is a placeholder implementation
     return 'medium';
+  }
+
+  /**
+   * Subscribe to market data for a specific symbol
+   * @param symbol The trading pair symbol (e.g., 'BTC/USDT')
+   * @returns A promise that resolves when the subscription is successful
+   */
+  async subscribeToMarket(symbol: string): Promise<void> {
+    try {
+      logService.log('info', `Subscribing to market data for ${symbol}`, null, 'MarketService');
+
+      // Normalize the symbol format if needed
+      const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
+
+      // Create a simple strategy object to use with existing methods
+      const tempStrategy = {
+        id: `market_${normalizedSymbol.replace('/', '_')}`,
+        symbol: normalizedSymbol,
+        indicators: [],
+        status: 'active'
+      };
+
+      // Check if we're already monitoring this symbol
+      if (!this.monitoredStrategies.has(tempStrategy.id)) {
+        // Initialize market data for this symbol
+        await this.initializeMarketData(tempStrategy as any);
+
+        // Set up interval to update market data
+        const intervalId = setInterval(
+          () => this.updateMarketData(tempStrategy as any),
+          this.UPDATE_INTERVAL
+        );
+        this.intervalIds.set(tempStrategy.id, intervalId);
+
+        this.monitoredStrategies.add(tempStrategy.id);
+        logService.log('info', `Successfully subscribed to market data for ${symbol}`, null, 'MarketService');
+      } else {
+        logService.log('info', `Already subscribed to market data for ${symbol}`, null, 'MarketService');
+      }
+    } catch (error) {
+      logService.log('error', `Failed to subscribe to market data for ${symbol}`, error, 'MarketService');
+      throw error;
+    }
+  }
+
+  /**
+   * Unsubscribe from market data for a specific symbol
+   * @param symbol The trading pair symbol (e.g., 'BTC/USDT')
+   */
+  unsubscribeFromMarket(symbol: string): void {
+    try {
+      // Normalize the symbol format if needed
+      const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
+      const strategyId = `market_${normalizedSymbol.replace('/', '_')}`;
+
+      // Stop monitoring this symbol
+      this.stopStrategyMonitoring(strategyId);
+
+      logService.log('info', `Unsubscribed from market data for ${symbol}`, null, 'MarketService');
+    } catch (error) {
+      logService.log('error', `Failed to unsubscribe from market data for ${symbol}`, error, 'MarketService');
+    }
   }
 }
 

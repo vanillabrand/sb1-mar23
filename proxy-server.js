@@ -20,7 +20,7 @@ const standardCorsHandler = (proxyRes, req, _res) => {
   proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
   proxyRes.headers['access-control-allow-credentials'] = 'true';
   proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, CB-ACCESS-KEY, ACCESS-KEY, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
+  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, API-Sign, api-sign, api_key, apikey, OK-ACCESS-KEY, OK-ACCESS-SIGN, OK-ACCESS-TIMESTAMP, OK-ACCESS-PASSPHRASE, CB-ACCESS-KEY, CB-ACCESS-SIGN, CB-ACCESS-TIMESTAMP, CB-ACCESS-PASSPHRASE, ACCESS-KEY, ACCESS-SIGN, ACCESS-TIMESTAMP, ACCESS-PASSPHRASE, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE, key, Key, secret, Secret, passphrase, Passphrase, apikey, ApiKey';
 };
 
 // Use a more permissive CORS configuration for development
@@ -28,10 +28,40 @@ const corsOptions = {
   origin: '*', // Allow all origins in development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-MBX-APIKEY', 'x-mbx-apikey', 'X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP', 'x-bapi-timestamp', 'x-bapi-api-key', 'x-bapi-sign']
+  allowedHeaders: [
+    'Content-Type', 'Authorization', 'X-Requested-With',
+    // Binance
+    'X-MBX-APIKEY', 'x-mbx-apikey',
+    // Bybit
+    'X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP', 'x-bapi-timestamp', 'x-bapi-api-key', 'x-bapi-sign',
+    // Kraken
+    'API-Key', 'API-Sign', 'api-sign', 'api_key', 'apikey',
+    // OKX
+    'OK-ACCESS-KEY', 'OK-ACCESS-SIGN', 'OK-ACCESS-TIMESTAMP', 'OK-ACCESS-PASSPHRASE',
+    // Coinbase
+    'CB-ACCESS-KEY', 'CB-ACCESS-SIGN', 'CB-ACCESS-TIMESTAMP', 'CB-ACCESS-PASSPHRASE',
+    // BitMart
+    'X-BM-KEY', 'X-BM-SIGN', 'X-BM-TIMESTAMP',
+    // KuCoin
+    'KC-API-KEY', 'KC-API-SIGN', 'KC-API-TIMESTAMP', 'KC-API-PASSPHRASE',
+    // Generic
+    'X-API-KEY', 'ACCESS-KEY', 'ACCESS-SIGN', 'ACCESS-TIMESTAMP', 'ACCESS-PASSPHRASE',
+    // Additional headers
+    'key', 'Key', 'secret', 'Secret', 'passphrase', 'Passphrase', 'apikey', 'ApiKey'
+  ]
 };
 
 app.use(cors(corsOptions));
+
+// Add a specific handler for Binance TestNet OPTIONS requests
+app.options('/api/binanceTestnet/*', (req, res) => {
+  // Set CORS headers
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-MBX-APIKEY, x-mbx-apikey, key, Key, secret, Secret, apikey, ApiKey, *');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
 
 // Add OPTIONS handling for preflight requests
 app.options('*', cors(corsOptions));
@@ -52,7 +82,7 @@ app.use((req, res, next) => {
       res.header('Access-Control-Allow-Headers', requestHeaders);
     } else {
       // Otherwise, use our standard headers
-      const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+      const standardHeaders = 'Content-Type, Authorization, X-Requested-With, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, API-Sign, api-sign, OK-ACCESS-KEY, OK-ACCESS-SIGN, OK-ACCESS-TIMESTAMP, OK-ACCESS-PASSPHRASE, CB-ACCESS-KEY, CB-ACCESS-SIGN, CB-ACCESS-TIMESTAMP, CB-ACCESS-PASSPHRASE, ACCESS-KEY, ACCESS-SIGN, ACCESS-TIMESTAMP, ACCESS-PASSPHRASE, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE, *';
       res.header('Access-Control-Allow-Headers', standardHeaders);
     }
 
@@ -84,7 +114,7 @@ app.options('/api/binanceTestnet/*', (req, res) => {
     res.header('Access-Control-Allow-Headers', requestHeaders);
   } else {
     // Otherwise, use our standard headers
-    const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+    const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api_key, apikey, *';
     res.header('Access-Control-Allow-Headers', standardHeaders);
   }
 
@@ -102,8 +132,9 @@ app.options('/api/binanceTestnet/*', (req, res) => {
 app.options('/api/binance/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, API-Sign, api-sign, api_key, apikey, *');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
 });
 
@@ -111,8 +142,9 @@ app.options('/api/binance/*', (req, res) => {
 app.options('/api/bitmart/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, API-Key, API-Sign, api-sign, *');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
 });
 
@@ -120,8 +152,9 @@ app.options('/api/bitmart/*', (req, res) => {
 app.options('/api/kraken/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key, API-Sign');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, API-Key, API-Sign, api-sign, *');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
 });
 
@@ -129,8 +162,9 @@ app.options('/api/kraken/*', (req, res) => {
 app.options('/api/coinbase/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, CB-ACCESS-KEY, CB-ACCESS-SIGN, CB-ACCESS-TIMESTAMP, CB-ACCESS-PASSPHRASE');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, CB-ACCESS-KEY, CB-ACCESS-SIGN, CB-ACCESS-TIMESTAMP, CB-ACCESS-PASSPHRASE, API-Key, API-Sign, api-sign, *');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
 });
 
@@ -138,8 +172,9 @@ app.options('/api/coinbase/*', (req, res) => {
 app.options('/api/okx/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, OK-ACCESS-KEY, OK-ACCESS-SIGN, OK-ACCESS-TIMESTAMP, OK-ACCESS-PASSPHRASE');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, OK-ACCESS-KEY, OK-ACCESS-SIGN, OK-ACCESS-TIMESTAMP, OK-ACCESS-PASSPHRASE, API-Key, API-Sign, api-sign, *');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
 });
 
@@ -147,8 +182,9 @@ app.options('/api/okx/*', (req, res) => {
 app.options('/api/bybit/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, API-Key, API-Sign, api-sign, *');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
 });
 
@@ -156,8 +192,9 @@ app.options('/api/bybit/*', (req, res) => {
 app.options('/api/kucoin/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE, API-Key, API-Sign, api-sign, *');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
 });
 
@@ -497,7 +534,8 @@ const exchangeProxies = {
       const headersToForward = [
         'X-MBX-APIKEY', 'x-mbx-apikey',
         'X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP',
-        'x-bapi-api-key', 'x-bapi-sign', 'x-bapi-timestamp'
+        'x-bapi-api-key', 'x-bapi-sign', 'x-bapi-timestamp',
+        'key', 'Key', 'secret', 'Secret', 'apikey', 'ApiKey'
       ];
 
       // Forward all headers
@@ -580,6 +618,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = origin;
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-Requested-With, X-MBX-APIKEY, x-mbx-apikey, key, Key, secret, Secret, apikey, ApiKey, *';
 
       // Get all headers from the request
       const requestHeaders = req.headers['access-control-request-headers'] || '';
@@ -589,7 +628,7 @@ const exchangeProxies = {
         proxyRes.headers['access-control-allow-headers'] = requestHeaders;
       } else {
         // Otherwise, use our standard headers
-        const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+        const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api_key, apikey, *';
         proxyRes.headers['access-control-allow-headers'] = standardHeaders;
       }
 
@@ -658,7 +697,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api_key, apikey, *';
 
       console.log(`Received response from Binance Futures: ${proxyRes.statusCode}`);
     },

@@ -57,6 +57,35 @@
     z-index: 1000;
   }
 
+  /* Ensure the hamburger menu button is clickable */
+  .mobile-bottom-nav button {
+    position: relative;
+    z-index: 1001;
+    min-height: 44px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  }
+
+  /* Specific style for the hamburger menu button */
+  .mobile-bottom-nav button:last-child {
+    position: relative;
+    background-color: rgba(40, 40, 45, 0.5);
+    border-radius: 8px;
+    padding: 8px;
+    margin-top: -4px;
+  }
+
+  /* Add a subtle pulse animation to the hamburger menu button */
+  .mobile-bottom-nav button:last-child .w-5.h-5 {
+    animation: pulse 2s infinite;
+  }
+
   /* Add padding to main content to account for bottom nav */
   .has-bottom-nav {
     padding-bottom: 60px !important;
@@ -140,7 +169,7 @@
   button[aria-label="Expand description"] {
     margin-top: -6px !important; /* Pull up even more on mobile */
     position: relative !important;
-    top: -2px !important;
+    top: 1px !important; /* Position 3px below title */
   }
 
   /* Adjust spacing when expanded */
@@ -197,6 +226,21 @@
     border-radius: 12px !important;
     margin-bottom: 12px !important;
     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+  }
+
+  /* Mobile strategy grid - show 6 strategies at a time */
+  .mobile-strategy-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    max-height: calc(100vh - 180px);
+    overflow-y: auto;
+    padding-bottom: 60px; /* Extra padding for bottom nav */
+  }
+
+  /* Make strategy cards more compact on mobile */
+  .mobile-strategy-grid .strategy-card {
+    margin-bottom: 8px;
   }
 
   /* Mobile-friendly tables */
@@ -370,6 +414,16 @@
     font-size: 14px !important;
     margin-bottom: 8px !important;
     display: block !important;
+  }
+
+  /* Position chevrons 3px below titles in mobile menu */
+  .mobile-top-nav button .w-6.h-6 {
+    margin-top: 3px;
+  }
+
+  /* Ensure hamburger menu in bottom nav is not affected by the chevron positioning */
+  .mobile-bottom-nav button .w-5.h-5 {
+    margin-top: 0;
   }
 
   /* Mobile-friendly tooltips */
