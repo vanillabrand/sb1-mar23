@@ -303,25 +303,61 @@ class GlobalCacheService {
   }
 
   /**
-   * Refresh the news cache for default assets
+   * Refresh the news cache for user strategies and default assets
    */
   private async refreshNews(): Promise<void> {
     try {
       logService.log('info', 'Refreshing news cache', null, 'GlobalCacheService');
 
-      // Process each asset individually
+      // First, try to get news for user strategies
+      try {
+        // Get news for all assets in user strategies
+        const userStrategyNews = await newsService.getNewsForUserStrategies();
+
+        // If we got news for user strategies, update the cache with a special key
+        if (userStrategyNews && userStrategyNews.length > 0) {
+          this.newsCache.set('user_strategies', userStrategyNews);
+          logService.log('info', 'Updated news cache with user strategy assets', { count: userStrategyNews.length }, 'GlobalCacheService');
+        } else {
+          logService.log('info', 'No news found for user strategies', null, 'GlobalCacheService');
+          // Remove the user_strategies key if it exists but is empty
+          if (this.newsCache.has('user_strategies')) {
+            this.newsCache.delete('user_strategies');
+          }
+        }
+      } catch (strategyError) {
+        logService.log('warn', 'Failed to get news for user strategies, falling back to default assets', strategyError, 'GlobalCacheService');
+      }
+
+      // Also process each default asset individually as a fallback
+      let foundAnyNews = false;
       for (const asset of this.DEFAULT_ASSETS) {
         const normalizedAsset = asset.replace(/_/g, '').replace(/USDT/g, '');
 
         // Fetch fresh news for this asset
         const news = await newsService.getNewsForAsset(normalizedAsset);
 
-        // Update the cache
-        this.newsCache.set(normalizedAsset, news);
+        // Only update the cache if we got news
+        if (news && news.length > 0) {
+          this.newsCache.set(normalizedAsset, news);
+          foundAnyNews = true;
+          logService.log('info', `Found ${news.length} news articles for ${normalizedAsset}`, null, 'GlobalCacheService');
+        } else {
+          // Remove the asset from the cache if it exists but is empty
+          if (this.newsCache.has(normalizedAsset)) {
+            this.newsCache.delete(normalizedAsset);
+          }
+          logService.log('info', `No news found for ${normalizedAsset}`, null, 'GlobalCacheService');
+        }
       }
 
       this.newsLastUpdate = Date.now();
-      logService.log('info', 'News cache refreshed successfully', null, 'GlobalCacheService');
+
+      if (foundAnyNews || this.newsCache.has('user_strategies')) {
+        logService.log('info', 'News cache refreshed successfully', null, 'GlobalCacheService');
+      } else {
+        logService.log('warn', 'No news found for any assets', null, 'GlobalCacheService');
+      }
     } catch (error) {
       logService.log('error', 'Failed to refresh news cache', error, 'GlobalCacheService');
       throw error;
@@ -458,23 +494,59 @@ class GlobalCacheService {
    */
   async getNewsForAssets(assets: string[] = []): Promise<NewsItem[]> {
     try {
-      // If no assets specified, use default assets
-      const assetsToUse = assets.length > 0 ? assets : this.DEFAULT_ASSETS.map(a => a.replace(/_/g, '').replace(/USDT/g, ''));
-
       // Collect news for all requested assets
       const allNews: NewsItem[] = [];
 
-      for (const asset of assetsToUse) {
-        const normalizedAsset = asset.replace(/_/g, '').replace(/USDT/g, '');
+      // First, check if we have user strategy news in the cache
+      if (this.newsCache.has('user_strategies')) {
+        // If we have user strategy news, use it as the primary source
+        const userStrategyNews = this.newsCache.get('user_strategies')!;
+        if (userStrategyNews && userStrategyNews.length > 0) {
+          allNews.push(...userStrategyNews);
+        }
 
-        // Check if we have this asset in the cache
-        if (this.newsCache.has(normalizedAsset)) {
-          allNews.push(...this.newsCache.get(normalizedAsset)!);
-        } else {
-          // If not in cache, fetch directly and cache it
-          const news = await newsService.getNewsForAsset(normalizedAsset);
-          this.newsCache.set(normalizedAsset, news);
-          allNews.push(...news);
+        // If specific assets were requested, we'll still add those
+        if (assets.length > 0) {
+          for (const asset of assets) {
+            const normalizedAsset = asset.replace(/_/g, '').replace(/USDT/g, '');
+
+            // Check if we have this asset in the cache
+            if (this.newsCache.has(normalizedAsset)) {
+              const assetNews = this.newsCache.get(normalizedAsset)!;
+              if (assetNews && assetNews.length > 0) {
+                allNews.push(...assetNews);
+              }
+            } else {
+              // If not in cache, fetch directly and cache it
+              const news = await newsService.getNewsForAsset(normalizedAsset);
+              if (news && news.length > 0) {
+                this.newsCache.set(normalizedAsset, news);
+                allNews.push(...news);
+              }
+            }
+          }
+        }
+      } else {
+        // If no user strategy news, use default assets or requested assets
+        const assetsToUse = assets.length > 0 ? assets : this.DEFAULT_ASSETS.map(a => a.replace(/_/g, '').replace(/USDT/g, ''));
+
+        for (const asset of assetsToUse) {
+          const normalizedAsset = asset.replace(/_/g, '').replace(/USDT/g, '');
+
+          // Check if we have this asset in the cache
+          if (this.newsCache.has(normalizedAsset)) {
+            const assetNews = this.newsCache.get(normalizedAsset)!;
+            if (assetNews && assetNews.length > 0) {
+              allNews.push(...assetNews);
+            }
+          } else {
+            // If not in cache, fetch directly and cache it
+            const news = await newsService.getNewsForAsset(normalizedAsset);
+            if (news && news.length > 0) {
+              this.newsCache.set(normalizedAsset, news);
+              allNews.push(...news);
+            }
+          }
         }
       }
 

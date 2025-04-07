@@ -2,6 +2,8 @@ import { supabase } from './supabase';
 import { logService } from './log-service';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from './event-bus';
+import { globalCacheService } from './global-cache-service';
+import { newsService } from './news-service';
 import type { Strategy, CreateStrategyData } from './types';
 
 class StrategyService {
@@ -55,6 +57,11 @@ class StrategyService {
       if (!createdStrategy) {
         throw new Error('Failed to create strategy - no data returned');
       }
+
+      // Refresh news cache in the background to include news for the new strategy's assets
+      this.refreshNewsForStrategy(createdStrategy).catch(error => {
+        logService.log('warn', 'Failed to refresh news for new strategy', error, 'StrategyService');
+      });
 
       return createdStrategy;
     } catch (error) {
@@ -368,6 +375,66 @@ class StrategyService {
       logService.log('error', 'Failed to get active strategies', { error }, 'StrategyService');
       return [];
     }
+  }
+
+
+  /**
+   * Refresh news for a specific strategy
+   * This is called when a new strategy is created to ensure we have relevant news
+   */
+  private async refreshNewsForStrategy(strategy: Strategy): Promise<void> {
+    try {
+      // Extract asset pairs from the strategy
+      const assetPairs = this.extractAssetPairsFromStrategy(strategy);
+
+      if (!assetPairs || assetPairs.length === 0) {
+        logService.log('info', 'No asset pairs found in strategy, skipping news refresh', { strategyId: strategy.id }, 'StrategyService');
+        return;
+      }
+
+      // Extract the base assets (e.g., 'BTC' from 'BTC/USDT')
+      const assets = assetPairs.map(pair => {
+        // Handle different pair formats (BTC/USDT, BTC_USDT, etc.)
+        const parts = pair.split(/[\/\_]/);
+        return parts[0]; // Return the first part (base asset)
+      }).filter(Boolean); // Remove any empty strings
+
+      if (assets.length === 0) {
+        logService.log('info', 'No valid assets extracted from pairs, skipping news refresh', { strategyId: strategy.id, pairs: assetPairs }, 'StrategyService');
+        return;
+      }
+
+      logService.log('info', 'Refreshing news for strategy assets', { strategyId: strategy.id, assets }, 'StrategyService');
+
+      // Force a refresh of the news cache to include these assets
+      await globalCacheService.forceRefreshNews();
+
+      logService.log('info', 'Successfully refreshed news for strategy assets', { strategyId: strategy.id, assets }, 'StrategyService');
+    } catch (error) {
+      logService.log('error', 'Failed to refresh news for strategy', error, 'StrategyService');
+      // Don't throw the error, just log it
+    }
+  }
+
+  /**
+   * Extract asset pairs from a strategy
+   */
+  private extractAssetPairsFromStrategy(strategy: Strategy): string[] {
+    // Extract trading pairs from various possible locations
+    if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+      return strategy.selected_pairs;
+    }
+
+    if (strategy.strategy_config && strategy.strategy_config.assets) {
+      return strategy.strategy_config.assets;
+    }
+
+    if (strategy.strategy_config && strategy.strategy_config.config && strategy.strategy_config.config.pairs) {
+      return strategy.strategy_config.config.pairs;
+    }
+
+    // Default to BTC/USDT if no pairs are found
+    return ['BTC/USDT'];
   }
 }
 

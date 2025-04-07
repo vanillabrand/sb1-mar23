@@ -1,6 +1,7 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-import type { NewsItem } from './types';
+import { strategyService } from './strategy-service';
+import type { NewsItem, Strategy } from './types';
 
 class NewsService extends EventEmitter {
   private static instance: NewsService;
@@ -67,6 +68,71 @@ class NewsService extends EventEmitter {
     return this.deduplicateAndSortNews(allNews);
   }
 
+  /**
+   * Get news for all assets in user strategies
+   * This is useful for showing relevant news based on user's portfolio
+   */
+  async getNewsForUserStrategies(): Promise<NewsItem[]> {
+    try {
+      // Get all user strategies
+      const strategies = await strategyService.getAllStrategies();
+
+      if (!strategies || strategies.length === 0) {
+        return this.getNewsForAssets(this.DEFAULT_ASSETS);
+      }
+
+      // Extract unique asset symbols from all strategies
+      const assetSet = new Set<string>();
+
+      strategies.forEach(strategy => {
+        // Extract trading pairs from various possible locations
+        const pairs = this.extractAssetPairsFromStrategy(strategy);
+
+        // Extract the first part of each pair (e.g., 'BTC' from 'BTC/USDT')
+        pairs.forEach(pair => {
+          // Handle different pair formats (BTC/USDT, BTC_USDT, etc.)
+          const asset = pair.split(/[\/\_]/).shift();
+          if (asset) assetSet.add(asset);
+        });
+      });
+
+      // Convert Set to Array
+      const assets = Array.from(assetSet);
+
+      // If no assets found, use defaults
+      if (assets.length === 0) {
+        return this.getNewsForAssets(this.DEFAULT_ASSETS);
+      }
+
+      // Get news for all assets
+      return this.getNewsForAssets(assets);
+    } catch (error) {
+      logService.log('error', 'Error getting news for user strategies:', error, 'NewsService');
+      return this.getNewsForAssets(this.DEFAULT_ASSETS);
+    }
+  }
+
+  /**
+   * Extract asset pairs from a strategy
+   */
+  private extractAssetPairsFromStrategy(strategy: Strategy): string[] {
+    // Extract trading pairs from various possible locations
+    if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+      return strategy.selected_pairs;
+    }
+
+    if (strategy.strategy_config && strategy.strategy_config.assets) {
+      return strategy.strategy_config.assets;
+    }
+
+    if (strategy.strategy_config && strategy.strategy_config.config && strategy.strategy_config.config.pairs) {
+      return strategy.strategy_config.config.pairs;
+    }
+
+    // Default to BTC/USDT if no pairs are found
+    return ['BTC/USDT'];
+  }
+
   private deduplicateAndSortNews(news: NewsItem[]): NewsItem[] {
     // Use title as the unique key to remove duplicates
     const uniqueNews = Array.from(
@@ -80,28 +146,84 @@ class NewsService extends EventEmitter {
   }
 
   private async fetchNewsForAsset(asset: string): Promise<NewsItem[]> {
-    // Generate synthetic news for faster loading
-    const currentDate = new Date();
-    const headlines = [
-      `${asset} Shows Strong Momentum in Recent Trading`,
-      `Technical Analysis: ${asset} Tests Key Resistance`,
-      `Market Update: ${asset} Volume Surges`,
-      `${asset} Development Update: New Features Coming`,
-      `Institutional Interest in ${asset} Growing`
-    ];
+    try {
+      // Get API key and URL from environment variables
+      const apiKey = import.meta.env.NEWS_API_KEY || process.env.NEWS_API_KEY;
+      const baseUrl = import.meta.env.NEWS_API_URL || process.env.NEWS_API_URL;
 
-    return headlines.map((title, index) => ({
-      id: `${asset}-${index}`,
-      title,
-      description: `Latest market analysis and updates for ${asset}...`,
-      url: 'https://example.com/news',
-      source: 'Crypto Daily',
-      imageUrl: `https://source.unsplash.com/random/300x200/?crypto,${asset.toLowerCase()}`,
-      publishedAt: new Date(currentDate.getTime() - index * 3600000).toISOString(),
-      relatedAssets: [asset],
-      sentiment: Math.random() > 0.6 ? 'positive' : Math.random() < 0.4 ? 'negative' : 'neutral'
-    }));
+      if (!apiKey || !baseUrl) {
+        logService.log('error', 'Missing NEWS_API_KEY or NEWS_API_URL environment variables', null, 'NewsService');
+        return [];
+      }
+
+      // Construct the URL with the asset as a category
+      const url = new URL(baseUrl);
+      url.searchParams.append('categories', asset);
+
+      // Make the API request
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          'x-api-key': apiKey,
+          'Accept': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logService.log('error', `Coindesk API error: ${response.status} ${errorText}`, null, 'NewsService');
+        return [];
+      }
+
+      const data = await response.json();
+
+      // Map the API response to our NewsItem format
+      if (data && data.data && Array.isArray(data.data) && data.data.length > 0) {
+        return data.data.map((article: any) => ({
+          id: article.id || `${asset}-${Math.random().toString(36).substring(2, 9)}`,
+          title: article.title || `${asset} News`,
+          description: article.description || article.excerpt || '',
+          url: article.url || '',
+          source: article.source?.name || 'Coindesk',
+          imageUrl: article.thumbnail?.url || `https://source.unsplash.com/random/300x200/?crypto,${asset.toLowerCase()}`,
+          publishedAt: article.published_at || new Date().toISOString(),
+          relatedAssets: [asset],
+          sentiment: this.determineSentiment(article.title, article.description)
+        }));
+      }
+
+      // If no data or empty array, return empty array
+      logService.log('info', `No news articles found for ${asset}`, null, 'NewsService');
+      return [];
+    } catch (error) {
+      logService.log('error', `Error fetching news from Coindesk API for ${asset}:`, error, 'NewsService');
+      return [];
+    }
   }
+
+  private determineSentiment(title: string, description: string): 'positive' | 'negative' | 'neutral' {
+    const text = `${title} ${description}`.toLowerCase();
+
+    const positiveWords = ['bullish', 'surge', 'rally', 'gain', 'rise', 'soar', 'jump', 'positive', 'growth', 'up'];
+    const negativeWords = ['bearish', 'crash', 'fall', 'drop', 'plunge', 'decline', 'negative', 'down', 'loss', 'risk'];
+
+    let positiveScore = 0;
+    let negativeScore = 0;
+
+    positiveWords.forEach(word => {
+      if (text.includes(word)) positiveScore++;
+    });
+
+    negativeWords.forEach(word => {
+      if (text.includes(word)) negativeScore++;
+    });
+
+    if (positiveScore > negativeScore) return 'positive';
+    if (negativeScore > positiveScore) return 'negative';
+    return 'neutral';
+  }
+
+
 }
 
 export const newsService = NewsService.getInstance();

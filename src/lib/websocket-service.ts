@@ -288,6 +288,75 @@ export class WebSocketService extends EventEmitter {
   }
 
   /**
+   * Subscribe to a strategy and its market data
+   * @param strategyId The ID of the strategy to subscribe to
+   */
+  async subscribeToStrategy(strategyId: string): Promise<void> {
+    try {
+      if (!this.getConnectionStatus()) {
+        await this.connect({});
+      }
+
+      // Send subscription message
+      await this.send({
+        type: 'subscribe',
+        channel: 'strategy',
+        strategyId
+      });
+
+      // Get strategy details to subscribe to its trading pairs
+      try {
+        const { data: strategy } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('id', strategyId)
+          .single();
+
+        if (strategy && strategy.selected_pairs) {
+          // Subscribe to market data for each trading pair
+          for (const symbol of strategy.selected_pairs) {
+            await this.subscribeToMarketData(symbol);
+          }
+        }
+      } catch (strategyError) {
+        logService.log('warn', `Failed to get strategy details for ${strategyId}`, strategyError, 'WebSocketService');
+      }
+
+      logService.log('info', `Subscribed to strategy ${strategyId}`, null, 'WebSocketService');
+    } catch (error) {
+      logService.log('error', `Failed to subscribe to strategy ${strategyId}`, error, 'WebSocketService');
+      throw error;
+    }
+  }
+
+  /**
+   * Subscribe to market data for a symbol
+   * @param symbol The trading pair symbol to subscribe to
+   */
+  async subscribeToMarketData(symbol: string): Promise<void> {
+    try {
+      if (!this.getConnectionStatus()) {
+        await this.connect({});
+      }
+
+      // Format the symbol for Binance WebSocket
+      const formattedSymbol = symbol.replace('/', '').toLowerCase() + '@trade';
+
+      // Send subscription message
+      await this.send({
+        type: 'subscribe',
+        channel: 'market',
+        symbol: formattedSymbol
+      });
+
+      logService.log('info', `Subscribed to market data for ${symbol}`, null, 'WebSocketService');
+    } catch (error) {
+      logService.log('error', `Failed to subscribe to market data for ${symbol}`, error, 'WebSocketService');
+      throw error;
+    }
+  }
+
+  /**
    * Handle Binance TestNet data
    * @param data The Binance data
    */

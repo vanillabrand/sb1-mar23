@@ -390,6 +390,37 @@ class TradeManager extends EventEmitter {
         // Remove from active orders
         this.activeOrders.delete(orderId);
 
+        // Record transaction for this trade closure
+        try {
+          // Import dynamically to avoid circular dependencies
+          const { transactionService } = await import('./transaction-service');
+          const { tradeService } = await import('./trade-service');
+
+          // Get the strategy budget
+          const budget = tradeService.getBudget(status.strategyId || status.strategy_id);
+          if (budget) {
+            await transactionService.recordTransaction(
+              'trade',
+              profitLoss, // Profit/loss amount
+              budget.total,
+              `Closed ${status.side} trade for ${status.symbol} due to ${reason}`,
+              orderId,
+              'trade',
+              {
+                strategy_id: status.strategyId || status.strategy_id,
+                symbol: status.symbol,
+                side: status.side,
+                entry_price: status.entryPrice || status.entry_price,
+                exit_price: currentPrice,
+                profit: profitLoss,
+                reason: reason
+              }
+            );
+          }
+        } catch (txError) {
+          logService.log('warn', 'Failed to record transaction for trade closure', txError, 'TradeManager');
+        }
+
         // Emit events
         this.emit('orderComplete', { orderId, status: updatedStatus });
         eventBus.emit('trade:closed', { orderId, status: updatedStatus });
@@ -500,6 +531,37 @@ class TradeManager extends EventEmitter {
       // In a real implementation, this would record the trade to a database
       logService.log('info', `Trade ${tradeId} executed successfully`, { order }, 'TradeManager');
 
+      // Record transaction for this trade
+      try {
+        // Import dynamically to avoid circular dependencies
+        const { transactionService } = await import('./transaction-service');
+        const { tradeService } = await import('./trade-service');
+
+        // Get the strategy budget
+        const budget = tradeService.getBudget(order.strategyId || order.strategy_id);
+        if (budget) {
+          await transactionService.recordTransaction(
+            'trade',
+            -order.amount * order.entryPrice, // Negative amount for trade creation
+            budget.total,
+            `Created ${order.side} trade for ${order.symbol}`,
+            tradeId,
+            'trade',
+            {
+              strategy_id: order.strategyId || order.strategy_id,
+              symbol: order.symbol,
+              side: order.side,
+              price: order.entryPrice || order.entry_price,
+              quantity: order.amount,
+              entryConditions: order.entryConditions || order.entry_conditions || [],
+              exitConditions: order.exitConditions || order.exit_conditions || []
+            }
+          );
+        }
+      } catch (txError) {
+        logService.log('warn', 'Failed to record transaction for trade execution', txError, 'TradeManager');
+      }
+
       // Emit trade executed event
       this.emit('tradeExecuted', { tradeId, order });
 
@@ -537,17 +599,25 @@ class TradeManager extends EventEmitter {
     const now = Date.now();
 
     // Ensure we have entry and exit conditions
-    const entryConditions = options.entry_conditions || [];
-    const exitConditions = options.exit_conditions || [];
+    let entryConditions = options.entryConditions || options.entry_conditions || [];
+    let exitConditions = options.exitConditions || options.exit_conditions || [];
+
+    // Handle string-based conditions (from DeepSeek)
+    if (typeof entryConditions === 'string') {
+      entryConditions = [entryConditions];
+    }
+
+    if (typeof exitConditions === 'string') {
+      exitConditions = [exitConditions];
+    }
 
     // If no entry conditions provided, create a basic one
     if (entryConditions.length === 0) {
-      entryConditions.push({
-        indicator: 'price',
-        condition: 'crosses',
-        value: options.entry_price || 0,
-        timeframe: '1m'
-      });
+      const entryPrice = options.entry_price || 0;
+      const direction = options.side === 'buy' ? 'above' : 'below';
+
+      // Create a string-based entry condition
+      entryConditions = [`Price crosses ${direction} ${entryPrice}`];
     }
 
     // If no exit conditions and no stop loss/take profit, create basic ones
@@ -563,19 +633,11 @@ class TradeManager extends EventEmitter {
       options.stop_loss = stopLoss;
       options.take_profit = takeProfit;
 
-      exitConditions.push({
-        indicator: 'price',
-        condition: options.side === 'buy' ? 'falls_below' : 'rises_above',
-        value: stopLoss,
-        timeframe: '1m'
-      });
-
-      exitConditions.push({
-        indicator: 'price',
-        condition: options.side === 'buy' ? 'rises_above' : 'falls_below',
-        value: takeProfit,
-        timeframe: '1m'
-      });
+      // Create string-based exit conditions
+      exitConditions = [
+        `Stop loss at ${stopLoss}`,
+        `Take profit at ${takeProfit}`
+      ];
     }
 
     // Log that we're creating a simulated order with entry/exit conditions
@@ -605,6 +667,9 @@ class TradeManager extends EventEmitter {
       strategyId: options.strategyId || options.strategy_id || '',
       createdAt: new Date(now).toISOString(),
       executedAt: null,
+      entryConditions: entryConditions,
+      exitConditions: exitConditions,
+      // For backward compatibility
       entry_conditions: entryConditions,
       exit_conditions: exitConditions,
       // Set initial status to pending, will be updated to filled after a short delay

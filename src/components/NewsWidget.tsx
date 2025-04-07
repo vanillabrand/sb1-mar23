@@ -87,12 +87,14 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
     );
   }
 
+  // If there's an error, don't render the component
   if (error) {
-    return (
-      <div className="text-center p-4">
-        <p className="text-red-400">{error}</p>
-      </div>
-    );
+    return null;
+  }
+
+  // If there are no news articles, don't render the component at all
+  if (allNews.length === 0) {
+    return null;
   }
 
   return (

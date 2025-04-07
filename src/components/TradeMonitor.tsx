@@ -149,6 +149,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       } else if (type === 'trade_update' && data) {
         const { strategyId, trade } = data;
 
+        // Skip if no strategyId is provided
+        if (!strategyId) {
+          logService.log('warn', 'Received trade update without strategyId', { trade }, 'TradeMonitor');
+          return;
+        }
+
         // Add timestamp if not present
         if (!trade.timestamp) {
           trade.timestamp = Date.now();
@@ -164,7 +170,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           trade.status = 'open';
         }
 
-        // Update the trades for this strategy
+        // Ensure the trade has the correct strategyId
+        trade.strategyId = strategyId;
+
+        // Update the trades for this specific strategy only
         setStrategyTrades(prev => {
           // Check if we already have this trade (by ID)
           const existingTradeIndex = (prev[strategyId] || []).findIndex(t => t.id === trade.id);
@@ -190,7 +199,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           };
         });
 
-        // Also update the global trades list
+        // Also update the global trades list, but only for this specific strategy
         setTrades(prev => {
           // Check if we already have this trade (by ID)
           const existingTradeIndex = prev.findIndex(t => t.id === trade.id);
@@ -223,7 +232,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         if (data.e === 'trade') {
           // Create a trade object from Binance data
           const binanceTrade = {
-            id: `binance-${data.t}`,
+            id: `binance-${data.t}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`, // Make ID unique
             timestamp: data.T,
             datetime: new Date(data.T).toISOString(),
             symbol: data.s.toUpperCase().replace(/([A-Z]+)([A-Z]+)$/, '$1/$2'), // Convert BTCUSDT to BTC/USDT
@@ -235,7 +244,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
               cost: parseFloat(data.p) * parseFloat(data.q) * 0.001, // 0.1% fee
               currency: data.s.slice(-4) // Last 4 characters (e.g., USDT from BTCUSDT)
             },
-            status: 'closed',
+            status: 'pending', // Start as pending
             strategyId: 'binance-testnet'
           };
 
@@ -254,19 +263,23 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             // If we found a matching active strategy, assign the trade to it
             binanceTrade.strategyId = matchingStrategy.id;
 
-            // Check if this trade already exists to prevent duplicates
+            // Add a unique identifier to ensure this trade is only for this strategy
+            const uniqueTradeId = `${matchingStrategy.id}-${binanceTrade.symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            binanceTrade.id = uniqueTradeId;
+
+            // Check if this trade already exists to prevent duplicates (using the unique ID)
             const tradeExists = trades.some(t => t.id === binanceTrade.id);
             if (!tradeExists) {
-              // Update the trades for this strategy
+              // Update the trades for this strategy only
               setStrategyTrades(prev => {
                 const existingTrades = prev[matchingStrategy.id] || [];
-                const tradeAlreadyExists = existingTrades.some(t => t.id === binanceTrade.id);
 
-                if (tradeAlreadyExists) return prev;
-
+                // Add the new trade
                 const updatedTrades = [binanceTrade, ...existingTrades];
+
                 // Sort by timestamp, newest first
                 updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+
                 // Keep only the latest 100 trades
                 const limitedTrades = updatedTrades.slice(0, 100);
 
@@ -278,16 +291,19 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
               // Also update the global trades list
               setTrades(prev => {
+                // Add the new trade
                 const updatedTrades = [binanceTrade, ...prev];
+
                 // Sort by timestamp, newest first
                 updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+
                 // Keep only the latest 100 trades
                 return updatedTrades.slice(0, 100);
               });
-            }
 
-            // Log the Binance trade for debugging
-            logService.log('debug', `Assigned Binance trade for ${data.s} to strategy ${matchingStrategy.id}`, { binanceTrade }, 'TradeMonitor');
+              // Log the Binance trade for debugging
+              logService.log('debug', `Created unique Binance trade for ${data.s} for strategy ${matchingStrategy.id}`, { binanceTrade }, 'TradeMonitor');
+            }
           }
         }
       }
@@ -572,14 +588,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // Subscribe to market data for active strategies
       filteredStrategies.forEach(strategy => {
-        if (strategy.status === 'active' && strategy.selected_pairs) {
-          strategy.selected_pairs.forEach((symbol: string) => {
-            // Use the market service to subscribe to market data
-            marketService.subscribeToMarket(symbol)
-              .catch((error: any) => {
-                logService.log('error', `Failed to subscribe to market data for ${symbol}`, error, 'TradeMonitor');
-              });
-          });
+        if (strategy.status === 'active') {
+          // Use the WebSocket service to subscribe to the strategy and its market data
+          websocketService.subscribeToStrategy(strategy.id)
+            .catch((error: any) => {
+              logService.log('error', `Failed to subscribe to strategy ${strategy.id}`, error, 'TradeMonitor');
+            });
         }
       });
 

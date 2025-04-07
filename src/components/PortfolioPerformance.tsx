@@ -14,6 +14,7 @@ import { supabase } from '../lib/supabase';
 import { transactionService } from '../lib/transaction-service';
 import { logService } from '../lib/log-service';
 import { globalCacheService } from '../lib/global-cache-service';
+import { portfolioService } from '../lib/portfolio-service';
 import {
   Area,
   AreaChart,
@@ -47,6 +48,53 @@ export function PortfolioPerformance() {
     loadPerformanceData();
     loadPortfolioSummary();
   }, [timeframe]);
+
+  /**
+   * Handle downloading transactions as CSV
+   */
+  const handleDownloadCSV = async () => {
+    try {
+      setDownloadingCSV(true);
+
+      // Get date range based on timeframe
+      const endDate = new Date();
+      let startDate = new Date();
+
+      switch (timeframe) {
+        case '1h':
+          startDate.setHours(startDate.getHours() - 1);
+          break;
+        case '1d':
+          startDate.setDate(startDate.getDate() - 1);
+          break;
+        case '1w':
+          startDate.setDate(startDate.getDate() - 7);
+          break;
+        case '1m':
+          startDate.setMonth(startDate.getMonth() - 1);
+          break;
+      }
+
+      // Get CSV data from portfolio service
+      const csv = await portfolioService.exportTransactionsCSV(startDate, endDate, 'all');
+
+      // Create download link
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `portfolio_transactions_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (error) {
+      logService.log('error', 'Failed to download transactions as CSV', error, 'PortfolioPerformance');
+      setError('Failed to download transactions. Please try again later.');
+    } finally {
+      setDownloadingCSV(false);
+    }
+  };
 
   const loadPerformanceData = async () => {
     try {
@@ -365,6 +413,20 @@ export function PortfolioPerformance() {
               </button>
             ))}
           </div>
+
+          {/* Download CSV Button */}
+          <button
+            onClick={handleDownloadCSV}
+            className="flex items-center gap-2 px-3 py-1.5 bg-gunmetal-800 text-gray-200 rounded-lg hover:bg-gunmetal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+            disabled={downloadingCSV || performanceData.length === 0}
+          >
+            {downloadingCSV ? (
+              <Loader2 className="w-3 h-3 animate-spin" />
+            ) : (
+              <Download className="w-3 h-3" />
+            )}
+            Download CSV
+          </button>
         </div>
       </div>
 
