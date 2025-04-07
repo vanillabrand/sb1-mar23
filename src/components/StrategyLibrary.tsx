@@ -261,7 +261,7 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
       </div>
 
       {/* Templates Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6">
         {loading ? (
           <div className="col-span-full flex justify-center py-8">
             <Loader2 className="w-8 h-8 text-neon-raspberry animate-spin" />

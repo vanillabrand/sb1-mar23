@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChevronLeft, ChevronRight, Home } from 'lucide-react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useScreenSize } from '../../lib/hooks/useScreenSize';
 
@@ -36,13 +36,7 @@ export function MetallicPagination({
     }
   };
 
-  const handleReset = () => {
-    if (onReset) {
-      onReset();
-    } else {
-      onPageChange(0);
-    }
-  };
+  // Reset functionality removed as requested
 
   return (
     <div className={`relative ${className}`}>
@@ -72,19 +66,7 @@ export function MetallicPagination({
         </div>
       </motion.div>
 
-      {/* Home button at top right */}
-      <motion.div
-        className="absolute right-2 top-2 z-10 bg-gunmetal-800/80 rounded-full p-1 shadow-md cursor-pointer hover:brightness-150"
-        whileHover={{ scale: 1.05 }}
-        onClick={handleReset}
-      >
-        <Home className="w-4 h-4 text-gray-300" />
-      </motion.div>
-
-      {/* Page indicator - now shown on all devices and centered at bottom */}
-      <div className="absolute bottom-1 left-1/2 transform -translate-x-1/2 text-xs text-gray-400 font-light">
-        {currentPage + 1} / {totalPages}
-      </div>
+      {/* Home button and pagination numbers removed as requested */}
     </div>
   );
 }

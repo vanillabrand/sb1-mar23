@@ -1,15 +1,7 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Bot, 
-  Brain, 
-  Shield, 
-  Target, 
-  ChevronRight, 
-  Check,
-  Power,
-  Zap,
-  Sparkles,
+import {
+  Brain,
   Star,
   Mail,
   Lock,
@@ -20,7 +12,6 @@ import {
   User
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { KilnLogo } from './KilnLogo';
 import { FeatureCarousel } from './FeatureCarousel';
 import { PricingPanel } from './PricingPanel';
 import { HygieneLinks } from './HygieneLinks';
@@ -40,7 +31,7 @@ export function Hero() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       setError('Please fill in all fields');
       return;
@@ -69,7 +60,7 @@ export function Hero() {
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       setError('Please fill in all fields');
       return;
@@ -133,18 +124,7 @@ export function Hero() {
             transition={{ duration: 0.5 }}
             className="max-w-4xl mx-auto"
           >
-            {/* Magical Spark Icon */}
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 0.2, type: "spring" }}
-              className="flex justify-center mb-12"
-            >
-              <div className="relative">
-                <Bot className="w-16 h-16 text-neon-raspberry animate-pulse" />
-                <div className="absolute inset-0 bg-neon-raspberry/20 blur-xl rounded-full" />
-              </div>
-            </motion.div>
+
 
             {/* Main Headline */}
             <h1 className="text-5xl md:text-7xl font-bold mb-10 leading-tight">
@@ -152,17 +132,17 @@ export function Hero() {
               <br />
               <span className="text-white mt-4 block">Let AI Handle the Rest</span>
             </h1>
-            
+
             <p className="text-2xl md:text-3xl text-gray-300 mb-8 leading-relaxed">
               Your personal AI trading assistant that turns
               <br />
-              <span className="text-neon-raspberry">simple instructions</span> into 
+              <span className="text-neon-raspberry">simple instructions</span> into
               <span className="text-neon-yellow"> profitable strategies</span>
             </p>
-            
+
             <p className="text-xl text-gray-400 mb-12 max-w-3xl mx-auto leading-relaxed">
-              No complex charts or trading jargon. Just tell GIGAntic what you want to achieve, 
-              and our AI will create, execute, and manage your trading strategy 24/7. 
+              No complex charts or trading jargon. Just tell GIGAntic what you want to achieve,
+              and our AI will create, execute, and manage your trading strategy 24/7.
               Earn passive income while our AI works tirelessly for you.
             </p>
 
@@ -176,7 +156,7 @@ export function Hero() {
                 <Brain className="w-6 h-6 group-hover:rotate-12 transition-transform" />
                 <span className="text-lg font-medium">Start Your AI Trading Journey</span>
               </motion.button>
-              
+
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}

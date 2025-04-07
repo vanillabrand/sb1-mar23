@@ -226,6 +226,11 @@ class ExchangeService extends EventEmitter {
         hasSecret: !!config.secret
       });
 
+      // Check for common error patterns and provide more helpful messages
+      if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('ECONNREFUSED')) {
+        throw new Error(`Connection timed out. Please check your internet connection and try again.`);
+      }
+
       if (networkErrorHandler.isNetworkError(error)) {
         // Let the network error handler handle this error
         const formattedError = new Error(networkErrorHandler.formatNetworkErrorMessage(error instanceof Error ? error : new Error(errorMessage)));
@@ -233,12 +238,20 @@ class ExchangeService extends EventEmitter {
         throw formattedError;
       }
 
-      if (errorMessage.includes('Invalid API-key') || errorMessage.includes('API-key format invalid')) {
+      if (errorMessage.includes('Invalid API-key') || errorMessage.includes('API-key format invalid') ||
+          errorMessage.includes('Invalid API Key') || errorMessage.includes('apikey') ||
+          errorMessage.includes('API key') || errorMessage.includes('signature')) {
         throw new Error(`Invalid API key or secret. Please double-check your credentials.`);
       }
 
-      if (errorMessage.includes('permission') || errorMessage.includes('permissions')) {
+      if (errorMessage.includes('permission') || errorMessage.includes('permissions') ||
+          errorMessage.includes('access denied') || errorMessage.includes('not authorized')) {
         throw new Error(`Your API key doesn't have the required permissions. Please ensure it has 'Read' access at minimum.`);
+      }
+
+      if (errorMessage.includes('IP') || errorMessage.includes('ip address') ||
+          errorMessage.includes('whitelist') || errorMessage.includes('restricted')) {
+        throw new Error(`IP address not whitelisted. Please add your current IP address to the API key's whitelist in your exchange settings.`);
       }
       throw new Error(`Connection test failed: ${errorMessage}`);
     }
@@ -300,6 +313,64 @@ class ExchangeService extends EventEmitter {
     } catch (error) {
       logService.log('error', 'Exchange operation failed', error, 'ExchangeService');
       throw error;
+    }
+  }
+
+  async updateExchange(exchangeId: string, config: ExchangeConfig): Promise<void> {
+    try {
+      const encryptedCredentials = this.encryptCredentials({
+        apiKey: config.apiKey,
+        secret: config.secret,
+        memo: config.memo
+      });
+
+      const { error } = await supabase
+        .from('user_exchanges')
+        .update({
+          encrypted_credentials: encryptedCredentials,
+          testnet: config.testnet,
+          use_usdx: config.useUSDX,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', exchangeId);
+
+      if (error) throw error;
+
+      // Update the exchange instance if it exists
+      if (this.exchangeInstances.has(config.name)) {
+        // Create a new instance with updated credentials
+        const ccxtInstance = await ccxtService.createExchange(
+          config.name as ExchangeId,
+          {
+            apiKey: config.apiKey,
+            secret: config.secret,
+            memo: config.memo
+          },
+          config.testnet
+        );
+
+        this.exchangeInstances.set(config.name, ccxtInstance);
+      }
+
+      // If this is the active exchange, update it
+      if (this.activeExchange && this.activeExchange.id === config.name) {
+        this.activeExchange = {
+          ...this.activeExchange,
+          credentials: {
+            apiKey: config.apiKey,
+            secret: config.secret,
+            memo: config.memo
+          },
+          testnet: config.testnet
+        };
+        localStorage.setItem('activeExchange', JSON.stringify(this.activeExchange));
+      }
+
+      this.emit('exchange:updated', config.name);
+
+    } catch (error) {
+      logService.log('error', 'Failed to update exchange', error, 'ExchangeService');
+      throw new Error('Failed to update exchange');
     }
   }
 

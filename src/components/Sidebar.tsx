@@ -44,7 +44,7 @@ interface NavItemProps {
 // Regular NavItem for desktop
 const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className, onMenuClick, index, isMobile, onNavClick }) => {
   const navRef = useRef<HTMLAnchorElement | HTMLButtonElement>(null);
-  const baseClass = `nav-item flex items-center transition-all duration-200 ${isMobile ? 'py-3 border-b border-gray-800' : ''} ${className || ''}`;
+  const baseClass = `nav-item flex items-center transition-all duration-200 ${isMobile ? 'py-1 border-b border-gray-800' : ''} ${className || ''}`;
 
   const handleClick = () => {
     if (onClick) {
@@ -131,7 +131,7 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className, 
   );
 };
 
-export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
   const navigate = useNavigate();
   const [isConnected, setIsConnected] = useState(false);
   const [isExchangeDetailsExpanded, setIsExchangeDetailsExpanded] = useState(false);
@@ -337,11 +337,21 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
   };
 
   // Toggle mobile menu
-  const toggleMobileMenu = () => {
+  const toggleMobileMenu = (e?: React.MouseEvent) => {
+    // Stop event propagation to prevent conflicts
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+
     if (onToggle) {
       onToggle();
     }
+
+    // Toggle the mobile menu state
     setIsMobileMenuOpen((prev: boolean) => !prev);
+
+    console.log('Mobile menu toggled, new state:', !isMobileMenuOpen);
   };
 
   // Contract menu when nav item is clicked
@@ -355,8 +365,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
     <div className={`${isMobile ? 'w-full shadow-md z-50 mobile-top-nav' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'} ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
       {/* Logo and Header - Always visible and fully interactive */}
       <div
-        className={`${isMobile ? 'w-full px-4 py-1' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-center' : ''} ${isMobile ? 'cursor-pointer' : ''}`}
-        onClick={isMobile ? toggleMobileMenu : undefined}
+        className={`${isMobile ? 'w-full px-4 py-0 relative' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-center h-full' : ''}`}
       >
         <div className={`flex items-center ${isMobile ? 'scale-75 mobile-logo' : ''}`}>
           <div className="rounded-xl bg-gradient-to-br from-green-400 via-yellow-400 to-pink-500 p-0.5">
@@ -370,16 +379,17 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
           </div>
         </div>
 
-        {/* Mobile Menu Toggle Button - Only shown when bottom nav is not active */}
-        {isMobile && !hasBottomNav && (
+        {/* Mobile Menu Toggle Button - Always shown on mobile */}
+        {isMobile && (
           <button
-            onClick={toggleMobileMenu}
-            className="text-gray-400 hover:text-gray-200 focus:outline-none"
+            onClick={(e) => toggleMobileMenu(e)}
+            className="text-gray-400 hover:text-gray-200 focus:outline-none p-2 z-50 mobile-chevron-btn absolute left-2"
+            style={{ top: 'calc(50% - 20px)', transform: 'translateY(-50%)' }}
           >
             {isMobileMenuOpen ? (
-              <ChevronUp className="w-6 h-6" />
+              <ChevronUp className="w-5 h-5" />
             ) : (
-              <ChevronDown className="w-6 h-6" />
+              <ChevronDown className="w-5 h-5" />
             )}
           </button>
         )}
@@ -387,8 +397,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
 
       {/* Connection Status Indicator - Conditionally rendered based on mobile state */}
       <div
-        className={`${isMobile ? (isMobileMenuOpen ? 'block' : 'hidden') : 'block'} mb-6 relative z-10 px-6 ${isMobile ? 'cursor-pointer' : ''}`}
-        onClick={isMobile ? toggleMobileMenu : undefined}
+        className={`${isMobile ? (isMobileMenuOpen ? 'block' : 'hidden') : 'block'} ${isMobile ? 'mb-2' : 'mb-6'} relative z-10 px-6`}
         ref={connectionContainerRef}
       >
         <div
@@ -480,9 +489,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
 
       {/* Navigation Menu - Conditionally rendered based on mobile state */}
       <nav
-        className={`flex flex-1 ${isMobile ? 'px-4 pb-4' : ''} ${isMobile ? 'flex-col transition-all duration-300 overflow-hidden cursor-pointer' : 'flex-col space-y-2'} ${isMobile && !isMobileMenuOpen ? 'max-h-0 opacity-0' : isMobile ? 'max-h-[1000px] opacity-100' : ''}`}
-        style={isMobile ? { transitionTimingFunction: 'cubic-bezier(0.175, 0.885, 0.32, 1.275)' } : {}}
-        onClick={isMobile ? (e) => e.stopPropagation() : undefined}
+        className={`flex flex-1 ${isMobile ? 'px-4 pb-2 pt-0' : ''} ${isMobile ? 'flex-col transition-all duration-300 overflow-hidden' : 'flex-col space-y-2'} ${isMobile && !isMobileMenuOpen ? 'max-h-0 opacity-0' : isMobile ? 'max-h-[1000px] opacity-100' : ''}`}
+        style={isMobile ? { transitionTimingFunction: 'cubic-bezier(0.175, 0.885, 0.32, 1.275)', marginTop: '-25px' } : {}}
+        onClick={(e) => e.stopPropagation()}
       >
         <NavItem
           to="/dashboard"
@@ -492,6 +501,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle, hasBottomNav
           onNavClick={contractMenu}
           index={0}
           isMobile={isMobile}
+          className="first-nav-item"
         />
         <NavItem
           to="/strategy-manager"

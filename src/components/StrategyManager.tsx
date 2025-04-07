@@ -1118,7 +1118,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                       className="mb-4"
                     />
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-3 relative pt-8 pb-4">
+                    <div className="grid grid-cols-1 gap-3 mb-3 relative pt-8 pb-4">
                       {/* Metallic pagination with tabs */}
                       <MetallicPagination
                         currentPage={currentPage}
@@ -1188,7 +1188,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                 </div>
               ) : (
                 <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-3 relative pt-8 pb-4">
+                  <div className="grid grid-cols-1 gap-3 mb-3 relative pt-8 pb-4">
                     {/* Metallic pagination with tabs */}
                     <MetallicPagination
                       currentPage={0}

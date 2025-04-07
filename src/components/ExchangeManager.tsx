@@ -7,10 +7,13 @@ import {
   Trash2,
   Plus,
   RefreshCw,
-  Check
+  Check,
+  Edit,
+  ExternalLink
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { AddExchangeModal } from './AddExchangeModal';
+import { EditExchangeModal } from './EditExchangeModal';
 import { exchangeService } from '../lib/exchange-service';
 import { logService } from '../lib/log-service';
 import { supabase } from '../lib/supabase';
@@ -27,6 +30,8 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingExchange, setEditingExchange] = useState<Exchange | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [activeExchange, setActiveExchange] = useState<Exchange | null>(null);
 
@@ -121,6 +126,49 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
       const errorMessage = err instanceof Error ? err.message : 'Failed to add exchange';
       setError(errorMessage);
       logService.log('error', 'Failed to add exchange', err, 'ExchangeManager');
+      // Don't throw the error, just log it and show in the UI
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const handleEditExchange = async (config: ExchangeConfig, exchangeId: string) => {
+    setTestingConnection(true);
+    setError(null); // Clear any previous errors
+
+    try {
+      // First test the connection
+      logService.log('info', 'Testing connection to exchange', {
+        exchange: config.name,
+        testnet: config.testnet
+      }, 'ExchangeManager');
+
+      await exchangeService.testConnection({
+        name: config.name.toLowerCase(),
+        apiKey: config.apiKey,
+        secret: config.secret,
+        memo: config.memo,
+        testnet: config.testnet,
+        useUSDX: config.useUSDX
+      });
+
+      logService.log('info', 'Connection test successful', null, 'ExchangeManager');
+
+      // If test succeeds, update the exchange
+      await exchangeService.updateExchange(exchangeId, config);
+
+      // Reload the exchanges list
+      await loadExchanges();
+
+      // Show success message
+      setSuccess(`Successfully updated ${config.name}${config.testnet ? ' TestNet' : ''} credentials`);
+
+      // Close the modal
+      setShowEditModal(false);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update exchange';
+      setError(errorMessage);
+      logService.log('error', 'Failed to update exchange', err, 'ExchangeManager');
       // Don't throw the error, just log it and show in the UI
     } finally {
       setTestingConnection(false);
@@ -260,9 +308,22 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
                   <Button
                     variant="ghost"
                     size="sm"
+                    onClick={() => {
+                      setEditingExchange(exchange);
+                      setShowEditModal(true);
+                    }}
+                    className="hover:bg-blue-500/10 hover:text-blue-400 mr-2"
+                    title="Edit Exchange Credentials"
+                  >
+                    <Edit className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => handleRemoveExchange(exchange.id)}
                     className="hover:bg-red-500/10 hover:text-red-400"
                     disabled={isActive} // Can't remove the active exchange
+                    title="Remove Exchange"
                   >
                     <Trash2 className="w-4 h-4" />
                   </Button>
@@ -288,6 +349,18 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
         onAdd={handleAddExchange}
         isTesting={testingConnection}
         supportedExchanges={['binance', 'bybit', 'okx', 'bitmart', 'bitget', 'coinbase', 'kraken']}
+      />
+
+      {/* Edit Exchange Modal */}
+      <EditExchangeModal
+        open={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingExchange(null);
+        }}
+        onSave={handleEditExchange}
+        exchange={editingExchange}
+        isTesting={testingConnection}
       />
     </div>
   );
