@@ -3,6 +3,7 @@ import CryptoJS from 'crypto-js';
 import { supabase } from './supabase';
 import { logService } from './log-service';
 import { networkErrorHandler } from './network-error-handler';
+import { userProfileService } from './user-profile-service';
 import type {
   Exchange,
   ExchangeConfig,
@@ -44,17 +45,38 @@ class ExchangeService extends EventEmitter {
     if (this.initialized) return;
 
     try {
-      // Load last active exchange from local storage
+      // First try to load from user profile in database (for cross-device persistence)
+      const profileExchange = await userProfileService.getActiveExchange();
+
+      if (profileExchange) {
+        logService.log('info', 'Loading exchange from user profile', { exchangeId: profileExchange.id }, 'ExchangeService');
+        try {
+          await this.connect(profileExchange);
+          this.initialized = true;
+          return;
+        } catch (connectError) {
+          logService.log('warn', 'Failed to connect to exchange from profile, falling back to local storage', connectError, 'ExchangeService');
+          // Fall back to local storage if connection fails
+        }
+      }
+
+      // Fall back to local storage if no profile exchange or connection failed
       const savedExchange = localStorage.getItem('activeExchange');
       if (savedExchange) {
         const exchange = JSON.parse(savedExchange);
-        await this.connect(exchange);
+        try {
+          await this.connect(exchange);
+        } catch (localStorageError) {
+          logService.log('error', 'Failed to connect to exchange from local storage', localStorageError, 'ExchangeService');
+          // Don't throw here, just log the error and continue
+        }
       }
 
       this.initialized = true;
     } catch (error) {
       logService.log('error', 'Failed to initialize exchange service', error, 'ExchangeService');
-      throw error;
+      // Don't throw the error, just log it and continue
+      this.initialized = true;
     }
   }
 
@@ -146,10 +168,20 @@ class ExchangeService extends EventEmitter {
       this.activeExchange = exchange;
       localStorage.setItem('activeExchange', JSON.stringify(exchange));
 
+      // Save to user profile in database for persistence across devices
+      await userProfileService.saveActiveExchange(exchange);
+      await userProfileService.updateConnectionStatus('connected');
+      await userProfileService.resetConnectionAttempts();
+
       this.emit('exchange:connected', exchange);
 
     } catch (error) {
       logService.log('error', 'Failed to connect to exchange', error, 'ExchangeService');
+
+      // Update connection status in user profile
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      await userProfileService.updateConnectionStatus('error', errorMessage);
+
       this.emit('exchange:error', error);
       throw new Error('Failed to connect to exchange');
     }
@@ -158,6 +190,11 @@ class ExchangeService extends EventEmitter {
   async disconnect(): Promise<void> {
     this.activeExchange = null;
     localStorage.removeItem('activeExchange');
+
+    // Update user profile
+    await userProfileService.saveActiveExchange(null);
+    await userProfileService.updateConnectionStatus('disconnected');
+
     this.emit('exchange:disconnected');
   }
 
@@ -982,6 +1019,59 @@ class ExchangeService extends EventEmitter {
       askVolume: 10 + Math.random() * 20,
       timestamp: now
     };
+  }
+
+  /**
+   * Fetch the current market price for a symbol
+   * @param symbol The trading pair symbol
+   * @returns Object containing the current price
+   */
+  async fetchMarketPrice(symbol: string): Promise<{ symbol: string; price: number; timestamp: number }> {
+    try {
+      // Normalize the symbol format if needed
+      const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
+
+      // Log the request
+      logService.log('info', `Fetching market price for ${normalizedSymbol}`, null, 'ExchangeService');
+
+      // If in demo mode or no active exchange, return mock data
+      if (this.demoMode || !this.activeExchange) {
+        logService.log('info', `Using mock price data for ${normalizedSymbol} (demo mode: ${this.demoMode})`, null, 'ExchangeService');
+        const mockTicker = this.createMockTicker(normalizedSymbol);
+        return {
+          symbol: normalizedSymbol,
+          price: mockTicker.last,
+          timestamp: mockTicker.timestamp
+        };
+      }
+
+      // Get the exchange instance
+      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      if (!exchange) {
+        throw new Error(`Exchange instance not found for ${this.activeExchange.id}`);
+      }
+
+      // Fetch the ticker from the exchange
+      const ticker = await exchange.fetchTicker(normalizedSymbol);
+
+      return {
+        symbol: normalizedSymbol,
+        price: ticker.last,
+        timestamp: ticker.timestamp
+      };
+    } catch (error) {
+      logService.log('error', `Failed to fetch market price for ${symbol}`, error, 'ExchangeService');
+
+      // Return mock data as fallback
+      const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
+      const mockTicker = this.createMockTicker(normalizedSymbol);
+
+      return {
+        symbol: normalizedSymbol,
+        price: mockTicker.last,
+        timestamp: mockTicker.timestamp
+      };
+    }
   }
 
   /**

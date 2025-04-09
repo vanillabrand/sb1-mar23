@@ -9,11 +9,13 @@ import {
   RefreshCw,
   Check,
   Edit,
-  ExternalLink
+  ExternalLink,
+  Settings
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { AddExchangeModal } from './AddExchangeModal';
 import { EditExchangeModal } from './EditExchangeModal';
+import { ExchangeConnectionSettings } from './ExchangeConnectionSettings';
 import { exchangeService } from '../lib/exchange-service';
 import { logService } from '../lib/log-service';
 import { supabase } from '../lib/supabase';
@@ -223,6 +225,9 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
           </div>
         </div>
       </div>
+
+      {/* Connection Settings */}
+      <ExchangeConnectionSettings />
 
       {/* Exchanges Section */}
       <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-800">

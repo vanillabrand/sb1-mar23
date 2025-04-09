@@ -63,6 +63,7 @@ export const TradeList: React.FC<TradeListProps> = ({
             <tr className="bg-gunmetal-900">
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Symbol</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Side</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Amount</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Entry</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Exit</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Profit</th>
@@ -93,6 +94,9 @@ export const TradeList: React.FC<TradeListProps> = ({
                     }
                     {trade.side || '-'}
                   </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-white">
+                  {trade.amount !== undefined ? trade.amount.toFixed(6) : '-'}
                 </td>
                 <td className="px-4 py-3 text-sm text-white">
                   {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}

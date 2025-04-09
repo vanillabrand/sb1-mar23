@@ -138,29 +138,38 @@ class NetworkErrorHandler {
   formatNetworkErrorMessage(error: Error): string {
     const message = error.message.toLowerCase();
 
+    // Common VPN guidance message
+    const vpnGuidance = `
+
+Location Restrictions
+Some exchanges restrict access from certain countries. If you're in a restricted region, you'll need to use a VPN.
+
+VPN Recommendation
+Use a reliable VPN service to connect from a supported country. Make sure your VPN is active before retrying the connection.`;
+
     // Exchange-specific messages
     if (message.includes('binance')) {
-      return `Network connection to Binance failed. Please check your internet connection or try using a VPN. Binance restricts access from certain countries.`;
+      return `Network connection to Binance failed. Please check your internet connection or try using a VPN.${vpnGuidance}`;
     }
 
     if (message.includes('bitmart')) {
-      return `Network connection to BitMart failed. Please check your internet connection or try using a VPN.`;
+      return `Network connection to BitMart failed. Please check your internet connection or try using a VPN.${vpnGuidance}`;
     }
 
     if (message.includes('bybit')) {
-      return `Network connection to Bybit failed. Please check your internet connection or try using a VPN.`;
+      return `Network connection to Bybit failed. Please check your internet connection or try using a VPN.${vpnGuidance}`;
     }
 
     if (message.includes('okx')) {
-      return `Network connection to OKX failed. Please check your internet connection or try using a VPN.`;
+      return `Network connection to OKX failed. Please check your internet connection or try using a VPN.${vpnGuidance}`;
     }
 
     if (message.includes('coinbase')) {
-      return `Network connection to Coinbase failed. Please check your internet connection or try using a VPN.`;
+      return `Network connection to Coinbase failed. Please check your internet connection or try using a VPN.${vpnGuidance}`;
     }
 
     if (message.includes('kraken')) {
-      return `Network connection to Kraken failed. Please check your internet connection or try using a VPN.`;
+      return `Network connection to Kraken failed. Please check your internet connection or try using a VPN.${vpnGuidance}`;
     }
 
     // Error type-specific messages

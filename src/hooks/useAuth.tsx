@@ -3,6 +3,8 @@ import { type User, type AuthError } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { logService } from '../lib/log-service';
+import { userProfileService } from '../lib/user-profile-service';
+import { exchangeService } from '../lib/exchange-service';
 
 type AuthContextType = {
   user: User | null;
@@ -42,9 +44,34 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
           setUser(session?.user ?? null);
         }
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+        const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
           if (mounted) {
-            setUser(session?.user ?? null);
+            const currentUser = session?.user ?? null;
+            setUser(currentUser);
+
+            // Initialize user profile service when user logs in
+            if (currentUser && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
+              try {
+                // Initialize user profile service
+                userProfileService.initialize(currentUser.id);
+
+                // Create user profile if it doesn't exist
+                const profile = await userProfileService.getUserProfile();
+                if (!profile) {
+                  await userProfileService.saveUserProfile({
+                    email: currentUser.email,
+                    auto_reconnect: true
+                  });
+                }
+
+                // Initialize exchange service
+                await exchangeService.initialize();
+              } catch (profileError) {
+                console.error('Failed to initialize user profile:', profileError);
+                logService.error('Failed to initialize user profile', profileError, 'AuthProvider');
+              }
+            }
+
             setLoading(false);
           }
         });
