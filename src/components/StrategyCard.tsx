@@ -71,9 +71,17 @@ interface StrategyCardProps {
   onDeactivate?: (strategy: Strategy) => Promise<void> | void;
   trades?: Trade[];
   hideExpandArrow?: boolean; // New prop to hide the expand arrow
+  budget?: {
+    total: number;
+    allocated: number;
+    available: number;
+    profit: number;
+    profitPercentage?: number;
+    allocationPercentage?: number;
+  };
 }
 
-export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, onEdit, onDelete, onActivate, onDeactivate, trades = [], hideExpandArrow = false }: StrategyCardProps) {
+export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, onEdit, onDelete, onActivate, onDeactivate, trades = [], hideExpandArrow = false, budget }: StrategyCardProps) {
   const [isActivating, setIsActivating] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState(false);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
@@ -211,6 +219,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           tradeService.on('budgetUpdated', (data) => {
             if (data.strategyId === strategy.id && data.budget) {
               setStrategyBudget(data.budget.total);
+
+              // Log budget update for debugging
+              logService.log('info', `Budget updated for strategy ${strategy.id}`, { budget: data.budget }, 'StrategyCard');
             }
           });
         }
@@ -231,11 +242,18 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
 
     // Subscribe to budget updates
     const handleBudgetUpdate = (event: any) => {
+      // Handle direct budget updates from trade service
       if (event.strategyId === strategy.id) {
         const budget = tradeService.getBudget(strategy.id);
         if (budget) {
           setStrategyBudget(budget.total);
+          logService.log('info', `Budget updated via event for strategy ${strategy.id}`, { budget }, 'StrategyCard');
         }
+      }
+
+      // Handle global budget updates from TradeMonitor
+      if (event.budgets && event.budgets[strategy.id]) {
+        logService.log('info', `Budget updated from global event for strategy ${strategy.id}`, { budget: event.budgets[strategy.id] }, 'StrategyCard');
       }
     };
 
@@ -246,6 +264,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
     tradeService.on('budgetUpdated', handleBudgetUpdate);
+    eventBus.subscribe('budgetUpdated', handleBudgetUpdate);
     tradeManager.on('tradesUpdated', handleTradeUpdate);
 
     // No need for interval to refresh trades as they come from props
@@ -267,6 +286,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       // Unsubscribe from service events
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
       tradeService.off('budgetUpdated', handleBudgetUpdate);
+      eventBus.unsubscribe('budgetUpdated', handleBudgetUpdate);
       tradeManager.off('tradesUpdated', handleTradeUpdate);
 
       // Unsubscribe from event bus
@@ -1126,10 +1146,72 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               </h4>
               {showBudget && (
                 <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner animate-fadeIn">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm text-gray-400">Budget</span>
-                    <span className="text-lg font-bold text-neon-yellow">${strategyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                  </div>
+                  {budget ? (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm text-gray-400">Total Budget</span>
+                            <span className="text-md font-bold text-neon-yellow">${budget.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-gray-400">Available</span>
+                            <div className="flex items-center">
+                              <span className="text-md font-bold text-neon-turquoise">${budget.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              {budget.allocationPercentage !== undefined && (
+                                <span className="text-xs text-gray-400 ml-1">({(100 - budget.allocationPercentage).toFixed(1)}%)</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                        <div>
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm text-gray-400">Allocated</span>
+                            <div className="flex items-center">
+                              <span className="text-md font-bold text-neon-orange">${budget.allocated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              {budget.allocationPercentage !== undefined && (
+                                <span className="text-xs text-gray-400 ml-1">({budget.allocationPercentage.toFixed(1)}%)</span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span className="text-sm text-gray-400">Profit/Loss</span>
+                            <div className="flex items-center">
+                              <span className={`text-md font-bold ${budget.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                                ${budget.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                              {budget.profitPercentage !== undefined && (
+                                <span className={`text-xs ml-1 ${budget.profit >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                                  ({budget.profit >= 0 ? '+' : ''}{budget.profitPercentage.toFixed(2)}%)
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Budget progress bar */}
+                      {budget.total > 0 && (
+                        <div className="mt-2">
+                          <div className="h-2 w-full bg-gunmetal-700 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-neon-orange to-neon-yellow rounded-full"
+                              style={{ width: `${Math.min(100, budget.allocationPercentage || 0)}%` }}
+                            />
+                          </div>
+                          <div className="flex justify-between text-xs text-gray-400 mt-1">
+                            <span>Allocation</span>
+                            <span>{budget.allocationPercentage?.toFixed(1) || 0}%</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex justify-between items-center">
+                      <span className="text-sm text-gray-400">Budget</span>
+                      <span className="text-lg font-bold text-neon-yellow">${strategyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1202,6 +1284,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                           <tr className="bg-gunmetal-900/50">
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Symbol</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Side</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Amount</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Entry</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Status</th>
                             <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Time</th>
@@ -1220,6 +1303,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                                   )}
                                   {trade.side}
                                 </span>
+                              </td>
+                              <td className="px-3 py-2 text-xs text-white">
+                                {trade.amount !== undefined ? trade.amount.toFixed(6) : '-'}
                               </td>
                               <td className="px-3 py-2 text-xs text-white">
                                 {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}

@@ -79,12 +79,46 @@ class TradeManager extends EventEmitter {
   async executeTrade(options: TradeOptions): Promise<TradeResult> {
     const tradeId = this.generateTradeId(options);
 
+    // Reserve budget for this trade
+    if (options.strategy_id) {
+      const tradeAmount = options.amount || 0;
+      const tradePrice = options.entry_price || 0;
+      const tradeCost = tradeAmount * tradePrice;
+
+      if (tradeCost > 0) {
+        // Check if we have enough budget
+        const budget = tradeService.getBudget(options.strategy_id);
+        if (!budget || budget.available < tradeCost) {
+          logService.log('warn', `Insufficient budget for trade: ${tradeCost} (available: ${budget?.available || 0})`, null, 'TradeManager');
+          throw new Error(`Insufficient budget for trade: ${tradeCost} (available: ${budget?.available || 0})`);
+        }
+
+        // Reserve the budget
+        const reserved = tradeService.reserveBudgetForTrade(options.strategy_id, tradeCost);
+        if (!reserved) {
+          logService.log('warn', `Failed to reserve budget for trade: ${tradeCost}`, null, 'TradeManager');
+          throw new Error(`Failed to reserve budget for trade: ${tradeCost}`);
+        }
+
+        logService.log('info', `Reserved ${tradeCost} for trade in strategy ${options.strategy_id}`, null, 'TradeManager');
+      }
+    }
+
     try {
-      // Determine if we should use TestNet or real exchange
-      const useTestNet = options.testnet || demoService.isInDemoMode();
+      // Determine if we should use TestNet, real exchange, or demo mode
+      const isDemoMode = demoService.isInDemoMode();
+      const isExchangeConnected = await exchangeService.isConnected();
+      const useTestNet = options.testnet || isDemoMode;
+      const useRealExchange = !useTestNet && isExchangeConnected;
 
       // Log the mode being used
-      logService.log('info', `Executing trade in ${useTestNet ? 'TestNet/Demo' : 'Real'} mode`, { useTestNet, options }, 'TradeManager');
+      logService.log('info', `Executing trade in ${useTestNet ? 'TestNet/Demo' : (useRealExchange ? 'Real Exchange' : 'Simulated')} mode`, {
+        useTestNet,
+        useRealExchange,
+        isDemoMode,
+        isExchangeConnected,
+        options
+      }, 'TradeManager');
 
       // Set the testnet option
       options.testnet = useTestNet;
@@ -132,8 +166,8 @@ class TradeManager extends EventEmitter {
 
           return this.createTradeResult(simulatedOrder, 'pending');
         }
-      } else if (options.demo) {
-        // For demo mode without TestNet, create a simulated trade
+      } else if (options.demo || !useRealExchange) {
+        // For demo mode without TestNet or when no real exchange is connected, create a simulated trade
         const simulatedOrder = this.createSimulatedOrder(options, tradeId);
         this.startOrderTracking(tradeId, simulatedOrder);
 
@@ -611,18 +645,46 @@ class TradeManager extends EventEmitter {
       exitConditions = [exitConditions];
     }
 
+    // Generate realistic price based on the symbol
+    let entryPrice = options.entry_price || 0;
+    if (!entryPrice || entryPrice === 0) {
+      // Set realistic base prices for common symbols
+      if (options.symbol.includes('BTC')) {
+        // Generate a random BTC price between $60,000 and $70,000
+        entryPrice = 60000 + (Math.random() * 10000);
+      } else if (options.symbol.includes('ETH')) {
+        // Generate a random ETH price between $2,800 and $3,500
+        entryPrice = 2800 + (Math.random() * 700);
+      } else if (options.symbol.includes('SOL')) {
+        // Generate a random SOL price between $120 and $180
+        entryPrice = 120 + (Math.random() * 60);
+      } else if (options.symbol.includes('BNB')) {
+        // Generate a random BNB price between $450 and $550
+        entryPrice = 450 + (Math.random() * 100);
+      } else if (options.symbol.includes('XRP')) {
+        // Generate a random XRP price between $0.45 and $0.65
+        entryPrice = 0.45 + (Math.random() * 0.2);
+      } else if (options.symbol.includes('DOGE')) {
+        // Generate a random DOGE price between $0.10 and $0.20
+        entryPrice = 0.10 + (Math.random() * 0.1);
+      } else if (options.symbol.includes('ADA')) {
+        // Generate a random ADA price between $0.35 and $0.55
+        entryPrice = 0.35 + (Math.random() * 0.2);
+      } else {
+        // Default for other symbols - random price between $1 and $100
+        entryPrice = 1 + (Math.random() * 99);
+      }
+    }
+
     // If no entry conditions provided, create a basic one
     if (entryConditions.length === 0) {
-      const entryPrice = options.entry_price || 0;
       const direction = options.side === 'buy' ? 'above' : 'below';
-
       // Create a string-based entry condition
-      entryConditions = [`Price crosses ${direction} ${entryPrice}`];
+      entryConditions = [`Price crosses ${direction} ${entryPrice.toFixed(2)}`];
     }
 
     // If no exit conditions and no stop loss/take profit, create basic ones
     if (exitConditions.length === 0 && !options.stop_loss && !options.take_profit) {
-      const entryPrice = options.entry_price || 0;
       const direction = options.side === 'buy' ? 1 : -1;
 
       // Default 2% stop loss
@@ -635,9 +697,34 @@ class TradeManager extends EventEmitter {
 
       // Create string-based exit conditions
       exitConditions = [
-        `Stop loss at ${stopLoss}`,
-        `Take profit at ${takeProfit}`
+        `Stop loss at ${stopLoss.toFixed(2)}`,
+        `Take profit at ${takeProfit.toFixed(2)}`
       ];
+    }
+
+    // Generate a realistic amount based on the price
+    let amount = options.amount;
+    if (!amount || amount === 0) {
+      // For high-priced assets like BTC, use smaller amounts
+      if (entryPrice > 10000) {
+        // For BTC: 0.001 to 0.05 BTC
+        amount = 0.001 + (Math.random() * 0.049);
+      } else if (entryPrice > 1000) {
+        // For ETH: 0.01 to 0.5 ETH
+        amount = 0.01 + (Math.random() * 0.49);
+      } else if (entryPrice > 100) {
+        // For mid-priced assets: 0.1 to 2.0 units
+        amount = 0.1 + (Math.random() * 1.9);
+      } else if (entryPrice > 10) {
+        // For lower-priced assets: 1 to 10 units
+        amount = 1 + (Math.random() * 9);
+      } else if (entryPrice > 1) {
+        // For very low-priced assets: 10 to 100 units
+        amount = 10 + (Math.random() * 90);
+      } else {
+        // For extremely low-priced assets (like SHIB): 1000 to 10000 units
+        amount = 1000 + (Math.random() * 9000);
+      }
     }
 
     // Log that we're creating a simulated order with entry/exit conditions
@@ -645,6 +732,8 @@ class TradeManager extends EventEmitter {
       {
         tradeId,
         symbol: options.symbol,
+        entryPrice,
+        amount,
         entryConditions,
         exitConditions,
         stopLoss: options.stop_loss,
@@ -658,8 +747,8 @@ class TradeManager extends EventEmitter {
       symbol: options.symbol,
       side: options.side,
       type: options.type || 'market',
-      amount: options.amount,
-      entryPrice: options.entryPrice || options.entry_price || 0,
+      amount: amount,
+      entryPrice: entryPrice,
       stopLoss: options.stopLoss || options.stop_loss || 0,
       takeProfit: options.takeProfit || options.take_profit || 0,
       trailingStop: options.trailingStop || options.trailing_stop,

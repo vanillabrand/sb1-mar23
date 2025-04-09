@@ -39,6 +39,9 @@ export class MarketService extends EventEmitter {
       );
       this.intervalIds.set(strategy.id, intervalId);
 
+      // Generate initial trades for the strategy
+      await this.generateInitialTrades(strategy);
+
       logService.log('info', `Started monitoring strategy: ${strategy.id}`,
         { strategyId: strategy.id }, 'MarketService');
     } catch (error) {
@@ -202,6 +205,59 @@ export class MarketService extends EventEmitter {
     // Implement liquidity analysis logic based on order book
     // This is a placeholder implementation
     return 'medium';
+  }
+
+  /**
+   * Generate initial trades for a newly activated strategy
+   * @param strategy The strategy to generate trades for
+   */
+  private async generateInitialTrades(strategy: Strategy): Promise<void> {
+    try {
+      // Import dynamically to avoid circular dependencies
+      const { tradeManager } = await import('./trade-manager');
+      const { demoService } = await import('./demo-service');
+      const { tradeService } = await import('./trade-service');
+      const { tradeGenerator } = await import('./trade-generator');
+      const { exchangeService } = await import('./exchange-service');
+
+      // Get the strategy budget
+      const budget = await tradeService.getBudget(strategy.id);
+      if (!budget || budget.available <= 0) {
+        logService.log('warn', `No budget available for strategy ${strategy.id}`, null, 'MarketService');
+        return;
+      }
+
+      // Get market data
+      const marketData = this.marketData.get(strategy.id);
+      if (!marketData) {
+        logService.log('warn', `No market data available for strategy ${strategy.id}`, null, 'MarketService');
+        return;
+      }
+
+      // Check if we're in demo mode or using a live exchange
+      const isDemoMode = demoService.isDemoMode();
+      const isExchangeConnected = await exchangeService.isConnected();
+
+      logService.log('info', `Generating initial trades for strategy ${strategy.id}`, {
+        isDemoMode,
+        isExchangeConnected,
+        budget: budget.available
+      }, 'MarketService');
+
+      // Let DeepSeek decide whether to generate trades
+      // We'll just trigger the trade generator and let it handle the decision-making
+      logService.log('info', `Triggering trade generation for strategy ${strategy.id}`, null, 'MarketService');
+
+      // Add the strategy to the trade generator if it's not already there
+      await tradeGenerator.addStrategy(strategy);
+
+      // Trigger a check for trade opportunities
+      await tradeGenerator.checkTradeOpportunities(strategy.id);
+
+      logService.log('info', `Trade generation triggered for strategy ${strategy.id}`, null, 'MarketService');
+    } catch (error) {
+      logService.log('error', `Failed to generate initial trades for strategy ${strategy.id}`, error, 'MarketService');
+    }
   }
 }
 

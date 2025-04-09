@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import {
@@ -18,6 +18,7 @@ import { tradeService } from '../lib/trade-service';
 import { logService } from '../lib/log-service';
 import { supabase } from '../lib/supabase';
 import { directDeleteStrategy } from '../lib/direct-delete';
+import { strategySync } from '../lib/strategy-sync';
 import { eventBus } from '../lib/event-bus';
 import { demoService } from '../lib/demo-service';
 import { exchangeService } from '../lib/exchange-service';
@@ -51,6 +52,16 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [trades, setTrades] = useState<Trade[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies || []);
   const [strategyTrades, setStrategyTrades] = useState<Record<string, Trade[]>>({});
+
+  // State for budget tracking
+  const [strategyBudgets, setStrategyBudgets] = useState<Record<string, {
+    total: number;
+    allocated: number;
+    available: number;
+    profit: number;
+    profitPercentage?: number;
+    allocationPercentage?: number;
+  }>>({});
 
   // WebSocket state
   const [wsConnected, setWsConnected] = useState(false);
@@ -231,21 +242,16 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         // Handle Binance TestNet data
         if (data.e === 'trade') {
           // Create a trade object from Binance data
-          const binanceTrade = {
+          const binanceTrade: Trade = {
             id: `binance-${data.t}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`, // Make ID unique
             timestamp: data.T,
-            datetime: new Date(data.T).toISOString(),
             symbol: data.s.toUpperCase().replace(/([A-Z]+)([A-Z]+)$/, '$1/$2'), // Convert BTCUSDT to BTC/USDT
             side: data.m ? 'sell' : 'buy', // m = is buyer the market maker
-            price: parseFloat(data.p),
-            amount: parseFloat(data.q),
-            cost: parseFloat(data.p) * parseFloat(data.q),
-            fee: {
-              cost: parseFloat(data.p) * parseFloat(data.q) * 0.001, // 0.1% fee
-              currency: data.s.slice(-4) // Last 4 characters (e.g., USDT from BTCUSDT)
-            },
             status: 'pending', // Start as pending
-            strategyId: 'binance-testnet'
+            amount: parseFloat(data.q),
+            entryPrice: parseFloat(data.p),
+            strategyId: 'binance-testnet',
+            createdAt: new Date(data.T).toISOString()
           };
 
           // Find a strategy that trades this symbol
@@ -502,14 +508,44 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       // Only update the specific trade that changed
       if (data && (data.orderId || (data.status && data.status.id))) {
         const tradeId = data.orderId || data.status.id;
+        let strategyId: string | null = null;
+
         setTrades(prevTrades => {
-          return prevTrades.map(trade => {
+          const updatedTrades = prevTrades.map(trade => {
             if (trade.id === tradeId) {
+              // Store the strategy ID for budget recalculation
+              strategyId = trade.strategyId || (data.status && data.status.strategyId);
               // Merge the updated data with existing trade
               return { ...trade, ...data.status };
             }
             return trade;
           });
+
+          // After updating trades, update the strategy trades state
+          if (strategyId) {
+            // Group trades by strategy
+            const tradesByStrategy: Record<string, Trade[]> = {};
+            updatedTrades.forEach(trade => {
+              const sid = trade.strategyId || '';
+              if (!tradesByStrategy[sid]) {
+                tradesByStrategy[sid] = [];
+              }
+              tradesByStrategy[sid].push(trade);
+            });
+
+            // Update strategy trades state
+            setStrategyTrades(prevStrategyTrades => ({
+              ...prevStrategyTrades,
+              [strategyId as string]: tradesByStrategy[strategyId as string] || []
+            }));
+
+            // Recalculate budget for the affected strategy
+            setTimeout(() => {
+              updateStrategyBudgets(tradesByStrategy);
+            }, 100);
+          }
+
+          return updatedTrades;
         });
       }
     });
@@ -536,7 +572,35 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
 
-    // Auto-refresh timer removed as per user request
+    // Subscribe to budget updates
+    const budgetUpdatedUnsubscribe = eventBus.subscribe('budgetUpdated', (data) => {
+      console.log('Budget updated event received:', data);
+      if (data && data.budgets) {
+        // Update the strategy budgets state
+        setStrategyBudgets(prevBudgets => ({
+          ...prevBudgets,
+          ...data.budgets
+        }));
+
+        // Update available balance if provided
+        if (data.availableBalance !== undefined) {
+          setAvailableBalance(data.availableBalance);
+        }
+
+        // Force a refresh of trades to ensure everything is in sync
+        fetchTradeData();
+      }
+    });
+
+    // Add a periodic refresh for active strategies
+    const refreshInterval = setInterval(() => {
+      // Only refresh if there are active strategies and not already loading
+      const activeStrategies = strategies.filter(s => s.status === 'active');
+      if (activeStrategies.length > 0 && !isLoading && !refreshing) {
+        console.log(`Auto-refreshing ${activeStrategies.length} active strategies...`);
+        fetchTradeData();
+      }
+    }, 60000); // Refresh every 60 seconds (increased from 30 to reduce load)
 
     return () => {
       // Unsubscribe from all subscriptions
@@ -547,6 +611,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       tradeUpdatedUnsubscribe();
       tradesUpdatedUnsubscribe();
       strategyDeletedUnsubscribe();
+      budgetUpdatedUnsubscribe();
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
 
       // Remove the direct DOM event listener
@@ -554,6 +619,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // Clean up market analyzer
       marketAnalyzer.cleanup();
+
+      // Clear the refresh interval
+      clearInterval(refreshInterval);
     };
   }, []);
 
@@ -600,11 +668,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       // Force a UI update
       setLastUpdate(Date.now());
 
-      return filteredStrategies;
+      // Don't return the strategies, just update the state
+      // This ensures the function returns void
     } catch (error) {
       console.error('Failed to fetch strategies:', error);
       logService.log('error', 'Failed to fetch strategies', error, 'TradeMonitor');
-      return [];
+      // Don't return anything, just log the error
     }
   };
 
@@ -633,8 +702,40 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     return strategy ? ((strategy as any).name || (strategy as any).title || 'Unknown Strategy') : 'Unknown Strategy';
   };
 
+  // Track last fetch time to prevent too frequent fetches
+  const lastFetchTimeRef = useRef<number>(0);
+  const MIN_FETCH_INTERVAL = 10000; // 10 seconds minimum between fetches
+
+  // Flag to prevent concurrent trade data fetches
+  const isFetchingTradeDataRef = useRef<boolean>(false);
+
   // Fetch trade data from exchange or TestNet
   const fetchTradeData = async () => {
+    // Prevent fetching too frequently
+    const now = Date.now();
+    if (now - lastFetchTimeRef.current < MIN_FETCH_INTERVAL) {
+      console.log(`Skipping fetch - last fetch was ${(now - lastFetchTimeRef.current) / 1000}s ago`);
+      return;
+    }
+
+    // Don't fetch if already fetching trade data
+    if (isFetchingTradeDataRef.current) {
+      console.log('Already fetching trade data, skipping duplicate request');
+      return;
+    }
+
+    // Update last fetch time
+    lastFetchTimeRef.current = now;
+
+    // Don't fetch if already loading or refreshing
+    if (isLoading || refreshing) {
+      console.log('Already loading or refreshing, skipping fetch');
+      return;
+    }
+
+    // Set fetching flag to true
+    isFetchingTradeDataRef.current = true;
+
     try {
       setIsLoading(true);
       setError(null);
@@ -677,6 +778,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setError('Failed to fetch trade data. Please try again.');
     } finally {
       setIsLoading(false);
+      // Reset the fetching flag
+      isFetchingTradeDataRef.current = false;
     }
   };
 
@@ -700,7 +803,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       const fee = cost * 0.001; // 0.1% fee
 
       trades.push({
-        id: `mock-${now}-${i}`,
+        id: `mock-${now}-${i}-${Math.random().toString(36).substring(2, 9)}`,
         symbol,
         side,
         price,
@@ -733,11 +836,23 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   };
 
   // Cache for TestNet trades to avoid excessive API calls
-  const tradeCache = new Map<string, {trades: Trade[], timestamp: number}>();
+  const tradeCacheRef = useRef<Map<string, {trades: Trade[], timestamp: number}>>(new Map());
   const TRADE_CACHE_TTL = 60 * 1000; // 1 minute cache TTL
 
+  // Flag to prevent concurrent fetches
+  const isFetchingTestNetTradesRef = useRef<boolean>(false);
+
   const fetchTestNetTrades = async (): Promise<Trade[]> => {
+    // If already fetching, return empty array to prevent concurrent fetches
+    if (isFetchingTestNetTradesRef.current) {
+      logService.log('info', 'Already fetching TestNet trades, skipping duplicate request', null, 'TradeMonitor');
+      return [];
+    }
+
     try {
+      // Set fetching flag to true
+      isFetchingTestNetTradesRef.current = true;
+
       logService.log('info', 'Fetching trades from Binance TestNet', null, 'TradeMonitor');
 
       // Get active strategies to use their symbols
@@ -751,7 +866,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // Check if we have a valid cache for all strategies combined
       const cacheKey = 'all_strategies';
-      const cachedData = tradeCache.get(cacheKey);
+      const cachedData = tradeCacheRef.current.get(cacheKey);
       const now = Date.now();
 
       if (cachedData && (now - cachedData.timestamp) < TRADE_CACHE_TTL) {
@@ -812,16 +927,18 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           const strategyId = matchingStrategy?.id || activeStrategies[0].id;
 
           // Convert to our Trade format
-          const formattedTrades = symbolTrades.map((trade: any) => ({
-            id: trade.id || `${Date.now()}-${Math.random()}`,
+          const formattedTrades: Trade[] = symbolTrades.map((trade: any) => ({
+            id: trade.id || `${Date.now()}-${Math.random().toString(36).substring(2, 15)}`,
             symbol: trade.symbol,
             side: trade.side as 'buy' | 'sell',
             status: 'executed', // Use 'executed' instead of 'closed'
+            amount: trade.amount || trade.quantity || 0.01, // Include amount field
             entryPrice: trade.price,
             exitPrice: trade.price * (1 + (Math.random() * 0.1 - 0.05)), // Random exit price
             profit: trade.fee ? (trade.cost - trade.fee.cost) : trade.cost,
-            timestamp: trade.timestamp,
+            timestamp: trade.timestamp || Date.now(),
             strategyId, // Use the matching strategy ID
+            createdAt: new Date(trade.timestamp || Date.now()).toISOString()
           }));
 
           allTrades.push(...formattedTrades);
@@ -832,7 +949,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       }
 
       // Cache the results
-      tradeCache.set('all_strategies', {
+      tradeCacheRef.current.set('all_strategies', {
         trades: allTrades,
         timestamp: Date.now()
       });
@@ -841,15 +958,29 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     } catch (error) {
       logService.log('error', 'Failed to fetch TestNet trades', error, 'TradeMonitor');
       return [];
+    } finally {
+      // Always reset the fetching flag
+      isFetchingTestNetTradesRef.current = false;
     }
   };
 
+  // Flag to prevent concurrent exchange fetches
+  const isFetchingExchangeTradesRef = useRef<boolean>(false);
+
   // Fetch trades from user's configured exchange
   const fetchExchangeTrades = async (): Promise<Trade[]> => {
+    // If already fetching, return empty array to prevent concurrent fetches
+    if (isFetchingExchangeTradesRef.current) {
+      logService.log('info', 'Already fetching exchange trades, skipping duplicate request', null, 'TradeMonitor');
+      return [];
+    }
+
+    // Set fetching flag to true
+    isFetchingExchangeTradesRef.current = true;
     try {
       // Check if we have a valid cache for exchange trades
       const cacheKey = 'exchange_trades';
-      const cachedData = tradeCache.get(cacheKey);
+      const cachedData = tradeCacheRef.current.get(cacheKey);
       const now = Date.now();
 
       if (cachedData && (now - cachedData.timestamp) < TRADE_CACHE_TTL) {
@@ -897,7 +1028,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       }));
 
       // Cache the results
-      tradeCache.set('exchange_trades', {
+      tradeCacheRef.current.set('exchange_trades', {
         trades: formattedTrades,
         timestamp: now
       });
@@ -906,16 +1037,21 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     } catch (error) {
       logService.log('error', 'Failed to fetch exchange trades', error, 'TradeMonitor');
       return [];
+    } finally {
+      // Always reset the fetching flag
+      isFetchingExchangeTradesRef.current = false;
     }
   };
 
 
 
-  // Calculate trade statistics
+  // Calculate trade statistics and update budget allocation
   const calculateTradeStats = (currentTrades: Trade[]) => {
     // Calculate stats but don't store them since we're not using them in the UI
     const stats = {
       totalTrades: currentTrades.length,
+      openTrades: currentTrades.filter(t => t.status === 'pending').length,
+      closedTrades: currentTrades.filter(t => t.status === 'executed').length,
       profitableTrades: currentTrades.filter(t => (t.profit || 0) > 0).length,
       totalProfit: currentTrades.reduce((sum, t) => sum + (t.profit || 0), 0),
       averageProfit: currentTrades.length ?
@@ -925,6 +1061,137 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
     // Log stats for debugging
     logService.log('info', 'Trade statistics calculated', { stats }, 'TradeMonitor');
+
+    // Organize trades by strategy
+    const tradesByStrategy: Record<string, Trade[]> = {};
+
+    currentTrades.forEach(trade => {
+      if (trade.strategyId) {
+        if (!tradesByStrategy[trade.strategyId]) {
+          tradesByStrategy[trade.strategyId] = [];
+        }
+        // Make sure amount is properly set
+        const tradeWithAmount = {
+          ...trade,
+          amount: trade.amount || 0.01 // Default to 0.01 if amount is not set
+        };
+        tradesByStrategy[trade.strategyId].push(tradeWithAmount);
+      }
+    });
+
+    // Update strategy trades state
+    setStrategyTrades(tradesByStrategy);
+
+    // Calculate budget allocation for each strategy
+    updateStrategyBudgets(tradesByStrategy);
+  };
+
+  // Update budget allocation for each strategy with real-time calculations
+  const updateStrategyBudgets = (tradesByStrategy: Record<string, Trade[]>) => {
+    console.log('Updating strategy budgets with trades:', Object.keys(tradesByStrategy).length);
+    logService.log('info', `Updating strategy budgets for ${Object.keys(tradesByStrategy).length} strategies`, null, 'TradeMonitor');
+
+    // Get all strategy budgets from trade service
+    const updatedBudgets: Record<string, {
+      total: number;
+      allocated: number;
+      available: number;
+      profit: number;
+      profitPercentage?: number;
+      allocationPercentage?: number;
+    }> = {};
+
+    // Process each strategy
+    strategies.forEach(strategy => {
+      // Get the budget for this strategy
+      const budget = tradeService.getBudget(strategy.id) || { total: 0, allocated: 0, available: 0 };
+
+      // Get trades for this strategy
+      const strategyTradeList = tradesByStrategy[strategy.id] || [];
+
+      // Calculate allocated budget (sum of amounts for active trades)
+      // Include all active trades (pending, open, or any status that's not closed/executed/cancelled/failed)
+      const openTrades = strategyTradeList.filter(t => {
+        const status = (t.status || '').toLowerCase();
+        return status === 'pending' || status === 'open' ||
+               (status !== 'closed' && status !== 'executed' &&
+                status !== 'cancelled' && status !== 'canceled' &&
+                status !== 'failed');
+      });
+
+      // Log open trades for debugging
+      logService.log('debug', `Found ${openTrades.length} open trades for strategy ${strategy.id}`, { openTrades }, 'TradeMonitor');
+
+      const allocatedBudget = openTrades.reduce((sum, trade) => {
+        // Calculate the allocated amount based on entry price and amount
+        const tradeValue = (trade.entryPrice || 0) * (trade.amount || 0);
+        return sum + tradeValue;
+      }, 0);
+
+      // Calculate profit/loss from executed/closed trades
+      const closedTrades = strategyTradeList.filter(t => {
+        const status = (t.status || '').toLowerCase();
+        return status === 'executed' || status === 'closed' ||
+               status === 'completed' || status === 'filled';
+      });
+
+      // Log closed trades for debugging
+      logService.log('debug', `Found ${closedTrades.length} closed trades for strategy ${strategy.id}`, { closedTrades }, 'TradeMonitor');
+
+      const profit = closedTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
+
+      // Calculate profit/loss percentage if there are closed trades
+      const profitPercentage = budget.total > 0 ? (profit / budget.total) * 100 : 0;
+
+      // Calculate available budget
+      const availableBudget = Math.max(0, budget.total - allocatedBudget);
+
+      // Calculate allocation percentage
+      const allocationPercentage = budget.total > 0 ? (allocatedBudget / budget.total) * 100 : 0;
+
+      // Update the budget object with formatted values
+      updatedBudgets[strategy.id] = {
+        total: Number(budget.total.toFixed(2)),
+        allocated: Number(allocatedBudget.toFixed(2)),
+        available: Number(availableBudget.toFixed(2)),
+        profit: Number(profit.toFixed(2)),
+        profitPercentage: Number(profitPercentage.toFixed(2)),
+        allocationPercentage: Number(allocationPercentage.toFixed(2))
+      };
+
+      // Update the trade service budget to keep it in sync
+      if (budget.total > 0) {
+        const updatedServiceBudget: StrategyBudget = {
+          total: Number(budget.total.toFixed(2)),
+          allocated: Number(allocatedBudget.toFixed(2)),
+          available: Number(availableBudget.toFixed(2)),
+          maxPositionSize: (budget as StrategyBudget).maxPositionSize || Number((budget.total * 0.1).toFixed(2))
+        };
+
+        // Only update if there's a significant change to avoid unnecessary updates
+        const currentBudget = tradeService.getBudget(strategy.id);
+        if (currentBudget && (
+            Math.abs(currentBudget.allocated - updatedServiceBudget.allocated) > 0.01 ||
+            Math.abs(currentBudget.available - updatedServiceBudget.available) > 0.01
+          )) {
+          tradeService.setBudget(strategy.id, updatedServiceBudget);
+          logService.log('info', `Updated trade service budget for strategy ${strategy.id}`, updatedServiceBudget, 'TradeMonitor');
+        }
+      }
+    });
+
+    // Update the state
+    setStrategyBudgets(updatedBudgets);
+
+    // Update available balance
+    const totalAllocated = Object.values(updatedBudgets).reduce((sum, budget) => sum + budget.allocated, 0);
+    const totalBalance = walletBalanceService.getTotalBalance();
+    const newAvailableBalance = Math.max(0, totalBalance - totalAllocated);
+    setAvailableBalance(newAvailableBalance);
+
+    // Emit budget updated event
+    eventBus.emit('budgetUpdated', { budgets: updatedBudgets, availableBalance: newAvailableBalance });
+    logService.log('info', 'Emitted budgetUpdated event', { budgetCount: Object.keys(updatedBudgets).length }, 'TradeMonitor');
   };
 
   // Refresh data manually
@@ -1075,13 +1342,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     }
   };
 
-  const filteredTrades = trades
-    .filter(trade => {
-      // Use symbol instead of pair for searching
-      const matchesSearch = trade.symbol?.toLowerCase().includes(searchTerm.toLowerCase()) || false;
-      return matchesSearch;
-    })
-    .sort((a, b) => b.timestamp - a.timestamp);
+  // Note: Trade filtering is handled by the StrategyCard component
 
   // Custom scrollbar styles
   const scrollbarStyles = `
@@ -1227,6 +1488,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                         onToggleExpand={(id) => setExpandedStrategyId(expandedStrategyId === id ? null : id)}
                         onRefresh={fetchStrategies}
                         trades={strategyTrades[strategy.id] || []}
+                        budget={strategyBudgets[strategy.id]}
                         onActivate={async (strategy) => {
                           try {
                             // Check if budget is already set

@@ -19,6 +19,8 @@ export const config = {
   binanceFuturesApiUrl: '/api/binanceFutures',
   bitmartApiUrl: '/api/bitmart',
   coincapApiUrl: '/api/coincap',
+  kucoinApiUrl: '/api/kucoin',
+  kucoinSandboxApiUrl: '/api/kucoinSandbox',
 
   // External API endpoints (direct)
   deepseekApiUrl: '/api/deepseek', // Use proxy for DeepSeek API

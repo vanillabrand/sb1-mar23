@@ -133,6 +133,22 @@ class TradeGenerator extends EventEmitter {
           strategyId: strategy.id,
           error: new Error('No available budget for trading')
         });
+
+        // Also emit a budget update event to ensure UI is in sync
+        if (budget) {
+          eventBus.emit('budgetUpdated', {
+            budgets: { [strategy.id]: {
+              total: budget.total,
+              allocated: budget.allocated,
+              available: budget.available,
+              profit: 0,
+              profitPercentage: 0,
+              allocationPercentage: budget.total > 0 ? (budget.allocated / budget.total) * 100 : 0
+            }},
+            availableBalance: walletBalanceService.getAvailableBalance()
+          });
+        }
+
         return; // Skip this strategy
       }
 
@@ -178,7 +194,13 @@ class TradeGenerator extends EventEmitter {
 
             // Calculate position size
             const budget = await tradeService.getBudget(strategy.id);
-            if (!budget || budget.available <= 0) continue;
+            if (!budget || budget.available <= 0) {
+              logService.log('warn', `Strategy ${strategy.id} has no available budget for ${symbol}, skipping trade`, null, 'TradeGenerator');
+              continue;
+            }
+
+            // Log budget information for debugging
+            logService.log('info', `Budget for strategy ${strategy.id}: total=${budget.total}, available=${budget.available}, allocated=${budget.allocated}`, null, 'TradeGenerator');
 
             const positionSize = this.calculatePositionSize(
               strategy,
@@ -186,6 +208,12 @@ class TradeGenerator extends EventEmitter {
               currentPrice,
               signal.confidence
             );
+
+            // Check if position size is too small
+            if (positionSize * currentPrice < 10) { // Minimum $10 trade
+              logService.log('warn', `Calculated position size too small for ${symbol}: ${positionSize} (value: $${(positionSize * currentPrice).toFixed(2)})`, null, 'TradeGenerator');
+              continue;
+            }
 
             // Create a real trade instead of just emitting an event
             try {
@@ -655,7 +683,7 @@ Return ONLY a JSON object with this structure:
 
       // Create trade
       const trade = {
-        id: `trade-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+        id: `trade-${Date.now()}-${Math.floor(Math.random() * 1000000)}-${Math.random().toString(36).substring(2, 15)}`,
         strategy_id: strategy.id,
         symbol: tradeDetails.symbol,
         side: tradeDetails.direction === 'Long' ? 'buy' : 'sell',
@@ -1008,6 +1036,40 @@ Return ONLY a JSON object with the updated strategy configuration:
   getLastGeneratedTime(strategyId: string): number | null {
     const state = this.monitorState.get(strategyId);
     return state ? state.lastGeneratedTime : null;
+  }
+
+  /**
+   * Public method to check trade opportunities for a specific strategy
+   * This allows external components to trigger a trade check
+   * @param strategyId The ID of the strategy to check
+   */
+  async checkTradeOpportunities(strategyId: string): Promise<void> {
+    try {
+      const strategy = this.activeStrategies.get(strategyId);
+      if (!strategy) {
+        logService.log('warn', `Strategy ${strategyId} not found for trade opportunity check`, null, 'TradeGenerator');
+        return;
+      }
+
+      // Update last check time
+      const state = this.monitorState.get(strategyId);
+      if (state) {
+        state.lastCheckTime = Date.now();
+        this.monitorState.set(strategyId, state);
+      }
+
+      // Emit event to notify that we're checking this strategy
+      eventBus.emit(`trade:checking:${strategyId}`, { strategyId });
+
+      // Check for trade opportunities
+      await this.checkStrategyForTrades(strategy);
+
+      logService.log('info', `Completed trade opportunity check for strategy ${strategyId}`, null, 'TradeGenerator');
+    } catch (error) {
+      logService.log('error', `Error checking trade opportunities for strategy ${strategyId}`, error, 'TradeGenerator');
+      // Emit error event
+      eventBus.emit(`trade:error:${strategyId}`, { strategyId, error });
+    }
   }
 }
 

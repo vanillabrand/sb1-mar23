@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Activity, 
-  TrendingUp, 
-  TrendingDown, 
-  Tag, 
-  ChevronLeft, 
+import {
+  Activity,
+  TrendingUp,
+  TrendingDown,
+  Tag,
+  ChevronLeft,
   ChevronRight,
   Brain,
   Target,
@@ -21,10 +21,10 @@ import {
   Loader2
 } from 'lucide-react';
 import { Area, AreaChart, ResponsiveContainer } from 'recharts';
-import { 
+import {
   bitmartService,
   logService,
-  marketMonitor 
+  marketMonitor
 } from '../lib/services';
 import type { Strategy } from '../lib/types';
 
@@ -79,7 +79,92 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
 
     initializeMonitoring();
 
-    // Set up WebSocket listeners
+    // Set up WebSocket listeners for real-time price updates via CCXT
+    const setupRealTimePriceUpdates = async () => {
+      try {
+        // Import services dynamically to avoid circular dependencies
+        const { websocketService } = await import('../lib/websocket-service');
+        const { exchangeService } = await import('../lib/exchange-service');
+
+        // Check if we have a connected exchange
+        const isConnected = await exchangeService.isConnected();
+
+        if (!strategy.strategy_config?.assets?.length) {
+          logService.log('warn', 'No assets to monitor for strategy', { strategyId: strategy.id }, 'AssetPairMonitor');
+          return;
+        }
+
+        // Subscribe to each asset pair via CCXT websockets
+        for (const symbol of strategy.strategy_config.assets) {
+          try {
+            // Format the symbol for websocket subscription
+            const formattedSymbol = symbol.replace('/', '').toLowerCase() + '@ticker';
+
+            // Subscribe to ticker updates
+            await websocketService.send({
+              type: 'subscribe',
+              channel: 'ticker',
+              symbol: formattedSymbol
+            });
+
+            logService.log('info', `Subscribed to real-time price updates for ${symbol}`, null, 'AssetPairMonitor');
+          } catch (subError) {
+            logService.log('error', `Failed to subscribe to ${symbol} via CCXT websocket`, subError, 'AssetPairMonitor');
+          }
+        }
+
+        // Set up WebSocket listeners for ticker updates
+        const handleTickerUpdate = async (data: any) => {
+          try {
+            if (!data || !data.s) return;
+
+            // Convert the symbol format from BTCUSDT to BTC/USDT
+            const symbol = data.s.replace(/([A-Z]+)([A-Z]+)$/, '$1/$2');
+
+            // Check if this symbol is part of our strategy
+            if (!strategy.strategy_config?.assets?.includes(symbol)) return;
+
+            // Create ticker data from websocket message
+            const tickerData = {
+              symbol: symbol,
+              last_price: data.c || data.p || '0',
+              open_24h: data.o || '0',
+              high_24h: data.h || '0',
+              low_24h: data.l || '0',
+              quote_volume_24h: data.q || data.v || '0'
+            };
+
+            // Process the data
+            const updatedData = await processAssetData(symbol, tickerData);
+            if (updatedData) {
+              setAssetData(prev => new Map(prev).set(symbol, updatedData));
+            }
+          } catch (tickerError) {
+            logService.log('error', 'Error processing ticker update', tickerError, 'AssetPairMonitor');
+          }
+        };
+
+        // Add event listener for ticker updates
+        websocketService.on('ticker', handleTickerUpdate);
+
+        // Also listen for trade updates which can be used to update the price
+        websocketService.on('trade', handleTickerUpdate);
+
+        // Return cleanup function
+        return () => {
+          websocketService.off('ticker', handleTickerUpdate);
+          websocketService.off('trade', handleTickerUpdate);
+        };
+      } catch (error) {
+        logService.log('error', 'Failed to set up real-time price updates', error, 'AssetPairMonitor');
+        return () => {}; // Return empty cleanup function
+      }
+    };
+
+    // Set up real-time price updates
+    const cleanupRealTimeUpdates = setupRealTimePriceUpdates();
+
+    // Also keep the original price update handler for backward compatibility
     const handlePriceUpdate = async (data: any) => {
       if (!strategy.strategy_config?.assets?.includes(data.symbol)) return;
 
@@ -105,10 +190,24 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
 
     // Cleanup
     return () => {
+      // Clean up bitmart service
       bitmartService.off('priceUpdate', handlePriceUpdate);
       strategy.strategy_config?.assets?.forEach(symbol => {
         bitmartService.unsubscribeFromSymbol(symbol);
       });
+
+      // Clean up real-time price updates
+      if (cleanupRealTimeUpdates) {
+        cleanupRealTimeUpdates.then(cleanup => {
+          if (typeof cleanup === 'function') {
+            cleanup();
+          }
+        }).catch(error => {
+          logService.log('error', 'Error cleaning up real-time price updates', error, 'AssetPairMonitor');
+        });
+      }
+
+      // Clean up interval
       clearInterval(monitoringInterval);
     };
   }, [strategy.id, strategy.strategy_config?.assets]);
@@ -142,14 +241,14 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
 
       // Get market state
       const marketState = marketMonitor.getMarketState(symbol);
-      
+
       // Check for trade signals based on strategy configuration
       const signal = await checkTradeSignals(symbol, strategy, marketState);
 
       // Get or update price history
       const existingData = assetData.get(symbol);
       let priceHistory = existingData?.priceHistory || [];
-      
+
       // Add new price point
       const now = Date.now();
       priceHistory = [
@@ -180,8 +279,8 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
   };
 
   const checkTradeSignals = async (
-    symbol: string, 
-    strategy: Strategy, 
+    symbol: string,
+    strategy: Strategy,
     marketState: any
   ): Promise<{ type: 'buy' | 'sell'; confidence: number } | null> => {
     if (!strategy.strategy_config?.conditions) return null;
@@ -316,8 +415,8 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
                   </div>
                   {data.signal && (
                     <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
-                      data.signal === 'buy' 
-                        ? 'bg-neon-turquoise/20 text-neon-turquoise' 
+                      data.signal === 'buy'
+                        ? 'bg-neon-turquoise/20 text-neon-turquoise'
                         : 'bg-neon-pink/20 text-neon-pink'
                     }`}>
                       {data.signal.toUpperCase()} ({Math.round(data.confidence * 100)}%)
@@ -338,14 +437,14 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
                 <AreaChart data={data.priceHistory}>
                   <defs>
                     <linearGradient id={`gradient-${symbol}`} x1="0" y1="0" x2="0" y2="1">
-                      <stop 
-                        offset="5%" 
-                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"} 
+                      <stop
+                        offset="5%"
+                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"}
                         stopOpacity={0.3}
                       />
-                      <stop 
-                        offset="95%" 
-                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"} 
+                      <stop
+                        offset="95%"
+                        stopColor={data.change24h >= 0 ? "#2dd4bf" : "#ec4899"}
                         stopOpacity={0}
                       />
                     </linearGradient>

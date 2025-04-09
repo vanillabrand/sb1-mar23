@@ -384,14 +384,14 @@ class CCXTService {
             api: {
               public: testnetBaseUrl,
               private: testnetBaseUrl,
-              v1: testnetBaseUrl,
-              v2: testnetBaseUrl,
-              v3: testnetBaseUrl,
-              fapiPublic: testnetBaseUrl,  // Add futures API endpoints
-              fapiPrivate: testnetBaseUrl,
-              fapiPrivateV2: testnetBaseUrl,
-              dapiPublic: testnetBaseUrl,  // Add delivery API endpoints
-              dapiPrivate: testnetBaseUrl,
+              v1: `${testnetBaseUrl}/v1`,
+              v2: `${testnetBaseUrl}/v2`,
+              v3: `${testnetBaseUrl}/v3`,
+              fapiPublic: `${testnetBaseUrl}/fapi/v1`,  // Add futures API endpoints
+              fapiPrivate: `${testnetBaseUrl}/fapi/v1`,
+              fapiPrivateV2: `${testnetBaseUrl}/fapi/v2`,
+              dapiPublic: `${testnetBaseUrl}/dapi/v1`,  // Add delivery API endpoints
+              dapiPrivate: `${testnetBaseUrl}/dapi/v1`,
             },
             test: {
               public: testnetBaseUrl,
@@ -426,6 +426,19 @@ class CCXTService {
                 // Redirect to the public API instead
                 api = 'public';
                 logService.log('info', `Redirecting ${api} request to public API in TestNet mode`, { path }, 'CCXTService');
+              }
+
+              // Fix path to ensure it doesn't include api/v3 if the URL already has it
+              if (path.startsWith('/api/v3/') || path.startsWith('api/v3/')) {
+                path = path.replace(/^\/?(api\/v3\/)?/, '');
+                console.log(`Simplified path to: ${path}`);
+              }
+
+              // Special case for exchangeInfo endpoint
+              if (path === 'exchangeInfo' || path === '/exchangeInfo') {
+                console.log('Using special case for exchangeInfo endpoint');
+                // No need to modify the path, just ensure we're using the right API
+                api = 'public';
               }
 
               // Ensure we have headers
@@ -474,6 +487,17 @@ class CCXTService {
                 headers: result.headers ? { ...result.headers, 'X-MBX-APIKEY': '***' } : undefined,
                 body: result.body
               });
+
+              // Add more detailed logging for exchangeInfo endpoint
+              if (path === 'exchangeInfo' || path === '/exchangeInfo') {
+                console.log('DETAILED EXCHANGEINFO REQUEST:', {
+                  fullUrl: result.url,
+                  fullPath: path,
+                  api: api,
+                  method: method,
+                  headers: result.headers ? Object.keys(result.headers).join(', ') : 'none'
+                });
+              }
 
               return result;
             } catch (error) {

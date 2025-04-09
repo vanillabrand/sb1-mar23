@@ -124,7 +124,7 @@ class DemoService {
         bids: Array.from({ length: 10 }, (_, i) => [basePrice - (i * 10), 1 - (i * 0.05)]),
       },
       recentTrades: Array.from({ length: 20 }, (_, i) => ({
-        id: uuidv4(),
+        id: `${uuidv4()}-${Date.now()}-${i}`,
         timestamp: now - (i * 60000),
         price: basePrice + (Math.random() * 200 - 100),
         amount: Math.random() * 2,
@@ -186,7 +186,7 @@ class DemoService {
     const isBuy = Math.random() > 0.5;
 
     return {
-      id: uuidv4(),
+      id: `${uuidv4()}-${now}-${Math.random().toString(36).substring(2, 9)}`,
       strategy_id: strategyId,
       symbol: symbol,
       side: isBuy ? 'buy' : 'sell',

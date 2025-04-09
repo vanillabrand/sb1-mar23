@@ -46,7 +46,7 @@ export function HygieneLinks() {
     <div className="bg-gunmetal-800/20 backdrop-blur-xl rounded-xl p-8">
       <div className="max-w-7xl mx-auto">
         <h2 className="text-2xl font-bold gradient-text mb-8">Important Information</h2>
-        
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {HYGIENE_LINKS.map((link) => (
             <Link

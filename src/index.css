@@ -335,20 +335,12 @@
 }
 
 /* Animation classes */
-.animate-pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
 .animate-glow {
   animation: glow 2s ease-in-out infinite alternate;
 }
 
 .animate-float {
   animation: float 3s ease-in-out infinite;
-}
-
-.animate-pulse-glow {
-  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .animate-spin-slow {

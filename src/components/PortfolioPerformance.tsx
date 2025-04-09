@@ -11,22 +11,20 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { transactionService } from '../lib/transaction-service';
 import { logService } from '../lib/log-service';
 import { globalCacheService } from '../lib/global-cache-service';
 import { portfolioService } from '../lib/portfolio-service';
+import { eventBus } from '../lib/event-bus';
+import { walletBalanceService } from '../lib/wallet-balance-service';
 import {
   Area,
-  AreaChart,
   CartesianGrid,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
   Legend,
-  Line,
   ComposedChart,
-  Bar,
   Cell,
   PieChart,
   Pie
@@ -47,6 +45,50 @@ export function PortfolioPerformance() {
   useEffect(() => {
     loadPerformanceData();
     loadPortfolioSummary();
+
+    // Set up real-time subscription to trade updates
+    const tradeCreatedUnsubscribe = eventBus.subscribe('trade:created', (_data: any) => {
+      // Refresh performance data when a new trade is created
+      loadPerformanceData();
+      loadPortfolioSummary();
+    });
+
+    const tradeUpdatedUnsubscribe = eventBus.subscribe('trade:update', (_data: any) => {
+      // Refresh performance data when a trade is updated
+      loadPerformanceData();
+      loadPortfolioSummary();
+    });
+
+    const budgetUpdatedUnsubscribe = eventBus.subscribe('budgetUpdated', (_data: any) => {
+      // Refresh performance data when a budget is updated
+      loadPerformanceData();
+      loadPortfolioSummary();
+    });
+
+    // Subscribe to transaction events
+    const transactionUnsubscribe = eventBus.subscribe('transaction', (_data: any) => {
+      // Refresh performance data when a transaction occurs
+      loadPerformanceData();
+      loadPortfolioSummary();
+    });
+
+    // Set up real-time subscription to wallet balance updates
+    const balanceUpdateHandler = () => {
+      // Refresh performance data when wallet balances are updated
+      loadPerformanceData();
+      loadPortfolioSummary();
+    };
+
+    walletBalanceService.on('balancesUpdated', balanceUpdateHandler);
+
+    // Clean up subscriptions on unmount
+    return () => {
+      tradeCreatedUnsubscribe();
+      tradeUpdatedUnsubscribe();
+      budgetUpdatedUnsubscribe();
+      transactionUnsubscribe();
+      walletBalanceService.off('balancesUpdated', balanceUpdateHandler);
+    };
   }, [timeframe]);
 
   /**
@@ -154,7 +196,7 @@ export function PortfolioPerformance() {
             const enhancedPoint = { ...dataPoint };
 
             // For each strategy, add its estimated value at this point
-            summary.strategies.forEach(strategy => {
+            summary.strategies.forEach((strategy: any) => {
               // Calculate the strategy's value at this point based on its current contribution
               // This is an approximation - in a real system, you'd have actual historical data
               const contribution = strategy.contribution / 100;
@@ -312,7 +354,7 @@ export function PortfolioPerformance() {
     let previousValue = value;
 
     // Initialize strategy values
-    const strategyValues = {};
+    const strategyValues: Record<string, number> = {};
     sampleStrategies.forEach(strategy => {
       strategyValues[strategy.name] = value * (strategy.contribution / 100);
     });
@@ -327,7 +369,7 @@ export function PortfolioPerformance() {
       const percentChange = previousValue !== 0 ? (pointChange / previousValue) * 100 : 0;
 
       // Create data point with total portfolio value
-      const dataPoint = {
+      const dataPoint: Record<string, any> = {
         date: now - (i * interval),
         value: value,
         change: pointChange,
@@ -535,7 +577,7 @@ export function PortfolioPerformance() {
                         nameKey="name"
                         label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
                       >
-                        {portfolioSummary.strategies.map((entry: any, index: number) => {
+                        {portfolioSummary.strategies.map((_entry: any, index: number) => {
                           const colors = ['#2dd4bf', '#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171'];
                           return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
                         })}

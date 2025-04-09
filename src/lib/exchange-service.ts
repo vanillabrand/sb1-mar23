@@ -1259,6 +1259,36 @@ class ExchangeService extends EventEmitter {
     return this.demoMode;
   }
 
+  /**
+   * Check if an exchange is connected
+   * @returns True if an exchange is connected, false otherwise
+   */
+  async isConnected(): Promise<boolean> {
+    try {
+      // If we're in demo mode, we're always "connected" to the demo exchange
+      if (this.demoMode) {
+        return true;
+      }
+
+      // Check if we have an active exchange
+      if (!this.activeExchange) {
+        return false;
+      }
+
+      // Get the exchange instance
+      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      if (!exchange) {
+        return false;
+      }
+
+      // Try a simple API call to check if the exchange is responsive
+      await exchange.fetchTime();
+      return true;
+    } catch (error) {
+      logService.log('error', 'Failed to check exchange connection', error, 'ExchangeService');
+      return false;
+    }
+  }
 }
 
 export const exchangeService = ExchangeService.getInstance();

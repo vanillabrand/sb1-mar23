@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Brain,
   Star,
@@ -9,7 +9,8 @@ import {
   EyeOff,
   AlertCircle,
   Loader2,
-  User
+  User,
+  LogIn
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { FeatureCarousel } from './FeatureCarousel';
@@ -114,58 +115,105 @@ export function Hero() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_70%,rgba(255,20,147,0.15),transparent_70%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(250,204,21,0.1),transparent_70%)]" />
 
+      {/* Background Effects Only */}
+
       {/* Main Content */}
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24">
-        {/* Hero Section */}
-        <div className="text-center mb-24">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
-            className="max-w-4xl mx-auto"
+        {/* Login Button in Top Right */}
+        <div className="absolute top-4 right-4 z-10">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setShowLogin(true)}
+            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800/70 hover:bg-gunmetal-700/70 text-white rounded-lg backdrop-blur-sm transition-all duration-300"
           >
+            <LogIn className="w-4 h-4" />
+            <span>Login</span>
+          </motion.button>
+        </div>
 
+        {/* Hero Section */}
+        <div className="text-center mb-24 pt-16">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.8 }}
+            className="max-w-5xl mx-auto"
+          >
+            {/* Main Headline with staggered animation */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 1, delay: 0.2 }}
+            >
+              <h1 className="text-5xl sm:text-6xl md:text-8xl font-bold mb-8 sm:mb-12 leading-tight">
+                <motion.span
+                  initial={{ y: 50, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ duration: 0.7, delay: 0.3 }}
+                  className="gradient-text home-headline block"
+                >
+                  Tell GIGAntic Your Goals
+                </motion.span>
+                <motion.span
+                  initial={{ y: 50, opacity: 0 }}
+                  animate={{ y: 0, opacity: 1 }}
+                  transition={{ duration: 0.7, delay: 0.5 }}
+                  className="text-white mt-4 sm:mt-6 block home-subheadline"
+                >
+                  Let AI Handle the Rest
+                </motion.span>
+              </h1>
+            </motion.div>
 
-            {/* Main Headline */}
-            <h1 className="text-4xl sm:text-5xl md:text-7xl font-bold mb-6 sm:mb-10 leading-tight">
-              <span className="gradient-text home-headline">Tell GIGAntic Your Goals</span>
-              <br />
-              <span className="text-white mt-2 sm:mt-4 block home-subheadline">Let AI Handle the Rest</span>
-            </h1>
-
-            <p className="text-xl sm:text-2xl md:text-3xl text-gray-300 mb-4 sm:mb-8 leading-relaxed home-description">
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.7 }}
+              className="text-xl sm:text-2xl md:text-3xl text-gray-300 mb-6 sm:mb-10 leading-relaxed home-description"
+            >
               Your personal AI trading assistant that turns
               <span className="text-neon-raspberry font-bold"> simple instructions</span> into
               <span className="text-neon-yellow font-bold"> profitable strategies</span>
-            </p>
+            </motion.p>
 
-            <p className="text-base sm:text-lg md:text-xl text-gray-400 mb-8 sm:mb-12 max-w-3xl mx-auto leading-relaxed home-description">
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.9 }}
+              className="text-base sm:text-lg md:text-xl text-gray-400 mb-10 sm:mb-14 max-w-3xl mx-auto leading-relaxed home-description"
+            >
               No complex charts or trading jargon. Just tell GIGAntic what you want to achieve,
               and our AI will create, execute, and manage your trading strategy 24/7.
               Earn passive income while our AI works tirelessly for you.
-            </p>
+            </motion.p>
 
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-6 mb-8 sm:mb-16">
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 1.1 }}
+              className="flex flex-col sm:flex-row items-center justify-center gap-5 sm:gap-8 mb-10 sm:mb-20"
+            >
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => setShowSignup(true)}
-                className="group flex items-center gap-3 px-4 sm:px-8 py-3 sm:py-4 bg-neon-raspberry text-white rounded-xl hover:bg-[#FF69B4] transition-all duration-300 shadow-[0_0_20px_rgba(255,20,147,0.3)] hover:shadow-[0_0_30px_rgba(255,105,180,0.4)] w-full sm:w-auto"
+                className="group flex items-center gap-3 px-6 sm:px-10 py-4 sm:py-5 bg-neon-raspberry text-white rounded-xl hover:bg-[#FF69B4] transition-all duration-300 shadow-[0_0_30px_rgba(255,20,147,0.4)] hover:shadow-[0_0_40px_rgba(255,105,180,0.5)] w-full sm:w-auto"
               >
-                <Brain className="w-6 h-6 group-hover:rotate-12 transition-transform" />
-                <span className="text-base sm:text-lg font-medium">Start Your AI Trading Journey</span>
+                <Brain className="w-7 h-7 group-hover:rotate-12 transition-transform" />
+                <span className="text-lg sm:text-xl font-medium">Start Your AI Trading Journey</span>
               </motion.button>
 
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 onClick={() => navigate('/how-it-works')}
-                className="group flex items-center gap-3 px-4 sm:px-8 py-3 sm:py-4 bg-gunmetal-800/50 text-gray-300 rounded-xl hover:bg-gunmetal-700/50 transition-all duration-300 backdrop-blur-sm w-full sm:w-auto"
+                className="group flex items-center gap-3 px-6 sm:px-10 py-4 sm:py-5 bg-gunmetal-800/60 text-gray-200 rounded-xl hover:bg-gunmetal-700/60 transition-all duration-300 backdrop-blur-sm w-full sm:w-auto border border-gunmetal-700/50"
               >
-                <Star className="w-6 h-6 text-neon-yellow group-hover:rotate-45 transition-transform" />
-                <span className="text-base sm:text-lg">See How It Works</span>
+                <Star className="w-7 h-7 text-neon-yellow group-hover:rotate-45 transition-transform" />
+                <span className="text-lg sm:text-xl">See How It Works</span>
               </motion.button>
-            </div>
+            </motion.div>
           </motion.div>
         </div>
 
@@ -175,8 +223,15 @@ export function Hero() {
         {/* Pricing Panel */}
         <PricingPanel onSelectPlan={() => setShowSignup(true)} />
 
-        {/* Hygiene Links */}
-        <HygieneLinks />
+        {/* Hygiene Links - Enhanced */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+          className="mt-16"
+        >
+          <HygieneLinks />
+        </motion.div>
 
         {/* Login Modal */}
         {showLogin && (

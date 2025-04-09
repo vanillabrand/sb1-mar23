@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Clock, Calendar, Activity, TrendingUp, BarChart3 } from 'lucide-react';
-import { CollapsibleDescription } from './CollapsibleDescription';
 import { useNavigate } from 'react-router-dom';
 import {
   analyticsService,
@@ -263,7 +262,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
       {/* Desktop Header with Date and Network Status */}
       <div className="hidden sm:flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 mb-6">
             <Calendar className="w-6 h-6 text-neon-yellow" />
             <h1 className="text-2xl font-bold gradient-text">
               {currentDate.toLocaleDateString(undefined, {
@@ -274,9 +273,6 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
               })}
             </h1>
           </div>
-          <CollapsibleDescription id="dashboard-description" className="ml-8 mt-2 mb-6">
-            <p className="description-text">Your trading command center with real-time strategy performance, market insights, and system status.</p>
-          </CollapsibleDescription>
         </div>
         <NetworkStatus />
       </div>

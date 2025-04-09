@@ -5,6 +5,43 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 
+// Define all possible exchange API headers
+const ALL_EXCHANGE_HEADERS = [
+  // Binance headers
+  'X-MBX-APIKEY', 'x-mbx-apikey',
+
+  // Generic API headers
+  'X-API-KEY', 'API-Key', 'ACCESS-KEY', 'api-key', 'Api-Key',
+
+  // OKX headers
+  'OK-ACCESS-KEY', 'ok-access-key',
+  'OK-ACCESS-SIGN', 'ok-access-sign',
+  'OK-ACCESS-TIMESTAMP', 'ok-access-timestamp',
+  'OK-ACCESS-PASSPHRASE', 'ok-access-passphrase',
+
+  // Coinbase headers
+  'CB-ACCESS-KEY', 'cb-access-key',
+  'CB-ACCESS-SIGN', 'cb-access-sign',
+  'CB-ACCESS-TIMESTAMP', 'cb-access-timestamp',
+  'CB-ACCESS-PASSPHRASE', 'cb-access-passphrase',
+
+  // ByBit headers
+  'X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP',
+  'x-bapi-timestamp', 'x-bapi-api-key', 'x-bapi-sign',
+
+  // Kraken headers
+  'api-sign', 'API-Sign',
+
+  // KuCoin headers
+  'KC-API-KEY', 'KC-API-SIGN', 'KC-API-TIMESTAMP', 'KC-API-PASSPHRASE',
+  'kc-api-key', 'kc-api-sign', 'kc-api-timestamp', 'kc-api-passphrase',
+
+  // BitMart headers
+  'X-BM-KEY', 'X-BM-SIGN', 'X-BM-TIMESTAMP',
+
+  // Add any other exchange headers here
+];
+
 const app = express();
 
 // Standard CORS handler for proxy responses
@@ -20,7 +57,7 @@ const standardCorsHandler = (proxyRes, req, _res) => {
   proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
   proxyRes.headers['access-control-allow-credentials'] = 'true';
   proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, CB-ACCESS-KEY, ACCESS-KEY, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
+  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase, ACCESS-KEY, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api-sign, API-Sign, kc-api-timestamp, kc-api-key, kc-api-sign, kc-api-passphrase';
 };
 
 // Use a more permissive CORS configuration for development
@@ -28,7 +65,7 @@ const corsOptions = {
   origin: '*', // Allow all origins in development
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-MBX-APIKEY', 'x-mbx-apikey', 'X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP', 'x-bapi-timestamp', 'x-bapi-api-key', 'x-bapi-sign']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', ...ALL_EXCHANGE_HEADERS]
 };
 
 app.use(cors(corsOptions));
@@ -52,7 +89,7 @@ app.use((req, res, next) => {
       res.header('Access-Control-Allow-Headers', requestHeaders);
     } else {
       // Otherwise, use our standard headers
-      const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+      const standardHeaders = ['Content-Type', 'Authorization', ...ALL_EXCHANGE_HEADERS, '*'].join(', ');
       res.header('Access-Control-Allow-Headers', standardHeaders);
     }
 
@@ -435,7 +472,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, kc-api-timestamp, kc-api-key, kc-api-sign, kc-api-passphrase, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase';
     }
   },
   binance: {
@@ -460,7 +497,7 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, kc-api-timestamp, kc-api-key, kc-api-sign, kc-api-passphrase, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase';
     }
   },
   binanceTestnet: {
@@ -473,11 +510,28 @@ const exchangeProxies = {
       // Fix the path to handle various formats
       let newPath = path;
 
-      // Handle the case where the path already contains api/v3
-      if (path.includes('/api/v3/')) {
+      // Handle different API path patterns
+      if (path.includes('/api/binanceTestnet/exchangeInfo')) {
+        // Special case for exchangeInfo endpoint
+        newPath = '/api/v3/exchangeInfo';
+        console.log('Special case for exchangeInfo endpoint');
+      } else if (path.includes('/api/binanceTestnet/api/v3/')) {
+        // Case: /api/binanceTestnet/api/v3/endpoint -> /api/v3/endpoint
         newPath = path.replace(/^\/api\/binanceTestnet\/api\/v3/, '/api/v3');
+      } else if (path.includes('/api/binanceTestnet/api/')) {
+        // Case: /api/binanceTestnet/api/endpoint -> /api/endpoint
+        newPath = path.replace(/^\/api\/binanceTestnet\/api/, '/api');
+      } else if (path.includes('/api/binanceTestnet/v3/')) {
+        // Case: /api/binanceTestnet/v3/endpoint -> /api/v3/endpoint
+        newPath = path.replace(/^\/api\/binanceTestnet\/v3/, '/api/v3');
+      } else if (path.includes('/api/binanceTestnet/v1/')) {
+        // Case: /api/binanceTestnet/v1/endpoint -> /api/v1/endpoint
+        newPath = path.replace(/^\/api\/binanceTestnet\/v1/, '/api/v1');
+      } else if (path.includes('/api/binanceTestnet/v2/')) {
+        // Case: /api/binanceTestnet/v2/endpoint -> /api/v2/endpoint
+        newPath = path.replace(/^\/api\/binanceTestnet\/v2/, '/api/v2');
       } else {
-        // Simple path rewrite: /api/binanceTestnet -> /api/v3
+        // Default case: /api/binanceTestnet/endpoint -> /api/v3/endpoint
         newPath = path.replace(/^\/api\/binanceTestnet/, '/api/v3');
       }
 
@@ -589,7 +643,7 @@ const exchangeProxies = {
         proxyRes.headers['access-control-allow-headers'] = requestHeaders;
       } else {
         // Otherwise, use our standard headers
-        const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+        const standardHeaders = ['Content-Type', 'Authorization', ...ALL_EXCHANGE_HEADERS, '*'].join(', ');
         proxyRes.headers['access-control-allow-headers'] = standardHeaders;
       }
 
@@ -658,12 +712,102 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase';
 
       console.log(`Received response from Binance Futures: ${proxyRes.statusCode}`);
     },
     onError: (err, req, res) => {
       console.error(`Proxy error for Binance Futures: ${err.message}`);
+      res.writeHead(500, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',
+        'Access-Control-Allow-Credentials': 'true'
+      });
+      res.end(JSON.stringify({
+        error: 'Proxy error',
+        message: err.message
+      }));
+    }
+  },
+  kucoin: {
+    target: 'https://api.kucoin.com',
+    changeOrigin: true,
+    pathRewrite: {
+      '^/api/kucoin': ''
+    },
+    onProxyReq: (proxyReq, req, _res) => {
+      // Use the helper function to forward authentication headers
+      forwardAuthHeaders(proxyReq, req, ['KC-API-KEY', 'KC-API-SIGN', 'KC-API-TIMESTAMP', 'KC-API-PASSPHRASE'], 'KuCoin');
+
+      // Remove origin header to prevent CORS issues
+      proxyReq.removeHeader('origin');
+
+      // Log all headers for debugging
+      console.log('KuCoin request headers:', req.headers);
+    },
+    onProxyRes: (proxyRes, req, _res) => {
+      // Remove ALL existing CORS headers
+      Object.keys(proxyRes.headers).forEach(key => {
+        if (key.toLowerCase().startsWith('access-control-')) {
+          delete proxyRes.headers[key];
+        }
+      });
+
+      // Add our own CORS headers
+      proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
+      proxyRes.headers['access-control-allow-credentials'] = 'true';
+      proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE, kc-api-key, kc-api-sign, kc-api-timestamp, kc-api-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase';
+
+      console.log(`Received response from KuCoin: ${proxyRes.statusCode}`);
+    },
+    onError: (err, req, res) => {
+      console.error(`Proxy error for KuCoin: ${err.message}`);
+      res.writeHead(500, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',
+        'Access-Control-Allow-Credentials': 'true'
+      });
+      res.end(JSON.stringify({
+        error: 'Proxy error',
+        message: err.message
+      }));
+    }
+  },
+  kucoinSandbox: {
+    target: 'https://openapi-sandbox.kucoin.com',
+    changeOrigin: true,
+    pathRewrite: {
+      '^/api/kucoinSandbox': ''
+    },
+    onProxyReq: (proxyReq, req, _res) => {
+      // Use the helper function to forward authentication headers
+      forwardAuthHeaders(proxyReq, req, ['KC-API-KEY', 'KC-API-SIGN', 'KC-API-TIMESTAMP', 'KC-API-PASSPHRASE'], 'KuCoin Sandbox');
+
+      // Remove origin header to prevent CORS issues
+      proxyReq.removeHeader('origin');
+
+      // Log all headers for debugging
+      console.log('KuCoin Sandbox request headers:', req.headers);
+    },
+    onProxyRes: (proxyRes, req, _res) => {
+      // Remove ALL existing CORS headers
+      Object.keys(proxyRes.headers).forEach(key => {
+        if (key.toLowerCase().startsWith('access-control-')) {
+          delete proxyRes.headers[key];
+        }
+      });
+
+      // Add our own CORS headers
+      proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
+      proxyRes.headers['access-control-allow-credentials'] = 'true';
+      proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE, kc-api-key, kc-api-sign, kc-api-timestamp, kc-api-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase';
+
+      console.log(`Received response from KuCoin Sandbox: ${proxyRes.statusCode}`);
+    },
+    onError: (err, req, res) => {
+      console.error(`Proxy error for KuCoin Sandbox: ${err.message}`);
       res.writeHead(500, {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',

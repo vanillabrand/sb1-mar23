@@ -367,7 +367,7 @@ class DemoTradeGenerator extends EventEmitter {
           };
 
           // Generate a unique ID for this trade
-          const uniqueTradeId = `${strategy.id}-${symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+          const uniqueTradeId = `${strategy.id}-${symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${uuidv4().substring(0, 8)}`;
 
           // Create trade signal in database
           const { data: dbTradeSignal, error: signalError } = await supabase
@@ -814,7 +814,7 @@ class DemoTradeGenerator extends EventEmitter {
       const { data: trade, error } = await supabase
         .from('trades')
         .insert({
-          id: uniqueTradeId || `${strategy.id}-${symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          id: uniqueTradeId || `${strategy.id}-${symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${uuidv4().substring(0, 8)}`,
           strategy_id: strategy.id,
           symbol,
           side: direction === 'Long' ? 'buy' : 'sell',
