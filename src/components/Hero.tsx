@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useRef, useEffect } from 'react';
+import { motion, AnimatePresence, useAnimation } from 'framer-motion';
+import { gsap } from 'gsap';
 import {
   Brain,
   Star,
@@ -16,6 +17,12 @@ import { useNavigate } from 'react-router-dom';
 import { FeatureCarousel } from './FeatureCarousel';
 import { PricingPanel } from './PricingPanel';
 import { HygieneLinks } from './HygieneLinks';
+import { MarketVisualization } from './MarketVisualization';
+import { FloatingCards } from './FloatingCards';
+import { AnimatedStats } from './AnimatedStats';
+import { FeatureShowcase } from './FeatureShowcase';
+import { TestimonialsSection } from './TestimonialsSection';
+import { CallToAction } from './CallToAction';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 
@@ -115,7 +122,8 @@ export function Hero() {
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_70%,rgba(255,20,147,0.15),transparent_70%)]" />
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(250,204,21,0.1),transparent_70%)]" />
 
-      {/* Background Effects Only */}
+      {/* Animated Market Visualization */}
+      <MarketVisualization className="z-0" />
 
       {/* Main Content */}
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24">
@@ -153,7 +161,7 @@ export function Hero() {
                   transition={{ duration: 0.7, delay: 0.3 }}
                   className="gradient-text home-headline block"
                 >
-                  Tell GIGAntic Your Goals
+                  TRANSFORM YOUR TRADING
                 </motion.span>
                 <motion.span
                   initial={{ y: 50, opacity: 0 }}
@@ -161,7 +169,7 @@ export function Hero() {
                   transition={{ duration: 0.7, delay: 0.5 }}
                   className="text-white mt-4 sm:mt-6 block home-subheadline"
                 >
-                  Let AI Handle the Rest
+                  VISION INTO REALITY
                 </motion.span>
               </h1>
             </motion.div>
@@ -172,9 +180,8 @@ export function Hero() {
               transition={{ duration: 0.7, delay: 0.7 }}
               className="text-xl sm:text-2xl md:text-3xl text-gray-300 mb-6 sm:mb-10 leading-relaxed home-description"
             >
-              Your personal AI trading assistant that turns
-              <span className="text-neon-raspberry font-bold"> simple instructions</span> into
-              <span className="text-neon-yellow font-bold"> profitable strategies</span>
+              Let AI handle the complexity while you
+              <span className="text-neon-magenta font-bold"> focus on strategy</span>
             </motion.p>
 
             <motion.p
@@ -217,11 +224,20 @@ export function Hero() {
           </motion.div>
         </div>
 
-        {/* Features and Partner Section */}
-        <FeatureCarousel />
+        {/* Floating Action Cards */}
+        <FloatingCards />
 
-        {/* Pricing Panel */}
-        <PricingPanel onSelectPlan={() => setShowSignup(true)} />
+        {/* Interactive Feature Showcase */}
+        <FeatureShowcase />
+
+        {/* Animated Statistics */}
+        <AnimatedStats />
+
+        {/* Testimonials Section */}
+        <TestimonialsSection />
+
+        {/* Call to Action */}
+        <CallToAction onSignUp={() => setShowSignup(true)} />
 
         {/* Hygiene Links - Enhanced */}
         <motion.div
