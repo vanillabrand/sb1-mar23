@@ -100,6 +100,7 @@ export function Backtester() {
   const [latestUpdate, setLatestUpdate] = useState<any | null>(null);
   const [results, setResults] = useState<BacktestResultsType | null>(null);
   const [showResults, setShowResults] = useState(false);
+  const resultsRef = React.useRef<HTMLDivElement>(null);
   const { strategies } = useStrategies();
 
   // Pagination state
@@ -118,6 +119,13 @@ export function Backtester() {
         setResults(data.results);
         setShowResults(true);
         setProgress(null);
+
+        // Scroll to results section after a short delay to ensure it's rendered
+        setTimeout(() => {
+          if (resultsRef.current) {
+            resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+          }
+        }, 300);
       }
     };
 
@@ -143,6 +151,13 @@ export function Backtester() {
         currentStep: 'Initializing backtest...'
       });
 
+      // Scroll to the progress section after a short delay to ensure it's rendered
+      setTimeout(() => {
+        if (resultsRef.current) {
+          resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 300);
+
       await backtestService.runBacktest(config);
     } catch (error) {
       logService.log('error', 'Failed to start backtest', error, 'Backtester');
@@ -152,6 +167,13 @@ export function Backtester() {
         currentStep: 'Error',
         error: error instanceof Error ? error.message : 'Failed to start backtest'
       });
+
+      // Also scroll to the error message
+      setTimeout(() => {
+        if (resultsRef.current) {
+          resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 300);
     }
   };
 
@@ -405,6 +427,9 @@ export function Backtester() {
             />
           </div>
         )}
+
+        {/* Results Section Reference */}
+        <div ref={resultsRef} id="backtest-results"></div>
       </div>
 
       {/* Modals */}

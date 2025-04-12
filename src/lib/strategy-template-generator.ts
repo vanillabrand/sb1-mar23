@@ -3,6 +3,7 @@ import { marketMonitor } from './market-monitor';
 import { logService } from './log-service';
 import { exchangeService } from './exchange-service';
 import { Strategy } from './types';
+import { strategyMetricsCalculator } from './strategy-metrics-calculator';
 
 export class StrategyTemplateGenerator {
   private static instance: StrategyTemplateGenerator;
@@ -147,14 +148,34 @@ Return an array of strategy objects with this exact structure:
       return [];
     }
 
-    return templates.map(template => ({
-      ...template,
-      id: crypto.randomUUID(),
-      type: 'system_template',
-      status: 'active',
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    }));
+    return templates.map(template => {
+      // Calculate realistic metrics for the template
+      const winRate = strategyMetricsCalculator.calculateWinRate(template);
+      const avgReturn = strategyMetricsCalculator.calculatePotentialProfit(template);
+
+      // Ensure template has metrics object
+      if (!template.metrics) {
+        template.metrics = { winRate: 0, avgReturn: 0 };
+      }
+
+      // Update metrics with calculated values
+      template.metrics.winRate = parseFloat(winRate.toFixed(1));
+      template.metrics.avgReturn = parseFloat(avgReturn.toFixed(1));
+
+      logService.log('info', `Optimized template metrics: ${template.title}`, {
+        winRate: template.metrics.winRate,
+        avgReturn: template.metrics.avgReturn
+      }, 'StrategyTemplateGenerator');
+
+      return {
+        ...template,
+        id: crypto.randomUUID(),
+        type: 'system_template',
+        status: 'active',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+    });
   }
 }
 

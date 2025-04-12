@@ -7,6 +7,7 @@ import { templateService } from './template-service';
 import { strategyService } from './strategy-service';
 import { strategySync } from './strategy-sync';
 import { eventBus } from './event-bus';
+import { strategyMetricsCalculator } from './strategy-metrics-calculator';
 import type { RiskLevel, Strategy, StrategyTemplate } from './types';
 
 // Using StrategyTemplate from types.ts
@@ -173,17 +174,21 @@ export class TemplateGenerator {
     // Get current market data for the selected pair
     const pair = TRADING_PAIRS[pairIndex];
 
-    // Generate random win rate between 40% and 75%
-    const winRate = Math.round((Math.random() * 35 + 40) * 10) / 10;
+    // Create a temporary strategy object to calculate metrics
+    const tempStrategy = {
+      riskLevel: RISK_LEVELS[riskIndex],
+      strategy_config: this.generateStrategyConfig(nameIndex, riskIndex)
+    };
 
-    // Generate random profit factor between 1.1 and 2.5
-    const profitFactor = Math.round((Math.random() * 1.4 + 1.1) * 100) / 100;
+    // Calculate realistic metrics using our calculator
+    const winRate = strategyMetricsCalculator.calculateWinRate(tempStrategy as any);
+    const averageProfit = strategyMetricsCalculator.calculatePotentialProfit(tempStrategy as any);
 
-    // Generate random average profit between 0.5% and 3%
-    const averageProfit = Math.round((Math.random() * 2.5 + 0.5) * 100) / 100;
+    // Generate profit factor based on win rate and average profit
+    const profitFactor = Math.round((winRate / 50 * averageProfit / 8) * 100) / 100 + 1;
 
-    // Generate random max drawdown between 5% and 20%
-    const maxDrawdown = Math.round((Math.random() * 15 + 5) * 10) / 10;
+    // Generate max drawdown based on risk level
+    const maxDrawdown = Math.round((5 + riskIndex * 2.5) * 10) / 10;
 
     // Create strategy config based on the template type
     const strategyConfig = this.generateStrategyConfig(nameIndex, riskIndex);

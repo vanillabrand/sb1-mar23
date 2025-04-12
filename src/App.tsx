@@ -1,9 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuth } from './hooks/useAuth';
-import { LoadingScreen } from './components/LoadingScreen';
 import { AppContent } from './components/AppContent';
 import { NetworkErrorProvider } from './components';
-import { logService } from './lib/log-service';
 import { systemSync } from './lib/system-sync';
 import { analyticsService } from './lib/analytics-service';
 import { templateManager } from './lib/template-manager';
@@ -13,9 +11,9 @@ import { tradeGenerator } from './lib/trade-generator';
 import { tradeEngine } from './lib/trade-engine';
 import { demoService } from './lib/demo-service';
 import { walletBalanceService } from './lib/wallet-balance-service';
-import { dbSchemaFixer } from './lib/db-schema-fixer';
+import { strategyUpdateService } from './lib/strategy-update-service';
+// dbSchemaFixer removed as it's not needed
 import { Preloader } from './components/Preloader';
-import { Toaster } from 'react-hot-toast';
 import { supabase } from './lib/supabase';
 import { useNavigate } from 'react-router-dom';
 
@@ -38,7 +36,10 @@ function App() {
       // Check authentication first
       try {
         const { data: { session }, error: authError } = await supabase.auth.getSession();
-        if (authError) throw authError;
+        if (authError) {
+          console.error('App: Authentication error:', authError);
+          throw authError;
+        }
 
         if (!session) {
           console.log('App: No session found, navigating to login');
@@ -53,14 +54,12 @@ function App() {
         // This allows the app to initialize in demo mode
       }
 
-      // Initialize core services in sequence
+      // Initialize core services with better error handling
       const services = [
         { name: 'database', fn: async () => {
           await systemSync.initializeDatabase();
-          // Fix database schema issues
-          console.log('App: Fixing database schema issues...');
-          const schemaFixed = await dbSchemaFixer.fixDatabaseSchema();
-          console.log('App: Database schema fix ' + (schemaFixed ? 'successful' : 'failed'));
+          // Fix database schema issues if needed
+          console.log('App: Database schema initialized');
         } },
         { name: 'websocket', fn: () => systemSync.initializeWebSocket() },
         { name: 'exchange', fn: () => systemSync.initializeExchange() },
@@ -88,86 +87,62 @@ function App() {
             return true;
           }
           return false;
+        }},
+        { name: 'strategyUpdates', fn: async () => {
+          console.log('App: Initializing strategy update service');
+          await strategyUpdateService.initialize();
+          return true;
         }}
       ];
 
       for (const service of services) {
         setInitStep(service.name);
-        console.log(`App: Initializing ${service.name}`);
+        console.log(`App: Starting initialization of ${service.name}`);
 
         try {
-          // Special handling for analytics service which is causing issues
           if (service.name === 'analytics') {
             try {
-              // Set a timeout to prevent hanging
-              const analyticsPromise = service.fn();
-              const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Analytics initialization timed out')), 5000);
-              });
-
-              await Promise.race([analyticsPromise, timeoutPromise]);
-              console.log(`App: ${service.name} initialized successfully`);
+              await Promise.race([
+                service.fn(),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error('Analytics initialization timed out')), 10000)
+                )
+              ]);
             } catch (analyticsError) {
-              console.warn(`App: Analytics service initialization timed out or failed, continuing without it`, analyticsError);
-              // Don't throw, just continue without analytics
+              console.warn('App: Analytics initialization timed out, continuing without analytics');
+              // Don't rethrow - analytics is non-critical
             }
           } else {
-            // Normal initialization for other services
             await service.fn();
-            console.log(`App: ${service.name} initialized successfully`);
           }
-        } catch (serviceError) {
-          console.error(`App: Failed to initialize ${service.name}`, serviceError);
+          console.log(`App: ${service.name} initialized successfully`);
+        } catch (error) {
+          console.error(`App: Error initializing ${service.name}:`, error);
 
-          // If a critical service fails, throw the error to trigger demo mode
           if (['database', 'exchange'].includes(service.name)) {
-            throw serviceError;
+            console.log('App: Critical service failed, attempting demo mode');
+            await systemSync.initializeDemoMode();
+            setIsAppReady(true);
+            return;
           }
-
-          // For non-critical services, just log and continue
-          logService.log('warn', `Non-critical service ${service.name} failed to initialize, continuing`, serviceError, 'App');
         }
-
-        // Add a small delay between service initializations
-        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
       console.log('App: All services initialized successfully');
       setIsAppReady(true);
     } catch (error) {
-      const errorMessage = error instanceof Error
-        ? `${error.name} in ${initStep}: ${error.message}`
-        : `Failed to initialize ${initStep}`;
-
-      setInitError(errorMessage);
-      logService.log('error', `Failed to initialize ${initStep}`, error, 'App');
-      console.error(`App: Critical error during initialization of ${initStep}`, error);
-
-      // Check if we should switch to demo mode
-      if (initStep === 'database' || initStep === 'exchange') {
-        console.log('App: Attempting to switch to demo mode');
-        try {
-          await systemSync.initializeDemoMode();
-          // Ensure demo service is initialized
-          if (demoService.isInDemoMode()) {
-            console.log('App: Demo mode initialized successfully');
-            logService.log('info', 'Demo mode initialized successfully', null, 'App');
-          }
-          setIsAppReady(true);
-          setInitError(null);
-        } catch (demoError) {
-          console.error('App: Failed to initialize demo mode', demoError);
-          setInitError(`Failed to initialize demo mode: ${demoError instanceof Error ? demoError.message : 'Unknown error'}`);
-        }
-      }
+      console.error('App: Critical initialization error:', error);
+      setInitError(error instanceof Error ? error.message : 'Unknown initialization error');
     } finally {
       setIsInitializing(false);
-      console.log('App: Initialization process completed');
     }
   };
 
   useEffect(() => {
+    console.log('App: User state changed:', user ? 'logged in' : 'not logged in');
+
     if (user) {
+      // User is logged in, initialize the app
       initializeApp();
     } else {
       // If no user, we're still technically "ready" for the login screen
@@ -175,6 +150,18 @@ function App() {
       setIsAppReady(true);
     }
   }, [user]);
+
+  // Add a second effect to handle navigation when user state changes
+  useEffect(() => {
+    if (user) {
+      console.log('App: User logged in, checking current path');
+      // If we're on the login page and user is logged in, redirect to dashboard
+      if (window.location.pathname === '/login') {
+        console.log('App: Redirecting from login to dashboard');
+        navigate('/dashboard');
+      }
+    }
+  }, [user, navigate]);
 
   const handleRetry = () => {
     if (user) {

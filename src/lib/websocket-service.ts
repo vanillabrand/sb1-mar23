@@ -192,7 +192,9 @@ export class WebSocketService extends EventEmitter {
       }
 
       const timeout = setTimeout(() => {
-        reject(new Error('WebSocket connection timeout'));
+        // Instead of rejecting, we'll resolve with a warning
+        logService.log('warn', 'WebSocket connection timeout, continuing anyway', null, 'WebSocketService');
+        resolve(); // Resolve instead of reject to allow the application to continue
       }, 10000);
 
       const handleConnection = () => {
@@ -287,16 +289,81 @@ export class WebSocketService extends EventEmitter {
     return this.socket !== null && this.socket.readyState === WebSocket.OPEN;
   }
 
+  // Queue for strategy subscriptions to avoid overwhelming the connection
+  private subscriptionQueue: { strategyId: string; resolve: () => void; reject: (error: Error) => void }[] = [];
+  private isProcessingQueue = false;
+
   /**
-   * Subscribe to a strategy and its market data
+   * Subscribe to a strategy and its market data with improved batching and queuing
    * @param strategyId The ID of the strategy to subscribe to
    */
   async subscribeToStrategy(strategyId: string): Promise<void> {
+    // Return a promise that will be resolved when the subscription is processed
+    return new Promise((resolve, reject) => {
+      // Add to queue
+      this.subscriptionQueue.push({ strategyId, resolve, reject });
+
+      // Start processing the queue if not already processing
+      if (!this.isProcessingQueue) {
+        this.processSubscriptionQueue();
+      }
+    });
+  }
+
+  /**
+   * Process the subscription queue with controlled concurrency
+   */
+  private async processSubscriptionQueue(): Promise<void> {
+    if (this.isProcessingQueue || this.subscriptionQueue.length === 0) {
+      return;
+    }
+
+    this.isProcessingQueue = true;
+
     try {
+      // Ensure connection is established
       if (!this.getConnectionStatus()) {
-        await this.connect({});
+        try {
+          await this.connect({});
+        } catch (error) {
+          // If connection fails, reject all pending subscriptions
+          this.rejectAllPendingSubscriptions(new Error('Failed to establish WebSocket connection'));
+          return;
+        }
       }
 
+      // Process up to 3 subscriptions at a time
+      while (this.subscriptionQueue.length > 0) {
+        const batch = this.subscriptionQueue.splice(0, 3);
+        const batchPromises = batch.map(item => this.processStrategySubscription(item.strategyId, item.resolve, item.reject));
+
+        // Wait for the batch to complete
+        await Promise.allSettled(batchPromises);
+
+        // Small delay between batches to avoid overwhelming the connection
+        if (this.subscriptionQueue.length > 0) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+    } finally {
+      this.isProcessingQueue = false;
+
+      // If new items were added while processing, start processing again
+      if (this.subscriptionQueue.length > 0) {
+        this.processSubscriptionQueue();
+      }
+    }
+  }
+
+  /**
+   * Process a single strategy subscription
+   */
+  private async processStrategySubscription(
+    strategyId: string,
+    resolve: () => void,
+    reject: (error: Error) => void
+  ): Promise<void> {
+    try {
       // Send subscription message
       await this.send({
         type: 'subscribe',
@@ -313,19 +380,31 @@ export class WebSocketService extends EventEmitter {
           .single();
 
         if (strategy && strategy.selected_pairs) {
-          // Subscribe to market data for each trading pair
-          for (const symbol of strategy.selected_pairs) {
-            await this.subscribeToMarketData(symbol);
-          }
+          // Batch subscribe to market data for all trading pairs
+          await this.batchSubscribeToMarketData(strategy.selected_pairs);
         }
       } catch (strategyError) {
         logService.log('warn', `Failed to get strategy details for ${strategyId}`, strategyError, 'WebSocketService');
+        // Continue anyway - we've at least subscribed to the strategy itself
       }
 
       logService.log('info', `Subscribed to strategy ${strategyId}`, null, 'WebSocketService');
+      resolve();
     } catch (error) {
       logService.log('error', `Failed to subscribe to strategy ${strategyId}`, error, 'WebSocketService');
-      throw error;
+      reject(error as Error);
+    }
+  }
+
+  /**
+   * Reject all pending subscriptions with an error
+   */
+  private rejectAllPendingSubscriptions(error: Error): void {
+    const pendingSubscriptions = [...this.subscriptionQueue];
+    this.subscriptionQueue = [];
+
+    for (const item of pendingSubscriptions) {
+      item.reject(error);
     }
   }
 
@@ -339,8 +418,12 @@ export class WebSocketService extends EventEmitter {
         await this.connect({});
       }
 
+      // Import the format utilities
+      const { toBinanceWsFormat, standardizeAssetPairFormat } = require('./format-utils');
+
       // Format the symbol for Binance WebSocket
-      const formattedSymbol = symbol.replace('/', '').toLowerCase() + '@trade';
+      const formattedSymbol = toBinanceWsFormat(symbol, '@trade');
+      const displaySymbol = standardizeAssetPairFormat(symbol);
 
       // Send subscription message
       await this.send({
@@ -349,9 +432,56 @@ export class WebSocketService extends EventEmitter {
         symbol: formattedSymbol
       });
 
-      logService.log('info', `Subscribed to market data for ${symbol}`, null, 'WebSocketService');
+      logService.log('info', `Subscribed to market data for ${displaySymbol}`, null, 'WebSocketService');
     } catch (error) {
       logService.log('error', `Failed to subscribe to market data for ${symbol}`, error, 'WebSocketService');
+      throw error;
+    }
+  }
+
+  /**
+   * Batch subscribe to market data for multiple symbols
+   * @param symbols Array of trading pair symbols to subscribe to
+   */
+  async batchSubscribeToMarketData(symbols: string[]): Promise<void> {
+    if (!symbols || symbols.length === 0) {
+      return;
+    }
+
+    try {
+      if (!this.getConnectionStatus()) {
+        await this.connect({});
+      }
+
+      // Format all symbols for Binance WebSocket
+      const formattedSymbols = symbols.map(symbol =>
+        symbol.replace('/', '').toLowerCase() + '@trade'
+      );
+
+      // Group symbols into batches of 10 to avoid overwhelming the connection
+      const batches = [];
+      for (let i = 0; i < formattedSymbols.length; i += 10) {
+        batches.push(formattedSymbols.slice(i, i + 10));
+      }
+
+      // Process each batch with a small delay between batches
+      for (const batch of batches) {
+        // Send batch subscription message
+        await this.send({
+          type: 'subscribe',
+          channel: 'market',
+          symbols: batch
+        });
+
+        logService.log('info', `Batch subscribed to market data for ${batch.length} symbols`, null, 'WebSocketService');
+
+        // Add a small delay between batches
+        if (batches.indexOf(batch) < batches.length - 1) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+    } catch (error) {
+      logService.log('error', `Failed to batch subscribe to market data`, error, 'WebSocketService');
       throw error;
     }
   }

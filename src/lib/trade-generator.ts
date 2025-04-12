@@ -21,7 +21,7 @@ interface IndicatorData {
 class TradeGenerator extends EventEmitter {
   private static instance: TradeGenerator;
   private initialized: boolean = false;
-  private readonly CHECK_FREQUENCY = 60000; // 1 minute
+  private readonly CHECK_FREQUENCY = 300000; // 5 minutes
   private readonly STRATEGY_ADAPTATION_INTERVAL = 180000; // 3 minutes
   private readonly LOOKBACK_PERIOD = 86400000; // 24 hours
   private activeStrategies: Map<string, Strategy> = new Map();
@@ -174,14 +174,25 @@ class TradeGenerator extends EventEmitter {
           // Calculate indicators
           const indicators = await this.calculateIndicators(strategy, historicalData);
 
-          // Generate trade signal
+          // Calculate budget before generating signal
+          const budget = await tradeService.getBudget(strategy.id);
+          if (!budget || budget.available <= 0) {
+            logService.log('warn', `Strategy ${strategy.id} has no available budget for ${symbol}, skipping trade`, null, 'TradeGenerator');
+            continue;
+          }
+
+          // Log budget information for debugging
+          logService.log('info', `Budget for strategy ${strategy.id}: total=${budget.total}, available=${budget.available}, allocated=${budget.allocated}`, null, 'TradeGenerator');
+
+          // Generate trade signal with budget information
           const signal = await this.generateTradeSignal(
             strategy,
             symbol,
             indicators,
             historicalData,
             marketState,
-            currentPrice
+            currentPrice,
+            budget.available
           );
 
           if (signal) {
@@ -192,17 +203,9 @@ class TradeGenerator extends EventEmitter {
               signal
             });
 
-            // Calculate position size
-            const budget = await tradeService.getBudget(strategy.id);
-            if (!budget || budget.available <= 0) {
-              logService.log('warn', `Strategy ${strategy.id} has no available budget for ${symbol}, skipping trade`, null, 'TradeGenerator');
-              continue;
-            }
+            // Calculate position size using the budget we already retrieved
 
-            // Log budget information for debugging
-            logService.log('info', `Budget for strategy ${strategy.id}: total=${budget.total}, available=${budget.available}, allocated=${budget.allocated}`, null, 'TradeGenerator');
-
-            const positionSize = this.calculatePositionSize(
+            let positionSize = this.calculatePositionSize(
               strategy,
               budget.available,
               currentPrice,
@@ -210,9 +213,16 @@ class TradeGenerator extends EventEmitter {
             );
 
             // Check if position size is too small
-            if (positionSize * currentPrice < 10) { // Minimum $10 trade
-              logService.log('warn', `Calculated position size too small for ${symbol}: ${positionSize} (value: $${(positionSize * currentPrice).toFixed(2)})`, null, 'TradeGenerator');
-              continue;
+            let positionValue = positionSize * currentPrice;
+            const MIN_TRADE_VALUE = 10; // Minimum $10 trade
+
+            if (positionValue < MIN_TRADE_VALUE) {
+              logService.log('warn', `Calculated position size too small for ${symbol}: ${positionSize.toFixed(5)} (value: $${positionValue.toFixed(2)})`, null, 'TradeGenerator');
+
+              // Instead of skipping, adjust to minimum size
+              positionSize = MIN_TRADE_VALUE / currentPrice;
+              positionValue = MIN_TRADE_VALUE; // Update position value to match
+              logService.log('info', `Adjusted position size to minimum for ${symbol}: ${positionSize.toFixed(5)} (value: $${positionValue.toFixed(2)})`, null, 'TradeGenerator');
             }
 
             // Create a real trade instead of just emitting an event
@@ -220,50 +230,112 @@ class TradeGenerator extends EventEmitter {
               // Import dynamically to avoid circular dependencies
               const { tradeManager } = await import('./trade-manager');
 
-              // Execute the trade
-              const tradeOptions = {
-                strategy_id: strategy.id,
-                symbol: symbol,
-                side: signal.direction === 'Long' ? 'buy' : 'sell',
-                type: 'market',
-                entry_price: currentPrice,
-                amount: positionSize,
-                stop_loss: signal.stopLoss,
-                take_profit: signal.takeProfit,
-                trailing_stop: signal.trailingStop,
-                testnet: demoService.isInDemoMode() // Use TestNet in demo mode
-              };
+              // Check if we're in demo mode
+              const isDemoMode = demoService.isInDemoMode();
 
-              // Execute the trade
-              const tradeResult = await tradeManager.executeTrade(tradeOptions);
+              // In demo mode, create multiple trades with different sizes to show variety
+              if (isDemoMode) {
+                logService.log('info', `Demo mode: Generating multiple trades for ${symbol}`, null, 'TradeGenerator');
 
-              // Emit trade created event
-              this.emit('tradeCreated', {
-                strategy,
-                trade: tradeResult,
-                signal: {
-                  ...signal,
-                  entry: {
-                    price: currentPrice,
+                // Create an array to hold all trade results
+                const tradeResults = [];
+
+                // Number of trades to generate in demo mode (2-4 trades)
+                const numTrades = 2 + Math.floor(Math.random() * 3);
+
+                // Generate multiple trades with different sizes
+                for (let i = 0; i < numTrades; i++) {
+                  // Vary the position size for each trade (50-150% of calculated size)
+                  const sizeMultiplier = 0.5 + Math.random();
+                  const adjustedSize = positionSize * sizeMultiplier;
+
+                  // Vary the side (buy/sell) for some trades to show variety
+                  const tradeSide = (i === 0) ?
+                    (signal.direction === 'Long' ? 'buy' : 'sell') : // First trade uses the signal direction
+                    (Math.random() > 0.3 ? (signal.direction === 'Long' ? 'buy' : 'sell') : (signal.direction === 'Long' ? 'sell' : 'buy')); // Other trades might flip
+
+                  // Create trade options
+                  const tradeOptions = {
+                    strategy_id: strategy.id,
+                    symbol: symbol,
+                    side: tradeSide,
                     type: 'market',
-                    amount: positionSize
+                    entry_price: currentPrice * (0.98 + Math.random() * 0.04), // Vary price slightly
+                    amount: adjustedSize,
+                    stop_loss: signal.stopLoss * (0.95 + Math.random() * 0.1), // Vary stop loss
+                    take_profit: signal.takeProfit * (0.95 + Math.random() * 0.1), // Vary take profit
+                    trailing_stop: signal.trailingStop,
+                    testnet: true // Always use TestNet in demo mode
+                  };
+
+                  // Execute the trade
+                  const tradeResult = await tradeManager.executeTrade(tradeOptions);
+                  tradeResults.push(tradeResult);
+
+                  // Emit events for each trade
+                  this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, adjustedSize);
+
+                  // Add a small delay between trades to avoid overwhelming the UI
+                  if (i < numTrades - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
                   }
                 }
-              });
 
-              // Also emit to the event bus for UI components to listen
-              eventBus.emit('trade:created', {
-                strategy,
-                trade: tradeResult,
-                signal: {
-                  ...signal,
-                  entry: {
-                    price: currentPrice,
-                    type: 'market',
-                    amount: positionSize
+                // Use the first trade result for the rest of the function
+                var tradeResult = tradeResults[0];
+              } else {
+                // In live mode, just create a single trade
+                const tradeOptions = {
+                  strategy_id: strategy.id,
+                  symbol: symbol,
+                  side: signal.direction === 'Long' ? 'buy' : 'sell',
+                  type: 'market',
+                  entry_price: currentPrice,
+                  amount: positionSize,
+                  stop_loss: signal.stopLoss,
+                  take_profit: signal.takeProfit,
+                  trailing_stop: signal.trailingStop,
+                  testnet: false // Not using TestNet in live mode
+                };
+
+                // Execute the trade
+                var tradeResult = await tradeManager.executeTrade(tradeOptions);
+
+                // Emit events for the trade
+                this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, positionSize);
+              }
+
+              // For backward compatibility, emit events for the first/only trade
+              if (!isDemoMode) {
+                // These events are now handled by emitTradeEvents for each trade
+                // This code is kept for backward compatibility with existing code
+                this.emit('tradeCreated', {
+                  strategy,
+                  trade: tradeResult,
+                  signal: {
+                    ...signal,
+                    entry: {
+                      price: currentPrice,
+                      type: 'market',
+                      amount: positionSize
+                    }
                   }
-                }
-              });
+                });
+
+                // Also emit to the event bus for UI components to listen
+                eventBus.emit('trade:created', {
+                  strategy,
+                  trade: tradeResult,
+                  signal: {
+                    ...signal,
+                    entry: {
+                      price: currentPrice,
+                      type: 'market',
+                      amount: positionSize
+                    }
+                  }
+                });
+              }
 
               // Emit strategy-specific event for UI components to listen
               eventBus.emit(`trade:created:${strategy.id}`, {
@@ -427,7 +499,8 @@ class TradeGenerator extends EventEmitter {
     indicators: any[],
     historicalData: any[],
     marketState: any,
-    currentPrice: number
+    currentPrice: number,
+    availableBudget?: number
   ): Promise<{
     direction: 'Long' | 'Short';
     confidence: number;
@@ -437,6 +510,14 @@ class TradeGenerator extends EventEmitter {
     rationale: string;
   } | null> {
     try {
+      // Log that we're generating a trade signal
+      logService.log('info', `Generating trade signal for ${symbol} (Strategy: ${strategy.id})`, {
+        currentPrice,
+        availableBudget,
+        riskLevel: strategy.risk_level || (strategy as any).risk_level
+      }, 'TradeGenerator');
+
+      // Prepare a more detailed prompt for DeepSeek
       const prompt = `Analyze this trading opportunity and generate a precise trade signal:
 
 Strategy Configuration:
@@ -446,20 +527,24 @@ Current Market Data:
 - Symbol: ${symbol}
 - Current Price: ${currentPrice}
 - Market State: ${JSON.stringify(marketState)}
-- Risk Level: ${strategy.risk_level}
+- Risk Level: ${strategy.risk_level || (strategy as any).risk_level || 'Medium'}
+- Available Budget: $${availableBudget ? availableBudget.toFixed(2) : 'Unknown'}
 
 Technical Indicators:
 ${JSON.stringify(indicators, null, 2)}
 
-Historical Data (Last 5 Minutes):
-${JSON.stringify(historicalData.slice(-5), null, 2)}
+Historical Data (Last 10 Candles):
+${JSON.stringify(historicalData.slice(-10), null, 2)}
 
 Requirements:
 1. Analyze if current conditions match strategy rules
 2. Consider market state and indicators
 3. Calculate precise entry, exit, and risk levels
 4. Provide confidence score and detailed rationale
-5. Ensure risk parameters match ${strategy.risk_level} risk level
+5. Ensure risk parameters match ${strategy.risk_level || (strategy as any).risk_level || 'Medium'} risk level
+6. Consider the available budget when determining position size
+7. ONLY generate a trade if market conditions are favorable
+8. If conditions are not favorable, return null or a confidence score below 0.5
 
 Return ONLY a JSON object with this structure:
 {
@@ -524,6 +609,16 @@ Return ONLY a JSON object with this structure:
     currentPrice: number,
     confidence: number
   ): number {
+    // Log inputs for debugging
+    logService.log('debug', `Calculating position size with inputs:`, {
+      strategyId: strategy.id,
+      riskLevel: strategy.risk_level,
+      availableBudget,
+      currentPrice,
+      confidence
+    }, 'TradeGenerator');
+
+    // Get risk multiplier based on risk level
     const riskMultiplier = {
       'Ultra Low': 0.05,
       'Low': 0.1,
@@ -534,19 +629,153 @@ Return ONLY a JSON object with this structure:
       'God Mode': 0.5
     }[strategy.risk_level] || 0.15;
 
+    // In demo mode, use a more varied approach to generate different trade sizes
+    if (demoService.isInDemoMode()) {
+      // Add some randomness to make demo trades more varied
+      const randomFactor = 0.7 + (Math.random() * 0.6); // 0.7 to 1.3 random factor
+
+      // For demo mode, use a percentage of available budget with some randomness
+      // This ensures we don't always use the same position size
+      const demoBaseSize = availableBudget * riskMultiplier * randomFactor;
+
+      // Apply confidence adjustment
+      const demoConfidenceAdjustedSize = demoBaseSize * confidence;
+
+      // Ensure we don't use more than 50% of available budget for a single trade in demo mode
+      const demoMaxSize = availableBudget * 0.5;
+      const demoFinalSize = Math.min(demoConfidenceAdjustedSize, demoMaxSize);
+
+      // Calculate position size in asset units
+      const demoPositionSize = demoFinalSize / currentPrice;
+
+      // Round to appropriate decimal places based on price
+      const roundedSize = this.roundPositionSize(demoPositionSize, currentPrice);
+
+      logService.log('debug', `Demo mode position size calculation:`, {
+        riskMultiplier,
+        randomFactor,
+        demoBaseSize,
+        demoConfidenceAdjustedSize,
+        demoMaxSize,
+        demoFinalSize,
+        demoPositionSize,
+        roundedSize
+      }, 'TradeGenerator');
+
+      return roundedSize;
+    }
+
+    // For live mode, use a more conservative approach
     // Base position size on risk level and confidence
     const baseSize = availableBudget * riskMultiplier;
     const confidenceAdjustedSize = baseSize * confidence;
 
+    // Get max position size from strategy config or use default
+    const configMaxPositionSize = strategy.strategy_config?.trade_parameters?.position_size;
+    const maxPositionSize = configMaxPositionSize !== undefined ? configMaxPositionSize : 0.1;
+
     // Ensure position size doesn't exceed max allowed
-    const maxPositionSize = strategy.strategy_config?.trade_parameters?.position_size || 0.1;
     const finalSize = Math.min(confidenceAdjustedSize, availableBudget * maxPositionSize);
 
     // Calculate actual position size in asset units
     const positionSize = finalSize / currentPrice;
 
-    // Round to 8 decimal places for crypto
-    return Math.floor(positionSize * 1e8) / 1e8;
+    // Round position size appropriately based on price
+    const roundedSize = this.roundPositionSize(positionSize, currentPrice);
+
+    logService.log('debug', `Live mode position size calculation:`, {
+      riskMultiplier,
+      baseSize,
+      confidenceAdjustedSize,
+      maxPositionSize,
+      finalSize,
+      positionSize,
+      roundedSize
+    }, 'TradeGenerator');
+
+    return roundedSize;
+  }
+
+  /**
+   * Round position size appropriately based on asset price
+   */
+  private roundPositionSize(positionSize: number, price: number): number {
+    // For high-value assets like BTC, round to more decimal places
+    if (price >= 10000) {
+      // For BTC: round to 6 decimal places (0.000001 BTC precision)
+      return Math.floor(positionSize * 1e6) / 1e6;
+    } else if (price >= 1000) {
+      // For ETH and similar: round to 5 decimal places
+      return Math.floor(positionSize * 1e5) / 1e5;
+    } else if (price >= 100) {
+      // For mid-priced assets: round to 4 decimal places
+      return Math.floor(positionSize * 1e4) / 1e4;
+    } else if (price >= 10) {
+      // For lower-priced assets: round to 3 decimal places
+      return Math.floor(positionSize * 1e3) / 1e3;
+    } else if (price >= 1) {
+      // For very low-priced assets: round to 2 decimal places
+      return Math.floor(positionSize * 1e2) / 1e2;
+    } else {
+      // For extremely low-priced assets (like SHIB): round to 0 decimal places
+      return Math.floor(positionSize);
+    }
+  }
+
+  /**
+   * Helper method to emit trade events for a newly created trade
+   * @param strategy The strategy that generated the trade
+   * @param trade The trade that was created
+   * @param signal The signal that triggered the trade
+   * @param price The current price of the asset
+   * @param amount The amount of the asset being traded
+   */
+  private emitTradeEvents(
+    strategy: Strategy,
+    trade: any,
+    signal: any,
+    price: number,
+    amount: number
+  ): void {
+    // Emit trade created event
+    this.emit('tradeCreated', {
+      strategy,
+      trade,
+      signal: {
+        ...signal,
+        entry: {
+          price,
+          type: 'market',
+          amount
+        }
+      }
+    });
+
+    // Also emit to the event bus for UI components to listen
+    eventBus.emit('trade:created', {
+      strategy,
+      trade,
+      signal: {
+        ...signal,
+        entry: {
+          price,
+          type: 'market',
+          amount
+        }
+      }
+    });
+
+    // Emit strategy-specific event for UI components to listen
+    eventBus.emit(`trade:created:${strategy.id}`, {
+      strategyId: strategy.id,
+      trade
+    });
+
+    // Log the trade creation
+    logService.log('info', `Created trade for ${trade.symbol} (Strategy: ${strategy.id})`, {
+      trade,
+      signal
+    }, 'TradeGenerator');
   }
 
   /**
@@ -760,10 +989,37 @@ Return ONLY a JSON object with this structure:
       const historicalDataBySymbol: Record<string, any[]> = {};
       for (const symbol of tradingPairs) {
         try {
-          const candles = await marketDataService.getCandles(symbol, '1h', 24); // Last 24 hours of hourly data
-          historicalDataBySymbol[symbol] = candles;
+          // Get historical data from market monitor
+          const marketData = marketMonitor.getMarketData(symbol);
+          if (marketData && marketData.candles && marketData.candles.length > 0) {
+            historicalDataBySymbol[symbol] = marketData.candles;
+          } else {
+            // Fallback to getting candles directly
+            const candles = await bitmartService.getKlines(symbol, Math.floor((Date.now() - 86400000) / 1000), Math.floor(Date.now() / 1000), '1h');
+            historicalDataBySymbol[symbol] = candles.map(kline => ({
+              timestamp: kline[0],
+              open: parseFloat(kline[1]),
+              high: parseFloat(kline[2]),
+              low: parseFloat(kline[3]),
+              close: parseFloat(kline[4]),
+              volume: parseFloat(kline[5])
+            }));
+          }
         } catch (error) {
           logService.log('error', `Failed to get historical data for ${symbol}`, error, 'TradeGenerator');
+        }
+      }
+
+      // Get current market conditions
+      const marketConditions = {};
+      for (const symbol of tradingPairs) {
+        try {
+          const state = marketMonitor.getMarketState(symbol);
+          if (state) {
+            marketConditions[symbol] = state;
+          }
+        } catch (error) {
+          logService.log('error', `Failed to get market state for ${symbol}`, error, 'TradeGenerator');
         }
       }
 
@@ -775,12 +1031,15 @@ ${JSON.stringify(strategy.strategy_config, null, 2)}
 
 Strategy Details:
 - ID: ${strategy.id}
-- Name: ${strategy.name}
-- Risk Level: ${strategy.risk_level}
-- Status: ${strategy.status}
+- Name: ${strategy.name || 'Unnamed Strategy'}
+- Risk Level: ${strategy.risk_level || (strategy as any).risk_level || 'Medium'}
+- Status: ${strategy.status || 'active'}
 
-Historical Market Data:
-${JSON.stringify(historicalDataBySymbol, null, 2)}
+Current Market Conditions:
+${JSON.stringify(marketConditions, null, 2)}
+
+Historical Market Data (Sample):
+${JSON.stringify(Object.fromEntries(Object.entries(historicalDataBySymbol).map(([symbol, data]) => [symbol, data.slice(-5)])), null, 2)}
 
 Requirements:
 1. Analyze the strategy's performance in current market conditions
@@ -788,6 +1047,8 @@ Requirements:
 3. Adapt entry and exit conditions based on current market trends
 4. Adjust risk parameters if needed
 5. Keep the strategy's core approach and risk level consistent
+6. ONLY make changes if they will improve performance
+7. If current configuration is optimal, return it unchanged
 
 Return ONLY a JSON object with the updated strategy configuration:
 {

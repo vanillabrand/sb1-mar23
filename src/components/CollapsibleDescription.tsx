@@ -44,16 +44,7 @@ export function CollapsibleDescription({
           {children}
         </div>
 
-        {/* Toggle button - without chevron */}
-        <button
-          onClick={() => setIsExpanded(prev => !prev)}
-          className={`p-0 bg-transparent border-0 outline-none focus:outline-none z-10 transition-all duration-300 hover:opacity-80 ${isExpanded ? 'mt-0' : '-mt-1'}`}
-          aria-label={isExpanded ? 'Collapse description' : 'Expand description'}
-        >
-          <span className="text-xs text-gray-500">
-            {isExpanded ? 'Less' : 'More'}
-          </span>
-        </button>
+        {/* Toggle button removed as requested */}
       </div>
 
       {/* No gradient overlay in collapsed state */}

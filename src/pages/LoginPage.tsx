@@ -13,12 +13,21 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    console.log('Attempting to sign in with email:', email);
 
     try {
+      console.log('Calling signIn method...');
       await signIn(email, password);
-      navigate('/dashboard');
+      console.log('Sign in successful, navigating to dashboard');
+
+      // Add a small delay to allow the auth state to update
+      setTimeout(() => {
+        console.log('Delayed navigation to dashboard');
+        navigate('/dashboard');
+      }, 500);
     } catch (error) {
       // Error is handled by AuthContext
+      console.error('Login error caught in LoginPage:', error);
     } finally {
       setIsLoading(false);
     }

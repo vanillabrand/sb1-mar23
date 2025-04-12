@@ -2,6 +2,7 @@ import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import type { Strategy } from './supabase-types';
 import type { BacktestResult } from './types';
+import { strategyMetricsCalculator } from './strategy-metrics-calculator';
 
 // Replace Python-style imports with TypeScript types
 type Dictionary<T> = Record<string, T>;
@@ -149,26 +150,37 @@ export class BacktestEngine extends EventEmitter {
   }
 
   /**
-   * Calculate the win rate based on strategy risk level
+   * Calculate the win rate based on strategy parameters
    */
   private getWinRate(strategy: Strategy): number {
-    switch (strategy.riskLevel) {
-      case 'Ultra Low':
-        return 0.65; // 65% win rate
-      case 'Low':
-        return 0.60; // 60% win rate
-      case 'Medium':
-        return 0.55; // 55% win rate
-      case 'High':
-        return 0.52; // 52% win rate
-      case 'Ultra High':
-        return 0.48; // 48% win rate
-      case 'Extreme':
-        return 0.45; // 45% win rate
-      case 'God Mode':
-        return 0.40; // 40% win rate
-      default:
-        return 0.50; // 50% win rate
+    try {
+      // Use the metrics calculator for a more accurate win rate
+      const calculatedWinRate = strategyMetricsCalculator.calculateWinRate(strategy);
+
+      // Convert from percentage to decimal
+      return calculatedWinRate / 100;
+    } catch (error) {
+      // Fallback to basic calculation if metrics calculator fails
+      const riskLevel = strategy.riskLevel || (strategy as any).risk_level || 'Medium';
+
+      switch (riskLevel) {
+        case 'Ultra Low':
+          return 0.65; // 65% win rate
+        case 'Low':
+          return 0.60; // 60% win rate
+        case 'Medium':
+          return 0.55; // 55% win rate
+        case 'High':
+          return 0.52; // 52% win rate
+        case 'Ultra High':
+          return 0.48; // 48% win rate
+        case 'Extreme':
+          return 0.45; // 45% win rate
+        case 'God Mode':
+          return 0.40; // 40% win rate
+        default:
+          return 0.50; // 50% win rate
+      }
     }
   }
 

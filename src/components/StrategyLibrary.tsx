@@ -305,13 +305,17 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
                   <div className="bg-gunmetal-900/30 p-3 rounded-lg">
                     <p className="text-xs text-gray-400">Win Rate</p>
                     <p className="text-lg font-medium text-neon-turquoise">
-                      {Number(template.metrics.winRate).toFixed(1)}%
+                      {template.metrics && typeof template.metrics.winRate !== 'undefined'
+                        ? Number(template.metrics.winRate).toFixed(1)
+                        : '50.0'}%
                     </p>
                   </div>
                   <div className="bg-gunmetal-900/30 p-3 rounded-lg">
                     <p className="text-xs text-gray-400">Expected Return</p>
                     <p className="text-lg font-medium text-neon-yellow">
-                      {Number(template.metrics.avgReturn).toFixed(1)}%
+                      {template.metrics && typeof template.metrics.avgReturn !== 'undefined'
+                        ? Number(template.metrics.avgReturn).toFixed(1)
+                        : '8.0'}%
                     </p>
                   </div>
                 </div>

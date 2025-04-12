@@ -43,23 +43,25 @@ const HYGIENE_LINKS: HygieneLinkProps[] = [
 
 export function HygieneLinks() {
   return (
-    <div className="bg-gunmetal-800/30 backdrop-blur-xl rounded-2xl p-8 border border-gunmetal-700/30 shadow-lg relative overflow-hidden">
-      {/* Animated background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-r from-gunmetal-900/50 via-gunmetal-800/50 to-gunmetal-900/50 opacity-50" />
+    <div className="backdrop-blur-xl rounded-2xl p-8 border border-white/10 shadow-lg relative overflow-hidden bg-white/[0.02]">
+      {/* Glass reflections */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent" />
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
 
-      {/* Subtle animated lines */}
-      <div className="absolute inset-0 opacity-10">
-        {Array.from({ length: 5 }).map((_, i) => (
+      {/* Brushed metal lines */}
+      <div className="absolute inset-0 overflow-hidden opacity-10">
+        {Array.from({ length: 15 }).map((_, i) => (
           <div
             key={i}
-            className="absolute bg-white"
+            className="absolute bg-gradient-to-r from-transparent via-white to-transparent"
             style={{
               height: '1px',
-              width: `${Math.random() * 30 + 20}%`,
+              width: `${Math.random() * 100 + 50}%`,
               left: `${Math.random() * 100}%`,
               top: `${Math.random() * 100}%`,
-              opacity: Math.random() * 0.5 + 0.2,
-              transform: `rotate(${Math.random() * 360}deg)`
+              transform: `rotate(${Math.random() * 180}deg)`,
+              opacity: Math.random() * 0.5 + 0.1
             }}
           />
         ))}
@@ -73,11 +75,11 @@ export function HygieneLinks() {
             <Link
               key={link.title}
               to={link.to}
-              className="group bg-gunmetal-900/40 rounded-xl p-5 hover:bg-gunmetal-800/40 transition-all duration-300 border border-gunmetal-700/20 hover:border-gunmetal-600/30 hover:shadow-[0_0_15px_rgba(0,0,0,0.2)]"
+              className="group bg-white/[0.03] rounded-lg p-5 hover:bg-white/[0.08] transition-all duration-300 border border-white/10 hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.05)] backdrop-blur-sm"
             >
               <div className="flex items-center gap-4">
-                <div className="p-2 rounded-full bg-gunmetal-800/50 group-hover:bg-gunmetal-700/50 transition-colors group-hover:text-neon-magenta">
-                  {link.icon}
+                <div className="p-2 rounded-full bg-white/[0.05] group-hover:bg-white/[0.1] transition-colors group-hover:text-neon-magenta">
+                    {link.icon}
                 </div>
                 <span className="text-gray-200 group-hover:text-white transition-colors font-medium">
                   {link.title}
@@ -87,7 +89,7 @@ export function HygieneLinks() {
           ))}
         </div>
 
-        <div className="mt-12 pt-6 border-t border-gunmetal-700/30 text-center">
+        <div className="mt-12 pt-6 border-t border-white/10 text-center">
           <div className="flex flex-wrap justify-center gap-6 mb-6">
             <a href="#" className="text-sm text-gray-400 hover:text-neon-cyan transition-colors">Contact Us</a>
             <a href="#" className="text-sm text-gray-400 hover:text-neon-cyan transition-colors">Careers</a>

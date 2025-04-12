@@ -180,7 +180,7 @@ class BitmartService extends EventEmitter {
       headers: {
         'Content-Type': 'application/json',
       },
-      credentials: 'include',
+      // Remove credentials: 'include' as it's causing CORS issues
       mode: 'cors'
     };
 
@@ -193,8 +193,10 @@ class BitmartService extends EventEmitter {
       path = url.substring(this.baseUrl.length);
     }
 
-    // Create the proxied URL
-    const proxiedUrl = `${proxyBaseUrl}/api/bitmart${path}`;
+    // Create the proxied URL - ensure no double slashes
+    // Check if proxyBaseUrl already ends with /api to avoid double paths
+    const baseUrl = proxyBaseUrl.endsWith('/api') ? proxyBaseUrl : `${proxyBaseUrl}/api`;
+    const proxiedUrl = `${baseUrl}/bitmart${path.startsWith('/') ? path : '/' + path}`;
 
     const finalOptions = {
       ...defaultOptions,
@@ -205,27 +207,8 @@ class BitmartService extends EventEmitter {
       }
     };
 
-    try {
-      logService.log('info', `Fetching from ${url} via proxy ${proxiedUrl}`, null, 'BitmartService');
-      const response = await fetch(proxiedUrl, finalOptions);
-
-      // Check if the response is OK
-      if (!response.ok) {
-        throw new Error(`HTTP error! Status: ${response.status}`);
-      }
-
-      // Check if the response is JSON
-      const contentType = response.headers.get('content-type');
-      if (!contentType || !contentType.includes('application/json')) {
-        logService.log('warn', `Response is not JSON: ${contentType}`, null, 'BitmartService');
-        throw new Error(`Expected JSON response but got ${contentType}`);
-      }
-
-      return response;
-    } catch (error) {
-      logService.log('error', `Failed to fetch from ${url}`, error, 'BitmartService');
-      throw error;
-    }
+    logService.log('info', `Fetching from ${url} via proxy ${proxiedUrl}`, null, 'BitmartService');
+    return fetch(proxiedUrl, finalOptions);
   }
 
   /**
@@ -566,13 +549,33 @@ class BitmartService extends EventEmitter {
    */
   private updateDemoMarketData(): void {
     try {
+      // Import the format utilities
+      const { getBasePrice, standardizeAssetPairFormat } = require('./format-utils');
+
       // Update all subscribed symbols
       this.subscriptions.forEach(symbol => {
         const existingData = this.assetData.get(symbol);
         if (!existingData) return;
 
-        const basePrice = existingData.price;
-        const priceVariance = basePrice * 0.002; // 0.2% variance for updates
+        // Get a more realistic base price if we don't have one yet
+        const basePrice = existingData.price || getBasePrice(symbol);
+
+        // Use a more realistic price movement algorithm
+        // This simulates real market behavior better with occasional larger moves
+        let priceVariance;
+        const randomFactor = Math.random();
+
+        if (randomFactor > 0.98) {
+          // Occasional larger move (2% of the time)
+          priceVariance = basePrice * 0.01; // 1% variance
+        } else if (randomFactor > 0.9) {
+          // Medium move (8% of the time)
+          priceVariance = basePrice * 0.005; // 0.5% variance
+        } else {
+          // Normal small move (90% of the time)
+          priceVariance = basePrice * 0.001; // 0.1% variance
+        }
+
         const newPrice = basePrice + (Math.random() * priceVariance * 2 - priceVariance);
         const now = Date.now();
 
@@ -599,11 +602,27 @@ class BitmartService extends EventEmitter {
           ...existingData,
           price: newPrice,
           change24h,
+          high24h: Math.max(existingData.high24h || 0, newPrice),
+          low24h: existingData.low24h ? Math.min(existingData.low24h, newPrice) : newPrice,
+          volume24h: existingData.volume24h + (newPrice * Math.random() * 10), // Increment volume
           lastUpdate: now,
           priceHistory: newHistory
         };
 
         this.assetData.set(symbol, updatedData);
+
+        // Also emit a ticker event for WebSocket subscribers
+        websocketService.emit('ticker', {
+          symbol: standardizeAssetPairFormat(symbol),
+          last_price: newPrice.toString(),
+          quote_volume_24h: updatedData.volume24h.toString(),
+          high_24h: updatedData.high24h.toString(),
+          low_24h: updatedData.low24h.toString(),
+          open_24h: open24h.toString(),
+          timestamp: now
+        });
+
+        // Emit our own price update event
         this.emit('priceUpdate', updatedData);
       });
     } catch (error) {
@@ -637,23 +656,23 @@ class BitmartService extends EventEmitter {
    */
   async getKlines(symbol: string, startTime: number, endTime: number, interval: string): Promise<any[]> {
     try {
-      // Normalize the symbol format if needed
       const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
 
       if (this.demoMode) {
-        // In demo mode, generate synthetic kline data
         return this.generateSyntheticKlines(normalizedSymbol, startTime, endTime, interval);
       }
 
-      // In real mode, fetch from the API
       const url = `${this.baseUrl}/spot/v1/symbols/kline?symbol=${normalizedSymbol}&from=${startTime}&to=${endTime}&step=${this.getIntervalInMinutes(interval)}`;
 
       const response = await this.fetchWithCORS(url);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
       const data = await response.json();
 
       if (data && data.data && data.data.klines) {
         return data.data.klines.map((kline: any) => [
-          parseInt(kline.timestamp) * 1000, // Convert to milliseconds
+          parseInt(kline.timestamp) * 1000,
           kline.open,
           kline.high,
           kline.low,
@@ -662,13 +681,10 @@ class BitmartService extends EventEmitter {
         ]);
       }
 
-      return [];
+      return this.generateSyntheticKlines(normalizedSymbol, startTime, endTime, interval);
     } catch (error) {
       logService.log('error', `Failed to get klines for ${symbol}`, error, 'BitmartService');
-
-      // Fall back to synthetic data on error
-      const normalizedSymbol = symbol.includes('_') ? symbol : symbol.replace('/', '_');
-      return this.generateSyntheticKlines(normalizedSymbol, startTime, endTime, interval);
+      return this.generateSyntheticKlines(symbol, startTime, endTime, interval);
     }
   }
 

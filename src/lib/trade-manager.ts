@@ -6,6 +6,7 @@ import { riskManager } from './risk-manager';
 import { eventBus } from './event-bus';
 import { ccxtService } from './ccxt-service';
 import { demoService } from './demo-service';
+import { tradeService } from './trade-service';
 
 class TradeManager extends EventEmitter {
   private readonly EXECUTION_TIMEOUT = 30000;
@@ -743,7 +744,7 @@ class TradeManager extends EventEmitter {
 
     return {
       id: tradeId,
-      status: 'pending',
+      status: 'pending', // Initial status is pending, will be updated to filled after a short delay
       symbol: options.symbol,
       side: options.side,
       type: options.type || 'market',
@@ -760,10 +761,8 @@ class TradeManager extends EventEmitter {
       exitConditions: exitConditions,
       // For backward compatibility
       entry_conditions: entryConditions,
-      exit_conditions: exitConditions,
-      // Set initial status to pending, will be updated to filled after a short delay
-      // to simulate real exchange behavior
-      status: 'pending'
+      exit_conditions: exitConditions
+      // Removed duplicate status key
     };
   }
 }

@@ -142,7 +142,7 @@ export function Pagination({
                   onClick={() => handlePageChange(page)}
                   className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-all duration-300 ${
                     currentPage === page
-                      ? 'bg-neon-turquoise text-black font-medium scale-110 ping-animation'
+                      ? 'bg-neon-turquoise text-black font-medium scale-110'
                       : 'text-gray-300 hover:bg-gunmetal-800'
                   }`}
                   aria-label={`Page ${page}`}

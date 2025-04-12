@@ -23,7 +23,7 @@ export function BacktestProgress({ progress, latestUpdate, onCancel }: BacktestP
   const progressValue = progress.progress || 0;
 
   return (
-    <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
+    <div id="backtest-progress" className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-3">
           {status === 'error' ? (

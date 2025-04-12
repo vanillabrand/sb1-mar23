@@ -11,7 +11,7 @@ const ALL_EXCHANGE_HEADERS = [
   'X-MBX-APIKEY', 'x-mbx-apikey',
 
   // Generic API headers
-  'X-API-KEY', 'API-Key', 'ACCESS-KEY', 'api-key', 'Api-Key',
+  'X-API-KEY', 'API-Key', 'ACCESS-KEY', 'api-key', 'Api-Key', 'api_key', 'apikey', 'key',
 
   // OKX headers
   'OK-ACCESS-KEY', 'ok-access-key',
@@ -57,7 +57,7 @@ const standardCorsHandler = (proxyRes, req, _res) => {
   proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
   proxyRes.headers['access-control-allow-credentials'] = 'true';
   proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
-  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase, ACCESS-KEY, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api-sign, API-Sign, kc-api-timestamp, kc-api-key, kc-api-sign, kc-api-passphrase';
+  proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase, ACCESS-KEY, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api-sign, API-Sign, kc-api-timestamp, kc-api-key, kc-api-sign, kc-api-passphrase, api_key, apikey, key';
 };
 
 // Use a more permissive CORS configuration for development
@@ -121,7 +121,7 @@ app.options('/api/binanceTestnet/*', (req, res) => {
     res.header('Access-Control-Allow-Headers', requestHeaders);
   } else {
     // Otherwise, use our standard headers
-    const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, *';
+    const standardHeaders = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api_key, apikey, key, *';
     res.header('Access-Control-Allow-Headers', standardHeaders);
   }
 
@@ -139,7 +139,7 @@ app.options('/api/binanceTestnet/*', (req, res) => {
 app.options('/api/binance/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api_key, apikey, key');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).send();
 });
@@ -828,11 +828,50 @@ app.get('/health', (_req, res) => {
 
 // Set up proxy routes for each exchange
 Object.keys(exchangeProxies).forEach(exchange => {
-  app.use(`/api/${exchange}`, createProxyMiddleware(exchangeProxies[exchange]));
+  // Special handling for BitMart to fix double slash issue
+  if (exchange === 'bitmart') {
+    app.use(`/api/bitmart`, createProxyMiddleware({
+      ...exchangeProxies[exchange],
+      pathRewrite: (path) => {
+        // Log the original path
+        console.log('Original BitMart path:', path);
+
+        // Fix double slash issue by removing any duplicate /api segments
+        let newPath = path.replace(/\/api\/+api\/bitmart/, '/api/bitmart');
+
+        // Remove the /api/bitmart prefix to get the actual API path
+        newPath = newPath.replace(/^\/api\/bitmart/, '');
+
+        // Log the new path
+        console.log('New BitMart path:', newPath);
+
+        return newPath;
+      }
+    }));
+  } else {
+    app.use(`/api/${exchange}`, createProxyMiddleware(exchangeProxies[exchange]));
+  }
 });
 
-// Legacy route for backward compatibility
-app.use('/api', createProxyMiddleware(exchangeProxies.bitmart));
+// Legacy route for backward compatibility - also with double slash fix
+app.use('/api', createProxyMiddleware({
+  ...exchangeProxies.bitmart,
+  pathRewrite: (path) => {
+    // Log the original path
+    console.log('Original legacy BitMart path:', path);
+
+    // Fix double slash issue by removing any duplicate /api segments
+    let newPath = path.replace(/\/api\/+api/, '/api');
+
+    // Remove the /api prefix to get the actual API path
+    newPath = newPath.replace(/^\/api/, '');
+
+    // Log the new path
+    console.log('New legacy BitMart path:', newPath);
+
+    return newPath;
+  }
+}));
 
 const PORT = process.env.PROXY_PORT || 3001;
 

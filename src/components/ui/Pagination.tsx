@@ -127,19 +127,7 @@ export function Pagination({
 
       {/* Pagination controls */}
       <div className="flex items-center gap-1">
-        {/* Previous button */}
-        <button
-          onClick={() => onPageChange(currentPage - 1)}
-          disabled={currentPage === 1 || loading}
-          className={`px-3 py-1 rounded-lg ${
-            currentPage === 1 || loading
-              ? 'text-gray-600 cursor-not-allowed'
-              : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
-          } transition-colors`}
-          aria-label="Previous page"
-        >
-          <span className="text-xs">Prev</span>
-        </button>
+        {/* Previous button removed */}
 
         {/* Page numbers */}
         <AnimatePresence mode="sync">
@@ -156,7 +144,7 @@ export function Pagination({
                       onClick={() => onPageChange(page)}
                       className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-all duration-300 ${
                         currentPage === page
-                          ? 'bg-neon-turquoise text-black font-medium scale-110 ping-animation'
+                          ? 'bg-neon-turquoise text-black font-medium scale-110'
                           : 'text-gray-300 hover:bg-gunmetal-800'
                       }`}
                       whileHover={{ scale: 1.05 }}
@@ -186,7 +174,7 @@ export function Pagination({
                   onClick={() => onPageChange(index + 1)}
                   className={`w-2 h-2 rounded-full transition-all ${
                     index + 1 === currentPage
-                      ? 'bg-neon-turquoise w-8 ping-animation'
+                      ? 'bg-neon-turquoise w-8'
                       : 'bg-gunmetal-700 hover:bg-gunmetal-600'
                   }`}
                   whileHover={{ scale: 1.1 }}
@@ -198,19 +186,7 @@ export function Pagination({
           )}
         </AnimatePresence>
 
-        {/* Next button */}
-        <button
-          onClick={() => onPageChange(currentPage + 1)}
-          disabled={currentPage === totalPages || loading}
-          className={`px-3 py-1 rounded-lg ${
-            currentPage === totalPages || loading
-              ? 'text-gray-600 cursor-not-allowed'
-              : 'text-gray-300 hover:bg-gunmetal-800 hover:text-neon-turquoise'
-          } transition-colors`}
-          aria-label="Next page"
-        >
-          <span className="text-xs">Next</span>
-        </button>
+        {/* Next button removed */}
       </div>
     </motion.div>
   );

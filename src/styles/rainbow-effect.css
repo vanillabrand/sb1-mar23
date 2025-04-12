@@ -18,25 +18,9 @@
   }
 }
 
-/* Panel Highlight Animation */
+/* Panel Highlight Animation - No Pulsing */
 @keyframes panelHighlight {
-  0% {
-    box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
-    border-color: rgba(59, 244, 251, 0.2);
-  }
-  25% {
-    box-shadow: 0 0 20px rgba(59, 244, 251, 0.8), inset 0 0 10px rgba(59, 244, 251, 0.3);
-    border-color: rgba(59, 244, 251, 0.8);
-  }
-  50% {
-    box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
-    border-color: rgba(59, 244, 251, 0.2);
-  }
-  75% {
-    box-shadow: 0 0 20px rgba(59, 244, 251, 0.8), inset 0 0 10px rgba(59, 244, 251, 0.3);
-    border-color: rgba(59, 244, 251, 0.8);
-  }
-  100% {
+  0%, 100% {
     box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
     border-color: rgba(59, 244, 251, 0.2);
   }
@@ -51,7 +35,6 @@
 }
 
 .panel-highlight {
-  animation: panelHighlight 2.5s ease-in-out;
   border: 1px solid rgba(59, 244, 251, 0.2);
 }
 

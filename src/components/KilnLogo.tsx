@@ -32,7 +32,7 @@ export function KilnLogo({ className = "" }: GiganticLogoProps) {
         <motion.h1
           initial={{ opacity: 0, y: 5 }}
           animate={{ opacity: 1, y: 0 }}
-          className="text-2xl font-bold tracking-tight gradient-text"
+          className="text-2xl gradient-text"
         >
           GIGAntic
         </motion.h1>

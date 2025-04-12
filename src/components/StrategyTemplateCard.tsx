@@ -35,13 +35,17 @@ export function StrategyTemplateCard({ template, onUse, isCreating }: StrategyTe
         <div>
           <p className="text-xs text-gray-500">Win Rate</p>
           <p className="text-sm font-semibold text-neon-turquoise">
-            {template.metrics.winRate}%
+            {template.metrics && typeof template.metrics.winRate !== 'undefined'
+              ? Number(template.metrics.winRate).toFixed(1)
+              : '50.0'}%
           </p>
         </div>
         <div>
           <p className="text-xs text-gray-500">Avg Return</p>
           <p className="text-sm font-semibold text-neon-turquoise">
-            {template.metrics.avgReturn}%
+            {template.metrics && typeof template.metrics.avgReturn !== 'undefined'
+              ? Number(template.metrics.avgReturn).toFixed(1)
+              : '8.0'}%
           </p>
         </div>
       </div>

@@ -19,6 +19,7 @@ import { logService } from '../lib/log-service';
 import { supabase } from '../lib/supabase';
 import { directDeleteStrategy } from '../lib/direct-delete';
 import { eventBus } from '../lib/event-bus';
+import { standardizeAssetPairFormat, toBinanceWsFormat, getBasePrice } from '../lib/format-utils';
 import { demoService } from '../lib/demo-service';
 import { exchangeService } from '../lib/exchange-service';
 import { ccxtService } from '../lib/ccxt-service';
@@ -29,6 +30,7 @@ import { tradeEngine } from '../lib/trade-engine';
 import { tradeGenerator } from '../lib/trade-generator';
 import { strategyMonitor } from '../lib/strategy-monitor';
 import { websocketService } from '../lib/websocket-service';
+import { strategySync } from '../lib/strategy-sync';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import type { Trade, Strategy, StrategyBudget } from '../lib/types';
@@ -55,7 +57,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   // WebSocket state
   const [wsConnected, setWsConnected] = useState(false);
   const [subscribedStrategies, setSubscribedStrategies] = useState<string[]>([]);
-  const [binanceConnected, setBinanceConnected] = useState(false);
+  // const [binanceConnected, setBinanceConnected] = useState(false); // Unused
 
   // UI state
   const [isLoading, setIsLoading] = useState(true);
@@ -64,7 +66,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [expandedStrategyId, setExpandedStrategyId] = useState<string | null>(null);
-  const [tradeListPage, setTradeListPage] = useState(0);
+  // Pagination state - currently unused but may be needed in the future
+  // const [tradeListPage, setTradeListPage] = useState(0);
 
   // Modal state
   const [showBudgetModal, setShowBudgetModal] = useState(false);
@@ -225,27 +228,33 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         // Log the trade for debugging
         logService.log('debug', `Received trade update for strategy ${strategyId}`, { trade }, 'TradeMonitor');
       } else if (type === 'binance_data' || type === 'binance_market_data') {
-        // Set Binance connection status
-        setBinanceConnected(true);
+        // Binance connection status is now tracked elsewhere
+        // setBinanceConnected(true);
 
         // Handle Binance TestNet data
         if (data.e === 'trade') {
-          // Create a trade object from Binance data
-          const binanceTrade = {
+          // Create a trade object from Binance data that conforms to the Trade interface
+          const binanceTrade: Trade = {
             id: `binance-${data.t}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`, // Make ID unique
             timestamp: data.T,
-            datetime: new Date(data.T).toISOString(),
             symbol: data.s.toUpperCase().replace(/([A-Z]+)([A-Z]+)$/, '$1/$2'), // Convert BTCUSDT to BTC/USDT
             side: data.m ? 'sell' : 'buy', // m = is buyer the market maker
-            price: parseFloat(data.p),
+            entryPrice: parseFloat(data.p),
             amount: parseFloat(data.q),
-            cost: parseFloat(data.p) * parseFloat(data.q),
-            fee: {
-              cost: parseFloat(data.p) * parseFloat(data.q) * 0.001, // 0.1% fee
-              currency: data.s.slice(-4) // Last 4 characters (e.g., USDT from BTCUSDT)
-            },
             status: 'pending', // Start as pending
-            strategyId: 'binance-testnet'
+            strategyId: 'binance-testnet',
+            createdAt: new Date(data.T).toISOString(),
+            // Additional properties that aren't part of the Trade interface
+            // but might be used elsewhere - we'll add them as any type
+            ...({
+              datetime: new Date(data.T).toISOString(),
+              price: parseFloat(data.p),
+              cost: parseFloat(data.p) * parseFloat(data.q),
+              fee: {
+                cost: parseFloat(data.p) * parseFloat(data.q) * 0.001, // 0.1% fee
+                currency: data.s.slice(-4) // Last 4 characters (e.g., USDT from BTCUSDT)
+              }
+            } as any)
           };
 
           // Find a strategy that trades this symbol
@@ -292,7 +301,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
               // Also update the global trades list
               setTrades(prev => {
                 // Add the new trade
-                const updatedTrades = [binanceTrade, ...prev];
+                const updatedTrades = [binanceTrade, ...prev] as Trade[];
 
                 // Sort by timestamp, newest first
                 updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
@@ -335,9 +344,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             strategyId: strategy.id,
             useBinanceTestnet: isDemo,
             symbols: selectedPairs.map(pair => {
-              // Convert pair format from BTC/USDT to btcusdt@trade
-              const formattedPair = pair.replace('/', '').toLowerCase() + '@trade';
-              return formattedPair;
+              // Convert pair format using our utility function
+              return toBinanceWsFormat(pair, '@trade');
             })
           }
         });
@@ -439,26 +447,122 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         // Handle trade updates in real-time without fetching all data
         if (payload.eventType === 'INSERT') {
           // Add new trade to the list
-          const newTrade = payload.new as Trade;
+          const rawTrade = payload.new as any;
+          const strategyId = rawTrade.strategy_id || rawTrade.strategyId;
+
+          if (!strategyId) {
+            logService.log('warn', 'Received trade without strategy ID', { trade: rawTrade }, 'TradeMonitor');
+            return;
+          }
+
+          // Normalize the trade data
+          const newTrade: Trade = {
+            id: rawTrade.id,
+            symbol: rawTrade.symbol,
+            side: rawTrade.side,
+            status: rawTrade.status || 'pending',
+            amount: rawTrade.amount || rawTrade.entry_amount || rawTrade.quantity || rawTrade.size || 0.1,
+            entryPrice: rawTrade.entry_price || rawTrade.entryPrice || 0,
+            exitPrice: rawTrade.exit_price || rawTrade.exitPrice || 0,
+            profit: rawTrade.profit || rawTrade.pnl || 0,
+            timestamp: new Date(rawTrade.created_at || rawTrade.timestamp).getTime(),
+            strategyId: strategyId,
+            createdAt: rawTrade.created_at || new Date(rawTrade.timestamp).toISOString(),
+            executedAt: rawTrade.executed_at || null
+          };
+
+          // Update both the global trades list and the strategy-specific trades
           setTrades(prevTrades => {
             // Add the new trade at the beginning of the array
             const updatedTrades = [newTrade, ...prevTrades];
-            // Limit to 10 trades per strategy if needed
+            // Limit to 100 trades total
+            return updatedTrades.slice(0, 100);
+          });
+
+          // Also update the strategy-specific trades list
+          setStrategyTrades(prev => {
+            const updatedTrades = {
+              ...prev,
+              [strategyId]: [newTrade, ...(prev[strategyId] || [])].slice(0, 50) // Keep only 50 most recent trades per strategy
+            };
             return updatedTrades;
           });
+
+          // Log the new trade
+          logService.log('info', `Received new trade for strategy ${strategyId}`, { trade: newTrade }, 'TradeMonitor');
         } else if (payload.eventType === 'UPDATE') {
           // Update existing trade
-          const updatedTrade = payload.new as Trade;
+          const rawTrade = payload.new as any;
+          const strategyId = rawTrade.strategy_id || rawTrade.strategyId;
+
+          if (!strategyId) {
+            logService.log('warn', 'Received trade update without strategy ID', { trade: rawTrade }, 'TradeMonitor');
+            return;
+          }
+
+          // Normalize the trade data
+          const updatedTrade: Trade = {
+            id: rawTrade.id,
+            symbol: rawTrade.symbol,
+            side: rawTrade.side,
+            status: rawTrade.status || 'pending',
+            amount: rawTrade.amount || rawTrade.entry_amount || rawTrade.quantity || rawTrade.size || 0.1,
+            entryPrice: rawTrade.entry_price || rawTrade.entryPrice || 0,
+            exitPrice: rawTrade.exit_price || rawTrade.exitPrice || 0,
+            profit: rawTrade.profit || rawTrade.pnl || 0,
+            timestamp: new Date(rawTrade.created_at || rawTrade.timestamp).getTime(),
+            strategyId: strategyId,
+            createdAt: rawTrade.created_at || new Date(rawTrade.timestamp).toISOString(),
+            executedAt: rawTrade.executed_at || null
+          };
+
+          // Update both the global trades list and the strategy-specific trades
           setTrades(prevTrades => {
             return prevTrades.map(trade =>
               trade.id === updatedTrade.id ? updatedTrade : trade
             );
           });
+
+          // Also update the strategy-specific trades list
+          setStrategyTrades(prev => {
+            if (!prev[strategyId]) return prev;
+
+            const updatedStrategyTrades = prev[strategyId].map(trade =>
+              trade.id === updatedTrade.id ? updatedTrade : trade
+            );
+
+            return {
+              ...prev,
+              [strategyId]: updatedStrategyTrades
+            };
+          });
         } else if (payload.eventType === 'DELETE') {
           // Remove deleted trade
           const deletedTradeId = payload.old.id;
+          const strategyId = payload.old.strategy_id || payload.old.strategyId;
+
+          if (!strategyId) {
+            logService.log('warn', 'Received trade deletion without strategy ID', { tradeId: deletedTradeId }, 'TradeMonitor');
+            return;
+          }
+
+          // Update both the global trades list and the strategy-specific trades
           setTrades(prevTrades => {
             return prevTrades.filter(trade => trade.id !== deletedTradeId);
+          });
+
+          // Also update the strategy-specific trades list
+          setStrategyTrades(prev => {
+            if (!prev[strategyId]) return prev;
+
+            const updatedStrategyTrades = prev[strategyId].filter(trade =>
+              trade.id !== deletedTradeId
+            );
+
+            return {
+              ...prev,
+              [strategyId]: updatedStrategyTrades
+            };
           });
         }
       })
@@ -479,45 +583,150 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
     // Subscribe to trade events with optimized updates
     const tradeCreatedUnsubscribe = eventBus.subscribe('trade:created', (data) => {
-      console.log('Trade created:', data);
-      // Only update strategies, not the entire trade list
-      fetchStrategies();
+      logService.log('debug', 'Trade created event received', { data }, 'TradeMonitor');
 
       // Add the new trade to the list without a full refresh
-      if (data && data.trade) {
+      if (data && data.trade && data.strategy) {
+        const strategyId = data.strategy.id;
+
+        // Normalize the trade data
+        const normalizedTrade: Trade = {
+          id: data.trade.id || `event-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          symbol: data.trade.symbol,
+          side: data.trade.side,
+          status: data.trade.status || 'pending',
+          amount: data.trade.amount || data.trade.entry_amount || data.trade.quantity ||
+                  data.trade.size || (data.signal?.entry?.amount) || 0.1,
+          entryPrice: data.trade.entry_price || data.trade.entryPrice || data.trade.price || 0,
+          exitPrice: data.trade.exit_price || data.trade.exitPrice || 0,
+          profit: data.trade.profit || data.trade.pnl || 0,
+          timestamp: data.trade.timestamp || Date.now(),
+          strategyId: strategyId,
+          createdAt: data.trade.created_at || data.trade.createdAt || new Date().toISOString(),
+          executedAt: data.trade.executed_at || data.trade.executedAt || null
+        };
+
+        // Update the global trades list
         setTrades(prevTrades => {
           // Check if trade already exists
-          const exists = prevTrades.some(t => t.id === data.trade.id);
+          const exists = prevTrades.some(t => t.id === normalizedTrade.id);
           if (exists) return prevTrades;
 
           // Add new trade and sort
-          const updatedTrades = [data.trade, ...prevTrades];
+          const updatedTrades = [normalizedTrade, ...prevTrades];
           return updatedTrades.slice(0, 100); // Keep only latest 100
         });
+
+        // Also update the strategy-specific trades list
+        setStrategyTrades(prev => {
+          // Add the new trade to the strategy's trades
+          const updatedTrades = {
+            ...prev,
+            [strategyId]: [normalizedTrade, ...(prev[strategyId] || [])].slice(0, 50) // Keep only 50 most recent trades per strategy
+          };
+          return updatedTrades;
+        });
+
+        // Log the new trade
+        logService.log('info', `Added new trade for strategy ${strategyId} from event bus`, { trade: normalizedTrade }, 'TradeMonitor');
       }
     });
 
     const tradeUpdatedUnsubscribe = eventBus.subscribe('trade:update', (data) => {
-      console.log('Trade updated:', data);
+      logService.log('debug', 'Trade update event received', { data }, 'TradeMonitor');
+
       // Only update the specific trade that changed
       if (data && (data.orderId || (data.status && data.status.id))) {
         const tradeId = data.orderId || data.status.id;
+        const strategyId = data.strategyId || (data.status && data.status.strategyId);
+
+        // Update the global trades list
         setTrades(prevTrades => {
           return prevTrades.map(trade => {
             if (trade.id === tradeId) {
               // Merge the updated data with existing trade
-              return { ...trade, ...data.status };
+              const updatedTrade = { ...trade, ...data.status };
+
+              // Ensure amount field is set
+              if (updatedTrade.amount === undefined) {
+                updatedTrade.amount = trade.amount || 0.1;
+              }
+
+              return updatedTrade;
             }
             return trade;
           });
         });
+
+        // Also update the strategy-specific trades list if we have a strategy ID
+        if (strategyId) {
+          setStrategyTrades(prev => {
+            if (!prev[strategyId]) return prev;
+
+            const updatedStrategyTrades = prev[strategyId].map(trade => {
+              if (trade.id === tradeId) {
+                // Merge the updated data with existing trade
+                const updatedTrade = { ...trade, ...data.status };
+
+                // Ensure amount field is set
+                if (updatedTrade.amount === undefined) {
+                  updatedTrade.amount = trade.amount || 0.1;
+                }
+
+                return updatedTrade;
+              }
+              return trade;
+            });
+
+            return {
+              ...prev,
+              [strategyId]: updatedStrategyTrades
+            };
+          });
+
+          // Log the update
+          logService.log('info', `Updated trade ${tradeId} for strategy ${strategyId}`, null, 'TradeMonitor');
+        }
       }
     });
 
     const tradesUpdatedUnsubscribe = eventBus.subscribe('tradesUpdated', (data) => {
-      console.log('Trades updated:', data);
-      // Only update strategies, not the entire trade list
-      fetchStrategies();
+      logService.log('debug', 'Trades updated event received', { data }, 'TradeMonitor');
+
+      // Instead of refreshing everything, just update the last update timestamp
+      setLastUpdate(Date.now());
+
+      // If we have specific strategy data, update just that strategy's trades
+      if (data && data.strategyId) {
+        const strategyId = data.strategyId;
+
+        // If we have trades data, update the strategy's trades
+        if (data.trades && Array.isArray(data.trades)) {
+          // Normalize the trades
+          const normalizedTrades = data.trades.map((trade: any) => ({
+            id: trade.id || `event-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            symbol: trade.symbol,
+            side: trade.side,
+            status: trade.status || 'pending',
+            amount: trade.amount || trade.entry_amount || trade.quantity || trade.size || 0.1,
+            entryPrice: trade.entry_price || trade.entryPrice || trade.price || 0,
+            exitPrice: trade.exit_price || trade.exitPrice || 0,
+            profit: trade.profit || trade.pnl || 0,
+            timestamp: trade.timestamp || Date.now(),
+            strategyId: strategyId,
+            createdAt: trade.created_at || trade.createdAt || new Date().toISOString(),
+            executedAt: trade.executed_at || trade.executedAt || null
+          }));
+
+          // Update the strategy's trades
+          setStrategyTrades(prev => ({
+            ...prev,
+            [strategyId]: normalizedTrades
+          }));
+
+          logService.log('info', `Updated trades for strategy ${strategyId}`, { count: normalizedTrades.length }, 'TradeMonitor');
+        }
+      }
     });
 
     // Subscribe to strategy deleted events
@@ -557,10 +766,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     };
   }, []);
 
-  // Fetch strategies from the database
+  // Fetch strategies from the database - optimized to avoid full refreshes
   const fetchStrategies = async () => {
     try {
-      console.log('Fetching strategies directly from database...');
+      logService.log('debug', 'Fetching strategies from database', null, 'TradeMonitor');
 
       // Get strategies directly from the database
       const { data: fetchedStrategies, error } = await supabase
@@ -576,15 +785,36 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       const filteredStrategies = fetchedStrategies.filter(strategy => {
         const isDeleted = deletedStrategyIds.has(strategy.id);
         if (isDeleted) {
-          console.log(`Filtering out deleted strategy ${strategy.id}`);
+          logService.log('debug', `Filtering out deleted strategy ${strategy.id}`, null, 'TradeMonitor');
         }
         return !isDeleted;
       });
 
-      console.log(`Fetched ${filteredStrategies.length} strategies from database`);
+      logService.log('info', `Fetched ${filteredStrategies.length} strategies from database`, null, 'TradeMonitor');
 
-      // Update the strategies state with a completely new array
-      setStrategies([...filteredStrategies]);
+      // Update strategies without triggering a full refresh
+      // Compare existing strategies with fetched ones to only update what changed
+      setStrategies(prevStrategies => {
+        // Create map for faster lookups
+        const prevMap = new Map(prevStrategies.map(s => [s.id, s]));
+
+        // Check if anything changed
+        let hasChanges = prevStrategies.length !== filteredStrategies.length;
+
+        if (!hasChanges) {
+          // Check if any strategy details changed
+          for (const strategy of filteredStrategies) {
+            const prevStrategy = prevMap.get(strategy.id);
+            if (!prevStrategy || prevStrategy.status !== strategy.status) {
+              hasChanges = true;
+              break;
+            }
+          }
+        }
+
+        // Only update if there are actual changes
+        return hasChanges ? [...filteredStrategies] : prevStrategies;
+      });
 
       // Subscribe to market data for active strategies
       filteredStrategies.forEach(strategy => {
@@ -608,30 +838,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     }
   };
 
-  // Helper function to get status color
-  const getStatusColor = (status: string): string => {
-    switch (status.toLowerCase()) {
-      case 'open':
-      case 'pending':
-        return 'bg-yellow-500/20 text-yellow-500';
-      case 'closed':
-      case 'completed':
-        return 'bg-green-500/20 text-green-500';
-      case 'canceled':
-      case 'cancelled':
-        return 'bg-gray-500/20 text-gray-400';
-      case 'failed':
-        return 'bg-red-500/20 text-red-500';
-      default:
-        return 'bg-blue-500/20 text-blue-500';
-    }
-  };
-
-  // Helper function to get strategy name
-  const getStrategyName = (strategyId: string, strategies: Strategy[]): string => {
-    const strategy = strategies.find(s => s.id === strategyId);
-    return strategy ? ((strategy as any).name || (strategy as any).title || 'Unknown Strategy') : 'Unknown Strategy';
-  };
+  // Helper functions are now handled by the TradeList component
 
   // Fetch trade data from exchange or TestNet
   const fetchTradeData = async () => {
@@ -679,6 +886,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setIsLoading(false);
     }
   };
+
+
 
   // Fetch trades from Binance TestNet
   /**
@@ -822,6 +1031,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             profit: trade.fee ? (trade.cost - trade.fee.cost) : trade.cost,
             timestamp: trade.timestamp,
             strategyId, // Use the matching strategy ID
+            amount: trade.amount || parseFloat(trade.q) || 0.1, // Ensure amount is always included
           }));
 
           allTrades.push(...formattedTrades);
@@ -997,7 +1207,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     }
   };
 
-  // Activate a strategy with the given budget - simplified version
+  // Activate a strategy with the given budget - optimized version with seamless UI updates
   const activateStrategyWithBudget = async (strategy: Strategy, budget: StrategyBudget) => {
     try {
       setError(null);
@@ -1022,11 +1232,23 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         throw new Error(`Failed to fetch latest strategy data: ${fetchError?.message || 'No data returned'}`);
       }
 
-      // 3. Activate the strategy in the database
+      // 3. Optimistically update the UI before the backend confirms the change
+      // This provides immediate feedback to the user without waiting for the full refresh
+      setStrategies(prevStrategies => {
+        return prevStrategies.map(s => {
+          if (s.id === strategy.id) {
+            // Create an updated version of the strategy with active status
+            return { ...s, status: 'active' };
+          }
+          return s;
+        });
+      });
+
+      // 4. Activate the strategy in the database
       const updatedStrategy = await strategyService.activateStrategy(strategy.id);
       logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'TradeMonitor');
 
-      // 4. Start monitoring the strategy - wrap in try/catch to continue even if this fails
+      // 5. Start monitoring the strategy - wrap in try/catch to continue even if this fails
       try {
         await marketService.startStrategyMonitoring(updatedStrategy);
         logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'TradeMonitor');
@@ -1034,7 +1256,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         logService.log('warn', `Error starting market monitoring for strategy ${strategy.id}, continuing with activation`, monitorError, 'TradeMonitor');
       }
 
-      // 5. Connect to trading engine to start generating trades - wrap in try/catch to continue even if this fails
+      // IMPORTANT: Do NOT refresh the strategy list here - we've already updated the UI optimistically
+
+      // 6. Connect to trading engine to start generating trades - wrap in try/catch to continue even if this fails
       try {
         const connected = await tradeService.connectStrategyToTradingEngine(strategy.id);
 
@@ -1048,15 +1272,40 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         logService.log('warn', `Error connecting strategy ${strategy.id} to trading engine, will retry later`, engineError, 'TradeMonitor');
       }
 
-      // 6. Refresh data
+      // 7. Subscribe to the strategy's trades via WebSocket without refreshing the UI
       try {
-        await fetchStrategies();
-        await fetchTradeData(); // Also refresh trade data to show new trades
-      } catch (refreshError) {
-        logService.log('warn', 'Error refreshing data after strategy activation', refreshError, 'TradeMonitor');
+        await websocketService.subscribeToStrategy(strategy.id);
+        logService.log('info', `Subscribed to WebSocket updates for strategy ${strategy.id}`, null, 'TradeMonitor');
+
+        // 8. Create a placeholder trade for immediate visual feedback
+        const placeholderTrade: Trade = {
+          id: `placeholder-${strategy.id}-${Date.now()}`,
+          symbol: strategy.selected_pairs?.[0] || 'BTC/USDT',
+          side: Math.random() > 0.5 ? 'buy' : 'sell',
+          status: 'pending',
+          entryPrice: getBasePrice(strategy.selected_pairs?.[0] || 'BTC/USDT'),
+          timestamp: Date.now(),
+          strategyId: strategy.id,
+          createdAt: new Date().toISOString(),
+          executedAt: null,
+          amount: 0.1 + (Math.random() * 0.9)
+        };
+
+        // Add the placeholder trade to the strategy's trades
+        setStrategyTrades(prev => ({
+          ...prev,
+          [strategy.id]: [placeholderTrade, ...(prev[strategy.id] || [])]
+        }));
+      } catch (wsError) {
+        logService.log('warn', `Error subscribing to WebSocket updates for strategy ${strategy.id}`, wsError, 'TradeMonitor');
       }
 
-      // 7. Clean up state
+      // 8. Fetch trade data in the background without disrupting the UI
+      fetchTradeData().catch(error => {
+        logService.log('warn', 'Error fetching trade data in background', error, 'TradeMonitor');
+      });
+
+      // 9. Clean up state
       setPendingStrategy(null);
       setPendingBudget(0);
 
@@ -1075,13 +1324,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     }
   };
 
-  const filteredTrades = trades
-    .filter(trade => {
-      // Use symbol instead of pair for searching
-      const matchesSearch = trade.symbol?.toLowerCase().includes(searchTerm.toLowerCase()) || false;
-      return matchesSearch;
-    })
-    .sort((a, b) => b.timestamp - a.timestamp);
+  // Trade filtering is now handled by the TradeList component
 
   // Custom scrollbar styles
   const scrollbarStyles = `
@@ -1225,33 +1468,15 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                         strategy={strategy}
                         isExpanded={expandedStrategyId === strategy.id}
                         onToggleExpand={(id) => setExpandedStrategyId(expandedStrategyId === id ? null : id)}
-                        onRefresh={fetchStrategies}
+                        onRefresh={() => { fetchStrategies(); return Promise.resolve(); }}
                         trades={strategyTrades[strategy.id] || []}
                         onActivate={async (strategy) => {
                           try {
-                            // Check if budget is already set
-                            const budget = tradeService.getBudget(strategy.id);
-
-                            if (!budget || budget.total <= 0) {
-                              // If no budget or budget is zero, show budget modal
-                              logService.log('info', `No budget set for strategy ${strategy.id}, showing budget modal`, null, 'TradeMonitor');
-                              setPendingStrategy(strategy);
-                              setShowBudgetModal(true);
-                              return false; // Return false to indicate activation was not completed
-                            }
-
-                            // Check if budget exceeds available balance
-                            if (budget.total > availableBalance) {
-                              logService.log('info', `Budget exceeds available balance: ${budget.total} > ${availableBalance}`, null, 'TradeMonitor');
-                              setPendingStrategy(strategy);
-                              setPendingBudget(budget.total);
-                              setShowBudgetAdjustmentModal(true);
-                              return false; // Return false to indicate activation was not completed
-                            }
-
-                            // If budget exists and is within available balance, proceed with activation directly
-                            await activateStrategyWithBudget(strategy, budget);
-                            return true; // Return true to indicate successful activation
+                            // Always show budget modal when activating a strategy
+                            logService.log('info', `Showing budget modal for strategy ${strategy.id}`, null, 'TradeMonitor');
+                            setPendingStrategy(strategy);
+                            setShowBudgetModal(true);
+                            return false; // Return false to indicate activation was not completed
                           } catch (error) {
                             logService.log('error', 'Failed to activate strategy', error, 'TradeMonitor');
                             setError('Failed to activate strategy. Please try again.');
@@ -1323,7 +1548,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                             });
 
                             // STEP 2: Disable strategy sync temporarily
-                            strategySync.pauseSync();
+                            if (typeof strategySync.pauseSync === 'function') {
+                              strategySync.pauseSync();
+                            }
 
                             // STEP 3: Use the direct deletion function
                             console.log(`Using direct deletion function for strategy ${strategyId}...`);
@@ -1380,14 +1607,18 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                             }
 
                             // STEP 5: Remove from strategy sync cache
-                            strategySync.removeFromCache(strategyId);
+                            if (typeof strategySync.removeFromCache === 'function') {
+                              strategySync.removeFromCache(strategyId);
+                            }
 
                             // STEP 6: Force a complete refresh of the UI
                             await fetchStrategies();
 
                             // STEP 7: Resume strategy sync
                             setTimeout(() => {
-                              strategySync.resumeSync();
+                              if (typeof strategySync.resumeSync === 'function') {
+                                strategySync.resumeSync();
+                              }
                             }, 5000); // Wait 5 seconds before resuming sync
 
                             console.log(`Strategy ${strategyId} deletion complete`);

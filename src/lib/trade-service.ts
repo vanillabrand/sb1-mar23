@@ -197,11 +197,19 @@ class TradeService extends EventEmitter {
 
   // Create and return a default budget for a new strategy.
   createDefaultBudget(): StrategyBudget {
+    // In demo mode, use a larger budget to allow for multiple trades
+    const isDemoMode = this.isDemo;
+    const budgetAmount = isDemoMode ? 50000 : this.DEFAULT_BUDGET;
+
+    // Log the budget creation
+    logService.log('info', `Creating default budget in ${isDemoMode ? 'demo' : 'live'} mode: ${budgetAmount}`, null, 'TradeService');
+
     return {
-      total: Number(this.DEFAULT_BUDGET.toFixed(2)),
+      total: Number(budgetAmount.toFixed(2)),
       allocated: 0,
-      available: Number(this.DEFAULT_BUDGET.toFixed(2)),
-      maxPositionSize: Number((this.DEFAULT_BUDGET * 0.1).toFixed(2))
+      available: Number(budgetAmount.toFixed(2)),
+      maxPositionSize: Number((isDemoMode ? 0.2 : 0.1).toFixed(2)), // 20% max position in demo mode vs 10% in live
+      lastUpdated: Date.now()
     };
   }
 

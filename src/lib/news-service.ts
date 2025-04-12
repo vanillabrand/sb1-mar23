@@ -1,6 +1,7 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-import { strategyService } from './strategy-service';
+// Remove static import to avoid circular dependency
+// import { strategyService } from './strategy-service';
 import type { NewsItem, Strategy } from './types';
 
 class NewsService extends EventEmitter {
@@ -74,6 +75,9 @@ class NewsService extends EventEmitter {
    */
   async getNewsForUserStrategies(): Promise<NewsItem[]> {
     try {
+      // Dynamically import strategyService to avoid circular dependency
+      const { strategyService } = await import('./strategy-service');
+
       // Get all user strategies
       const strategies = await strategyService.getAllStrategies();
 

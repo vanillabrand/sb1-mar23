@@ -661,8 +661,9 @@ class ExchangeService extends EventEmitter {
       const apiSecret = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_SECRET || process.env.BINANCE_FUTURES_TESTNET_API_SECRET || '';
 
       if (!apiKey || !apiSecret) {
-        logService.log('warn', 'Missing Binance Futures TestNet API credentials', null, 'ExchangeService');
-        console.warn('Missing Binance Futures TestNet API credentials. Please check your .env file.');
+        // This is expected in many cases, so we'll just log it as info
+        logService.log('info', 'Futures trading not configured - missing Binance Futures TestNet API credentials', null, 'ExchangeService');
+        // Don't show console warning as this is expected for many users
         return; // Exit early if credentials are missing
       }
 

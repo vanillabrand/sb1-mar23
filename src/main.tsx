@@ -8,34 +8,29 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { systemSync } from './lib/system-sync';
 import { logService } from './lib/log-service';
 import { globalCacheService } from './lib/global-cache-service';
+import { ErrorHandler } from './lib/error-handler';
 import './index.css';
 import './styles/rainbow-effect.css'; // Import rainbow effect styles
 import './styles/mobile.css'; // Import mobile-specific styles
+
+// Import test Supabase client for debugging
+import './test-supabase';
 
 // Initialize the global cache service
 // This will start background refresh timers for AI Market Insights and News
 // The cache will be updated every 15 minutes and shared across all users
 console.log('Initializing global cache service...');
 
-const CriticalErrorScreen = ({ message }: { message: string }) => (
-  <div className="min-h-screen flex items-center justify-center bg-gunmetal-950">
-    <div className="text-center p-6 bg-gunmetal-900 rounded-xl border border-gunmetal-800">
-      <h2 className="text-xl font-bold text-neon-pink">Critical Error</h2>
-      <p className="text-gray-400 mt-2">{message}</p>
-      <button
-        onClick={() => window.location.reload()}
-        className="mt-4 px-4 py-2 bg-neon-pink text-white rounded hover:bg-opacity-90 transition-colors"
-      >
-        Retry
-      </button>
-    </div>
-  </div>
-);
-
 let root: ReturnType<typeof createRoot> | null = null;
 
+// Set up global error handlers immediately to catch early errors
+ErrorHandler.setupGlobalErrorHandlers();
+
+// Simplified initialization for debugging
 const initApp = async () => {
   try {
+    console.log('Main: Starting application initialization...');
+
     // Create root element if it doesn't exist
     let rootElement = document.getElementById('root');
     if (!rootElement) {
@@ -44,46 +39,89 @@ const initApp = async () => {
       document.body.appendChild(rootElement);
     }
 
-    // Only create root if it doesn't exist
+    // Initialize log service first
+    try {
+      await logService.initialize();
+      console.log('Main: Log service initialized');
+    } catch (logError) {
+      console.warn('Main: Log service initialization failed:', logError);
+    }
+
+    // Initialize global cache service
+    try {
+      await globalCacheService.initialize();
+      console.log('Main: Global cache service initialized');
+    } catch (cacheError) {
+      console.warn('Main: Cache service initialization failed:', cacheError);
+    }
+
+    // Create root and render loading state
     if (!root) {
       root = createRoot(rootElement);
     }
 
-    // Render loading state
+    console.log('Main: Rendering initial loading state...');
     root.render(
-      <div className="min-h-screen flex items-center justify-center bg-gunmetal-950">
-        <div className="text-center p-6">
-          <h2 className="text-xl font-bold text-neon-pink">Initializing...</h2>
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#0a0a0c',
+        color: 'white'
+      }}>
+        <div style={{ textAlign: 'center', padding: '24px' }}>
+          <div style={{
+            width: '48px',
+            height: '48px',
+            borderRadius: '50%',
+            border: '3px solid transparent',
+            borderTopColor: '#FF1493',
+            borderBottomColor: '#FF1493',
+            margin: '0 auto',
+            animation: 'spin 1s linear infinite'
+          }}></div>
+          <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#FF1493', marginTop: '16px' }}>Initializing...</h2>
+          <p style={{ color: '#9ca3af', marginTop: '8px' }}>Please wait while the application loads...</p>
         </div>
       </div>
     );
 
-    // Initialize services
-    console.log('Starting application initialization...');
+    // Small delay to ensure loading state is visible
+    await new Promise(resolve => setTimeout(resolve, 500));
 
-    try {
-      await logService.initialize();
-      console.log('Log service initialized');
-    } catch (logError) {
-      console.error('Log service initialization failed, but continuing:', logError);
-    }
-
-    // Add a small delay to ensure the DOM has time to update
-    await new Promise(resolve => setTimeout(resolve, 100));
-
-    // Render application with error boundary
-    console.log('Rendering main application...');
+    console.log('Main: Rendering main application...');
     root.render(
       <StrictMode>
         <ErrorBoundary
           fallback={
-            <div className="min-h-screen flex items-center justify-center bg-gunmetal-950">
-              <div className="text-center p-6 bg-gunmetal-900 rounded-xl border border-gunmetal-800">
-                <h2 className="text-xl font-bold text-neon-pink">Application Error</h2>
-                <p className="text-gray-400 mt-2">Failed to initialize application</p>
+            <div style={{
+              minHeight: '100vh',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: '#0a0a0c'
+            }}>
+              <div style={{
+                textAlign: 'center',
+                padding: '24px',
+                backgroundColor: '#1f1f23',
+                borderRadius: '12px',
+                border: '1px solid #2a2b30'
+              }}>
+                <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#FF1493' }}>Application Error</h2>
+                <p style={{ color: '#9ca3af', marginTop: '8px' }}>Failed to initialize application</p>
                 <button
                   onClick={() => window.location.reload()}
-                  className="mt-4 px-4 py-2 bg-neon-pink hover:bg-neon-pink/80 text-white rounded-lg transition-colors"
+                  style={{
+                    marginTop: '16px',
+                    padding: '8px 16px',
+                    backgroundColor: '#FF1493',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer'
+                  }}
                 >
                   Retry
                 </button>
@@ -91,12 +129,7 @@ const initApp = async () => {
             </div>
           }
         >
-          <BrowserRouter
-            future={{
-              v7_startTransition: true,
-              v7_relativeSplatPath: true
-            }}
-          >
+          <BrowserRouter>
             <AuthProvider>
               <App />
             </AuthProvider>
@@ -105,40 +138,67 @@ const initApp = async () => {
       </StrictMode>
     );
   } catch (error) {
-    console.error('Application initialization failed:', error);
-
-    // Use existing root if available, otherwise create new one
-    if (!root && document.getElementById('root')) {
-      root = createRoot(document.getElementById('root')!);
-    }
-
+    console.error('Main: Fatal initialization error:', error);
     if (root) {
       root.render(
-        <CriticalErrorScreen
-          message={error instanceof Error ? error.message : 'Failed to initialize application'}
-        />
-      );
-    } else {
-      document.body.innerHTML = `
-        <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #1a1a1a; color: #ff69b4; text-align: center; padding: 20px;">
-          <div>
-            <h2 style="font-size: 24px; margin-bottom: 16px;">Critical Initialization Error</h2>
-            <p style="color: #666;">Please check the console for details and refresh the page.</p>
+        <div style={{
+          minHeight: '100vh',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#0a0a0c'
+        }}>
+          <div style={{
+            textAlign: 'center',
+            padding: '24px',
+            backgroundColor: '#1f1f23',
+            borderRadius: '12px',
+            border: '1px solid #2a2b30'
+          }}>
+            <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#FF1493' }}>Critical Error</h2>
+            <p style={{ color: '#9ca3af', marginTop: '8px' }}>{error instanceof Error ? error.message : 'Failed to initialize application'}</p>
+            <button
+              onClick={() => window.location.reload()}
+              style={{
+                marginTop: '16px',
+                padding: '8px 16px',
+                backgroundColor: '#FF1493',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer'
+              }}
+            >
+              Retry
+            </button>
           </div>
         </div>
-      `;
+      );
     }
   }
 };
 
-// Start the application
+// Add global animation style
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+`;
+document.head.appendChild(style);
+
+// Start the application with error handling
 initApp().catch(error => {
-  console.error('Fatal error during initialization:', error);
+  console.error('Main: Unhandled initialization error:', error);
   document.body.innerHTML = `
-    <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #1a1a1a; color: #ff69b4; text-align: center; padding: 20px;">
+    <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0a0a0c; color: #FF1493; text-align: center; padding: 20px;">
       <div>
         <h2 style="font-size: 24px; margin-bottom: 16px;">Fatal Error</h2>
-        <p style="color: #666;">A critical error occurred during application startup.</p>
+        <p style="color: #9ca3af;">A critical error occurred during application startup.</p>
+        <button onclick="window.location.reload()" style="margin-top: 16px; padding: 8px 16px; background: #FF1493; color: white; border: none; border-radius: 4px; cursor: pointer;">
+          Retry
+        </button>
       </div>
     </div>
   `;

@@ -372,7 +372,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             </div>
           </div>
           <div className="ml-3">
-            <div className={`${isMobile ? 'text-xl' : 'text-2xl'} font-bold bg-gradient-to-r from-pink-500 to-pink-400 text-transparent bg-clip-text`}>GIGAntic</div>
+            <div className={`${isMobile ? 'text-xl' : 'text-2xl'} gradient-text`}>GIGAntic</div>
             <div className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>AI Trading Platform</div>
           </div>
         </div>
@@ -393,22 +393,22 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             setIsExchangeDetailsExpanded(prev => !prev);
           }}
         >
-          <div className="flex items-center gap-2">
-            {isConnected ? (
-              <Wifi className="w-4 h-4 text-neon-turquoise" />
-            ) : (
-              <WifiOff className="w-4 h-4 text-neon-pink" />
-            )}
-            <span className={`text-sm font-medium ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`}>
-              {isConnected ? 'Connected' : 'Disconnected'}
-            </span>
-            {latency !== null && isConnected && (
-              <span className="text-xs text-neon-turquoise/70 ml-1">{latency}ms</span>
-            )}
+          <div className="flex items-center justify-between w-full">
+            <div className="flex items-center gap-2">
+              {isConnected ? (
+                <Wifi className="w-4 h-4 text-neon-turquoise" />
+              ) : (
+                <WifiOff className="w-4 h-4 text-neon-pink" />
+              )}
+              <span className={`text-sm font-medium ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`}>
+                {isConnected ? 'Connected' : 'Disconnected'}
+              </span>
+              {latency !== null && isConnected && (
+                <span className="text-xs text-neon-turquoise/70 ml-1">{latency}ms</span>
+              )}
+            </div>
+            {/* More/Less text removed as requested */}
           </div>
-          <span className={`text-xs ${isConnected ? 'text-neon-turquoise' : 'text-neon-pink'}`}>
-            {isExchangeDetailsExpanded ? 'Less' : 'More'}
-          </span>
         </div>
 
         {/* Expanded Connection Details - Using simple transition */}
@@ -560,21 +560,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
         />
       </div>
 
-      {/* Bottom button - Only visible on desktop */}
-      {!isMobile && (
-        <div
-          className="absolute bottom-0 left-0 right-0 flex justify-center cursor-pointer hover:opacity-100 z-10 transform translate-y-1/2"
-          onClick={toggleMobileMenu}
-        >
-          <div className={`panel-metallic px-4 pt-1 pb-3 rounded-b-lg shadow-lg border border-gunmetal-700 border-t-0 ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
-            <div className="w-10 h-10 flex items-center justify-center bg-gunmetal-800 rounded-full shadow-md border border-gunmetal-700">
-              <span className="text-xs text-gray-200">
-                {isMobileMenuOpen ? 'Less' : 'More'}
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Bottom button removed as requested */}
     </div>
   );
 };

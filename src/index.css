@@ -330,6 +330,15 @@
   }
 }
 
+@keyframes marquee {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
 /* Page Transitions */
 .page-transition-enter {
   opacity: 0;
@@ -409,6 +418,11 @@
 .animate-gradient-shift {
   background-size: 200% 200%;
   animation: gradient-shift 8s ease infinite;
+}
+
+.animate-marquee {
+  animation: marquee 30s linear infinite;
+  white-space: nowrap;
 }
 
 /* 3D Card Effect */

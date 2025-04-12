@@ -61,34 +61,10 @@ export function MetallicPagination({
     );
   }
 
-  // Desktop version with text buttons instead of chevrons
+  // Desktop version without navigation buttons
   return (
     <div className={`relative ${className} hidden sm:block`}>
-      {/* Previous button */}
-      <motion.div
-        className={`absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-1/2 z-10
-                   bg-gunmetal-800/80 rounded-lg shadow-md cursor-pointer
-                   ${currentPage === 0 ? 'opacity-50 cursor-not-allowed' : 'hover:brightness-150'}`}
-        onClick={handlePrevious}
-        style={{ position: 'fixed' }}
-      >
-        <div className="px-4 py-2 flex items-center justify-center">
-          <span className={`text-sm ${currentPage === 0 ? 'text-gray-500' : 'text-gray-300'}`}>Prev</span>
-        </div>
-      </motion.div>
-
-      {/* Next button */}
-      <motion.div
-        className={`absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-1/2 z-10
-                   bg-gunmetal-800/80 rounded-lg shadow-md cursor-pointer
-                   ${currentPage === totalPages - 1 ? 'opacity-50 cursor-not-allowed' : 'hover:brightness-150'}`}
-        onClick={handleNext}
-        style={{ position: 'fixed' }}
-      >
-        <div className="px-4 py-2 flex items-center justify-center">
-          <span className={`text-sm ${currentPage === totalPages - 1 ? 'text-gray-500' : 'text-gray-300'}`}>Next</span>
-        </div>
-      </motion.div>
+      {/* Navigation buttons removed */}
     </div>
   );
 }

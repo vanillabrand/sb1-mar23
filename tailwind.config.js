@@ -62,6 +62,7 @@ export default {
         'rotate-3d': 'rotate-3d 8s ease-in-out infinite',
         'gradient-shift': 'gradient-shift 8s ease infinite',
         'magnetic-hover': 'magnetic-hover 0.3s cubic-bezier(0.33, 1, 0.68, 1)',
+        'marquee': 'marquee 30s linear infinite',
       },
       keyframes: {
         glow: {
@@ -149,6 +150,7 @@ export default {
     'animate-particle-float',
     'animate-rotate-3d',
     'animate-gradient-shift',
-    'animate-magnetic-hover'
+    'animate-magnetic-hover',
+    'animate-marquee'
   ]
 };

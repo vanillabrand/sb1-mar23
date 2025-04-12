@@ -18,11 +18,18 @@ import { FeatureCarousel } from './FeatureCarousel';
 import { PricingPanel } from './PricingPanel';
 import { HygieneLinks } from './HygieneLinks';
 import { MarketVisualization } from './MarketVisualization';
-import { FloatingCards } from './FloatingCards';
+
+import { SpaceWarp } from './SpaceWarp';
+
+import { FluidHero } from './FluidHero';
+import { FeatureShowcaseGrid } from './FeatureShowcaseGrid';
+import { VisualShowcase } from './VisualShowcase';
+import { PerspectiveCTA } from './PerspectiveCTA';
 import { AnimatedStats } from './AnimatedStats';
-import { FeatureShowcase } from './FeatureShowcase';
-import { TestimonialsSection } from './TestimonialsSection';
-import { CallToAction } from './CallToAction';
+import { TestimonialCarousel } from './TestimonialCarousel';
+import { FluidFooter } from './FluidFooter';
+import HowItWorksSection from './HowItWorksSection';
+import FeaturesSection from './FeaturesSection';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 
@@ -116,138 +123,110 @@ export function Hero() {
 
   return (
     <div className="relative min-h-screen overflow-hidden">
-      {/* Enhanced Background Effects */}
-      <div className="absolute inset-0 bg-gradient-to-b from-gunmetal-950 via-gunmetal-900 to-gunmetal-950" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(45,212,191,0.15),transparent_70%)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_70%,rgba(255,20,147,0.15),transparent_70%)]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(250,204,21,0.1),transparent_70%)]" />
+      {/* Elegant Glass Background */}
+      <div className="absolute inset-0 bg-gradient-to-b from-gunmetal-800/90 via-gunmetal-850/90 to-gunmetal-800/90" />
+
+      {/* Subtle texture overlay */}
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')] opacity-20" />
+
+      {/* Glass reflections */}
+      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent" />
+      <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+      <div className="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+
+      {/* Subtle accent colors */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(45,212,191,0.05),transparent_70%)] animate-pulse-slow" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_70%,rgba(255,20,147,0.05),transparent_70%)] animate-pulse-slow" style={{ animationDelay: '1s' }} />
+
+      {/* Subtle brushed metal lines */}
+      <div className="absolute inset-0 overflow-hidden opacity-5">
+        {Array.from({ length: 10 }).map((_, i) => (
+          <div
+            key={i}
+            className="absolute bg-gradient-to-r from-transparent via-white to-transparent"
+            style={{
+              height: '1px',
+              width: `${Math.random() * 100 + 50}%`,
+              left: `${Math.random() * 100}%`,
+              top: `${Math.random() * 100}%`,
+              transform: `rotate(${Math.random() * 180}deg)`,
+              opacity: Math.random() * 0.3 + 0.1
+            }}
+          />
+        ))}
+      </div>
 
       {/* Animated Market Visualization */}
       <MarketVisualization className="z-0" />
 
+      {/* Space Warp Animation */}
+      <SpaceWarp className="z-0" />
+
       {/* Main Content */}
       <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 sm:py-16 md:py-24">
-        {/* Login Button in Top Right */}
-        <div className="absolute top-4 right-4 z-10">
+        {/* Top Navigation Bar */}
+        <div className="absolute top-0 left-0 right-0 z-10 flex justify-between items-center px-4 py-4 backdrop-blur-sm bg-white/[0.01] border-b border-white/5">
+          {/* Logo */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5, ease: [0.25, 0.1, 0.25, 1] }}
+            className="flex items-center"
+          >
+            <div className="text-2xl gradient-text mr-2">GIGAntic</div>
+          </motion.div>
+
+          {/* Login Button */}
           <motion.button
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5, delay: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             onClick={() => setShowLogin(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800/70 hover:bg-gunmetal-700/70 text-white rounded-lg backdrop-blur-sm transition-all duration-300"
+            className="flex items-center gap-2 px-4 py-2 bg-white/[0.03] hover:bg-white/[0.08] text-white rounded-lg backdrop-blur-md transition-all duration-300 shadow-lg border border-white/10"
           >
             <LogIn className="w-4 h-4" />
             <span>Login</span>
           </motion.button>
         </div>
 
-        {/* Hero Section */}
-        <div className="text-center mb-24 pt-16">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.8 }}
-            className="max-w-5xl mx-auto"
-          >
-            {/* Main Headline with staggered animation */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 1, delay: 0.2 }}
-            >
-              <h1 className="text-5xl sm:text-6xl md:text-8xl font-bold mb-8 sm:mb-12 leading-tight">
-                <motion.span
-                  initial={{ y: 50, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ duration: 0.7, delay: 0.3 }}
-                  className="gradient-text home-headline block"
-                >
-                  TRANSFORM YOUR TRADING
-                </motion.span>
-                <motion.span
-                  initial={{ y: 50, opacity: 0 }}
-                  animate={{ y: 0, opacity: 1 }}
-                  transition={{ duration: 0.7, delay: 0.5 }}
-                  className="text-white mt-4 sm:mt-6 block home-subheadline"
-                >
-                  VISION INTO REALITY
-                </motion.span>
-              </h1>
-            </motion.div>
 
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.7 }}
-              className="text-xl sm:text-2xl md:text-3xl text-gray-300 mb-6 sm:mb-10 leading-relaxed home-description"
-            >
-              Let AI handle the complexity while you
-              <span className="text-neon-magenta font-bold"> focus on strategy</span>
-            </motion.p>
 
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 0.9 }}
-              className="text-base sm:text-lg md:text-xl text-gray-400 mb-10 sm:mb-14 max-w-3xl mx-auto leading-relaxed home-description"
-            >
-              No complex charts or trading jargon. Just tell GIGAntic what you want to achieve,
-              and our AI will create, execute, and manage your trading strategy 24/7.
-              Earn passive income while our AI works tirelessly for you.
-            </motion.p>
+        {/* Fluid Hero Section */}
+        <FluidHero
+          onGetStarted={() => setShowSignup(true)}
+          onLearnMore={() => {
+            const howItWorksSection = document.getElementById('how-it-works');
+            if (howItWorksSection) {
+              howItWorksSection.scrollIntoView({ behavior: 'smooth' });
+            }
+          }}
+        />
 
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.7, delay: 1.1 }}
-              className="flex flex-col sm:flex-row items-center justify-center gap-5 sm:gap-8 mb-10 sm:mb-20"
-            >
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setShowSignup(true)}
-                className="group flex items-center gap-3 px-6 sm:px-10 py-4 sm:py-5 bg-neon-raspberry text-white rounded-xl hover:bg-[#FF69B4] transition-all duration-300 shadow-[0_0_30px_rgba(255,20,147,0.4)] hover:shadow-[0_0_40px_rgba(255,105,180,0.5)] w-full sm:w-auto"
-              >
-                <Brain className="w-7 h-7 group-hover:rotate-12 transition-transform" />
-                <span className="text-lg sm:text-xl font-medium">Start Your AI Trading Journey</span>
-              </motion.button>
+        {/* How It Works Section */}
+        <HowItWorksSection />
 
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => navigate('/how-it-works')}
-                className="group flex items-center gap-3 px-6 sm:px-10 py-4 sm:py-5 bg-gunmetal-800/60 text-gray-200 rounded-xl hover:bg-gunmetal-700/60 transition-all duration-300 backdrop-blur-sm w-full sm:w-auto border border-gunmetal-700/50"
-              >
-                <Star className="w-7 h-7 text-neon-yellow group-hover:rotate-45 transition-transform" />
-                <span className="text-lg sm:text-xl">See How It Works</span>
-              </motion.button>
-            </motion.div>
-          </motion.div>
-        </div>
+        {/* Features Section */}
+        <FeaturesSection />
 
-        {/* Floating Action Cards */}
-        <FloatingCards />
+        {/* Feature Showcase Grid */}
+        <FeatureShowcaseGrid />
 
-        {/* Interactive Feature Showcase */}
-        <FeatureShowcase />
+        {/* Visual Showcase */}
+        <VisualShowcase />
 
-        {/* Animated Statistics */}
+        {/* Animated Stats */}
         <AnimatedStats />
 
-        {/* Testimonials Section */}
-        <TestimonialsSection />
+        {/* Testimonial Carousel */}
+        <TestimonialCarousel />
 
-        {/* Call to Action */}
-        <CallToAction onSignUp={() => setShowSignup(true)} />
+        {/* Perspective Call to Action */}
+        <PerspectiveCTA onSignUp={() => setShowSignup(true)} />
 
-        {/* Hygiene Links - Enhanced */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-          className="mt-16"
-        >
-          <HygieneLinks />
-        </motion.div>
+        {/* Fluid Footer */}
+        <FluidFooter />
 
         {/* Login Modal */}
         {showLogin && (
@@ -256,7 +235,7 @@ export function Hero() {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-gunmetal-800"
+              className="bg-white/[0.03] backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
             >
               <h2 className="text-2xl font-bold gradient-text mb-2">Welcome Back</h2>
               <p className="text-gray-400 mb-6">Sign in to access your account</p>

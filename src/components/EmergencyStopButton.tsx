@@ -13,6 +13,10 @@ import { tradeService } from '../lib/trade-service';
 import { tradeManager } from '../lib/trade-manager';
 import { logService } from '../lib/log-service';
 import { useStrategies } from '../hooks/useStrategies';
+import { supabase } from '../lib/supabase';
+import { strategyMonitor } from '../lib/strategy-monitor';
+import { tradeGenerator } from '../lib/trade-generator';
+import { tradeEngine } from '../lib/trade-engine';
 
 interface EmergencyStopButtonProps {
   className?: string;
@@ -60,29 +64,123 @@ export function EmergencyStopButton({ className = '' }: EmergencyStopButtonProps
             }: ${strategy.title}`,
           });
 
-          // Get all active trades for this strategy
-          const trades = tradeManager.getActiveTradesForStrategy(strategy.id);
+          // Step 1: Get all active and pending trades for this strategy from the database
+          const { data: activeTrades, error: fetchError } = await supabase
+            .from('trades')
+            .select('*')
+            .eq('strategy_id', strategy.id)
+            .in('status', ['open', 'pending']);
 
-          // Close all trades
-          for (const trade of trades) {
-            await tradeManager.closeTrade(trade.id);
+          if (fetchError) {
+            throw new Error(`Failed to fetch trades: ${fetchError.message}`);
           }
 
-          // Stop strategy monitoring
-          await marketService.stopStrategyMonitoring(strategy.id);
+          logService.log(
+            'info',
+            `Found ${activeTrades?.length || 0} active/pending trades for strategy ${strategy.id}`,
+            null,
+            'EmergencyStopButton'
+          );
 
-          // Clear strategy budget
+          // Step 2: Close all active trades
+          if (activeTrades && activeTrades.length > 0) {
+            for (const trade of activeTrades) {
+              try {
+                // Close the trade through the trade manager
+                await tradeManager.closeTrade(trade.id, 'Emergency stop');
+
+                // Update trade status in database directly as a fallback
+                await supabase
+                  .from('trades')
+                  .update({
+                    status: 'closed',
+                    close_reason: 'Emergency stop',
+                    closed_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', trade.id);
+
+                logService.log(
+                  'info',
+                  `Closed trade ${trade.id} for strategy ${strategy.id}`,
+                  null,
+                  'EmergencyStopButton'
+                );
+              } catch (tradeError) {
+                logService.log(
+                  'error',
+                  `Error closing trade ${trade.id}`,
+                  tradeError,
+                  'EmergencyStopButton'
+                );
+                // Continue with other trades even if one fails
+              }
+            }
+          }
+
+          // Step 3: Delete any remaining trades
+          const { error: deleteError } = await supabase
+            .from('trades')
+            .delete()
+            .eq('strategy_id', strategy.id)
+            .in('status', ['draft', 'pending']);
+
+          if (deleteError) {
+            logService.log(
+              'error',
+              `Error deleting remaining trades for strategy ${strategy.id}`,
+              deleteError,
+              'EmergencyStopButton'
+            );
+          }
+
+          // Step 4: Stop all monitoring services for this strategy
+          try {
+            // Stop market monitoring
+            await marketService.stopStrategyMonitoring(strategy.id);
+
+            // Stop strategy monitoring
+            await strategyMonitor.removeStrategy(strategy.id);
+
+            // Remove from trade generator
+            if (tradeGenerator.removeStrategy) {
+              await tradeGenerator.removeStrategy(strategy.id);
+            }
+
+            // Remove from trade engine
+            if (tradeEngine.removeStrategy) {
+              await tradeEngine.removeStrategy(strategy.id);
+            }
+          } catch (monitorError) {
+            logService.log(
+              'error',
+              `Error stopping monitoring for strategy ${strategy.id}`,
+              monitorError,
+              'EmergencyStopButton'
+            );
+          }
+
+          // Step 5: Clear strategy budget
           await tradeService.setBudget(strategy.id, null);
 
-          // Update strategy status
+          // Step 6: Update strategy status to inactive
           await updateStrategy(strategy.id, {
             status: 'inactive',
             updated_at: new Date().toISOString(),
           });
 
+          // Also update directly in the database as a fallback
+          await supabase
+            .from('strategies')
+            .update({
+              status: 'inactive',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', strategy.id);
+
           logService.log(
             'info',
-            `Stopped strategy ${strategy.id} and closed ${trades.length} trades`,
+            `Stopped strategy ${strategy.id} and processed ${activeTrades?.length || 0} trades`,
             null,
             'EmergencyStopButton'
           );
@@ -99,6 +197,9 @@ export function EmergencyStopButton({ className = '' }: EmergencyStopButtonProps
 
       // Clear all budgets
       tradeService.clearAllBudgets();
+
+      // Refresh strategies list to reflect changes
+      refresh();
 
       setIsComplete(true);
       setTimeout(() => {

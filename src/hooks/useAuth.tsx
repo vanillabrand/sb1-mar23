@@ -37,17 +37,27 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
 
     const initializeAuth = async () => {
       try {
+        console.log('useAuth: Initializing auth context');
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-        if (sessionError) throw sessionError;
+        console.log('useAuth: Initial session check:', { session, error: sessionError });
+
+        if (sessionError) {
+          console.error('useAuth: Session error:', sessionError);
+          throw sessionError;
+        }
 
         if (mounted) {
+          console.log('useAuth: Setting initial user state:', session?.user);
           setUser(session?.user ?? null);
         }
 
+        console.log('useAuth: Setting up auth state change listener');
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+          console.log('useAuth: Auth state changed:', { event, user: session?.user });
           if (mounted) {
             const currentUser = session?.user ?? null;
             setUser(currentUser);
+            console.log('useAuth: User state updated after auth change:', currentUser);
 
             // Initialize user profile service when user logs in
             if (currentUser && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
@@ -80,12 +90,14 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
           subscription.unsubscribe();
         };
       } catch (err) {
-        console.error('Auth initialization failed:', err);
+        console.error('useAuth: Auth initialization failed:', err);
         const error = err instanceof Error ? err : new Error('Unknown error');
         if (mounted) {
+          console.log('useAuth: Setting error state:', error);
           setError(error as AuthError);
         }
         logService.error('Failed to initialize auth', error, 'AuthContext');
+        console.log('useAuth: Supabase client state:', supabase);
       } finally {
         if (mounted) {
           setLoading(false);
@@ -106,10 +118,44 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
 
   const signIn = async (email: string, password: string) => {
     try {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) throw error;
+      console.log('useAuth: Attempting to sign in with Supabase');
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      console.log('useAuth: Sign in response:', { data, error });
+
+      if (error) {
+        console.error('useAuth: Sign in error:', error);
+        throw error;
+      }
+
+      console.log('useAuth: Sign in successful, user:', data.user);
+
+      // Explicitly update the user state
+      setUser(data.user);
+
+      // Initialize user profile service when user logs in
+      try {
+        // Initialize user profile service
+        await userProfileService.initialize(data.user.id);
+
+        // Create user profile if it doesn't exist
+        const profile = await userProfileService.getUserProfile();
+        if (!profile) {
+          await userProfileService.saveUserProfile({
+            email: data.user.email,
+            auto_reconnect: true
+          });
+        }
+
+        // Initialize exchange service
+        await exchangeService.initialize();
+      } catch (profileError) {
+        console.error('Failed to initialize user profile:', profileError);
+        logService.error('Failed to initialize user profile', profileError, 'AuthContext');
+      }
+
       toast.success('Successfully signed in!');
     } catch (error) {
+      console.error('useAuth: Error in signIn method:', error);
       const authError = error as AuthError;
       setError(authError);
       toast.error(authError.message);

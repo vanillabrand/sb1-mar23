@@ -36,6 +36,73 @@ interface ErrorDetails {
 }
 
 export class ErrorHandler {
+  /**
+   * Set up global error handlers to filter out common harmless errors
+   */
+  static setupGlobalErrorHandlers(): void {
+    // Store original console.error
+    const originalConsoleError = console.error;
+
+    // Override console.error to filter out known harmless errors
+    console.error = (...args: any[]) => {
+      // Check if this is a Chrome extension error
+      const errorString = args.join(' ');
+      if (
+        errorString.includes('Unchecked runtime.lastError') ||
+        errorString.includes('message channel closed before a response was received')
+      ) {
+        // This is a Chrome extension error, log it at debug level instead
+        logService.log('debug', 'Chrome extension error (ignored)', { message: errorString }, 'ErrorHandler');
+        return;
+      }
+
+      // Pass through to original console.error for all other errors
+      originalConsoleError.apply(console, args);
+    };
+
+    // Add global unhandled rejection handler
+    window.addEventListener('unhandledrejection', (event) => {
+      const error = event.reason;
+
+      // Check if this is a known harmless error
+      if (error && typeof error.message === 'string') {
+        if (
+          error.message.includes('Unchecked runtime.lastError') ||
+          error.message.includes('message channel closed before a response was received')
+        ) {
+          // This is a Chrome extension error, log it at debug level and prevent it from being reported
+          logService.log('debug', 'Unhandled Chrome extension promise rejection (ignored)',
+            { message: error.message }, 'ErrorHandler');
+          event.preventDefault();
+          return;
+        }
+      }
+
+      // Log other unhandled rejections
+      logService.log('error', 'Unhandled promise rejection', error, 'ErrorHandler');
+    });
+
+    // Add global error handler
+    window.addEventListener('error', (event) => {
+      // Check if this is a known harmless error
+      if (event.error && typeof event.error.message === 'string') {
+        if (
+          event.error.message.includes('Unchecked runtime.lastError') ||
+          event.error.message.includes('message channel closed before a response was received')
+        ) {
+          // This is a Chrome extension error, log it at debug level and prevent it from being reported
+          logService.log('debug', 'Chrome extension error event (ignored)',
+            { message: event.error.message }, 'ErrorHandler');
+          event.preventDefault();
+          return;
+        }
+      }
+
+      // Log other errors
+      logService.log('error', 'Uncaught error', event.error, 'ErrorHandler');
+    });
+  }
+
   static handleDatabaseError(error: unknown, context: string): never {
     const errorDetails = this.extractErrorDetails(error);
 
@@ -73,13 +140,13 @@ export class ErrorHandler {
   }
 
   private static isSupabaseError(error: any): boolean {
-    return error?.message?.includes('Supabase') || 
+    return error?.message?.includes('Supabase') ||
            error?.code?.startsWith('SUPABASE') ||
            error?.code?.startsWith('PGRST');
   }
 
   private static isNotFoundError(error: any): boolean {
-    return error?.message?.includes('not found') || 
+    return error?.message?.includes('not found') ||
            error?.code === 'NOT_FOUND' ||
            error?.code === 'PGRST116';
   }

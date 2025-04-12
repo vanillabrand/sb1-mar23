@@ -20,6 +20,7 @@ import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import type { RiskLevel, Strategy, StrategyBudget, Trade } from '../lib/types';
+import { standardizeAssetPairFormat } from '../lib/format-utils';
 
 // Extended Trade type with additional properties for timestamps
 interface ExtendedTrade extends Trade {
@@ -47,6 +48,22 @@ const getRiskLevelColor = (riskLevel?: RiskLevel): string => {
     default:
       return 'bg-gray-400/20 text-gray-400';
   }
+};
+
+// Helper function to get risk level from strategy (handles both riskLevel and risk_level properties)
+const getStrategyRiskLevel = (strategy: Strategy): RiskLevel => {
+  // Check for riskLevel property first
+  if (strategy.riskLevel) {
+    return strategy.riskLevel;
+  }
+
+  // Then check for risk_level property (used in some AI-generated strategies)
+  if ((strategy as any).risk_level) {
+    return (strategy as any).risk_level as RiskLevel;
+  }
+
+  // Default to Medium if no risk level is found
+  return 'Medium';
 };
 
 // Helper function to format time ago
@@ -346,7 +363,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
             timestamp: Date.now(),
             createdAt: new Date().toISOString(),
             executedAt: null,
-            strategyId: strategy.id
+            strategyId: strategy.id,
+            // Add amount field with a reasonable default value
+            amount: 0.1
           };
 
           // Use a functional update to avoid dependency on previous state
@@ -369,16 +388,40 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   useEffect(() => {
     // Only process trades from props if we have them and the component is mounted
     if (trades && trades.length > 0 && strategy.id) {
-      // Format the trades
+      // Format the trades with proper normalization of all fields
       const formattedTrades = trades.map(trade => ({
         ...trade,
-        createdAt: trade.created_at || trade.datetime || new Date(trade.timestamp).toISOString(),
-        executedAt: trade.executed_at || (trade.status === 'executed' ? new Date().toISOString() : null),
-        entryPrice: trade.entry_price || trade.price,
-        stopLoss: trade.stop_loss,
-        takeProfit: trade.take_profit,
-        strategyId: strategy.id
+        id: trade.id || `trade-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+        createdAt: trade.created_at || trade.datetime || trade.createdAt || new Date(trade.timestamp).toISOString(),
+        executedAt: trade.executed_at || trade.executedAt || (trade.status === 'executed' ? new Date().toISOString() : null),
+        entryPrice: trade.entry_price || trade.entryPrice || trade.price || 0,
+        exitPrice: trade.exit_price || trade.exitPrice || 0,
+        stopLoss: trade.stop_loss || trade.stopLoss,
+        takeProfit: trade.take_profit || trade.takeProfit,
+        strategyId: strategy.id,
+        // Ensure amount is properly set
+        amount: trade.amount || trade.entry_amount || trade.quantity || trade.size || 0.1,
+        // Ensure symbol is set
+        symbol: trade.symbol || trade.pair || 'BTC/USDT',
+        // Ensure side is set
+        side: trade.side || 'buy',
+        // Ensure status is set
+        status: trade.status || 'pending'
       }));
+
+      // Remove duplicates by ID
+      const uniqueTrades = [];
+      const tradeIds = new Set();
+
+      for (const trade of formattedTrades) {
+        if (!tradeIds.has(trade.id)) {
+          tradeIds.add(trade.id);
+          uniqueTrades.push(trade);
+        }
+      }
+
+      // Use the unique trades instead of all formatted trades
+      const processedTrades = uniqueTrades;
 
       // Create a map of existing trades for faster lookup
       const existingTradesMap = strategyTrades.reduce((map, trade) => {
@@ -387,20 +430,20 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       }, {} as Record<string, ExtendedTrade>);
 
       // Create a map of new trades for faster lookup
-      const newTradesMap = formattedTrades.reduce((map, trade) => {
+      const newTradesMap = processedTrades.reduce((map, trade) => {
         map[trade.id] = trade;
         return map;
       }, {} as Record<string, ExtendedTrade>);
 
       // Determine which trades are new, updated, or removed
-      const newTradeIds = new Set(formattedTrades.map(t => t.id));
+      const newTradeIds = new Set(processedTrades.map(t => t.id));
       const existingTradeIds = new Set(strategyTrades.map(t => t.id));
 
       // Find trades that are new (in new set but not in existing)
-      const addedTrades = formattedTrades.filter(t => !existingTradeIds.has(t.id));
+      const addedTrades = processedTrades.filter(t => !existingTradeIds.has(t.id));
 
       // Find trades that are updated (in both sets but with changes)
-      const updatedTrades = formattedTrades.filter(t => {
+      const updatedTrades = processedTrades.filter(t => {
         const existingTrade = existingTradesMap[t.id];
         if (!existingTrade) return false; // Not an update if it's new
 
@@ -475,70 +518,12 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         }
       } else {
         // Fallback to the original implementation
-        // Check if budget is already set
-        const budget = tradeService.getBudget(strategy.id);
-
-        if (!budget || budget.total <= 0) {
-          // If no budget or budget is zero, show budget modal
-          logService.log('info', `No budget set for strategy ${strategy.id}, showing budget modal`, null, 'StrategyCard');
-          setSelectedStrategy(strategy);
-          setShowBudgetModal(true);
-          setIsActivating(false);
-          return;
-        }
-
-        // Check if budget exceeds available balance
-        if (budget.total > availableBalance) {
-          logService.log('info', `Budget exceeds available balance: ${budget.total} > ${availableBalance}`, null, 'StrategyCard');
-          setSelectedStrategy(strategy);
-          setShowBudgetAdjustmentModal(true);
-          setIsActivating(false);
-          return;
-        }
-
-        // If budget exists, proceed with activation directly without resetting the budget
-        try {
-          // Activate the strategy
-          const updatedStrategy = await strategyService.activateStrategy(strategy.id);
-          logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'StrategyCard');
-
-          // Start monitoring the strategy
-          await marketService.startStrategyMonitoring(updatedStrategy);
-          logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'StrategyCard');
-
-          // Add strategy to trade generator
-          if (demoService.isInDemoMode()) {
-            // Use demo trade generator in demo mode
-            await demoTradeGenerator.addStrategy(updatedStrategy as any);
-            logService.log('info', `Added strategy ${strategy.id} to demo trade generator`, null, 'StrategyCard');
-          } else {
-            // Use regular trade generator in normal mode
-            await tradeGenerator.addStrategy(updatedStrategy as any);
-            logService.log('info', `Added strategy ${strategy.id} to trade generator`, null, 'StrategyCard');
-          }
-
-          // Initialize strategy monitoring
-          await strategyMonitor.addStrategy(updatedStrategy as any);
-          logService.log('info', `Added strategy ${strategy.id} to monitor`, null, 'StrategyCard');
-
-          // Start trade engine monitoring
-          await tradeEngine.addStrategy(updatedStrategy as any);
-          logService.log('info', `Added strategy ${strategy.id} to trade engine`, null, 'StrategyCard');
-
-          // Connect to trading engine to start generating trades
-          await tradeService.connectStrategyToTradingEngine(strategy.id);
-          logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'StrategyCard');
-
-          // Refresh data
-          if (onRefresh) {
-            await onRefresh();
-          }
-
-          logService.log('info', `Strategy ${strategy.id} successfully activated with existing budget`, { budget }, 'StrategyCard');
-        } catch (activationError) {
-          logService.log('error', 'Failed to activate strategy with existing budget', activationError, 'StrategyCard');
-          throw activationError;
-        }
+        // Always show budget modal when activating a strategy
+        logService.log('info', `Showing budget modal for strategy ${strategy.id}`, null, 'StrategyCard');
+        setSelectedStrategy(strategy);
+        setShowBudgetModal(true);
+        setIsActivating(false);
+        return;
       }
 
       // Refresh data
@@ -927,8 +912,8 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-gray-200 truncate">{(strategy as any).name || (strategy as any).title || 'Unnamed Strategy'}</h3>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${getRiskLevelColor(strategy.riskLevel)}`}>
-                  {strategy.riskLevel}
+                <span className={`text-xs px-2 py-0.5 rounded-full ${getRiskLevelColor(getStrategyRiskLevel(strategy))}`}>
+                  {getStrategyRiskLevel(strategy)}
                 </span>
               </div>
               <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{strategy.description || 'No description available'}</p>
@@ -1011,22 +996,11 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           <div className="mt-6 pt-6 border-t border-gunmetal-700/50 space-y-6">
             {/* Trading Parameters */}
             <div className="mb-6">
-              <h4
-                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowTradingParameters(!showTradingParameters);
-                }}
-              >
-                <div className="flex items-center gap-2 uppercase tracking-wider">
-                  <BarChart3 className="w-4 h-4" />
-                  Trading Parameters
-                </div>
-                <span className="text-xs text-gray-400">
-                  {showTradingParameters ? 'Hide' : 'Show'}
-                </span>
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <BarChart3 className="w-4 h-4" />
+                Trading Parameters
               </h4>
-              {showTradingParameters && (
+              {/* Always show trading parameters */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Leverage</p>
@@ -1045,29 +1019,15 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                     <p className="text-sm text-white">{(strategy as any).strategy_config?.timeframe || '1h'}</p>
                   </div>
                 </div>
-              )}
             </div>
 
             {/* Risk Management */}
             <div className="mb-6">
-              <h4
-                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowRiskManagement(!showRiskManagement);
-                }}
-              >
-                <div className="flex items-center gap-2 uppercase tracking-wider">
-                  <Activity className="w-4 h-4" />
-                  Risk Management
-                </div>
-                {showRiskManagement ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                )}
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <Activity className="w-4 h-4" />
+                Risk Management
               </h4>
-              {showRiskManagement && (
+              {/* Always show risk management */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Stop Loss</p>
@@ -1086,36 +1046,22 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                     <p className="text-sm text-white">{(((strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
                   </div>
                 </div>
-              )}
             </div>
 
             {/* Trading Pairs */}
             <div className="mb-6">
-              <h4
-                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowTradingPairs(!showTradingPairs);
-                }}
-              >
-                <div className="flex items-center gap-2 uppercase tracking-wider">
-                  <Clock className="w-4 h-4" />
-                  Trading Pairs
-                </div>
-                {showTradingPairs ? (
-                  <ChevronUp className="w-4 h-4 text-gray-400" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-gray-400" />
-                )}
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <Clock className="w-4 h-4" />
+                Trading Pairs
               </h4>
-              {showTradingPairs && (
+              {/* Always show trading pairs */}
                 <div className="flex flex-wrap gap-2 animate-fadeIn">
                   {(strategy as any).selected_pairs?.map((pair: string) => (
                     <div
                       key={pair}
                       className="flex items-center px-3 py-1 bg-gunmetal-800 rounded-md text-xs border border-gunmetal-700/50 min-w-[130px] md:min-w-[130px] mobile-truncate justify-between"
                     >
-                      <span className="text-neon-turquoise mr-2">{pair}</span>
+                      <span className="text-neon-turquoise mr-2">{standardizeAssetPairFormat(pair)}</span>
                       <div className="border-l border-gunmetal-700 pl-2">
                         <AssetPriceIndicator symbol={pair} compact={true} />
                       </div>
@@ -1124,27 +1070,15 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                     <span className="text-sm text-gray-500">No trading pairs selected</span>
                   )}
                 </div>
-              )}
             </div>
 
             {/* Trading Budget */}
             <div>
-              <h4
-                className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setShowBudget(!showBudget);
-                }}
-              >
-                <div className="flex items-center gap-2 uppercase tracking-wider">
-                  <DollarSign className="w-4 h-4" />
-                  Trading Budget
-                </div>
-                <span className="text-xs text-gray-400">
-                  {showBudget ? 'Hide' : 'Show'}
-                </span>
+              <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <DollarSign className="w-4 h-4" />
+                Trading Budget
               </h4>
-              {showBudget && (
+              {/* Always show budget */}
                 <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner animate-fadeIn">
                   {budget ? (
                     <div className="space-y-4">
@@ -1213,7 +1147,6 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                     </div>
                   )}
                 </div>
-              )}
             </div>
 
             {/* Trade Generation Status */}
@@ -1253,23 +1186,12 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
             {/* Live Trades */}
             {strategy.status === 'active' && (
               <div className="mt-6">
-                <h4
-                  className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between cursor-pointer hover:opacity-80 transition-opacity"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setShowTrades(!showTrades);
-                  }}
-                >
-                  <div className="flex items-center gap-2 uppercase tracking-wider">
-                    <Activity className="w-4 h-4" />
-                    Live Trades
-                  </div>
-                  <span className="text-xs text-gray-400">
-                    {showTrades ? 'Hide' : 'Show'}
-                  </span>
+                <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
+                  <Activity className="w-4 h-4" />
+                  Live Trades
                 </h4>
-                {showTrades && (
-                  isLoadingTrades ? (
+                {/* Always show trades */}
+                {isLoadingTrades ? (
                     <div className="flex justify-center items-center py-8">
                       <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise"></div>
                     </div>
@@ -1278,7 +1200,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                       <p className="text-gray-400">No active trades for this strategy</p>
                     </div>
                   ) : (
-                    <div className="bg-black border border-gunmetal-800/50 rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
+                    <div className="bg-black border border-gunmetal-800/50 rounded-lg overflow-hidden max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-gunmetal-700 scrollbar-track-gunmetal-900">
                       <table className="w-full">
                         <thead>
                           <tr className="bg-gunmetal-900/50">
@@ -1293,7 +1215,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                         <tbody>
                           {strategyTrades.map((trade) => (
                             <tr key={trade.id} className="border-t border-gunmetal-700/50 hover:bg-gunmetal-800/50">
-                              <td className="px-3 py-2 text-xs text-white">{trade.symbol || '-'}</td>
+                              <td className="px-3 py-2 text-xs text-white">{trade.symbol ? standardizeAssetPairFormat(trade.symbol) : '-'}</td>
                               <td className="px-3 py-2 text-xs">
                                 <span className={`flex items-center gap-1 ${trade.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
                                   {trade.side === 'buy' ? (
@@ -1326,8 +1248,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                         </tbody>
                       </table>
                     </div>
-                  )
-                )}
+                  )}
               </div>
             )}
 
@@ -1397,7 +1318,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
             setShowBudgetAdjustmentModal(false);
             setSelectedStrategy(null);
           }}
-          riskLevel={selectedStrategy.riskLevel}
+          riskLevel={getStrategyRiskLevel(selectedStrategy)}
         />
       )}
 

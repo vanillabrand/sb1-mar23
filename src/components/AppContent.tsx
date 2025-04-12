@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { AuthGuard } from './AuthGuard';
@@ -13,7 +13,12 @@ import { Analytics } from './Analytics';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobileDetect } from '../hooks/useMobileDetect';
 
-export const AppContent = () => {
+
+interface AppContentProps {
+  isReady?: boolean;
+}
+
+export const AppContent = ({ isReady = true }: AppContentProps) => {
   const { user } = useAuth();
   const { isMobile } = useMobileDetect();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -22,11 +27,27 @@ export const AppContent = () => {
     setIsSidebarOpen(!isSidebarOpen);
   };
 
+  // Import the test page
+  const TestPage = React.lazy(() => import('../pages/TestPage').then(module => ({ default: module.TestPage })));
+
+  // Show loading state if app is not ready
+  if (!isReady) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gunmetal-950">
+        <div className="text-center space-y-4">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-raspberry mx-auto"></div>
+          <p className="text-gray-400">Loading application...</p>
+        </div>
+      </div>
+    );
+  }
+
   // If user is not authenticated, show public routes
   if (!user) {
     return (
       <Routes>
         <Route path="/" element={<Hero />} />
+        <Route path="/test-page" element={<Suspense fallback={<div>Loading test page...</div>}><TestPage /></Suspense>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     );

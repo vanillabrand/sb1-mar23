@@ -361,11 +361,16 @@ class StrategySync extends EventEmitter {
         strategy_config: data.strategy_config || {},
       };
 
-      // Only use risk_level, not riskLevel (which causes errors)
+      // Ensure both risk_level and riskLevel are set consistently
       if (data.riskLevel && !data.risk_level) {
         strategyData.risk_level = data.riskLevel;
+        strategyData.riskLevel = data.riskLevel;
+      } else if (data.risk_level && !data.riskLevel) {
+        strategyData.riskLevel = data.risk_level;
+        strategyData.risk_level = data.risk_level;
       } else if (!data.risk_level && !data.riskLevel) {
         strategyData.risk_level = 'Medium';
+        strategyData.riskLevel = 'Medium';
       }
 
       // Remove riskLevel to avoid database errors

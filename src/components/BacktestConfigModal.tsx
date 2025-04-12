@@ -191,6 +191,20 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
         data: uploadedData || undefined
       };
 
+      // Scroll to the progress section after a short delay
+      setTimeout(() => {
+        const progressSection = document.getElementById('backtest-progress');
+        if (progressSection) {
+          progressSection.scrollIntoView({ behavior: 'smooth' });
+        } else {
+          // Fallback to the results ref if progress section is not found
+          const resultsRef = document.getElementById('backtest-results');
+          if (resultsRef) {
+            resultsRef.scrollIntoView({ behavior: 'smooth' });
+          }
+        }
+      }, 100);
+
       onStart(config);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid configuration');

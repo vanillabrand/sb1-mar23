@@ -1,53 +1,68 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
-import { exchangeService } from './exchange-service';
-import { CACHE_DURATIONS } from '@/lib/constants';
+import type { MarketData } from './types';
 
 class MarketDataService extends EventEmitter {
-  private static instance: MarketDataService;
-  private cache: Map<string, { data: any; timestamp: number }> = new Map();
+  private marketData: Map<string, MarketData> = new Map();
+  private updateIntervals: Map<string, NodeJS.Timeout> = new Map();
+  private readonly UPDATE_INTERVAL = 5000; // 5 seconds
 
-  private constructor() {
+  constructor() {
     super();
   }
 
-  public static getInstance(): MarketDataService {
-    if (!MarketDataService.instance) {
-      MarketDataService.instance = new MarketDataService();
-    }
-    return MarketDataService.instance;
-  }
-
-  async getCandles(
-    symbol: string,
-    timeframe: string,
-    limit: number
-  ): Promise<any[]> {
+  async initialize(): Promise<void> {
     try {
-      const cacheKey = `${symbol}-${timeframe}-${limit}`;
-      const cached = this.cache.get(cacheKey);
-
-      if (cached && Date.now() - cached.timestamp < CACHE_DURATIONS.MARKET_DATA) {
-        return cached.data;
-      }
-
-      const candles = await exchangeService.getCandles(symbol, timeframe, limit);
-      
-      this.cache.set(cacheKey, {
-        data: candles,
-        timestamp: Date.now()
-      });
-
-      return candles;
+      logService.log('info', 'Initializing market data service', null, 'MarketDataService');
+      // Add any initialization logic here
+      return Promise.resolve();
     } catch (error) {
-      logService.log('error', 'Failed to fetch candles', error, 'MarketDataService');
+      logService.log('error', 'Failed to initialize market data service', error, 'MarketDataService');
       throw error;
     }
   }
 
-  async clearCache(): Promise<void> {
-    this.cache.clear();
+  async getMarketData(symbol: string): Promise<MarketData | undefined> {
+    return this.marketData.get(symbol);
+  }
+
+  async updateMarketData(symbol: string, data: MarketData): Promise<void> {
+    this.marketData.set(symbol, data);
+    this.emit('marketDataUpdated', { symbol, data });
+  }
+
+  startTracking(symbol: string): void {
+    if (this.updateIntervals.has(symbol)) {
+      return;
+    }
+
+    const intervalId = setInterval(async () => {
+      try {
+        // Implement your market data fetching logic here
+        // For now, we'll just log that we're updating
+        logService.log('debug', `Updating market data for ${symbol}`, null, 'MarketDataService');
+      } catch (error) {
+        logService.log('error', `Failed to update market data for ${symbol}`, error, 'MarketDataService');
+      }
+    }, this.UPDATE_INTERVAL);
+
+    this.updateIntervals.set(symbol, intervalId);
+  }
+
+  stopTracking(symbol: string): void {
+    const intervalId = this.updateIntervals.get(symbol);
+    if (intervalId) {
+      clearInterval(intervalId);
+      this.updateIntervals.delete(symbol);
+    }
+  }
+
+  cleanup(): void {
+    this.updateIntervals.forEach((intervalId) => clearInterval(intervalId));
+    this.updateIntervals.clear();
+    this.marketData.clear();
   }
 }
 
-export const marketDataService = MarketDataService.getInstance();
+// Create and export a singleton instance
+export const marketDataService = new MarketDataService();

@@ -173,7 +173,8 @@ class AnalyticsService extends EventEmitter {
 
   async trackStrategy(strategy: Strategy): Promise<void> {
     if (!this.initialized) {
-      await this.initialize();
+      // Don't call initialize here to avoid circular initialization
+      return;
     }
 
     if (!this.analyticsData.has(strategy.id)) {
@@ -184,19 +185,28 @@ class AnalyticsService extends EventEmitter {
 
   private async updateAnalytics(strategyId: string): Promise<void> {
     try {
-      const { data: strategy } = await supabase
+      // Add timeout to prevent hanging
+      const timeout = new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('Analytics update timed out')), 3000)
+      );
+
+      // Fetch strategy with timeout
+      const strategyPromise = supabase
         .from('strategies')
         .select('*')
         .eq('id', strategyId)
         .single();
 
+      const { data: strategy } = await Promise.race([strategyPromise, timeout]);
       if (!strategy) return;
 
-      const { data: trades } = await supabase
+      // Fetch trades with timeout
+      const tradesPromise = supabase
         .from('strategy_trades')
         .select('*')
         .eq('strategy_id', strategyId);
 
+      const { data: trades } = await Promise.race([tradesPromise, timeout]);
       if (!trades) return;
 
       // Calculate metrics
@@ -204,14 +214,22 @@ class AnalyticsService extends EventEmitter {
       const closedTrades = trades.filter(t => t.status === 'closed');
       const profitableTrades = closedTrades.filter(t => t.pnl > 0);
 
-      // Get market data for each asset
-      const assetMetrics = await Promise.all(
-        strategy.strategy_config.assets.map(async (symbol: string) => {
+      // Get market data for each asset with timeout protection
+      const assetPromises = strategy.strategy_config.assets.map(async (symbol: string) => {
+        try {
           const marketState = marketMonitor.getMarketState(symbol);
-          const ticker = await exchangeService.fetchTicker(symbol);
+          const ticker = await Promise.race([
+            exchangeService.fetchTicker(symbol),
+            timeout
+          ]);
           return { marketState, ticker };
-        })
-      );
+        } catch (error) {
+          logService.log('warn', `Timed out fetching ticker for ${symbol}`, error, 'AnalyticsService');
+          return { marketState: {}, ticker: {} };
+        }
+      });
+
+      const assetMetrics = await Promise.all(assetPromises);
 
       // Calculate aggregated metrics
       const metrics = this.calculateAggregatedMetrics(trades, assetMetrics);
