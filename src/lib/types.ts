@@ -5,6 +5,8 @@ export interface MarketData {
 
 export type RiskLevel = 'Ultra Low' | 'Low' | 'Medium' | 'High' | 'Ultra High' | 'Extreme' | 'God Mode';
 
+export type MarketType = 'spot' | 'margin' | 'futures';
+
 export interface Strategy {
   id: string;
   title: string;
@@ -18,6 +20,7 @@ export interface Strategy {
   performance: number;
   selected_pairs: string[];
   strategy_config: any;
+  marketType?: MarketType; // Added market type field
 }
 
 export interface Trade {
@@ -166,6 +169,7 @@ export interface StrategyTemplate {
   strategy_config?: any; // Contains selected_pairs and other config
   config?: any; // Alternative field name that might be in the database
   data?: any; // Alternative field name that might be in the database
+  marketType?: MarketType; // Market type (spot, margin, futures)
   metrics?: {
     winRate: number;
     profitFactor: number;
@@ -183,6 +187,7 @@ export interface CreateStrategyData {
   status?: 'active' | 'inactive' | 'paused';
   selected_pairs?: string[];
   strategy_config?: any;
+  marketType?: MarketType; // Market type (spot, margin, futures)
 }
 
 export interface MarketCondition {

@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { TradeList } from './TradeList';
 import { StrategyCard } from './StrategyCard';
+import { MarketTypeBadge } from './ui/MarketTypeBadge';
 import { marketService } from '../lib/market-service';
 import { marketDataService } from '../lib/market-data-service';
 import { marketAnalyzer } from '../lib/market-analyzer';
@@ -33,7 +34,7 @@ import { websocketService } from '../lib/websocket-service';
 import { strategySync } from '../lib/strategy-sync';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
-import type { Trade, Strategy, StrategyBudget } from '../lib/types';
+import type { Trade, Strategy, StrategyBudget, MarketType } from '../lib/types';
 
 // Define local types
 
@@ -1438,200 +1439,206 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                 {/* Strategies Column */}
                 <div className="space-y-4">
                   {strategies.length === 0 ? (
-                  <div className="text-center py-12 bg-gunmetal-800/50 rounded-lg">
-                    <div className="flex justify-center mb-4">
-                      <Activity className="w-12 h-12 text-gray-500" />
+                    <div className="text-center py-12 bg-gunmetal-800/50 rounded-lg">
+                      <div className="flex justify-center mb-4">
+                        <Activity className="w-12 h-12 text-gray-500" />
+                      </div>
+                      <h3 className="text-lg font-medium text-gray-300 mb-2">No strategies found</h3>
+                      <p className="text-gray-400 max-w-md mx-auto">
+                        You don't have any strategies yet. Create a strategy to start trading.
+                      </p>
                     </div>
-                    <h3 className="text-lg font-medium text-gray-300 mb-2">No strategies found</h3>
-                    <p className="text-gray-400 max-w-md mx-auto">
-                      You don't have any strategies yet. Create a strategy to start trading.
-                    </p>
-                  </div>
-                ) : (
-                  strategies
-                    .filter(strategy => {
-                      if (statusFilter === 'all') return true;
-                      if (statusFilter === 'active') return strategy.status === 'active';
-                      if (statusFilter === 'inactive') return strategy.status !== 'active';
-                      return true;
-                    })
-                    .filter(strategy => {
-                      // Handle different Strategy type definitions
-                      const name = (strategy as any).name || (strategy as any).title || '';
-                      const description = (strategy as any).description || '';
-                      return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                             description.toLowerCase().includes(searchTerm.toLowerCase());
-                    })
-                    .map(strategy => (
-                      <StrategyCard
-                        key={strategy.id}
-                        strategy={strategy}
-                        isExpanded={expandedStrategyId === strategy.id}
-                        onToggleExpand={(id) => setExpandedStrategyId(expandedStrategyId === id ? null : id)}
-                        onRefresh={() => { fetchStrategies(); return Promise.resolve(); }}
-                        trades={strategyTrades[strategy.id] || []}
-                        onActivate={async (strategy) => {
-                          try {
-                            // Always show budget modal when activating a strategy
-                            logService.log('info', `Showing budget modal for strategy ${strategy.id}`, null, 'TradeMonitor');
-                            setPendingStrategy(strategy);
-                            setShowBudgetModal(true);
-                            return false; // Return false to indicate activation was not completed
-                          } catch (error) {
-                            logService.log('error', 'Failed to activate strategy', error, 'TradeMonitor');
-                            setError('Failed to activate strategy. Please try again.');
-                            return false; // Return false to indicate activation failed
-                          }
-                        }}
-                        onDeactivate={async (strategy) => {
-                          try {
-                            // Set a loading state to prevent multiple clicks
-                            setIsSubmittingBudget(true);
+                  ) : (
+                    <>
+                      {strategies
+                        .filter(strategy => {
+                          if (statusFilter === 'all') return true;
+                          if (statusFilter === 'active') return strategy.status === 'active';
+                          if (statusFilter === 'inactive') return strategy.status !== 'active';
+                          return true;
+                        })
+                        .filter(strategy => {
+                          // Handle different Strategy type definitions
+                          const name = (strategy as any).name || (strategy as any).title || '';
+                          const description = (strategy as any).description || '';
+                          return name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                                 description.toLowerCase().includes(searchTerm.toLowerCase());
+                        })
+                        .map(strategy => (
+                          <div key={strategy.id} className="relative">
+                            <div className="absolute top-2 right-2 z-10">
+                              <MarketTypeBadge marketType={strategy.marketType || 'spot'} />
+                            </div>
+                            <StrategyCard
+                              strategy={strategy}
+                              isExpanded={expandedStrategyId === strategy.id}
+                              onToggleExpand={(id) => setExpandedStrategyId(expandedStrategyId === id ? null : id)}
+                              onRefresh={() => { fetchStrategies(); return Promise.resolve(); }}
+                              trades={strategyTrades[strategy.id] || []}
+                              onActivate={async (strategy) => {
+                                try {
+                                  // Always show budget modal when activating a strategy
+                                  logService.log('info', `Showing budget modal for strategy ${strategy.id}`, null, 'TradeMonitor');
+                                  setPendingStrategy(strategy);
+                                  setShowBudgetModal(true);
+                                  return false; // Return false to indicate activation was not completed
+                                } catch (error) {
+                                  logService.log('error', 'Failed to activate strategy', error, 'TradeMonitor');
+                                  setError('Failed to activate strategy. Please try again.');
+                                  return false; // Return false to indicate activation failed
+                                }
+                              }}
+                              onDeactivate={async (strategy) => {
+                                try {
+                                  // Set a loading state to prevent multiple clicks
+                                  setIsSubmittingBudget(true);
 
-                            // 1. Deactivate strategy in database first
-                            await strategyService.deactivateStrategy(strategy.id);
-                            logService.log('info', `Strategy ${strategy.id} deactivated in database`, null, 'TradeMonitor');
+                                  // 1. Deactivate strategy in database first
+                                  await strategyService.deactivateStrategy(strategy.id);
+                                  logService.log('info', `Strategy ${strategy.id} deactivated in database`, null, 'TradeMonitor');
 
-                            // 2. Close any active trades
-                            const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
-                            logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategy.id}`, null, 'TradeMonitor');
+                                  // 2. Close any active trades
+                                  const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+                                  logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategy.id}`, null, 'TradeMonitor');
 
-                            for (const trade of activeTrades) {
-                              try {
-                                await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
-                                logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id}`, null, 'TradeMonitor');
-                              } catch (tradeError) {
-                                logService.log('warn', `Failed to close trade ${trade.id}`, tradeError, 'TradeMonitor');
-                              }
-                            }
+                                  for (const trade of activeTrades) {
+                                    try {
+                                      await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
+                                      logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id}`, null, 'TradeMonitor');
+                                    } catch (tradeError) {
+                                      logService.log('warn', `Failed to close trade ${trade.id}`, tradeError, 'TradeMonitor');
+                                    }
+                                  }
 
-                            // 3. Stop monitoring
-                            await marketService.stopStrategyMonitoring(strategy.id);
-                            tradeGenerator.removeStrategy(strategy.id);
-                            strategyMonitor.removeStrategy(strategy.id);
-                            await tradeEngine.removeStrategy(strategy.id);
+                                  // 3. Stop monitoring
+                                  await marketService.stopStrategyMonitoring(strategy.id);
+                                  tradeGenerator.removeStrategy(strategy.id);
+                                  strategyMonitor.removeStrategy(strategy.id);
+                                  await tradeEngine.removeStrategy(strategy.id);
 
-                            // 4. Refresh the strategies list
-                            await fetchStrategies();
+                                  // 4. Refresh the strategies list
+                                  await fetchStrategies();
 
-                            logService.log('info', `Strategy ${strategy.id} deactivated successfully`, null, 'TradeMonitor');
-                          } catch (error) {
-                            logService.log('error', 'Failed to deactivate strategy', error, 'TradeMonitor');
-                            setError('Failed to deactivate strategy. Please try again.');
-                          } finally {
-                            setIsSubmittingBudget(false);
-                          }
-                        }}
-                        onDelete={async (strategy) => {
-                          try {
-                            // Only allow deletion if strategy is not active
-                            if (strategy.status === 'active') {
-                              setError('Cannot delete an active strategy. Please deactivate it first.');
-                              return;
-                            }
+                                  logService.log('info', `Strategy ${strategy.id} deactivated successfully`, null, 'TradeMonitor');
+                                } catch (error) {
+                                  logService.log('error', 'Failed to deactivate strategy', error, 'TradeMonitor');
+                                  setError('Failed to deactivate strategy. Please try again.');
+                                } finally {
+                                  setIsSubmittingBudget(false);
+                                }
+                              }}
+                              onDelete={async (strategy) => {
+                                try {
+                                  // Only allow deletion if strategy is not active
+                                  if (strategy.status === 'active') {
+                                    setError('Cannot delete an active strategy. Please deactivate it first.');
+                                    return;
+                                  }
 
-                            console.log('NUCLEAR DELETION - Strategy ID:', strategy.id);
-                            setError(null); // Clear any previous errors
+                                  console.log('NUCLEAR DELETION - Strategy ID:', strategy.id);
+                                  setError(null); // Clear any previous errors
 
-                            // Store the strategy ID for later use
-                            const strategyId = strategy.id;
+                                  // Store the strategy ID for later use
+                                  const strategyId = strategy.id;
 
-                            // Add to deleted strategy IDs set to prevent it from reappearing
-                            deletedStrategyIds.add(strategyId);
-                            console.log(`Added ${strategyId} to deleted strategy IDs set`);
+                                  // Add to deleted strategy IDs set to prevent it from reappearing
+                                  deletedStrategyIds.add(strategyId);
+                                  console.log(`Added ${strategyId} to deleted strategy IDs set`);
 
-                            // STEP 1: Remove the strategy from the UI immediately
-                            setStrategies(prevStrategies => {
-                              const updated = prevStrategies.filter(s => s.id !== strategyId);
-                              console.log(`UI updated: Removed strategy ${strategyId}`);
-                              return updated;
-                            });
+                                  // STEP 1: Remove the strategy from the UI immediately
+                                  setStrategies(prevStrategies => {
+                                    const updated = prevStrategies.filter(s => s.id !== strategyId);
+                                    console.log(`UI updated: Removed strategy ${strategyId}`);
+                                    return updated;
+                                  });
 
-                            // STEP 2: Disable strategy sync temporarily
-                            if (typeof strategySync.pauseSync === 'function') {
-                              strategySync.pauseSync();
-                            }
+                                  // STEP 2: Disable strategy sync temporarily
+                                  if (typeof strategySync.pauseSync === 'function') {
+                                    strategySync.pauseSync();
+                                  }
 
-                            // STEP 3: Use the direct deletion function
-                            console.log(`Using direct deletion function for strategy ${strategyId}...`);
-                            const success = await directDeleteStrategy(strategyId);
+                                  // STEP 3: Use the direct deletion function
+                                  console.log(`Using direct deletion function for strategy ${strategyId}...`);
+                                  const success = await directDeleteStrategy(strategyId);
 
-                            if (success) {
-                              console.log(`Strategy ${strategyId} successfully deleted from database`);
-                            } else {
-                              console.error(`Failed to delete strategy ${strategyId} from database`);
+                                  if (success) {
+                                    console.log(`Strategy ${strategyId} successfully deleted from database`);
+                                  } else {
+                                    console.error(`Failed to delete strategy ${strategyId} from database`);
 
-                              // Try one more time with a direct SQL query
-                              try {
-                                console.log(`Attempting direct SQL query as last resort...`);
-                                await supabase.rpc('execute_sql', {
-                                  query: `
-                                    -- Try to delete trades if the table exists
-                                    DO $$
-                                    BEGIN
-                                      IF EXISTS (
-                                        SELECT FROM information_schema.tables
-                                        WHERE table_schema = 'public'
-                                        AND table_name = 'trades'
-                                      ) THEN
-                                        DELETE FROM trades WHERE strategy_id = '${strategyId}';
-                                      END IF;
-                                    END
-                                    $$;
+                                    // Try one more time with a direct SQL query
+                                    try {
+                                      console.log(`Attempting direct SQL query as last resort...`);
+                                      await supabase.rpc('execute_sql', {
+                                        query: `
+                                          -- Try to delete trades if the table exists
+                                          DO $$
+                                          BEGIN
+                                            IF EXISTS (
+                                              SELECT FROM information_schema.tables
+                                              WHERE table_schema = 'public'
+                                              AND table_name = 'trades'
+                                            ) THEN
+                                              DELETE FROM trades WHERE strategy_id = '${strategyId}';
+                                            END IF;
+                                          END
+                                          $$;
 
-                                    -- Delete the strategy
-                                    DELETE FROM strategies WHERE id = '${strategyId}';
-                                  `
-                                });
-                                console.log(`Direct SQL query executed for strategy ${strategyId}`);
-                              } catch (sqlError) {
-                                console.error(`Final SQL attempt failed: ${sqlError}`);
-                              }
-                            }
+                                          -- Delete the strategy
+                                          DELETE FROM strategies WHERE id = '${strategyId}';
+                                        `
+                                      });
+                                      console.log(`Direct SQL query executed for strategy ${strategyId}`);
+                                    } catch (sqlError) {
+                                      console.error(`Final SQL attempt failed: ${sqlError}`);
+                                    }
+                                  }
 
-                            // Verify deletion
-                            try {
-                              const { data: checkData } = await supabase
-                                .from('strategies')
-                                .select('id')
-                                .eq('id', strategyId);
+                                  // Verify deletion
+                                  try {
+                                    const { data: checkData } = await supabase
+                                      .from('strategies')
+                                      .select('id')
+                                      .eq('id', strategyId);
 
-                              if (!checkData || checkData.length === 0) {
-                                console.log(`VERIFICATION: Strategy ${strategyId} is confirmed deleted`);
-                              } else {
-                                console.error(`VERIFICATION FAILED: Strategy ${strategyId} still exists in database`);
-                                console.log(`Strategy data:`, checkData);
-                              }
-                            } catch (verifyError) {
-                              console.error(`Error verifying deletion: ${verifyError}`);
-                            }
+                                    if (!checkData || checkData.length === 0) {
+                                      console.log(`VERIFICATION: Strategy ${strategyId} is confirmed deleted`);
+                                    } else {
+                                      console.error(`VERIFICATION FAILED: Strategy ${strategyId} still exists in database`);
+                                      console.log(`Strategy data:`, checkData);
+                                    }
+                                  } catch (verifyError) {
+                                    console.error(`Error verifying deletion: ${verifyError}`);
+                                  }
 
-                            // STEP 5: Remove from strategy sync cache
-                            if (typeof strategySync.removeFromCache === 'function') {
-                              strategySync.removeFromCache(strategyId);
-                            }
+                                  // STEP 5: Remove from strategy sync cache
+                                  if (typeof strategySync.removeFromCache === 'function') {
+                                    strategySync.removeFromCache(strategyId);
+                                  }
 
-                            // STEP 6: Force a complete refresh of the UI
-                            await fetchStrategies();
+                                  // STEP 6: Force a complete refresh of the UI
+                                  await fetchStrategies();
 
-                            // STEP 7: Resume strategy sync
-                            setTimeout(() => {
-                              if (typeof strategySync.resumeSync === 'function') {
-                                strategySync.resumeSync();
-                              }
-                            }, 5000); // Wait 5 seconds before resuming sync
+                                  // STEP 7: Resume strategy sync
+                                  setTimeout(() => {
+                                    if (typeof strategySync.resumeSync === 'function') {
+                                      strategySync.resumeSync();
+                                    }
+                                  }, 5000); // Wait 5 seconds before resuming sync
 
-                            console.log(`Strategy ${strategyId} deletion complete`);
-                          } catch (error) {
-                            console.error('Unexpected error in delete handler:', error);
-                            // Don't show error to user since UI is already updated
-                          }
-                        }}
-                      />
-                    ))
+                                  console.log(`Strategy ${strategyId} deletion complete`);
+                                } catch (error) {
+                                  console.error('Unexpected error in delete handler:', error);
+                                  // Don't show error to user since UI is already updated
+                                }
+                              }}
+                            />
+                          </div>
+                        ))
+                      }
+                    </>
                   )}
                 </div>
-
               </div>
             </div>
           </div>

@@ -66,6 +66,24 @@ class DemoService {
         logService.log('warn', 'Failed to initialize exchange in demo mode, using mock data only', exchangeError, 'DemoService');
       }
 
+      // Initialize BitMart service in demo mode
+      try {
+        // Import the BitMart service
+        const { bitmartService } = await import('./bitmart-service');
+
+        // Initialize BitMart service with demo mode
+        await bitmartService.initialize({
+          apiKey: 'demo-api-key',
+          secret: 'demo-secret',
+          memo: '',
+          testnet: true
+        });
+
+        logService.log('info', 'BitMart service initialized in demo mode', null, 'DemoService');
+      } catch (bitmartError) {
+        logService.log('warn', 'Failed to initialize BitMart service in demo mode', bitmartError, 'DemoService');
+      }
+
       // Ensure demo mode is set to true
       this._isDemoMode = true;
     } catch (error) {

@@ -257,18 +257,8 @@ class WalletBalanceService extends EventEmitter {
         // Use the mock balances
         const balanceData = mockBalances;
 
-        // For debugging, let's still try to fetch the real balances in the background
-        // but we won't wait for it or use the result
-        try {
-          logService.log('info', 'Attempting to fetch real balance in background...', null, 'WalletBalanceService');
-          exchange.fetchBalance().then(realBalances => {
-            logService.log('info', 'Background fetchBalance successful', realBalances, 'WalletBalanceService');
-          }).catch(error => {
-            logService.log('warn', 'Background fetchBalance failed', error, 'WalletBalanceService');
-          });
-        } catch (e) {
-          // Ignore errors in the background fetch
-        }
+        // Don't try to fetch real balances in the background to avoid CORS issues
+        logService.log('info', 'Using mock balances only to avoid CORS issues', null, 'WalletBalanceService');
 
         // Process and store the balances
         if (balanceData && balanceData.total) {

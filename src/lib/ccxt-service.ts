@@ -5,29 +5,52 @@ import { EventEmitter } from './event-emitter';
 
 class CCXTService extends EventEmitter {
   private exchanges: Map<string, any> = new Map();
-  private readonly TESTNET_BASE_URL = 'https://testnet.binance.vision/api'; // Update this URL
+  private readonly SPOT_TESTNET_BASE_URL = 'https://testnet.binance.vision/api';
+  private readonly FUTURES_TESTNET_BASE_URL = 'https://testnet.binancefuture.com/fapi';
+  private readonly TESTNET_BASE_URL = 'https://testnet.binance.vision/api'; // Kept for backward compatibility
 
   async createExchange(
     exchangeId: string,
     credentials: { apiKey: string; secret: string },
-    testnet: boolean = false
+    testnet: boolean = false,
+    marketType: 'spot' | 'future' = 'spot'
   ): Promise<any> {
     try {
       if (testnet) {
-        // Use TestNet credentials from environment variables
-        const apiKey = import.meta.env.VITE_DEMO_EXCHANGE_API_KEY ||
-                      import.meta.env.VITE_BINANCE_TESTNET_API_KEY ||
-                      credentials.apiKey;
-        const secret = import.meta.env.VITE_DEMO_EXCHANGE_SECRET ||
-                      import.meta.env.VITE_BINANCE_TESTNET_API_SECRET ||
-                      credentials.secret;
+        // Determine which API credentials to use based on market type
+        let apiKey, secret;
+
+        if (marketType === 'future') {
+          // Use Futures TestNet credentials
+          apiKey = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_KEY ||
+                  import.meta.env.VITE_DEMO_EXCHANGE_API_KEY ||
+                  import.meta.env.VITE_BINANCE_TESTNET_API_KEY ||
+                  credentials.apiKey;
+          secret = import.meta.env.VITE_BINANCE_FUTURES_TESTNET_API_SECRET ||
+                  import.meta.env.VITE_DEMO_EXCHANGE_SECRET ||
+                  import.meta.env.VITE_BINANCE_TESTNET_API_SECRET ||
+                  credentials.secret;
+        } else {
+          // Use Spot TestNet credentials
+          apiKey = import.meta.env.VITE_DEMO_EXCHANGE_API_KEY ||
+                  import.meta.env.VITE_BINANCE_TESTNET_API_KEY ||
+                  credentials.apiKey;
+          secret = import.meta.env.VITE_DEMO_EXCHANGE_SECRET ||
+                  import.meta.env.VITE_BINANCE_TESTNET_API_SECRET ||
+                  credentials.secret;
+        }
+
+        // Determine which TestNet URL to use based on market type
+        const testnetBaseUrl = marketType === 'future' ?
+          this.FUTURES_TESTNET_BASE_URL :
+          this.SPOT_TESTNET_BASE_URL;
 
         const exchange = new ccxt[exchangeId]({
           apiKey,
           secret,
           enableRateLimit: true,
           options: {
-            defaultType: 'future',
+            defaultType: marketType, // Set the market type
             adjustForTimeDifference: true,
             createMarketBuyOrderRequiresPrice: false,
             warnOnFetchOHLCVLimitArgument: true,
@@ -35,27 +58,28 @@ class CCXTService extends EventEmitter {
           },
           urls: {
             test: {
-              rest: this.TESTNET_BASE_URL
+              rest: testnetBaseUrl
             }
           }
         });
 
         // Enable test mode
         exchange.setSandboxMode(true);
-        
+
         // Log the configuration
-        logService.log('info', 'Created TestNet exchange instance', {
+        logService.log('info', `Created TestNet exchange instance for ${marketType} trading`, {
           exchangeId,
           hasApiKey: !!apiKey,
           hasSecret: !!secret,
           testnet: true,
-          baseUrl: this.TESTNET_BASE_URL
+          marketType,
+          baseUrl: testnetBaseUrl
         }, 'CCXTService');
 
-        this.exchanges.set(exchangeId, exchange);
+        this.exchanges.set(marketType === 'future' ? `${exchangeId}Futures` : exchangeId, exchange);
         return exchange;
       }
-      
+
       // ... rest of the method for non-testnet exchanges
     } catch (error) {
       logService.log('error', 'Failed to create exchange instance', error, 'CCXTService');

@@ -105,6 +105,19 @@ export class TemplateService {
           };
         }
 
+        // Add market type if not present
+        if (!result.marketType) {
+          // Assign market types based on risk level for demo purposes
+          const riskLevel = (result.riskLevel || result.risk_level || '').toLowerCase();
+          if (riskLevel.includes('high') || riskLevel.includes('extreme')) {
+            result.marketType = 'futures';
+          } else if (riskLevel.includes('medium')) {
+            result.marketType = 'margin';
+          } else {
+            result.marketType = 'spot';
+          }
+        }
+
         return result;
       });
 
@@ -291,7 +304,8 @@ export class TemplateService {
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
         selected_pairs: selectedPairs,
-        strategy_config: strategyConfig
+        strategy_config: strategyConfig,
+        marketType: template.marketType || 'spot' // Pass the market type from the template
       });
 
       // Log the strategy creation for debugging
@@ -389,6 +403,15 @@ export class TemplateService {
     for (let i = 0; i < 6; i++) {
       // No need to generate metrics anymore
 
+      // Determine market type based on risk level
+      let marketType = 'spot';
+      const riskLevel = riskLevels[i].toLowerCase();
+      if (riskLevel.includes('high') || riskLevel.includes('extreme')) {
+        marketType = 'futures';
+      } else if (riskLevel.includes('medium')) {
+        marketType = 'margin';
+      }
+
       // Create a minimal template with only essential fields
       const template: any = {
         id: uuidv4(),
@@ -398,7 +421,8 @@ export class TemplateService {
         type: 'system_template',
         user_id: userId,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        marketType: marketType
       };
 
       templates.push(template);

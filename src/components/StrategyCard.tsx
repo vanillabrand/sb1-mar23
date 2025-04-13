@@ -19,7 +19,8 @@ import { directDeleteStrategy } from '../lib/direct-delete';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { ConfirmDialog } from './ui/ConfirmDialog';
-import type { RiskLevel, Strategy, StrategyBudget, Trade } from '../lib/types';
+import { MarketTypeBadge } from './ui/MarketTypeBadge';
+import type { RiskLevel, Strategy, StrategyBudget, Trade, MarketType } from '../lib/types';
 import { standardizeAssetPairFormat } from '../lib/format-utils';
 
 // Extended Trade type with additional properties for timestamps
@@ -921,6 +922,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <span className={`text-xs px-2 py-0.5 rounded-full ${strategy.status === 'active' ? 'bg-neon-turquoise/10 text-neon-turquoise' : 'bg-gunmetal-700 text-gray-400'}`}>
                   {strategy.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
                 </span>
+                <MarketTypeBadge marketType={strategy.marketType || 'spot'} />
                 {/* Trading pairs as lozenges with price indicators */}
                 {(strategy.selected_pairs || []).slice(0, 3).map((pair, index) => (
                   <div key={index} className="flex items-center text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap mobile-truncate min-w-[110px] md:min-w-[110px] justify-between">

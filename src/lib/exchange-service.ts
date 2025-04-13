@@ -668,23 +668,23 @@ class ExchangeService extends EventEmitter {
       }
 
       // Create a new CCXT exchange instance for Binance Futures
+      // Pass 'future' as the marketType parameter to use the correct TestNet URL
       const futuresExchange = await ccxtService.createExchange(
         'binance',
         {
           apiKey: apiKey,
           secret: apiSecret,
         },
-        true
+        true,
+        'future' // Specify that this is for futures trading
       );
 
-      // Configure the exchange for futures trading
-      futuresExchange.options.defaultType = 'future';
+      // No need to manually set defaultType as it's now set in ccxtService.createExchange
 
-      // URLs are now configured in ccxt-service.ts
-      console.log('Using Binance Futures TestNet URLs from ccxt-service.ts');
+      // Log the configuration
+      console.log('Using Binance Futures TestNet with proper configuration');
 
-      // No need to manually set URLs here as they're configured in ccxt-service.ts
-
+      // Store the exchange instance
       this.exchangeInstances.set('binanceFutures', futuresExchange);
 
       logService.log('info', 'Successfully initialized Binance Futures TestNet exchange', null, 'ExchangeService');
@@ -773,7 +773,8 @@ class ExchangeService extends EventEmitter {
           apiKey: apiKey,
           secret: apiSecret,
         },
-        true
+        true,
+        'spot' // Specify that this is for spot trading
       );
 
       this.exchangeInstances.set('binance', testnetExchange);
@@ -1113,7 +1114,6 @@ class ExchangeService extends EventEmitter {
   async fetchOrderStatus(orderId: string): Promise<any> {
     try {
       if (!this.activeExchange) {
-        // In demo mode, return a mock status
         return this.createMockOrderStatus(orderId);
       }
 
@@ -1123,8 +1123,18 @@ class ExchangeService extends EventEmitter {
       }
 
       try {
-        // Try to fetch the order status from the exchange
-        const order = await exchange.fetchOrder(orderId);
+        // Get the order details from active orders to get the symbol
+        const activeOrder = this.activeOrders.get(orderId);
+        if (!activeOrder?.symbol) {
+          logService.log('warn', `No symbol found for order ${orderId}, returning mock status`, null, 'ExchangeService');
+          return this.createMockOrderStatus(orderId);
+        }
+
+        // Normalize the symbol format for the exchange
+        const symbol = activeOrder.symbol.replace('_', '/');
+
+        // Fetch the order status from the exchange with both orderId and symbol
+        const order = await exchange.fetchOrder(orderId, symbol);
         return {
           id: order.id,
           status: order.status,
@@ -1139,12 +1149,15 @@ class ExchangeService extends EventEmitter {
           lastTradeTimestamp: order.lastTradeTimestamp
         };
       } catch (exchangeError) {
-        logService.log('warn', `Failed to fetch order status for ${orderId} from exchange, returning mock status`, exchangeError, 'ExchangeService');
+        logService.log('warn',
+          `Failed to fetch order status for ${orderId} from exchange, returning mock status`,
+          exchangeError,
+          'ExchangeService'
+        );
         return this.createMockOrderStatus(orderId);
       }
     } catch (error) {
       logService.log('error', `Failed to fetch order status for ${orderId}`, error, 'ExchangeService');
-      // Return a mock status to allow the app to continue
       return this.createMockOrderStatus(orderId);
     }
   }
@@ -1157,50 +1170,52 @@ class ExchangeService extends EventEmitter {
     // Get the order details from active orders if available
     const activeOrder = this.activeOrders.get(orderId);
 
-    // If we have the order in our active orders, use its details
-    if (activeOrder) {
-      // Randomly update the status to simulate progress
-      const statuses = ['pending', 'open', 'filled', 'closed'];
-      const currentStatusIndex = statuses.indexOf(activeOrder.status || 'pending');
-      const newStatusIndex = Math.min(currentStatusIndex + (Math.random() > 0.7 ? 1 : 0), statuses.length - 1);
-      const newStatus = statuses[newStatusIndex];
-
-      // Update the order in our active orders map
-      this.activeOrders.set(orderId, {
-        ...activeOrder,
-        status: newStatus,
-        lastUpdate: Date.now()
-      });
-
+    if (!activeOrder) {
+      // If no active order found, create a basic mock status
       return {
         id: orderId,
-        status: newStatus,
-        symbol: activeOrder.symbol || 'BTC/USDT',
-        side: activeOrder.side || 'buy',
-        price: activeOrder.entryPrice || 50000,
-        amount: 0.01,
-        filled: newStatus === 'filled' || newStatus === 'closed' ? 0.01 : 0,
-        remaining: newStatus === 'filled' || newStatus === 'closed' ? 0 : 0.01,
-        cost: (activeOrder.entryPrice || 50000) * 0.01,
-        timestamp: activeOrder.timestamp || Date.now(),
-        lastTradeTimestamp: newStatus === 'filled' || newStatus === 'closed' ? Date.now() : null
+        status: 'closed', // Assume closed if we can't find it
+        symbol: 'UNKNOWN',
+        side: 'buy',
+        price: 0,
+        amount: 0,
+        filled: 0,
+        remaining: 0,
+        cost: 0,
+        timestamp: Date.now(),
+        lastTradeTimestamp: Date.now()
       };
     }
 
-    // If we don't have the order, create a completely mock status
-    return {
+    // If we have the order in our active orders, use its details
+    const statuses = ['pending', 'open', 'filled', 'closed'];
+    const currentStatusIndex = statuses.indexOf(activeOrder.status || 'pending');
+    const newStatusIndex = Math.min(currentStatusIndex + (Math.random() > 0.7 ? 1 : 0), statuses.length - 1);
+    const newStatus = statuses[newStatusIndex];
+
+    // Create a realistic mock status based on the active order
+    const mockStatus = {
       id: orderId,
-      status: 'closed', // Assume it's closed if we don't know about it
-      symbol: 'BTC/USDT',
-      side: Math.random() > 0.5 ? 'buy' : 'sell',
-      price: 50000,
-      amount: 0.01,
-      filled: 0.01,
-      remaining: 0,
-      cost: 500,
-      timestamp: Date.now() - 3600000, // 1 hour ago
-      lastTradeTimestamp: Date.now() - 1800000 // 30 minutes ago
+      status: newStatus,
+      symbol: activeOrder.symbol,
+      side: activeOrder.side || 'buy',
+      price: activeOrder.price || 0,
+      amount: activeOrder.amount || 0,
+      filled: newStatus === 'filled' ? (activeOrder.amount || 0) : (activeOrder.filled || 0),
+      remaining: newStatus === 'filled' ? 0 : (activeOrder.remaining || activeOrder.amount || 0),
+      cost: (activeOrder.price || 0) * (activeOrder.amount || 0),
+      timestamp: activeOrder.timestamp || Date.now(),
+      lastTradeTimestamp: Date.now()
     };
+
+    // Update the order in our active orders map
+    this.activeOrders.set(orderId, {
+      ...activeOrder,
+      status: newStatus,
+      lastUpdate: Date.now()
+    });
+
+    return mockStatus;
   }
 
   /**
@@ -1237,18 +1252,30 @@ class ExchangeService extends EventEmitter {
   }
 
   /**
-   * Check if the TestNet exchange is connected
+   * Get the TestNet exchange instance
+   * @param marketType The market type (spot or future)
+   * @returns The TestNet exchange instance
    */
-  async isTestNetConnected(): Promise<boolean> {
+  async getTestNetExchange(marketType: 'spot' | 'future' = 'spot'): Promise<any> {
+    const exchangeId = marketType === 'future' ? 'binanceFutures' : 'binance';
+    return this.exchangeInstances.get(exchangeId);
+  }
+
+  /**
+   * Check if the TestNet exchange is connected
+   * @param marketType The market type (spot or future)
+   * @returns True if TestNet is connected, false otherwise
+   */
+  async isTestNetConnected(marketType: 'spot' | 'future' = 'spot'): Promise<boolean> {
     try {
-      const testNetExchange = await this.getTestNetExchange();
+      const testNetExchange = await this.getTestNetExchange(marketType);
       if (!testNetExchange) return false;
 
       // Try to fetch markets to verify connection
       await testNetExchange.fetchMarkets();
       return true;
     } catch (error) {
-      logService.log('error', 'Failed to check TestNet connection', error, 'ExchangeService');
+      logService.log('error', `Failed to connect to ${marketType} TestNet`, error, 'ExchangeService');
       return false;
     }
   }

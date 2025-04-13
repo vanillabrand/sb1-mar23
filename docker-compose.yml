@@ -1,0 +1,22 @@
+version: '3'
+
+services:
+  # Python Trading Engine
+  trading-engine:
+    build:
+      context: ./backend/python
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - SUPABASE_URL=https://gsuiserbzoebcdptglzm.supabase.co
+      - SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzdWlzZXJiem9lYmNkcHRnbHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM0MjE1MzgsImV4cCI6MjA1ODk5NzUzOH0.kSsWOfPW7RI3IXbCUzXi9oKK0zSC__-6p6ukfDJbk-k
+      - DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+        - DEEPSEEK_API_KEY=sk-d218e91b203f45ebb4ede94cbed76478
+      - BINANCE_TESTNET_API_KEY=6dbf9bc5b8e03455128d00bab9ccaffb33fa812bfcf0b21bcb50cff355a88049
+      - BINANCE_TESTNET_API_SECRET=4024ffff209db1b0681f8276fb9ba8425ae3883fc15176b622c11e7c4c8d53df
+      - DEMO_MODE_ENABLED=true
+      - DEFAULT_DEMO_EXCHANGE=binance
+    volumes:
+      - ./backend/python:/app
+    restart: unless-stopped

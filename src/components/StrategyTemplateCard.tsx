@@ -1,7 +1,8 @@
 import { motion } from 'framer-motion';
 import { Brain, Check, Loader2 } from 'lucide-react';
 import { RiskLevelBadge } from './risk/RiskLevelBadge';
-import type { StrategyTemplate } from '../lib/types';
+import { MarketTypeBadge } from './ui/MarketTypeBadge';
+import type { StrategyTemplate, MarketType } from '../lib/types';
 
 interface StrategyTemplateCardProps {
   template: StrategyTemplate;
@@ -22,10 +23,13 @@ export function StrategyTemplateCard({ template, onUse, isCreating }: StrategyTe
         </div>
         <div>
           <h3 className="font-semibold text-gray-200">{template.title}</h3>
-          <RiskLevelBadge
-            level={template.risk_level.toLowerCase() as 'low' | 'medium' | 'high'}
-            size="sm"
-          />
+          <div className="flex items-center gap-2 mt-1">
+            <RiskLevelBadge
+              level={template.risk_level.toLowerCase() as 'low' | 'medium' | 'high'}
+              size="sm"
+            />
+            <MarketTypeBadge marketType={(template.marketType || 'spot') as MarketType} />
+          </div>
         </div>
       </div>
 
