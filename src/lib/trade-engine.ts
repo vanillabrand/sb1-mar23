@@ -171,14 +171,11 @@ class TradeEngine extends EventEmitter {
         trailing_stop: signal.trailing_stop
       });
 
+      // Update budget in database and local state
+      await tradeService.updateBudgetAfterTrade(signal.strategy_id, positionSize, 0);
+
       // Update signal status
-      await supabase
-        .from('trade_signals')
-        .update({
-          status: 'executed',
-          executed_at: new Date().toISOString()
-        })
-        .eq('id', signal.id);
+      await this.updateSignalStatus(signal.id, 'executed');
 
       // Update monitoring status
       await this.updateMonitoringStatus(signal.strategy_id, {

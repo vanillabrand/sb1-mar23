@@ -472,16 +472,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             executedAt: rawTrade.executed_at || null
           };
 
-          // Update both the global trades list and the strategy-specific trades
-          setTrades(prevTrades => {
-            // Add the new trade at the beginning of the array
-            const updatedTrades = [newTrade, ...prevTrades];
-            // Limit to 100 trades total
-            return updatedTrades.slice(0, 100);
-          });
-
-          // Also update the strategy-specific trades list
+          // Only update the strategy-specific trades list
           setStrategyTrades(prev => {
+            // Check if trade already exists in this strategy's trades
+            const existingTrade = (prev[strategyId] || []).find(t => t.id === newTrade.id);
+            if (existingTrade) return prev; // Skip if trade already exists
+
             const updatedTrades = {
               ...prev,
               [strategyId]: [newTrade, ...(prev[strategyId] || [])].slice(0, 50) // Keep only 50 most recent trades per strategy
@@ -517,14 +513,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             executedAt: rawTrade.executed_at || null
           };
 
-          // Update both the global trades list and the strategy-specific trades
-          setTrades(prevTrades => {
-            return prevTrades.map(trade =>
-              trade.id === updatedTrade.id ? updatedTrade : trade
-            );
-          });
-
-          // Also update the strategy-specific trades list
+          // Only update the strategy-specific trades list
           setStrategyTrades(prev => {
             if (!prev[strategyId]) return prev;
 
@@ -547,12 +536,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             return;
           }
 
-          // Update both the global trades list and the strategy-specific trades
-          setTrades(prevTrades => {
-            return prevTrades.filter(trade => trade.id !== deletedTradeId);
-          });
-
-          // Also update the strategy-specific trades list
+          // Only update the strategy-specific trades list
           setStrategyTrades(prev => {
             if (!prev[strategyId]) return prev;
 
@@ -607,19 +591,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           executedAt: data.trade.executed_at || data.trade.executedAt || null
         };
 
-        // Update the global trades list
-        setTrades(prevTrades => {
-          // Check if trade already exists
-          const exists = prevTrades.some(t => t.id === normalizedTrade.id);
-          if (exists) return prevTrades;
-
-          // Add new trade and sort
-          const updatedTrades = [normalizedTrade, ...prevTrades];
-          return updatedTrades.slice(0, 100); // Keep only latest 100
-        });
-
-        // Also update the strategy-specific trades list
+        // Only update the strategy-specific trades list
         setStrategyTrades(prev => {
+          // Check if trade already exists
+          const existingTrade = (prev[strategyId] || []).find(t => t.id === normalizedTrade.id);
+          if (existingTrade) return prev; // Skip if trade already exists
+
           // Add the new trade to the strategy's trades
           const updatedTrades = {
             ...prev,
@@ -641,25 +618,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         const tradeId = data.orderId || data.status.id;
         const strategyId = data.strategyId || (data.status && data.status.strategyId);
 
-        // Update the global trades list
-        setTrades(prevTrades => {
-          return prevTrades.map(trade => {
-            if (trade.id === tradeId) {
-              // Merge the updated data with existing trade
-              const updatedTrade = { ...trade, ...data.status };
-
-              // Ensure amount field is set
-              if (updatedTrade.amount === undefined) {
-                updatedTrade.amount = trade.amount || 0.1;
-              }
-
-              return updatedTrade;
-            }
-            return trade;
-          });
-        });
-
-        // Also update the strategy-specific trades list if we have a strategy ID
+        // Only update the strategy-specific trades list if we have a strategy ID
         if (strategyId) {
           setStrategyTrades(prev => {
             if (!prev[strategyId]) return prev;
@@ -1292,11 +1251,18 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           amount: 0.1 + (Math.random() * 0.9)
         };
 
-        // Add the placeholder trade to the strategy's trades
-        setStrategyTrades(prev => ({
-          ...prev,
-          [strategy.id]: [placeholderTrade, ...(prev[strategy.id] || [])]
-        }));
+        // Add the placeholder trade to the strategy's trades only if it doesn't exist
+        setStrategyTrades(prev => {
+          // Check if a similar placeholder trade already exists
+          const existingPlaceholder = (prev[strategy.id] || []).find(t =>
+            t.id.startsWith('placeholder-') && t.symbol === placeholderTrade.symbol);
+          if (existingPlaceholder) return prev; // Skip if a similar placeholder exists
+
+          return {
+            ...prev,
+            [strategy.id]: [placeholderTrade, ...(prev[strategy.id] || [])]
+          };
+        });
       } catch (wsError) {
         logService.log('warn', `Error subscribing to WebSocket updates for strategy ${strategy.id}`, wsError, 'TradeMonitor');
       }

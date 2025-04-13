@@ -1166,7 +1166,12 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 </h4>
 
                 <div className={`rounded-lg p-4 ${tradeGenerationStatus.status === 'error' ? 'bg-red-900/20 border border-red-900/30' : 'bg-gunmetal-800/50'}`}>
-                  <p className="text-sm text-gray-300">{tradeGenerationStatus.message}</p>
+                  <div className="flex justify-between items-center mb-2">
+                    <p className="text-sm text-gray-300">{tradeGenerationStatus.message}</p>
+                    <span className="text-xs px-2 py-1 rounded-full bg-gunmetal-700 text-neon-turquoise">
+                      {strategyTrades.length} trade{strategyTrades.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
 
                   {/* Last checked time */}
                   {tradeGenerationStatus.lastChecked && (

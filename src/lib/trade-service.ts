@@ -319,6 +319,81 @@ class TradeService extends EventEmitter {
       return false;
     }
   }
+
+  async updateBudgetAfterTrade(strategyId: string, amount: number, profit: number = 0): Promise<void> {
+    try {
+      const budget = this.budgets.get(strategyId);
+      if (!budget) {
+        throw new Error('Budget not found for strategy');
+      }
+
+      const formattedAmount = Number(amount.toFixed(2));
+      const formattedProfit = Number(profit.toFixed(2));
+
+      // Update local budget
+      const updatedBudget = {
+        ...budget,
+        allocated: Number((budget.allocated - formattedAmount).toFixed(2)),
+        available: Number((budget.available + formattedAmount + formattedProfit).toFixed(2)),
+        total: Number((budget.total + formattedProfit).toFixed(2)),
+        lastUpdated: Date.now()
+      };
+
+      // Update database
+      const { error } = await supabase
+        .from('strategy_budgets')
+        .update({
+          total: updatedBudget.total,
+          allocated: updatedBudget.allocated,
+          available: updatedBudget.available,
+          last_updated: new Date().toISOString()
+        })
+        .eq('strategy_id', strategyId);
+
+      if (error) throw error;
+
+      // Update local cache
+      this.budgets.set(strategyId, updatedBudget);
+      
+      // Emit update event
+      this.emit('budgetUpdated', { strategyId, budget: updatedBudget });
+      eventBus.emit('budget:updated', { strategyId, budget: updatedBudget });
+      
+      logService.log('info', `Updated budget after trade for strategy ${strategyId}`, { 
+        amount: formattedAmount, 
+        profit: formattedProfit, 
+        budget: updatedBudget 
+      }, 'TradeService');
+    } catch (error) {
+      logService.log('error', `Failed to update budget after trade for strategy ${strategyId}`, error, 'TradeService');
+      throw error;
+    }
+  }
+
+  async initializeBudget(strategyId: string): Promise<void> {
+    try {
+      const { data, error } = await supabase
+        .from('strategy_budgets')
+        .select('*')
+        .eq('strategy_id', strategyId)
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        this.budgets.set(strategyId, {
+          total: Number(data.total),
+          allocated: Number(data.allocated),
+          available: Number(data.available),
+          maxPositionSize: Number(data.max_position_size),
+          lastUpdated: data.last_updated
+        });
+      }
+    } catch (error) {
+      logService.log('error', `Failed to initialize budget for strategy ${strategyId}`, error, 'TradeService');
+      throw error;
+    }
+  }
 }
 
 export const tradeService = TradeService.getInstance();

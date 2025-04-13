@@ -24,6 +24,16 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [availableBalance, setAvailableBalance] = useState<number>(maxBudget);
 
+  // Reset state when modal closes
+  useEffect(() => {
+    return () => {
+      setTotalBudget(initialBudget?.total || Math.min((maxBudget || 0) * 0.1, maxBudget || 0));
+      setError(null);
+      setIsProcessing(false);
+      setIsLoadingBalance(false);
+    };
+  }, [maxBudget, initialBudget]);
+
   // Initialize wallet balance service and fetch balances
   useEffect(() => {
     const initializeBalances = async () => {
@@ -91,32 +101,9 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
     try {
-      setError(null);
       setIsProcessing(true);
-
-      const budgetAmount = totalBudget;
-      if (isNaN(budgetAmount) || budgetAmount <= 0) {
-        throw new Error('Please enter a valid budget amount');
-      }
-
-      // Validate budget against available balance
-      if (budgetAmount > availableBalance) {
-        throw new Error(`Budget exceeds available balance of $${availableBalance.toLocaleString(undefined, { minimumFractionDigits: 2 })}`);
-      }
-
-      // Calculate position sizing based on risk level
-      const positionSizeMultiplier =
-        {
-          'Ultra Low': 0.05,
-          'Low': 0.1,
-          'Medium': 0.15,
-          'High': 0.2,
-          'Ultra High': 0.25,
-          'Extreme': 0.3,
-          'God Mode': 0.5,
-        }[riskLevel] || 0.15;
+      setError(null);
 
       const budget: StrategyBudget = {
         total: Number(totalBudget.toFixed(2)),
@@ -125,19 +112,16 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
         maxPositionSize: Number((totalBudget * positionSizeMultiplier).toFixed(2))
       };
 
-      logService.log('info', 'Confirming budget', { budget }, 'BudgetModal');
-
-      // Call onConfirm but don't wait for it to complete
-      // This allows the modal to close even if the activation process takes a long time or fails
-      onConfirm(budget).catch(error => {
-        logService.log('error', 'Error in budget confirmation (caught in modal)', error, 'BudgetModal');
-      });
-
-      // Close the modal immediately
+      await onConfirm(budget);
+      
+      // Reset state after successful submission
+      setIsProcessing(false);
+      setError(null);
+      
+      // Close modal
       if (onCancel) onCancel();
       else if (onClose) onClose();
-
-      logService.log('info', 'Budget confirmed successfully', { budget }, 'BudgetModal');
+      
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to set budget');
       setIsProcessing(false);
