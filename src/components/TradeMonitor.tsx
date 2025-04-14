@@ -1226,8 +1226,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       const cost = price * amount;
       const fee = cost * 0.001; // 0.1% fee
 
-      // Create unique ID with timestamp to prevent duplicates
-      const uniqueId = `mock-${symbol}-${i}-${now}-${Math.random().toString(36).substring(2, 11)}`;
+      // Create unique ID with timestamp and UUID-like random string to prevent duplicates
+      const uniqueId = `mock-${symbol}-${i}-${now + i}-${Math.random().toString(36).substring(2, 8)}-${Math.random().toString(36).substring(2, 8)}`;
 
       trades.push({
         id: uniqueId,
@@ -1343,8 +1343,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           const strategyId = matchingStrategy?.id || activeStrategies[0].id;
 
           // Convert to our Trade format
-          const formattedTrades = symbolTrades.map((trade: any) => ({
-            id: trade.id || `${Date.now()}-${Math.random()}`,
+          const formattedTrades = symbolTrades.map((trade: any, index: number) => ({
+            id: trade.id || `${Date.now() + index}-${Math.random().toString(36).substring(2, 8)}-${Math.random().toString(36).substring(2, 8)}`,
             symbol: trade.symbol,
             side: trade.side as 'buy' | 'sell',
             status: 'executed', // Use 'executed' instead of 'closed'
@@ -1668,7 +1668,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         }
 
         const placeholderTrade: Trade = {
-          id: `placeholder-${strategy.id}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+          id: `placeholder-${strategy.id}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${Math.random().toString(36).substring(2, 8)}`,
           symbol: symbol,
           side: Math.random() > 0.5 ? 'buy' : 'sell',
           status: 'pending',
