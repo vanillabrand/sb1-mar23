@@ -450,6 +450,16 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
 
     analyticsService.on('analyticsUpdate', analyticsUpdateHandler);
 
+    // Subscribe to budget updates
+    const budgetUpdatedHandler = (data: any) => {
+      if (data && data.strategyId) {
+        // Trigger a refresh of trades for this strategy
+        fetchTrades();
+      }
+    };
+
+    eventBus.subscribe('budget:updated', budgetUpdatedHandler);
+
     // Subscribe to event bus for trade events
     const tradeCreatedHandler = (data: any) => {
       if (data && data.trade && data.strategy) {
@@ -493,6 +503,7 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
     return () => {
       tradeSubscription.unsubscribe();
       analyticsService.off('analyticsUpdate', analyticsUpdateHandler);
+      eventBus.unsubscribe('budget:updated', budgetUpdatedHandler);
       eventBus.unsubscribe('trade:created', tradeCreatedHandler);
     };
   }, []);
@@ -508,6 +519,13 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
 
       Object.entries(strategyTrades).forEach(([strategyId, strategyTrades]) => {
         stats[strategyId] = calculateStrategyStats(strategyId, strategyTrades);
+      });
+
+      // Also calculate stats for strategies that don't have trades yet
+      strategies.forEach(strategy => {
+        if (!stats[strategy.id]) {
+          stats[strategy.id] = calculateStrategyStats(strategy.id, []);
+        }
       });
 
       logService.log('info', 'Updated strategy stats due to trade changes', stats, 'StrategyStatus');

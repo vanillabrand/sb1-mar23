@@ -120,6 +120,9 @@ export interface StrategyBudget {
   available: number;
   maxPositionSize: number;
   lastUpdated?: number;
+  profit?: number;
+  allocationPercentage?: number;
+  profitPercentage?: number;
 }
 
 export type ExchangeId = 'binance' | 'bitmart' | 'kucoin' | 'coinbase' | 'kraken' | string;

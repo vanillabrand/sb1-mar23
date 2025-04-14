@@ -102,26 +102,52 @@ class TransactionService extends EventEmitter {
         throw new Error('Invalid date range');
       }
 
-      const { data: transactions, error } = await supabase
-        .from('transaction_history')  // Make sure this matches your actual table name
-        .select('*')
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString())
-        .order('created_at', { ascending: false });
+      // Try to get transactions from the transactions table first
+      try {
+        const { data: transactions, error } = await supabase
+          .from('transactions')
+          .select('*')
+          .gte('created_at', start.toISOString())
+          .lte('created_at', end.toISOString())
+          .order('created_at', { ascending: false });
 
-      if (error) {
-        // Check if the error is because the transaction_history table doesn't exist
-        if (error.message && error.message.includes('relation "transaction_history" does not exist')) {
-          logService.log('warn', 'Transaction history table does not exist, returning empty array', null, 'TransactionService');
-          console.warn('Transaction history table does not exist. Please run the database setup script.');
-          return [];
-        } else {
-          logService.log('error', 'Supabase query error', error, 'TransactionService');
-          throw error;
+        if (error) {
+          // Check if the error is because the transactions table doesn't exist
+          if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Transactions table does not exist, trying transaction_history table', null, 'TransactionService');
+
+            // Try transaction_history table as fallback
+            const { data: historyTransactions, error: historyError } = await supabase
+              .from('transaction_history')
+              .select('*')
+              .gte('created_at', start.toISOString())
+              .lte('created_at', end.toISOString())
+              .order('created_at', { ascending: false });
+
+            if (historyError) {
+              // Both tables don't exist or other error
+              if (historyError.code === '42P01') {
+                logService.log('warn', 'Neither transactions nor transaction_history tables exist, returning empty array', null, 'TransactionService');
+                console.warn('Transaction tables do not exist. Please run the database setup script.');
+                return [];
+              } else {
+                logService.log('error', 'Supabase query error on transaction_history', historyError, 'TransactionService');
+                throw historyError;
+              }
+            }
+
+            return historyTransactions || [];
+          } else {
+            logService.log('error', 'Supabase query error on transactions', error, 'TransactionService');
+            throw error;
+          }
         }
-      }
 
-      return transactions || [];
+        return transactions || [];
+      } catch (queryError) {
+        logService.log('error', 'Exception when querying transactions', queryError, 'TransactionService');
+        return [];
+      }
     } catch (error) {
       logService.log('error', 'Failed to get transactions', error, 'TransactionService');
       return [];
@@ -156,27 +182,60 @@ class TransactionService extends EventEmitter {
         metadata: metadata || {}
       };
 
-      const { data, error } = await supabase
-        .from('transaction_history')
-        .insert(transaction)
-        .select()
-        .single();
+      // Try to insert into transactions table first
+      let data;
+      try {
+        const result = await supabase
+          .from('transactions')
+          .insert(transaction)
+          .select()
+          .single();
 
-      if (error) {
-        // Check if the error is because the transaction_history table doesn't exist
-        if (error.message && error.message.includes('relation "transaction_history" does not exist')) {
-          logService.log('warn', 'Transaction history table does not exist, skipping transaction recording', null, 'TransactionService');
-          console.warn('Transaction history table does not exist. Please run the database setup script.');
+        if (result.error) {
+          // Check if the error is because the transactions table doesn't exist
+          if (result.error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Transactions table does not exist, trying transaction_history table', null, 'TransactionService');
 
-          // Return a synthetic transaction object
-          return {
-            ...transaction,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          } as Transaction;
+            // Try transaction_history table as fallback
+            const historyResult = await supabase
+              .from('transaction_history')
+              .insert(transaction)
+              .select()
+              .single();
+
+            if (historyResult.error) {
+              // Both tables don't exist or other error
+              if (historyResult.error.code === '42P01') {
+                logService.log('warn', 'Neither transactions nor transaction_history tables exist, skipping transaction recording', null, 'TransactionService');
+                console.warn('Transaction tables do not exist. Please run the database setup script.');
+
+                // Return a synthetic transaction object
+                return {
+                  ...transaction,
+                  created_at: new Date().toISOString(),
+                  updated_at: new Date().toISOString()
+                } as Transaction;
+              } else {
+                throw historyResult.error;
+              }
+            } else {
+              data = historyResult.data;
+            }
+          } else {
+            throw result.error;
+          }
         } else {
-          throw error;
+          data = result.data;
         }
+      } catch (insertError) {
+        logService.log('error', 'Failed to record transaction', insertError, 'TransactionService');
+
+        // Return a synthetic transaction object as fallback
+        return {
+          ...transaction,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        } as Transaction;
       }
       if (!data) throw new Error('Failed to create transaction');
 

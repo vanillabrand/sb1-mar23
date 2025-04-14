@@ -50,6 +50,11 @@ export function PortfolioPerformance() {
 
   // Separate useEffect for real-time updates to avoid unnecessary redraws
   useEffect(() => {
+    // Initialize the portfolio service
+    portfolioService.initialize().catch(error => {
+      logService.log('error', 'Failed to initialize portfolio service', error, 'PortfolioPerformance');
+    });
+
     // Throttle function to prevent too many updates
     let updateTimeout: NodeJS.Timeout | null = null;
     const throttledUpdate = () => {
@@ -72,6 +77,20 @@ export function PortfolioPerformance() {
       }, 2000); // Throttle to max once per 2 seconds
     };
 
+    // Set up polling for portfolio data
+    const pollingInterval = setInterval(() => {
+      throttledUpdate();
+      throttledPerformanceUpdate();
+      logService.log('debug', 'Portfolio performance data refreshed via polling', null, 'PortfolioPerformance');
+    }, 15000); // Every 15 seconds
+
+    // Subscribe to dashboard updates
+    const dashboardUpdatedUnsubscribe = eventBus.subscribe('dashboard:updated', (data: any) => {
+      logService.log('info', 'Dashboard updated, refreshing portfolio performance', data.summary, 'PortfolioPerformance');
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
+    });
+
     // Set up real-time subscription to trade updates
     const tradeCreatedUnsubscribe = eventBus.subscribe('trade:created', (_data: any) => {
       throttledUpdate(); // Update summary immediately
@@ -83,16 +102,90 @@ export function PortfolioPerformance() {
       throttledPerformanceUpdate(); // Schedule graph update
     });
 
-    const budgetUpdatedUnsubscribe = eventBus.subscribe('budgetUpdated', (_data: any) => {
+    const tradeClosedUnsubscribe = eventBus.subscribe('trade:closed', (_data: any) => {
+      logService.log('info', 'Trade closed, updating portfolio performance', null, 'PortfolioPerformance');
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
+    });
+
+    const budgetUpdatedUnsubscribe = eventBus.subscribe('budget:updated', (_data: any) => {
       throttledUpdate(); // Update summary immediately
       throttledPerformanceUpdate(); // Schedule graph update
     });
 
     // Subscribe to transaction events
-    const transactionUnsubscribe = eventBus.subscribe('transaction', (_data: any) => {
+    const transactionUnsubscribe = eventBus.subscribe('transaction', (data: any) => {
+      logService.log('info', 'Transaction recorded, updating portfolio performance', {
+        type: data.type,
+        amount: data.amount,
+        strategyId: data.strategyId
+      }, 'PortfolioPerformance');
       throttledUpdate(); // Update summary immediately
       throttledPerformanceUpdate(); // Schedule graph update
     });
+
+    // Subscribe to transaction created events
+    const transactionCreatedUnsubscribe = eventBus.subscribe('transaction:created', (data: any) => {
+      logService.log('info', 'New transaction created, updating portfolio performance', {
+        type: data.type,
+        amount: data.amount,
+        strategyId: data.strategyId
+      }, 'PortfolioPerformance');
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
+    });
+
+    // Subscribe to strategy status changes
+    const strategyStatusUnsubscribe = eventBus.subscribe('strategy:status', (_data: any) => {
+      logService.log('info', `Strategy status changed to ${_data.status}, updating portfolio performance`, null, 'PortfolioPerformance');
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
+    });
+
+    // Subscribe to strategy deactivation
+    const strategyDeactivatedUnsubscribe = eventBus.subscribe('strategy:deactivated', (_data: any) => {
+      logService.log('info', `Strategy ${_data.strategyId} deactivated, updating portfolio performance`, null, 'PortfolioPerformance');
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
+    });
+
+    // Set up real-time subscription to database changes
+    const dbSubscriptions = [];
+
+    // Strategy changes
+    const strategySubscription = supabase
+      .channel('portfolio_strategies')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'strategies' }, (payload) => {
+        logService.log('info', `Strategy ${payload.new?.id || payload.old?.id} ${payload.eventType.toLowerCase()}, updating portfolio performance`, null, 'PortfolioPerformance');
+        throttledUpdate(); // Update summary immediately
+        throttledPerformanceUpdate(); // Schedule graph update
+      })
+      .subscribe();
+    dbSubscriptions.push(strategySubscription);
+
+    // Trade changes
+    const tradeSubscription = supabase
+      .channel('portfolio_trades')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'trades' }, (payload) => {
+        if (payload.eventType === 'UPDATE' && payload.new.status === 'closed' && payload.old.status !== 'closed') {
+          logService.log('info', `Trade ${payload.new.id} closed, updating portfolio performance`, null, 'PortfolioPerformance');
+          throttledUpdate(); // Update summary immediately
+          throttledPerformanceUpdate(); // Schedule graph update
+        }
+      })
+      .subscribe();
+    dbSubscriptions.push(tradeSubscription);
+
+    // Transaction changes
+    const transactionSubscription = supabase
+      .channel('portfolio_transactions')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transactions' }, () => {
+        logService.log('info', 'Transaction database change, updating portfolio performance', null, 'PortfolioPerformance');
+        throttledUpdate(); // Update summary immediately
+        throttledPerformanceUpdate(); // Schedule graph update
+      })
+      .subscribe();
+    dbSubscriptions.push(transactionSubscription);
 
     // Set up real-time subscription to wallet balance updates
     const balanceUpdateHandler = () => {
@@ -104,12 +197,26 @@ export function PortfolioPerformance() {
 
     // Clean up subscriptions and timeouts on unmount
     return () => {
+      clearInterval(pollingInterval);
+
+      // Unsubscribe from event bus events
+      dashboardUpdatedUnsubscribe();
       tradeCreatedUnsubscribe();
       tradeUpdatedUnsubscribe();
+      tradeClosedUnsubscribe();
       budgetUpdatedUnsubscribe();
       transactionUnsubscribe();
+      transactionCreatedUnsubscribe();
+      strategyStatusUnsubscribe();
+      strategyDeactivatedUnsubscribe();
+
+      // Unsubscribe from database subscriptions
+      dbSubscriptions.forEach(subscription => subscription.unsubscribe());
+
+      // Unsubscribe from wallet balance updates
       walletBalanceService.off('balancesUpdated', balanceUpdateHandler);
 
+      // Clear any pending timeouts
       if (updateTimeout) clearTimeout(updateTimeout);
       if (performanceUpdateTimeout) clearTimeout(performanceUpdateTimeout);
     };
@@ -262,87 +369,231 @@ export function PortfolioPerformance() {
 
   const loadPortfolioSummary = async () => {
     try {
+      logService.log('info', 'Loading portfolio summary data', null, 'PortfolioPerformance');
+
+      // First, try to get data from the global cache
       const summary = await globalCacheService.getPortfolioSummary();
+
       if (summary) {
         // Only update state if data has actually changed to prevent unnecessary rerenders
         if (JSON.stringify(summary) !== JSON.stringify(portfolioSummary)) {
           setPortfolioSummary(summary);
-          logService.log('info', 'Updated portfolio summary data', { strategies: summary.strategies?.length || 0 }, 'PortfolioPerformance');
+          logService.log('info', 'Updated portfolio summary data from cache', {
+            strategies: summary.strategies?.length || 0,
+            currentValue: summary.currentValue,
+            totalChange: summary.totalChange,
+            totalTrades: summary.totalTrades
+          }, 'PortfolioPerformance');
         }
-      } else if (!portfolioSummary) {
-        // Generate sample summary for demo purposes only if we don't have data yet
-        const sampleSummary = {
-          currentValue: 12450.75,
-          startingValue: 10000,
-          totalChange: 2450.75,
-          percentChange: 24.51,
-          totalTrades: 42,
-          profitableTrades: 28,
-          winRate: 66.67,
-          strategies: [
-            {
-              id: 'strategy-1',
-              name: 'Momentum Alpha',
-              currentValue: 4357.76,
-              startingValue: 3500,
-              totalChange: 857.76,
-              percentChange: 24.51,
-              totalTrades: 18,
-              profitableTrades: 12,
-              winRate: 66.67,
-              contribution: 35
-            },
-            {
-              id: 'strategy-2',
-              name: 'Trend Follower',
-              currentValue: 3112.69,
-              startingValue: 2500,
-              totalChange: 612.69,
-              percentChange: 24.51,
-              totalTrades: 12,
-              profitableTrades: 8,
-              winRate: 66.67,
-              contribution: 25
-            },
-            {
-              id: 'strategy-3',
-              name: 'Volatility Edge',
-              currentValue: 2490.15,
-              startingValue: 2000,
-              totalChange: 490.15,
-              percentChange: 24.51,
-              totalTrades: 8,
-              profitableTrades: 5,
-              winRate: 62.5,
-              contribution: 20
-            },
-            {
-              id: 'strategy-4',
-              name: 'Swing Trader',
-              currentValue: 1867.61,
-              startingValue: 1500,
-              totalChange: 367.61,
-              percentChange: 24.51,
-              totalTrades: 4,
-              profitableTrades: 3,
-              winRate: 75.0,
-              contribution: 15
-            },
-            {
-              id: 'strategy-5',
-              name: 'Market Neutral',
-              currentValue: 622.54,
-              startingValue: 500,
-              totalChange: 122.54,
-              percentChange: 24.51,
-              totalTrades: 0,
-              profitableTrades: 0,
-              winRate: 0,
-              contribution: 5
+      } else {
+        // If not in cache, fetch directly from the database
+        // Get all strategies
+        const { data: strategies, error: strategiesError } = await supabase
+          .from('strategies')
+          .select('*');
+
+        if (strategiesError) {
+          logService.log('error', 'Failed to load strategies', strategiesError, 'PortfolioPerformance');
+        }
+
+        // Get all transactions
+        let transactions = [];
+        try {
+          const { data, error } = await supabase
+            .from('transactions')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+          if (error) {
+            // Check if the error is because the table doesn't exist
+            if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+              logService.log('warn', 'Transactions table does not exist yet. This is normal if you haven\'t created it.', null, 'PortfolioPerformance');
+            } else {
+              logService.log('error', 'Failed to load transactions:', error, 'PortfolioPerformance');
             }
-          ]
+          } else {
+            transactions = data || [];
+          }
+        } catch (err) {
+          logService.log('error', 'Exception when loading transactions:', err, 'PortfolioPerformance');
+        }
+
+        // Get all trades
+        const { data: trades, error: tradesError } = await supabase
+          .from('trades')
+          .select('*');
+
+        if (tradesError) {
+          logService.log('error', 'Failed to load trades', tradesError, 'PortfolioPerformance');
+        }
+
+        // Calculate portfolio summary
+        const calculatedSummary = {
+          currentValue: 0,
+          startingValue: 0,
+          totalChange: 0,
+          percentChange: 0,
+          totalTrades: trades?.length || 0,
+          profitableTrades: trades?.filter(t => (t.profit || 0) > 0)?.length || 0,
+          winRate: 0,
+          strategies: []
         };
-        setPortfolioSummary(sampleSummary);
+
+        // Calculate win rate
+        if (calculatedSummary.totalTrades > 0) {
+          calculatedSummary.winRate = (calculatedSummary.profitableTrades / calculatedSummary.totalTrades) * 100;
+        }
+
+        // Get the most recent transaction to determine current value
+        if (transactions && transactions.length > 0) {
+          calculatedSummary.currentValue = transactions[0].balance_after || 0;
+
+          // Find the oldest transaction to determine starting value
+          const oldestTransaction = transactions[transactions.length - 1];
+          calculatedSummary.startingValue = oldestTransaction.balance_before || 0;
+
+          // Calculate total change and percent change
+          calculatedSummary.totalChange = calculatedSummary.currentValue - calculatedSummary.startingValue;
+          if (calculatedSummary.startingValue > 0) {
+            calculatedSummary.percentChange = (calculatedSummary.totalChange / calculatedSummary.startingValue) * 100;
+          }
+        }
+
+        // Calculate strategy-specific metrics
+        if (strategies && strategies.length > 0) {
+          calculatedSummary.strategies = strategies.map(strategy => {
+            // Get trades for this strategy
+            const strategyTrades = trades?.filter(t => t.strategy_id === strategy.id) || [];
+
+            // Calculate strategy metrics
+            const totalTrades = strategyTrades.length;
+            const profitableTrades = strategyTrades.filter(t => (t.profit || 0) > 0).length;
+            const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
+            const totalProfit = strategyTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
+
+            // Get strategy transactions
+            const strategyTransactions = transactions?.filter(t => t.reference_id === strategy.id) || [];
+
+            // Calculate current value and starting value
+            let currentValue = 0;
+            let startingValue = 0;
+
+            if (strategyTransactions.length > 0) {
+              currentValue = strategyTransactions[0].balance_after || 0;
+              startingValue = strategyTransactions[strategyTransactions.length - 1].balance_before || 0;
+            }
+
+            // Calculate change and percent change
+            const totalChange = currentValue - startingValue;
+            const percentChange = startingValue > 0 ? (totalChange / startingValue) * 100 : 0;
+
+            // Calculate contribution to overall portfolio
+            const contribution = calculatedSummary.currentValue > 0 ? (currentValue / calculatedSummary.currentValue) * 100 : 0;
+
+            return {
+              id: strategy.id,
+              name: strategy.name || strategy.title,
+              currentValue,
+              startingValue,
+              totalChange,
+              percentChange,
+              totalTrades,
+              profitableTrades,
+              winRate,
+              contribution
+            };
+          });
+        }
+
+        // Update state with calculated summary
+        setPortfolioSummary(calculatedSummary);
+
+        // Update global cache
+        globalCacheService.setPortfolioSummary(calculatedSummary);
+
+        logService.log('info', 'Updated portfolio summary data from database', {
+          strategies: calculatedSummary.strategies?.length || 0,
+          currentValue: calculatedSummary.currentValue,
+          totalChange: calculatedSummary.totalChange,
+          totalTrades: calculatedSummary.totalTrades
+        }, 'PortfolioPerformance');
+
+        // If we still don't have portfolio summary data, use sample data
+        if (!portfolioSummary && (!calculatedSummary.strategies || calculatedSummary.strategies.length === 0)) {
+            // Generate sample summary for demo purposes only if we don't have data yet
+            const sampleSummary = {
+              currentValue: 12450.75,
+              startingValue: 10000,
+              totalChange: 2450.75,
+              percentChange: 24.51,
+              totalTrades: 42,
+              profitableTrades: 28,
+              winRate: 66.67,
+              strategies: [
+                {
+                  id: 'strategy-1',
+                  name: 'Momentum Alpha',
+                  currentValue: 4357.76,
+                  startingValue: 3500,
+                  totalChange: 857.76,
+                  percentChange: 24.51,
+                  totalTrades: 18,
+                  profitableTrades: 12,
+                  winRate: 66.67,
+                  contribution: 35
+                },
+                {
+                  id: 'strategy-2',
+                  name: 'Trend Follower',
+                  currentValue: 3112.69,
+                  startingValue: 2500,
+                  totalChange: 612.69,
+                  percentChange: 24.51,
+                  totalTrades: 12,
+                  profitableTrades: 8,
+                  winRate: 66.67,
+                  contribution: 25
+                },
+                {
+                  id: 'strategy-3',
+                  name: 'Volatility Edge',
+                  currentValue: 2490.15,
+                  startingValue: 2000,
+                  totalChange: 490.15,
+                  percentChange: 24.51,
+                  totalTrades: 8,
+                  profitableTrades: 5,
+                  winRate: 62.5,
+                  contribution: 20
+                },
+                {
+                  id: 'strategy-4',
+                  name: 'Swing Trader',
+                  currentValue: 1867.61,
+                  startingValue: 1500,
+                  totalChange: 367.61,
+                  percentChange: 24.51,
+                  totalTrades: 4,
+                  profitableTrades: 3,
+                  winRate: 75.0,
+                  contribution: 15
+                },
+                {
+                  id: 'strategy-5',
+                  name: 'Market Neutral',
+                  currentValue: 622.54,
+                  startingValue: 500,
+                  totalChange: 122.54,
+                  percentChange: 24.51,
+                  totalTrades: 0,
+                  profitableTrades: 0,
+                  winRate: 0,
+                  contribution: 5
+                }
+              ]
+            };
+            setPortfolioSummary(sampleSummary);
+          }
       }
     } catch (error) {
       logService.log('error', 'Failed to load portfolio summary', error, 'PortfolioPerformance');

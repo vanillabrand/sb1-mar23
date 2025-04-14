@@ -115,15 +115,22 @@ function createDemoTemplates() {
     'Trades the expansion phase after periods of price consolidation within tight Bollinger Bands.'
   ];
 
+  // Market types for different strategies
+  const marketTypes = ['spot', 'margin', 'futures'];
+
   // Create 6 templates with different risk levels
   for (let i = 0; i < 6; i++) {
+    // Assign a market type based on the strategy index
+    const marketType = marketTypes[i % marketTypes.length];
+
     const template = {
       title: names[i],
       name: names[i],
-      description: descriptions[i],
+      description: descriptions[i] + ` This is a ${marketType} trading strategy.`,
       risk_level: riskLevels[i],
       type: 'system_template',
       status: 'active',
+      market_type: marketType,
       selected_pairs: ['BTC/USDT', 'ETH/USDT'],
       metrics: {
         winRate: 50 + Math.floor(Math.random() * 20),
@@ -148,7 +155,9 @@ function createDemoTemplates() {
           stopLoss: 5,
           takeProfit: 10,
           positionSize: 10,
-          maxOpenPositions: 5
+          maxOpenPositions: 5,
+          ...(marketType === 'futures' ? { leverage: `${Math.min(i + 2, 10)}x` } : {}),
+          ...(marketType === 'margin' ? { borrowAmount: `${Math.min((i + 1) * 10, 80)}%` } : {})
         }
       }
     };

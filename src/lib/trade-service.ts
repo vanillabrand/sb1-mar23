@@ -389,17 +389,28 @@ class TradeService extends EventEmitter {
       if (updatedBudget.allocated < 0) updatedBudget.allocated = 0;
 
       // Update database
-      const { error } = await supabase
-        .from('strategy_budgets')
-        .update({
-          total: updatedBudget.total,
-          allocated: updatedBudget.allocated,
-          available: updatedBudget.available,
-          last_updated: new Date().toISOString()
-        })
-        .eq('strategy_id', strategyId);
+      try {
+        const { error } = await supabase
+          .from('strategy_budgets')
+          .update({
+            total: updatedBudget.total,
+            allocated: updatedBudget.allocated,
+            available: updatedBudget.available,
+            last_updated: new Date().toISOString()
+          })
+          .eq('strategy_id', strategyId);
 
-      if (error) throw error;
+        if (error) {
+          // Check if the error is because the table doesn't exist
+          if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Strategy budgets table does not exist yet. This is normal if you haven\'t created it.', null, 'TradeService');
+          } else {
+            throw error;
+          }
+        }
+      } catch (dbError) {
+        logService.log('warn', `Error updating strategy_budgets table: ${dbError.message}`, null, 'TradeService');
+      }
 
       // Update local cache
       this.budgets.set(strategyId, updatedBudget);
@@ -421,26 +432,90 @@ class TradeService extends EventEmitter {
 
   async initializeBudget(strategyId: string): Promise<void> {
     try {
-      const { data, error } = await supabase
-        .from('strategy_budgets')
-        .select('*')
-        .eq('strategy_id', strategyId)
-        .single();
-
-      if (error) throw error;
-
-      if (data) {
-        this.budgets.set(strategyId, {
-          total: Number(data.total),
-          allocated: Number(data.allocated),
-          available: Number(data.available),
-          maxPositionSize: Number(data.max_position_size),
-          lastUpdated: data.last_updated
-        });
+      // Check if we already have a budget for this strategy in memory
+      if (this.budgets.has(strategyId)) {
+        logService.log('info', `Budget already exists in memory for strategy ${strategyId}`, null, 'TradeService');
+        return;
       }
+
+      // Try to get the budget from the database
+      try {
+        const { data, error } = await supabase
+          .from('strategy_budgets')
+          .select('*')
+          .eq('strategy_id', strategyId)
+          .single();
+
+        if (error) {
+          // Check if the error is because the table doesn't exist
+          if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Strategy budgets table does not exist yet. This is normal if you haven\'t created it.', null, 'TradeService');
+            throw new Error('Strategy budgets table does not exist');
+          } else if (error.code !== 'PGRST116') { // Not a 'no rows returned' error
+            throw error;
+          }
+        }
+
+        if (data) {
+          // Budget exists in database, load it
+          const budget = {
+            total: Number(data.total),
+            allocated: Number(data.allocated),
+            available: Number(data.available),
+            maxPositionSize: Number(data.max_position_size),
+            profit: Number(data.profit || 0),
+            lastUpdated: data.last_updated
+          };
+
+          this.budgets.set(strategyId, budget);
+          logService.log('info', `Loaded budget from database for strategy ${strategyId}`, budget, 'TradeService');
+          return;
+        }
+      } catch (dbError) {
+        logService.log('warn', `Error accessing strategy_budgets table: ${dbError.message}`, null, 'TradeService');
+      }
+
+      // No budget in database or table doesn't exist, create a default one
+      const defaultBudget = this.createDefaultBudget();
+
+      // Try to save to database
+      try {
+        const { error: insertError } = await supabase
+          .from('strategy_budgets')
+          .insert({
+            strategy_id: strategyId,
+            total: defaultBudget.total,
+            allocated: defaultBudget.allocated,
+            available: defaultBudget.available,
+            max_position_size: defaultBudget.maxPositionSize,
+            profit: 0,
+            last_updated: new Date().toISOString()
+          });
+
+        if (insertError) {
+          // Check if the error is because the table doesn't exist
+          if (insertError.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Strategy budgets table does not exist yet. This is normal if you haven\'t created it.', null, 'TradeService');
+          } else {
+            logService.log('warn', `Failed to save default budget to database for strategy ${strategyId}`, insertError, 'TradeService');
+          }
+        }
+      } catch (insertError) {
+        logService.log('warn', `Exception when saving default budget to database for strategy ${strategyId}`, insertError, 'TradeService');
+      }
+
+      // Set in memory regardless of database success
+      this.budgets.set(strategyId, defaultBudget);
+      logService.log('info', `Created default budget for strategy ${strategyId}`, defaultBudget, 'TradeService');
+
+      // Save to local storage
+      this.saveBudgets();
     } catch (error) {
       logService.log('error', `Failed to initialize budget for strategy ${strategyId}`, error, 'TradeService');
-      throw error;
+      // Create a default budget even if there was an error
+      const defaultBudget = this.createDefaultBudget();
+      this.budgets.set(strategyId, defaultBudget);
+      this.saveBudgets();
     }
   }
 }

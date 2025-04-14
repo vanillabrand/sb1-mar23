@@ -922,11 +922,11 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <span className={`text-xs px-2 py-0.5 rounded-full ${strategy.status === 'active' ? 'bg-neon-turquoise/10 text-neon-turquoise' : 'bg-gunmetal-700 text-gray-400'}`}>
                   {strategy.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
                 </span>
-                <MarketTypeBadge marketType={strategy.marketType || 'spot'} />
+                <MarketTypeBadge marketType={strategy.market_type || strategy.marketType || 'spot'} />
                 {strategy.status === 'active' && budget && (
                   <span className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-400 flex items-center">
                     <Wallet className="w-3 h-3 mr-1" />
-                    <span className="font-medium">${budget.available.toFixed(2)}</span>
+                    <span className="font-medium">${budget.available ? budget.available.toFixed(2) : '0.00'}</span>
                     <span className="ml-1 opacity-70">USDT</span>
                   </span>
                 )}

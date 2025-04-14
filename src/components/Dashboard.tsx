@@ -183,14 +183,187 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
     if (!user) return;
 
     try {
-      const { data, error } = await supabase
+      logService.log('info', 'Loading strategies and performance data', null, 'Dashboard');
+
+      // Get strategies from the database
+      const { data: strategiesData, error: strategiesError } = await supabase
         .from('strategies')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      setLocalStrategies(data || []);
+      if (strategiesError) {
+        logService.log('error', 'Failed to load strategies:', strategiesError, 'Dashboard');
+        throw strategiesError;
+      }
+
+      if (!strategiesData || strategiesData.length === 0) {
+        setLocalStrategies([]);
+        logService.log('info', 'No strategies found for user', null, 'Dashboard');
+        return;
+      }
+
+      // Get trades for each strategy to calculate performance metrics
+      const strategyIds = strategiesData.map(s => s.id);
+
+      // Get all trades for these strategies
+      const { data: tradesData, error: tradesError } = await supabase
+        .from('trades')
+        .select('*')
+        .in('strategy_id', strategyIds);
+
+      if (tradesError) {
+        logService.log('error', 'Failed to load trades:', tradesError, 'Dashboard');
+      }
+
+      // Get all transactions for these strategies
+      let transactionsData = [];
+      try {
+        const { data, error } = await supabase
+          .from('transactions')
+          .select('*')
+          .in('reference_id', strategyIds)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          // Check if the error is because the table doesn't exist
+          if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Transactions table does not exist yet. This is normal if you haven\'t created it.', null, 'Dashboard');
+          } else {
+            logService.log('error', 'Failed to load transactions:', error, 'Dashboard');
+          }
+        } else {
+          transactionsData = data || [];
+        }
+      } catch (err) {
+        logService.log('error', 'Exception when loading transactions:', err, 'Dashboard');
+      }
+
+      // Get all strategy budgets
+      let budgetsData = [];
+      try {
+        const { data, error } = await supabase
+          .from('strategy_budgets')
+          .select('*')
+          .in('strategy_id', strategyIds);
+
+        if (error) {
+          // Check if the error is because the table doesn't exist
+          if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Strategy budgets table does not exist yet. This is normal if you haven\'t created it.', null, 'Dashboard');
+          } else {
+            logService.log('error', 'Failed to load strategy budgets:', error, 'Dashboard');
+          }
+        } else {
+          budgetsData = data || [];
+        }
+      } catch (err) {
+        logService.log('error', 'Exception when loading strategy budgets:', err, 'Dashboard');
+      }
+
+      // Calculate performance metrics for each strategy
+      const updatedStrategies = strategiesData.map(strategy => {
+        // Get trades for this strategy
+        const strategyTrades = tradesData?.filter(t => t.strategy_id === strategy.id) || [];
+
+        // Get transactions for this strategy
+        const strategyTransactions = transactionsData?.filter(t => t.reference_id === strategy.id) || [];
+
+        // Get budget for this strategy
+        const strategyBudget = budgetsData?.find(b => b.strategy_id === strategy.id);
+
+        // Calculate performance metrics
+        let performance = 0;
+        let totalTrades = strategyTrades.length;
+        let winRate = 0;
+        let activeTrades = 0;
+        let closedTrades = 0;
+        let totalProfit = 0;
+
+        // Calculate trade statistics
+        if (strategyTrades.length > 0) {
+          // Count active and closed trades
+          activeTrades = strategyTrades.filter(t => t.status === 'active' || t.status === 'pending' || t.status === 'executed').length;
+          closedTrades = strategyTrades.filter(t => t.status === 'closed').length;
+
+          // Calculate total profit from closed trades
+          const closedTradesProfit = strategyTrades
+            .filter(t => t.status === 'closed')
+            .reduce((sum, trade) => sum + (trade.profit || 0), 0);
+
+          // Calculate win rate
+          const profitableTrades = strategyTrades
+            .filter(t => t.status === 'closed' && (t.profit || 0) > 0)
+            .length;
+
+          winRate = closedTrades > 0 ? (profitableTrades / closedTrades) * 100 : 0;
+
+          // Set performance based on closed trades profit
+          totalProfit = closedTradesProfit;
+        }
+
+        // If we have transactions, use the most recent transaction's balance_after as the performance
+        if (strategyTransactions.length > 0) {
+          // Get the most recent transaction
+          const latestTransaction = strategyTransactions[0];
+
+          // Use the balance_after as the performance
+          performance = latestTransaction.balance_after || totalProfit;
+        } else {
+          performance = totalProfit;
+        }
+
+        // Get budget information
+        let budget = {
+          total: 0,
+          allocated: 0,
+          available: 0
+        };
+
+        if (strategyBudget) {
+          budget = {
+            total: strategyBudget.total || 0,
+            allocated: strategyBudget.allocated || 0,
+            available: strategyBudget.available || 0
+          };
+        }
+
+        // Update strategy with performance metrics
+        return {
+          ...strategy,
+          performance: Number(performance.toFixed(2)),
+          totalTrades: totalTrades,
+          activeTrades: activeTrades,
+          closedTrades: closedTrades,
+          winRate: Number(winRate.toFixed(1)),
+          budget: budget,
+          profit: Number(totalProfit.toFixed(2))
+        };
+      });
+
+      // Update local strategies state
+      setLocalStrategies(updatedStrategies);
+
+      // Calculate and log summary statistics
+      const activeStrategies = updatedStrategies.filter(s => s.status === 'active').length;
+      const totalPerformance = updatedStrategies.reduce((sum, s) => sum + (s.performance || 0), 0);
+      const totalTrades = updatedStrategies.reduce((sum, s) => sum + (s.totalTrades || 0), 0);
+
+      logService.log('info', `Loaded ${updatedStrategies.length} strategies with performance metrics`, {
+        activeStrategies,
+        totalPerformance: totalPerformance.toFixed(2),
+        totalTrades
+      }, 'Dashboard');
+
+      // Emit event to notify other components
+      eventBus.emit('dashboard:updated', {
+        strategies: updatedStrategies,
+        summary: {
+          activeStrategies,
+          totalPerformance,
+          totalTrades
+        }
+      });
     } catch (error) {
       logService.log('error', 'Failed to load strategies:', error, 'Dashboard');
     }
@@ -208,12 +381,32 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
     return Promise.resolve();
   };
 
+  // Set up polling for dashboard data
   useEffect(() => {
-    loadStrategies();
-
     if (!user) return;
 
-    const subscription = supabase
+    // Initial load
+    loadStrategies();
+
+    // Set up polling interval (every 10 seconds)
+    const pollingInterval = setInterval(() => {
+      loadStrategies();
+      logService.log('debug', 'Dashboard data refreshed via polling', null, 'Dashboard');
+    }, 10000);
+
+    return () => {
+      clearInterval(pollingInterval);
+    };
+  }, [user]);
+
+  // Set up real-time subscriptions
+  useEffect(() => {
+    if (!user) return;
+
+    logService.log('info', 'Setting up real-time subscriptions for Dashboard', null, 'Dashboard');
+
+    // Subscribe to strategy changes in the database
+    const strategySubscription = supabase
       .channel('dashboard_strategies')
       .on(
         'postgres_changes',
@@ -223,14 +416,158 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           table: 'strategies',
           filter: `user_id=eq.${user.id}`
         },
-        () => {
+        (payload) => {
+          // Handle real-time strategy updates
+          if (payload.eventType === 'UPDATE') {
+            logService.log('info', `Strategy ${payload.new.id} updated in database`, { status: payload.new.status }, 'Dashboard');
+
+            // Force reload to ensure we have the latest data
+            loadStrategies();
+          } else if (payload.eventType === 'INSERT') {
+            logService.log('info', 'New strategy created', null, 'Dashboard');
+            loadStrategies();
+          } else if (payload.eventType === 'DELETE') {
+            logService.log('info', `Strategy ${payload.old.id} deleted`, null, 'Dashboard');
+            loadStrategies();
+          }
+        }
+      )
+      .subscribe();
+
+    // Subscribe to trade changes in the database
+    const tradeSubscription = supabase
+      .channel('dashboard_trades')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'trades'
+        },
+        (payload) => {
+          logService.log('info', `Trade ${payload.new?.id || payload.old?.id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
           loadStrategies();
         }
       )
       .subscribe();
 
+    // Subscribe to transaction changes in the database
+    const transactionSubscription = supabase
+      .channel('dashboard_transactions')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'transactions'
+        },
+        (payload) => {
+          logService.log('info', `Transaction ${payload.new?.id || payload.old?.id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
+          loadStrategies();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to strategy budget changes in the database
+    const budgetSubscription = supabase
+      .channel('dashboard_budgets')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'strategy_budgets'
+        },
+        (payload) => {
+          logService.log('info', `Budget for strategy ${payload.new?.strategy_id || payload.old?.strategy_id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
+          loadStrategies();
+        }
+      )
+      .subscribe();
+
+    // Subscribe to event bus events
+    const eventHandlers = [
+      // Trade events
+      { event: 'trade:created', handler: (data: any) => {
+        logService.log('info', `Trade created for strategy ${data.strategyId || data.strategy?.id}`, null, 'Dashboard');
+        loadStrategies();
+      }},
+      { event: 'trade:update', handler: (data: any) => {
+        logService.log('info', `Trade ${data.tradeId || data.trade?.id} updated`, null, 'Dashboard');
+        loadStrategies();
+      }},
+      { event: 'trade:closed', handler: (data: any) => {
+        logService.log('info', `Trade ${data.tradeId || data.trade?.id} closed`, null, 'Dashboard');
+        loadStrategies();
+      }},
+      { event: 'trades:closed', handler: (data: any) => {
+        logService.log('info', `Multiple trades closed for strategy ${data.strategyId}`, { count: data.tradeIds?.length }, 'Dashboard');
+        loadStrategies();
+      }},
+
+      // Budget events
+      { event: 'budget:updated', handler: (data: any) => {
+        logService.log('info', `Budget updated for strategy ${data.strategyId}`, { newBudget: data.newBudget }, 'Dashboard');
+        loadStrategies();
+      }},
+
+      // Strategy events
+      { event: 'strategy:status', handler: (data: any) => {
+        logService.log('info', `Strategy ${data.strategyId} status changed to ${data.status}`, null, 'Dashboard');
+        loadStrategies();
+      }},
+      { event: 'strategy:deactivated', handler: (data: any) => {
+        logService.log('info', `Strategy ${data.strategyId} deactivated`, { profitLoss: data.totalProfitLoss }, 'Dashboard');
+        // Force immediate reload
+        loadStrategies();
+      }},
+      { event: 'strategy:activated', handler: (data: any) => {
+        logService.log('info', `Strategy ${data.strategyId} activated`, null, 'Dashboard');
+        loadStrategies();
+      }},
+
+      // Dashboard specific events
+      { event: 'dashboard:refresh', handler: (data: any) => {
+        logService.log('info', `Dashboard refresh requested for strategy ${data.strategyId}`, null, 'Dashboard');
+        // Force immediate reload
+        loadStrategies();
+      }},
+
+      // Portfolio events
+      { event: 'portfolio:updated', handler: (data: any) => {
+        logService.log('info', `Portfolio updated for strategy ${data.strategyId}`, { action: data.action }, 'Dashboard');
+        loadStrategies();
+      }},
+
+      // Transaction events
+      { event: 'transaction:created', handler: (data: any) => {
+        logService.log('info', `Transaction created for strategy ${data.strategyId}`, { type: data.type }, 'Dashboard');
+        loadStrategies();
+      }},
+
+      // Global state update
+      { event: 'app:state:updated', handler: (data: any) => {
+        if (data.component === 'strategy' || data.component === 'trade' || data.component === 'portfolio') {
+          logService.log('info', `App state updated: ${data.component} ${data.action}`, null, 'Dashboard');
+          loadStrategies();
+        }
+      }}
+    ];
+
+    // Subscribe to all events
+    const unsubscribers = eventHandlers.map(({ event, handler }) => {
+      return eventBus.subscribe(event, handler);
+    });
+
     return () => {
-      subscription.unsubscribe();
+      // Unsubscribe from all subscriptions
+      strategySubscription.unsubscribe();
+      tradeSubscription.unsubscribe();
+      transactionSubscription.unsubscribe();
+      budgetSubscription.unsubscribe();
+
+      // Unsubscribe from all event bus events
+      unsubscribers.forEach(unsubscribe => unsubscribe());
     };
   }, [user]);
 
