@@ -10,7 +10,8 @@ import {
   XCircle,
   Clock,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Wallet
 } from 'lucide-react';
 import { tradeService } from '../lib/trade-service';
 import { strategyService } from '../lib/strategy-service';

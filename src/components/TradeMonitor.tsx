@@ -54,6 +54,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [trades, setTrades] = useState<Trade[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>(initialStrategies || []);
   const [strategyTrades, setStrategyTrades] = useState<Record<string, Trade[]>>({});
+  const [budgets, setBudgets] = useState<Record<string, StrategyBudget>>({});
 
   // WebSocket state
   const [wsConnected, setWsConnected] = useState(false);
@@ -406,6 +407,24 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         // Initialize market analyzer
         await marketAnalyzer.initialize();
 
+        // Initialize budgets for all strategies
+        const initializeBudgets = async () => {
+          const strategies = await strategyService.getActiveStrategies();
+          const budgetsMap: Record<string, StrategyBudget> = {};
+
+          for (const strategy of strategies) {
+            const budget = tradeService.getBudget(strategy.id);
+            if (budget) {
+              budgetsMap[strategy.id] = budget;
+            }
+          }
+
+          setBudgets(budgetsMap);
+          logService.log('info', `Initialized budgets for ${Object.keys(budgetsMap).length} strategies`, null, 'TradeMonitor');
+        };
+
+        await initializeBudgets();
+
         // Subscribe to trading opportunities
         eventBus.subscribe('market:tradingOpportunity', (analysis) => {
           logService.log('info', `Trading opportunity detected for ${analysis.symbol}`, analysis, 'TradeMonitor');
@@ -655,6 +674,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                   updatedTrade.amount = trade.amount || 0.1;
                 }
 
+                // Check if the trade was just closed
+                if (updatedTrade.status === 'closed' && trade.status !== 'closed') {
+                  // Update budget after trade is closed
+                  updateBudgetAfterTrade(strategyId, updatedTrade);
+                }
+
                 return updatedTrade;
               }
               return trade;
@@ -725,6 +750,18 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setAvailableBalance(walletBalanceService.getAvailableBalance());
     };
 
+    // Subscribe to budget updates
+    const handleBudgetUpdate = (data: any) => {
+      if (data.strategyId && data.budget) {
+        setBudgets(prev => ({
+          ...prev,
+          [data.strategyId]: data.budget
+        }));
+        logService.log('info', `Budget updated for strategy ${data.strategyId}`, { budget: data.budget }, 'TradeMonitor');
+      }
+    };
+
+    eventBus.subscribe('budget:updated', handleBudgetUpdate);
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
 
     // Auto-refresh timer removed as per user request
@@ -738,6 +775,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       tradeUpdatedUnsubscribe();
       tradesUpdatedUnsubscribe();
       strategyDeletedUnsubscribe();
+      eventBus.unsubscribe('budget:updated', handleBudgetUpdate);
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
 
       // Remove the direct DOM event listener
@@ -1148,6 +1186,43 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
 
 
+  // Update budget after a trade is closed
+  const updateBudgetAfterTrade = (strategyId: string, trade: Trade) => {
+    const currentBudget = budgets[strategyId];
+    if (!currentBudget) return;
+
+    // Calculate trade value in USDT
+    const tradeValue = trade.amount && trade.entryPrice ? trade.amount * trade.entryPrice : 0;
+
+    // Calculate profit/loss
+    const profitLoss = trade.profit || 0;
+
+    logService.log('info', `Updating budget after trade closure for strategy ${strategyId}`,
+      { tradeId: trade.id, tradeValue, profitLoss }, 'TradeMonitor');
+
+    // Update budget
+    const updatedBudget: StrategyBudget = {
+      ...currentBudget,
+      available: currentBudget.available + tradeValue + profitLoss,
+      allocated: Math.max(0, currentBudget.allocated - tradeValue),
+      lastUpdated: Date.now()
+    };
+
+    // Update budgets state
+    setBudgets(prev => ({
+      ...prev,
+      [strategyId]: updatedBudget
+    }));
+
+    // Emit event to update other components
+    eventBus.emit('budget:updated', {
+      strategyId,
+      budget: updatedBudget,
+      trade: trade,
+      tradeValue: tradeValue
+    });
+  };
+
   // Calculate trade statistics
   const calculateTradeStats = (currentTrades: Trade[]) => {
     // Calculate stats but don't store them since we're not using them in the UI
@@ -1524,6 +1599,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                               onToggleExpand={(id) => setExpandedStrategyId(expandedStrategyId === id ? null : id)}
                               onRefresh={() => { fetchStrategies(); return Promise.resolve(); }}
                               trades={strategyTrades[strategy.id] || []}
+                              budget={budgets[strategy.id]}
                               onActivate={async (strategy) => {
                                 try {
                                   // Always show budget modal when activating a strategy

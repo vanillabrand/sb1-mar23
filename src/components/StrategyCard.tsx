@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { ChevronDown, ChevronUp, Activity, DollarSign, BarChart3, Clock, Edit, ArrowUpRight, ArrowDownRight } from 'lucide-react';
+import { ChevronDown, ChevronUp, Activity, DollarSign, BarChart3, Clock, Edit, ArrowUpRight, ArrowDownRight, Wallet } from 'lucide-react';
 import { AssetPriceIndicator } from './AssetPriceIndicator';
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
@@ -923,6 +923,13 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   {strategy.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
                 </span>
                 <MarketTypeBadge marketType={strategy.marketType || 'spot'} />
+                {strategy.status === 'active' && budget && (
+                  <span className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-400 flex items-center">
+                    <Wallet className="w-3 h-3 mr-1" />
+                    <span className="font-medium">${budget.available.toFixed(2)}</span>
+                    <span className="ml-1 opacity-70">USDT</span>
+                  </span>
+                )}
                 {/* Trading pairs as lozenges with price indicators */}
                 {(strategy.selected_pairs || []).slice(0, 3).map((pair, index) => (
                   <div key={index} className="flex items-center text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap mobile-truncate min-w-[110px] md:min-w-[110px] justify-between">
