@@ -214,7 +214,7 @@ class TradeGenerator extends EventEmitter {
 
             // Check if position size is too small
             let positionValue = positionSize * currentPrice;
-            const MIN_TRADE_VALUE = 10; // Minimum $10 trade
+            const MIN_TRADE_VALUE = 5; // Minimum $5 trade as per exchange requirements
 
             if (positionValue < MIN_TRADE_VALUE) {
               logService.log('warn', `Calculated position size too small for ${symbol}: ${positionSize.toFixed(5)} (value: $${positionValue.toFixed(2)})`, null, 'TradeGenerator');

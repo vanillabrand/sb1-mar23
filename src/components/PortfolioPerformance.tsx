@@ -42,54 +42,78 @@ export function PortfolioPerformance() {
   const [transactionType, setTransactionType] = useState<'all' | 'trade' | 'deposit' | 'withdrawal'>('all');
   const [portfolioSummary, setPortfolioSummary] = useState<any>(null);
 
+  // Separate useEffect for initial data loading
   useEffect(() => {
     loadPerformanceData();
     loadPortfolioSummary();
+  }, [timeframe]);
+
+  // Separate useEffect for real-time updates to avoid unnecessary redraws
+  useEffect(() => {
+    // Throttle function to prevent too many updates
+    let updateTimeout: NodeJS.Timeout | null = null;
+    const throttledUpdate = () => {
+      if (updateTimeout) return; // Skip if an update is already scheduled
+
+      updateTimeout = setTimeout(() => {
+        loadPortfolioSummary(); // Only update the summary values
+        updateTimeout = null;
+      }, 500); // Throttle to max once per 500ms
+    };
+
+    // More aggressive throttling for performance data to avoid graph redraws
+    let performanceUpdateTimeout: NodeJS.Timeout | null = null;
+    const throttledPerformanceUpdate = () => {
+      if (performanceUpdateTimeout) return; // Skip if an update is already scheduled
+
+      performanceUpdateTimeout = setTimeout(() => {
+        loadPerformanceData(); // Update the graph data
+        performanceUpdateTimeout = null;
+      }, 2000); // Throttle to max once per 2 seconds
+    };
 
     // Set up real-time subscription to trade updates
     const tradeCreatedUnsubscribe = eventBus.subscribe('trade:created', (_data: any) => {
-      // Refresh performance data when a new trade is created
-      loadPerformanceData();
-      loadPortfolioSummary();
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
     });
 
     const tradeUpdatedUnsubscribe = eventBus.subscribe('trade:update', (_data: any) => {
-      // Refresh performance data when a trade is updated
-      loadPerformanceData();
-      loadPortfolioSummary();
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
     });
 
     const budgetUpdatedUnsubscribe = eventBus.subscribe('budgetUpdated', (_data: any) => {
-      // Refresh performance data when a budget is updated
-      loadPerformanceData();
-      loadPortfolioSummary();
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
     });
 
     // Subscribe to transaction events
     const transactionUnsubscribe = eventBus.subscribe('transaction', (_data: any) => {
-      // Refresh performance data when a transaction occurs
-      loadPerformanceData();
-      loadPortfolioSummary();
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
     });
 
     // Set up real-time subscription to wallet balance updates
     const balanceUpdateHandler = () => {
-      // Refresh performance data when wallet balances are updated
-      loadPerformanceData();
-      loadPortfolioSummary();
+      throttledUpdate(); // Update summary immediately
+      throttledPerformanceUpdate(); // Schedule graph update
     };
 
     walletBalanceService.on('balancesUpdated', balanceUpdateHandler);
 
-    // Clean up subscriptions on unmount
+    // Clean up subscriptions and timeouts on unmount
     return () => {
       tradeCreatedUnsubscribe();
       tradeUpdatedUnsubscribe();
       budgetUpdatedUnsubscribe();
       transactionUnsubscribe();
       walletBalanceService.off('balancesUpdated', balanceUpdateHandler);
+
+      if (updateTimeout) clearTimeout(updateTimeout);
+      if (performanceUpdateTimeout) clearTimeout(performanceUpdateTimeout);
     };
-  }, [timeframe]);
+  }, []);
 
   /**
    * Handle downloading transactions as CSV
@@ -172,7 +196,10 @@ export function PortfolioPerformance() {
 
   const loadPerformanceData = async () => {
     try {
-      setLoading(true);
+      // Only show loading state on initial load, not on updates
+      if (performanceData.length === 0) {
+        setLoading(true);
+      }
       setError(null);
 
       const { data: { session } } = await supabase.auth.getSession();
@@ -209,14 +236,20 @@ export function PortfolioPerformance() {
             return enhancedPoint;
           });
 
-          setPerformanceData(enhancedData);
-        } else {
+          // Only update state if data has actually changed to prevent unnecessary rerenders
+          if (JSON.stringify(enhancedData) !== JSON.stringify(performanceData)) {
+            setPerformanceData(enhancedData);
+            logService.log('info', 'Updated performance chart data', { timeframe, dataPoints: enhancedData.length }, 'PortfolioPerformance');
+          }
+        } else if (JSON.stringify(data) !== JSON.stringify(performanceData)) {
           setPerformanceData(data);
+          logService.log('info', 'Updated performance chart data (no strategies)', { timeframe, dataPoints: data.length }, 'PortfolioPerformance');
         }
-      } else {
-        // If no data in cache, generate sample data for demo purposes
+      } else if (performanceData.length === 0) {
+        // If no data in cache and we don't have data yet, generate sample data for demo purposes
         const sampleData = generateSamplePerformanceData(timeframe);
         setPerformanceData(sampleData);
+        logService.log('info', 'Generated sample performance data', { timeframe, dataPoints: sampleData.length }, 'PortfolioPerformance');
       }
 
       setLoading(false);
@@ -231,9 +264,13 @@ export function PortfolioPerformance() {
     try {
       const summary = await globalCacheService.getPortfolioSummary();
       if (summary) {
-        setPortfolioSummary(summary);
-      } else {
-        // Generate sample summary for demo purposes
+        // Only update state if data has actually changed to prevent unnecessary rerenders
+        if (JSON.stringify(summary) !== JSON.stringify(portfolioSummary)) {
+          setPortfolioSummary(summary);
+          logService.log('info', 'Updated portfolio summary data', { strategies: summary.strategies?.length || 0 }, 'PortfolioPerformance');
+        }
+      } else if (!portfolioSummary) {
+        // Generate sample summary for demo purposes only if we don't have data yet
         const sampleSummary = {
           currentValue: 12450.75,
           startingValue: 10000,
@@ -458,29 +495,34 @@ export function PortfolioPerformance() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
               <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Current Value</p>
-              <p className="text-xl md:text-2xl font-bold text-white truncate">
+              <p className="text-xl md:text-2xl font-bold text-white truncate" key={`value-${portfolioSummary?.currentValue || 0}`}>
                 ${portfolioSummary?.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
               </p>
             </div>
             <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
               <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Profit/Loss</p>
               <div className="flex items-baseline">
-                <p className={`text-xl md:text-2xl font-bold truncate ${(portfolioSummary?.totalChange || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                <p
+                  className={`text-xl md:text-2xl font-bold truncate ${(portfolioSummary?.totalChange || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                  key={`profit-${portfolioSummary?.totalChange || 0}`}
+                >
                   {(portfolioSummary?.totalChange || 0) >= 0 ? '+' : ''}
                   ${Math.abs(portfolioSummary?.totalChange || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
-                <span className="text-xs ml-1 flex-shrink-0">({(portfolioSummary?.percentChange || 0).toFixed(1)}%)</span>
+                <span className="text-xs ml-1 flex-shrink-0" key={`percent-${portfolioSummary?.percentChange || 0}`}>
+                  ({(portfolioSummary?.percentChange || 0).toFixed(1)}%)
+                </span>
               </div>
             </div>
             <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
               <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Total Trades</p>
-              <p className="text-xl md:text-2xl font-bold text-white">
+              <p className="text-xl md:text-2xl font-bold text-white" key={`trades-${portfolioSummary?.totalTrades || 0}`}>
                 {portfolioSummary?.totalTrades || 0}
               </p>
             </div>
             <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
               <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Win Rate</p>
-              <p className="text-xl md:text-2xl font-bold text-white">
+              <p className="text-xl md:text-2xl font-bold text-white" key={`winrate-${portfolioSummary?.winRate || 0}`}>
                 {(portfolioSummary?.winRate || 0).toFixed(1)}%
               </p>
             </div>
@@ -490,7 +532,11 @@ export function PortfolioPerformance() {
           {/* Performance Chart - Smaller Size */}
           <div className="h-[250px]">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={performanceData}>
+              <ComposedChart
+                data={performanceData}
+                // Add key to prevent unnecessary redraws
+                key={`chart-${timeframe}`}
+              >
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#2dd4bf" stopOpacity={0.25}/>
@@ -528,6 +574,8 @@ export function PortfolioPerformance() {
                     return [value, name];
                   }}
                   labelFormatter={(label) => new Date(label).toLocaleDateString()}
+                  // Use isAnimationActive={false} to prevent animation on updates
+                  isAnimationActive={false}
                 />
                 <Legend
                   verticalAlign="top"
@@ -548,6 +596,8 @@ export function PortfolioPerformance() {
                   strokeWidth={2}
                   fillOpacity={1}
                   fill="url(#colorValue)"
+                  // Disable animation for smoother updates
+                  isAnimationActive={false}
                 />
               </ComposedChart>
             </ResponsiveContainer>

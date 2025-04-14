@@ -641,8 +641,8 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
     const availableBudget = budget.available;
 
     for (let i = 0; i < numTrades; i++) {
-      // Check if we still have budget available
-      if (availableBudget - totalAllocated < 10) {
+      // Check if we still have budget available - minimum $5 per trade
+      if (availableBudget - totalAllocated < 5) {
         logService.log('info', `Stopping demo trade generation due to insufficient remaining budget`,
           { remaining: availableBudget - totalAllocated }, 'TradeMonitor');
         break;
@@ -679,7 +679,21 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
       // Round to 6 decimal places for crypto
       amount = Math.round(amount * 1000000) / 1000000;
 
-      // Skip if amount is too small
+      // Calculate the trade value in USD
+      const tradeValue = amount * basePrice;
+      const MIN_TRADE_VALUE = 5; // Minimum $5 trade as per exchange requirements
+
+      // Ensure trade meets minimum value requirement
+      if (tradeValue < MIN_TRADE_VALUE) {
+        // Adjust amount to meet minimum trade value
+        amount = MIN_TRADE_VALUE / basePrice;
+        // Round to 6 decimal places for crypto
+        amount = Math.round(amount * 1000000) / 1000000;
+        logService.log('info', `Adjusted trade amount to meet minimum $5 requirement: ${amount} ${standardizedPair}`,
+          { originalValue: tradeValue, newValue: MIN_TRADE_VALUE }, 'TradeMonitor');
+      }
+
+      // Skip if amount is still too small after adjustment
       if (amount < 0.000001) {
         logService.log('info', `Skipping trade with too small amount: ${amount}`, null, 'TradeMonitor');
         continue;

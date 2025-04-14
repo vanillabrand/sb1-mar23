@@ -499,15 +499,59 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
 
   // Update stats when trades change
   useEffect(() => {
-    // Calculate stats for each strategy
-    const stats: Record<string, any> = {};
+    // Throttle function to prevent too many updates
+    let updateTimeout: NodeJS.Timeout | null = null;
 
-    Object.entries(strategyTrades).forEach(([strategyId, strategyTrades]) => {
-      stats[strategyId] = calculateStrategyStats(strategyId, strategyTrades);
-    });
+    const updateStats = () => {
+      // Calculate stats for each strategy
+      const stats: Record<string, any> = {};
 
-    logService.log('info', 'Updated strategy stats due to trade changes', stats, 'StrategyStatus');
-    setStrategyStats(stats);
+      Object.entries(strategyTrades).forEach(([strategyId, strategyTrades]) => {
+        stats[strategyId] = calculateStrategyStats(strategyId, strategyTrades);
+      });
+
+      logService.log('info', 'Updated strategy stats due to trade changes', stats, 'StrategyStatus');
+      setStrategyStats(stats);
+    };
+
+    // Throttled update function
+    const throttledUpdate = () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+
+      updateTimeout = setTimeout(() => {
+        updateStats();
+        updateTimeout = null;
+      }, 300); // Throttle to max once per 300ms
+    };
+
+    // Initial update
+    throttledUpdate();
+
+    // Subscribe to real-time updates
+    const tradeUpdateHandler = () => {
+      throttledUpdate();
+    };
+
+    // Subscribe to all relevant trade events
+    eventBus.subscribe('trade:update', tradeUpdateHandler);
+    eventBus.subscribe('trade:created', tradeUpdateHandler);
+    eventBus.subscribe('trade:closed', tradeUpdateHandler);
+    eventBus.subscribe('trade:executed', tradeUpdateHandler);
+    eventBus.subscribe('budgetUpdated', tradeUpdateHandler);
+
+    // Clean up
+    return () => {
+      if (updateTimeout) {
+        clearTimeout(updateTimeout);
+      }
+      eventBus.unsubscribe('trade:update', tradeUpdateHandler);
+      eventBus.unsubscribe('trade:created', tradeUpdateHandler);
+      eventBus.unsubscribe('trade:closed', tradeUpdateHandler);
+      eventBus.unsubscribe('trade:executed', tradeUpdateHandler);
+      eventBus.unsubscribe('budgetUpdated', tradeUpdateHandler);
+    };
   }, [strategyTrades, strategies]); // Also recalculate when strategies change
 
   // Get performance color based on value
