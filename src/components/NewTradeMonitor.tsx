@@ -194,8 +194,11 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
         }
       });
 
-      // Update budget
+      // Update budget with trade value and profit/loss
       updateBudgetAfterTrade(strategyId, formattedTrade);
+
+      // Emit event to update other components
+      eventBus.emit('budget:updated', { strategyId, trade: formattedTrade });
     }
   };
 
@@ -226,14 +229,20 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
     const currentBudget = budgets[strategyId];
     if (!currentBudget) return;
 
+    // Calculate trade value in USDT
+    const tradeValue = trade.amount && trade.entryPrice ? trade.amount * trade.entryPrice : 0;
+
     // Calculate profit/loss
     const profitLoss = trade.profit || 0;
+
+    logService.log('info', `Updating budget after trade closure for strategy ${strategyId}`,
+      { tradeId: trade.id, tradeValue, profitLoss }, 'TradeMonitor');
 
     // Update budget
     const updatedBudget: StrategyBudget = {
       ...currentBudget,
-      available: currentBudget.available + (trade.amount || 0) + profitLoss,
-      allocated: Math.max(0, currentBudget.allocated - (trade.amount || 0)),
+      available: currentBudget.available + tradeValue + profitLoss,
+      allocated: Math.max(0, currentBudget.allocated - tradeValue),
       lastUpdated: Date.now()
     };
 
@@ -791,8 +800,19 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
           return { ...prev, [strategy.id]: [closedTrade, ...existingTrades] };
         });
 
-        // Update budget
+        // Calculate trade value in USDT
+        const tradeValue = closedTrade.amount && closedTrade.entryPrice ?
+          closedTrade.amount * closedTrade.entryPrice : 0;
+
+        // Update budget with trade value and profit/loss
         updateBudgetAfterTrade(strategy.id, closedTrade);
+
+        // Emit event to update other components
+        eventBus.emit('budget:updated', {
+          strategyId: strategy.id,
+          trade: closedTrade,
+          tradeValue: tradeValue
+        });
       }, 15000 + Math.random() * 30000); // 15-45 seconds
     }
   };
@@ -947,16 +967,23 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
               onClick={() => setExpandedStrategyId(expandedStrategyId === strategy.id ? null : strategy.id)}
             >
               <div>
-                <div className="flex items-center">
+                <div className="flex items-center flex-wrap gap-2">
                   <h3 className="text-xl font-semibold">{strategy.title}</h3>
-                  <span className="ml-3 px-2 py-1 text-xs rounded-full bg-gray-700">
+                  <span className="px-2 py-1 text-xs rounded-full bg-gray-700">
                     {strategy.market_type || 'spot'}
                   </span>
-                  <span className={`ml-2 px-2 py-1 rounded-full text-xs ${
+                  <span className={`px-2 py-1 rounded-full text-xs ${
                     strategy.status === 'active' ? 'bg-green-500/20 text-green-500' : 'bg-gray-500/20 text-gray-400'
                   }`}>
                     {strategy.status.toUpperCase()}
                   </span>
+                  {strategy.status === 'active' && budgets[strategy.id] && (
+                    <span className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-400 flex items-center">
+                      <Wallet className="w-3 h-3 mr-1" />
+                      <span className="font-medium">${budgets[strategy.id]?.available.toFixed(2)}</span>
+                      <span className="ml-1 opacity-70">USDT</span>
+                    </span>
+                  )}
                 </div>
                 <p className="text-gray-400 mt-1 text-sm">{strategy.description}</p>
               </div>
@@ -1151,6 +1178,7 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Side</th>
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Amount</th>
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Entry Price</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Value</th>
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Status</th>
                             <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Created</th>
                           </tr>
@@ -1168,6 +1196,7 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
                               </td>
                               <td className="px-4 py-3 whitespace-nowrap">{trade.amount?.toFixed(6)}</td>
                               <td className="px-4 py-3 whitespace-nowrap">${trade.entryPrice?.toFixed(2)}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">${(trade.amount && trade.entryPrice) ? (trade.amount * trade.entryPrice).toFixed(2) : '0.00'} USDT</td>
                               <td className="px-4 py-3 whitespace-nowrap">
                                 <span className={`px-2 py-1 rounded-full text-xs ${
                                   trade.status === 'executed' ? 'bg-blue-500/20 text-blue-500' : 'bg-yellow-500/20 text-yellow-500'
@@ -1235,6 +1264,55 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
                     </div>
                   )}
                 </div>
+
+                {/* Closed trades section */}
+                {closedTrades[strategy.id]?.length > 0 && (
+                  <div className="p-4 border-t border-gray-700/50">
+                    <h4 className="text-sm font-medium mb-3">Closed Trades</h4>
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full divide-y divide-gray-700">
+                        <thead>
+                          <tr>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Symbol</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Side</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Amount</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Entry Price</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Value</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Exit Price</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Profit</th>
+                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Closed</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-700/50">
+                          {closedTrades[strategy.id]?.map(trade => (
+                            <tr key={trade.id} className="hover:bg-gray-700/20 transition-colors">
+                              <td className="px-4 py-3 whitespace-nowrap">{trade.symbol}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className={`px-2 py-1 rounded-full text-xs ${
+                                  trade.side === 'buy' ? 'bg-green-500/20 text-green-500' : 'bg-red-500/20 text-red-500'
+                                }`}>
+                                  {trade.side.toUpperCase()}
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">{trade.amount?.toFixed(6)}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">${trade.entryPrice?.toFixed(2)}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">${(trade.amount && trade.entryPrice) ? (trade.amount * trade.entryPrice).toFixed(2) : '0.00'} USDT</td>
+                              <td className="px-4 py-3 whitespace-nowrap">${trade.exitPrice?.toFixed(2) || '0.00'}</td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <span className={`${(trade.profit || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                                  {(trade.profit || 0) >= 0 ? '+' : ''}{(trade.profit || 0).toFixed(2)}%
+                                </span>
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap text-gray-400 text-sm">
+                                {trade.executedAt ? new Date(trade.executedAt).toLocaleTimeString() : '-'}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

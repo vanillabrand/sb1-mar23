@@ -541,7 +541,9 @@ class TradeManager extends EventEmitter {
       // Calculate profit/loss
       const entryPrice = status.entryPrice || 0;
       const priceDiff = status.side === 'buy' ? (currentPrice - entryPrice) : (entryPrice - currentPrice);
-      const profitLoss = priceDiff * (status.amount || 1);
+      const amount = status.amount || 1;
+      const tradeValue = amount * entryPrice; // Trade value in USDT
+      const profitLoss = priceDiff * amount;
 
       // Execute the exit order on the exchange
       const exitSide = status.side === 'buy' ? 'sell' : 'buy';
@@ -576,7 +578,8 @@ class TradeManager extends EventEmitter {
           profit: profitLoss,
           exitReason: reason,
           lastUpdate: Date.now(),
-          closedAt: new Date().toISOString()
+          closedAt: new Date().toISOString(),
+          tradeValue: tradeValue // Store the trade value in USDT
         };
 
         // Remove from active orders
@@ -586,13 +589,11 @@ class TradeManager extends EventEmitter {
         const strategyId = status.strategyId || status.strategy_id;
         if (strategyId) {
           try {
-            // Calculate the trade cost
-            const tradeCost = status.amount * entryPrice;
-
+            // Use the calculated trade value
             // Release the budget with profit/loss
-            tradeService.releaseBudgetFromTrade(strategyId, tradeCost, profitLoss, orderId);
+            tradeService.releaseBudgetFromTrade(strategyId, tradeValue, profitLoss, orderId);
             logService.log('info', `Released budget for trade ${orderId} with profit/loss ${profitLoss}`,
-              { strategyId, tradeCost, profitLoss }, 'TradeManager');
+              { strategyId, tradeValue, profitLoss }, 'TradeManager');
           } catch (budgetError) {
             logService.log('warn', `Failed to release budget for trade ${orderId}`, budgetError, 'TradeManager');
           }
@@ -620,6 +621,7 @@ class TradeManager extends EventEmitter {
                 side: status.side,
                 entry_price: status.entryPrice || status.entry_price,
                 exit_price: currentPrice,
+                trade_value: tradeValue,
                 profit: profitLoss,
                 reason: reason
               }

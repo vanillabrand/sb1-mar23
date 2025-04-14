@@ -65,6 +65,7 @@ export const TradeList: React.FC<TradeListProps> = ({
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Side</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Amount</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Entry</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Value</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Exit</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Profit</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
@@ -100,6 +101,10 @@ export const TradeList: React.FC<TradeListProps> = ({
                 </td>
                 <td className="px-4 py-3 text-sm text-white">
                   {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
+                </td>
+                <td className="px-4 py-3 text-sm text-white">
+                  {trade.amount !== undefined && trade.entryPrice !== undefined ?
+                    `$${(trade.amount * trade.entryPrice).toFixed(2)} USDT` : '-'}
                 </td>
                 <td className="px-4 py-3 text-sm text-white">
                   {trade.exitPrice ? `$${trade.exitPrice.toFixed(2)}` : '-'}
