@@ -7,7 +7,7 @@ interface BudgetConfirmModalProps {
   strategy: Strategy;
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (budget: number) => void;
+  onConfirm: (budget: StrategyBudget) => void;
 }
 
 export const BudgetConfirmModal: React.FC<BudgetConfirmModalProps> = ({
@@ -47,12 +47,47 @@ export const BudgetConfirmModal: React.FC<BudgetConfirmModalProps> = ({
     }
   };
 
+  // Calculate position sizing based on risk level
+  // Handle both riskLevel and risk_level properties
+  const riskLevel = strategy?.riskLevel || (strategy as any)?.risk_level || 'Medium';
+
+  // Define position size multipliers for each risk level
+  const riskMultipliers = {
+    'Ultra Low': 0.05,
+    'Low': 0.1,
+    'Medium': 0.15,
+    'High': 0.2,
+    'Ultra High': 0.25,
+    'Extreme': 0.3,
+    'God Mode': 0.5
+  };
+
+  // Get the multiplier for the current risk level, with a fallback to Medium (0.15)
+  const positionSizeMultiplier = riskMultipliers[riskLevel as keyof typeof riskMultipliers] || 0.15;
+
   // Handle confirm
   const handleConfirm = () => {
     if (error) return;
 
-    // Just pass the budget amount directly
-    onConfirm(budgetAmount);
+    // Log for debugging
+    console.log('Budget confirmation:', {
+      strategy,
+      riskLevel,
+      positionSizeMultiplier,
+      budgetAmount
+    });
+
+    // Create a budget object with the position size multiplier
+    const budget: StrategyBudget = {
+      total: budgetAmount,
+      allocated: 0,
+      available: budgetAmount,
+      maxPositionSize: budgetAmount * positionSizeMultiplier,
+      lastUpdated: Date.now()
+    };
+
+    // Pass the budget object to the onConfirm function
+    onConfirm(budget);
   };
 
   if (!isOpen) return null;
@@ -103,9 +138,9 @@ export const BudgetConfirmModal: React.FC<BudgetConfirmModalProps> = ({
 
           <div className="bg-gray-700/50 p-3 rounded-lg">
             <h4 className="text-sm text-gray-400">Risk Level</h4>
-            <p className="text-lg font-semibold">{strategy.riskLevel}</p>
+            <p className="text-lg font-semibold">{riskLevel}</p>
             <p className="text-xs text-gray-400 mt-1">
-              {getRiskDescription(strategy.riskLevel)}
+              {getRiskDescription(riskLevel)}
             </p>
           </div>
         </div>

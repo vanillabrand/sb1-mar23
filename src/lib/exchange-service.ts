@@ -1123,15 +1123,32 @@ class ExchangeService extends EventEmitter {
       }
 
       try {
-        // Get the order details from active orders to get the symbol
-        const activeOrder = this.activeOrders.get(orderId);
-        if (!activeOrder?.symbol) {
-          logService.log('warn', `No symbol found for order ${orderId}, returning mock status`, null, 'ExchangeService');
-          return this.createMockOrderStatus(orderId);
+        // Extract symbol from orderId if it's in the format "SYMBOL-TIMESTAMP-ID"
+        let symbol = null;
+        const orderIdParts = orderId.split('-');
+        if (orderIdParts.length >= 3) {
+          symbol = orderIdParts[0];
+          // Convert to proper format if needed
+          if (!symbol.includes('/') && symbol.includes('USDT')) {
+            const base = symbol.replace('USDT', '');
+            symbol = `${base}/USDT`;
+          }
         }
 
-        // Normalize the symbol format for the exchange
-        const symbol = activeOrder.symbol.replace('_', '/');
+        // If we couldn't extract from orderId, try to get from active orders
+        if (!symbol) {
+          const activeOrder = this.activeOrders.get(orderId);
+          if (activeOrder?.symbol) {
+            symbol = activeOrder.symbol.replace('_', '/');
+          }
+        }
+
+        // If we still don't have a symbol, log and return mock status
+        if (!symbol) {
+          // Log at info level instead of warn to reduce noise
+          logService.log('info', `No symbol found for order ${orderId}, returning mock status`, null, 'ExchangeService');
+          return this.createMockOrderStatus(orderId);
+        }
 
         // Fetch the order status from the exchange with both orderId and symbol
         const order = await exchange.fetchOrder(orderId, symbol);
@@ -1149,7 +1166,8 @@ class ExchangeService extends EventEmitter {
           lastTradeTimestamp: order.lastTradeTimestamp
         };
       } catch (exchangeError) {
-        logService.log('warn',
+        // Log at info level instead of warn to reduce noise
+        logService.log('info',
           `Failed to fetch order status for ${orderId} from exchange, returning mock status`,
           exchangeError,
           'ExchangeService'

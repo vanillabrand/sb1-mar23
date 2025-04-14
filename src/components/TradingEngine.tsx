@@ -9,7 +9,8 @@ import {
   AlertCircle,
   Loader2,
   Zap,
-  XCircle
+  XCircle,
+  Wallet
 } from 'lucide-react';
 import { PanelWrapper } from './PanelWrapper';
 import { AnimatedPanel } from './AnimatedPanel';
@@ -18,6 +19,7 @@ import { logService } from '../lib/log-service';
 import { demoService } from '../lib/demo-service';
 import { tradeService } from '../lib/trade-service';
 import { strategyService } from '../lib/strategy-service';
+import { walletBalanceService } from '../lib/wallet-balance-service';
 import { BudgetConfirmModal } from './BudgetConfirmModal';
 import type { Strategy, Trade, StrategyBudget } from '../lib/types';
 
@@ -38,11 +40,25 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
   const [isActivating, setIsActivating] = useState(false);
   const [isDeactivating, setIsDeactivating] = useState<Record<string, boolean>>({});
   const [budgets, setBudgets] = useState<Record<string, StrategyBudget>>({});
+  const [availableBalance, setAvailableBalance] = useState<number>(0);
+  const [isRefreshingBalance, setIsRefreshingBalance] = useState<boolean>(false);
 
   // Load strategies on component mount
   useEffect(() => {
     loadStrategies();
     loadBudgets();
+    fetchAvailableBalance();
+
+    // Subscribe to balance updates
+    const handleBalanceUpdate = () => {
+      fetchAvailableBalance();
+    };
+
+    walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
+
+    return () => {
+      walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
+    };
   }, []);
 
   // Load strategies from the database
@@ -137,20 +153,11 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
   };
 
   // Activate a strategy
-  const activateStrategy = async (budgetAmount: number) => {
+  const activateStrategy = async (budget: StrategyBudget) => {
     if (!selectedStrategy) return;
 
     try {
       setIsActivating(true);
-
-      // Create a budget object
-      const budget: StrategyBudget = {
-        total: budgetAmount,
-        allocated: 0,
-        available: budgetAmount,
-        maxPositionSize: budgetAmount * 0.2, // 20% of total budget per position
-        lastUpdated: Date.now()
-      };
 
       // 1. Set the budget in the trade service
       await tradeService.setBudget(selectedStrategy.id, budget);
@@ -181,7 +188,7 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
       setShowBudgetModal(false);
       setSelectedStrategy(null);
 
-      logService.log('info', `Strategy ${selectedStrategy.id} activated with budget $${budgetAmount.toFixed(2)}`, null, 'TradingEngine');
+      logService.log('info', `Strategy ${selectedStrategy.id} activated with budget $${budget.total.toFixed(2)}`, null, 'TradingEngine');
     } catch (error) {
       logService.log('error', `Failed to activate strategy ${selectedStrategy.id}`, error, 'TradingEngine');
       setError(`Failed to activate strategy: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -265,6 +272,33 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
     }
   };
 
+  // Fetch available balance
+  const fetchAvailableBalance = async () => {
+    try {
+      setIsRefreshingBalance(true);
+      const balance = walletBalanceService.getAvailableBalance('USDT');
+      setAvailableBalance(balance);
+      logService.log('info', `Fetched available balance: ${balance} USDT`, null, 'TradingEngine');
+    } catch (error) {
+      logService.log('error', 'Failed to fetch available balance', error, 'TradingEngine');
+    } finally {
+      setIsRefreshingBalance(false);
+    }
+  };
+
+  // Refresh balance manually
+  const refreshBalance = async () => {
+    try {
+      setIsRefreshingBalance(true);
+      await walletBalanceService.refreshBalances();
+      // The balance will be updated via the event listener
+    } catch (error) {
+      logService.log('error', 'Failed to refresh balance', error, 'TradingEngine');
+    } finally {
+      setIsRefreshingBalance(false);
+    }
+  };
+
   // Generate demo trades for testing
   const generateDemoTrades = (strategyId: string) => {
     const strategy = strategies.find(s => s.id === strategyId);
@@ -280,13 +314,26 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
     const newTrades: Trade[] = [];
 
     for (let i = 0; i < numTrades; i++) {
-      // Pick a random pair
-      const pairs = strategy.selected_pairs || ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+      // Pick a random pair, ensuring we use USDT pairs
+      let pairs = strategy.selected_pairs || ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
+
+      // Ensure all pairs use USDT
+      pairs = pairs.map(pair => {
+        if (pair.includes('/USDT')) return pair;
+        if (pair.includes('_USDT')) return pair.replace('_USDT', '/USDT');
+        if (pair.includes('/')) return pair.split('/')[0] + '/USDT';
+        if (pair.includes('_')) return pair.split('_')[0] + '/USDT';
+        return pair + '/USDT';
+      });
+
       const pair = pairs[Math.floor(Math.random() * pairs.length)];
 
       // Calculate amount (between 5% and 15% of available budget)
       const percentage = 0.05 + (Math.random() * 0.1);
       const amount = Math.min(budget.available * percentage, maxAmount);
+
+      // Determine market type, defaulting to spot if not specified
+      const marketType = strategy.market_type || 'spot';
 
       // Create trade
       const trade: Trade = {
@@ -299,7 +346,10 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
         timestamp: Date.now(),
         strategyId: strategy.id,
         createdAt: new Date().toISOString(),
-        executedAt: null
+        executedAt: null,
+        // Only include leverage for futures trading
+        ...(marketType === 'futures' ? { leverage: Math.floor(Math.random() * 5) + 1 } : {}),
+        marketType: marketType
       };
 
       newTrades.push(trade);
@@ -362,15 +412,38 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
       <div className="p-8 space-y-8 pb-24 sm:pb-8 mobile-p-4" style={{ minHeight: '100vh' }}>
         {/* Introduction Section */}
         <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
-          <h2 className="gradient-text mb-3">Trading Engine</h2>
-          <p className="description-text mb-4">
-            Activate your strategies to automatically generate and execute trades using BackTrader.
-            {demoService.isDemoMode() && (
-              <span className="ml-2 text-neon-yellow">
-                Currently running in Demo Mode using TestNet.
-              </span>
-            )}
-          </p>
+          <div className="flex justify-between items-start">
+            <div>
+              <h2 className="gradient-text mb-3">Trading Engine</h2>
+              <p className="description-text mb-4">
+                Activate your strategies to automatically generate and execute trades using BackTrader.
+                {demoService.isDemoMode() && (
+                  <span className="ml-2 text-neon-yellow">
+                    Currently running in Demo Mode using TestNet.
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="bg-gunmetal-800/50 p-3 rounded-lg flex items-center space-x-3">
+              <div>
+                <div className="flex items-center space-x-2">
+                  <Wallet className="w-4 h-4 text-neon-turquoise" />
+                  <span className="text-sm text-gray-400">Available Balance</span>
+                  {isRefreshingBalance ? (
+                    <Loader2 className="w-3 h-3 animate-spin text-gray-400" />
+                  ) : (
+                    <RefreshCw
+                      className="w-3 h-3 text-gray-400 cursor-pointer hover:text-white"
+                      onClick={refreshBalance}
+                    />
+                  )}
+                </div>
+                <div className="text-xl font-semibold text-neon-turquoise">
+                  ${availableBalance.toFixed(2)} <span className="text-xs text-gray-400">USDT</span>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Strategies List */}
@@ -482,6 +555,7 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
                                 <th className="text-left py-1">Side</th>
                                 <th className="text-left py-1">Amount</th>
                                 <th className="text-left py-1">Entry Price</th>
+                                <th className="text-left py-1">Market</th>
                                 <th className="text-left py-1">Status</th>
                               </tr>
                             </thead>
@@ -498,6 +572,14 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
                                   </td>
                                   <td className="py-2">{trade.amount ? trade.amount.toFixed(6) : '0.000000'}</td>
                                   <td className="py-2">${trade.entryPrice ? trade.entryPrice.toFixed(2) : '0.00'}</td>
+                                  <td className="py-2">
+                                    <span className="px-1.5 py-0.5 rounded text-xs bg-gunmetal-700">
+                                      {trade.marketType || 'spot'}
+                                      {trade.marketType === 'futures' && trade.leverage && (
+                                        <span className="ml-1 text-neon-yellow">{trade.leverage}x</span>
+                                      )}
+                                    </span>
+                                  </td>
                                   <td className="py-2">
                                     <span className={`px-1.5 py-0.5 rounded text-xs ${
                                       trade.status === 'executed' ? 'bg-blue-500/20 text-blue-500' : 'bg-yellow-500/20 text-yellow-500'
@@ -551,6 +633,7 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
                     <th className="text-left py-2">Side</th>
                     <th className="text-left py-2">Amount</th>
                     <th className="text-left py-2">Entry Price</th>
+                    <th className="text-left py-2">Market</th>
                     <th className="text-left py-2">Status</th>
                     <th className="text-left py-2">Created</th>
                   </tr>
@@ -571,6 +654,14 @@ export function TradingEngine({ className = '' }: TradingEngineProps) {
                         </td>
                         <td className="py-2 pr-4">{trade.amount ? trade.amount.toFixed(6) : '0.000000'}</td>
                         <td className="py-2 pr-4">${trade.entryPrice ? trade.entryPrice.toFixed(2) : '0.00'}</td>
+                        <td className="py-2 pr-4">
+                          <span className="px-1.5 py-0.5 rounded text-xs bg-gunmetal-700">
+                            {trade.marketType || strategy?.market_type || 'spot'}
+                            {(trade.marketType === 'futures' || strategy?.market_type === 'futures') && trade.leverage && (
+                              <span className="ml-1 text-neon-yellow">{trade.leverage}x</span>
+                            )}
+                          </span>
+                        </td>
                         <td className="py-2 pr-4">
                           <span className={`px-1.5 py-0.5 rounded text-xs ${
                             trade.status === 'executed' ? 'bg-blue-500/20 text-blue-500' : 'bg-yellow-500/20 text-yellow-500'

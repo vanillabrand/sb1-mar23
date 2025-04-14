@@ -55,6 +55,41 @@ class TradeManager extends EventEmitter {
         throw new Error(`Trade ${tradeId} not found in active orders`);
       }
 
+      // Get the trade status
+      const status = this.activeOrders.get(tradeId);
+      if (!status) {
+        throw new Error(`Trade ${tradeId} status not found`);
+      }
+
+      // Validate the trade has required fields
+      if (!status.symbol) {
+        throw new Error(`Trade ${tradeId} is missing symbol`);
+      }
+
+      if (!status.amount || status.amount <= 0) {
+        throw new Error(`Trade ${tradeId} has invalid amount: ${status.amount}`);
+      }
+
+      // Get current price for calculating profit/loss
+      let currentPrice = 0;
+      try {
+        const marketData = await exchangeService.fetchMarketPrice(status.symbol);
+        currentPrice = marketData.price;
+      } catch (priceError) {
+        logService.log('warn', `Failed to fetch current price for ${status.symbol}, using fallback`, priceError, 'TradeManager');
+        // Use entry price as fallback
+        currentPrice = status.entryPrice || 0;
+      }
+
+      // Calculate profit/loss
+      const entryPrice = status.entryPrice || status.entry_price || 0;
+      let profitLoss = 0;
+
+      if (entryPrice > 0 && currentPrice > 0) {
+        const priceDiff = status.side === 'buy' ? (currentPrice - entryPrice) : (entryPrice - currentPrice);
+        profitLoss = priceDiff * (status.amount || 1);
+      }
+
       // If using a real exchange, close the position
       try {
         // Implement real exchange position closing logic here
@@ -64,13 +99,42 @@ class TradeManager extends EventEmitter {
         logService.log('warn', `Error closing position on exchange for trade ${tradeId}, continuing with local cleanup`, exchangeError, 'TradeManager');
       }
 
+      // Release budget for this trade
+      const strategyId = status.strategyId || status.strategy_id;
+      if (strategyId) {
+        try {
+          // Calculate the trade cost
+          const tradeCost = status.amount * entryPrice;
+
+          // Release the budget with profit/loss
+          tradeService.releaseBudgetFromTrade(strategyId, tradeCost, profitLoss, tradeId);
+          logService.log('info', `Released budget for trade ${tradeId} with profit/loss ${profitLoss}`,
+            { strategyId, tradeCost, profitLoss }, 'TradeManager');
+        } catch (budgetError) {
+          logService.log('warn', `Failed to release budget for trade ${tradeId}`, budgetError, 'TradeManager');
+        }
+      }
+
       // Remove from active orders
       this.activeOrders.delete(tradeId);
 
-      // Emit trade closed event
-      this.emit('tradeClosed', { tradeId, reason: 'manual_close' });
+      // Emit trade closed event with updated status including profit/loss
+      const closedStatus = {
+        ...status,
+        status: 'closed',
+        exitPrice: currentPrice,
+        profit: profitLoss,
+        exitReason: 'manual_close',
+        lastUpdate: Date.now(),
+        closedAt: new Date().toISOString()
+      };
 
-      logService.log('info', `Closed position for trade ${tradeId}`, null, 'TradeManager');
+      this.emit('tradeClosed', { tradeId, reason: 'manual_close', status: closedStatus });
+      eventBus.emit('trade:closed', { tradeId, status: closedStatus });
+      eventBus.emit('trade:update', { tradeId, status: closedStatus });
+
+      logService.log('info', `Closed position for trade ${tradeId} with profit/loss ${profitLoss}`,
+        { exitPrice: currentPrice, profit: profitLoss }, 'TradeManager');
     } catch (error) {
       logService.log('error', `Failed to close position for trade ${tradeId}`, error, 'TradeManager');
       throw error;
@@ -81,24 +145,104 @@ class TradeManager extends EventEmitter {
     const tradeId = this.generateTradeId(options);
 
     // Reserve budget for this trade
-    if (options.strategy_id) {
-      const tradeAmount = options.amount || 0;
-      const tradePrice = options.entry_price || 0;
+    if (options.strategy_id || options.strategyId) {
+      const strategyId = options.strategy_id || options.strategyId;
+      let tradeAmount = options.amount || 0;
+      let tradePrice = options.entry_price || 0;
+
+      // Ensure we have a valid entry price
+      if (tradePrice <= 0) {
+        try {
+          // Try to get current market price
+          const marketData = await exchangeService.fetchMarketPrice(options.symbol);
+          tradePrice = marketData.price;
+          // Update the options with the current price
+          options.entry_price = tradePrice;
+          logService.log('info', `Updated entry price for ${options.symbol} to ${tradePrice}`, null, 'TradeManager');
+        } catch (error) {
+          logService.log('warn', `Failed to fetch market price for ${options.symbol}`, error, 'TradeManager');
+          // Use a reasonable fallback price
+          if (options.symbol.includes('BTC')) {
+            tradePrice = 45000;
+          } else if (options.symbol.includes('ETH')) {
+            tradePrice = 3000;
+          } else {
+            tradePrice = 100;
+          }
+          options.entry_price = tradePrice;
+        }
+      }
+
+      // Ensure we have a valid amount
+      if (tradeAmount <= 0) {
+        logService.log('warn', `Invalid trade amount: ${tradeAmount} for ${options.symbol}`, null, 'TradeManager');
+
+        // Get the budget to calculate a reasonable amount
+        const budget = tradeService.getBudget(strategyId);
+        if (budget && budget.available > 0) {
+          // Use at most 20% of available budget for a single trade
+          const maxBudgetToUse = Math.min(budget.available, budget.available * 0.2);
+          tradeAmount = maxBudgetToUse / tradePrice;
+          // Round to 6 decimal places for crypto
+          tradeAmount = Math.round(tradeAmount * 1000000) / 1000000;
+          options.amount = tradeAmount;
+
+          logService.log('info', `Calculated trade amount ${tradeAmount} based on budget ${budget.available} for ${options.symbol}`, null, 'TradeManager');
+        } else {
+          // Use a small default amount
+          tradeAmount = 0.01;
+          options.amount = tradeAmount;
+          logService.log('info', `Using default trade amount ${tradeAmount} for ${options.symbol}`, null, 'TradeManager');
+        }
+      }
+
       const tradeCost = tradeAmount * tradePrice;
 
       if (tradeCost > 0) {
         // Check if we have enough budget
-        const budget = tradeService.getBudget(options.strategy_id);
-        if (!budget || budget.available < tradeCost) {
-          logService.log('warn', `Insufficient budget for trade: ${tradeCost} (available: ${budget?.available || 0})`, null, 'TradeManager');
-          throw new Error(`Insufficient budget for trade: ${tradeCost} (available: ${budget?.available || 0})`);
+        const budget = tradeService.getBudget(strategyId);
+        if (!budget) {
+          logService.log('warn', `No budget found for strategy ${strategyId}`, null, 'TradeManager');
+          throw new Error(`No budget found for strategy ${strategyId}`);
         }
 
-        // Reserve the budget
-        const reserved = tradeService.reserveBudgetForTrade(options.strategy_id, tradeCost);
-        if (!reserved) {
-          logService.log('warn', `Failed to reserve budget for trade: ${tradeCost}`, null, 'TradeManager');
-          throw new Error(`Failed to reserve budget for trade: ${tradeCost}`);
+        if (budget.available < tradeCost) {
+          // Try to adjust the amount to fit within the available budget
+          if (budget.available > 0) {
+            const adjustedAmount = budget.available / tradePrice;
+            // Round to 6 decimal places for crypto
+            const roundedAmount = Math.round(adjustedAmount * 1000000) / 1000000;
+
+            if (roundedAmount > 0) {
+              logService.log('warn',
+                `Adjusting trade amount from ${tradeAmount} to ${roundedAmount} to fit within available budget ${budget.available}`,
+                null, 'TradeManager');
+
+              tradeAmount = roundedAmount;
+              options.amount = tradeAmount;
+              const adjustedCost = tradeAmount * tradePrice;
+
+              // Reserve the adjusted budget
+              const reserved = tradeService.reserveBudgetForTrade(strategyId, adjustedCost, tradeId);
+              if (!reserved) {
+                logService.log('warn', `Failed to reserve adjusted budget for trade: ${adjustedCost}`, null, 'TradeManager');
+                throw new Error(`Failed to reserve adjusted budget for trade: ${adjustedCost}`);
+              }
+            } else {
+              logService.log('warn', `Insufficient budget for trade: ${tradeCost} (available: ${budget.available})`, null, 'TradeManager');
+              throw new Error(`Insufficient budget for trade: ${tradeCost} (available: ${budget.available})`);
+            }
+          } else {
+            logService.log('warn', `Insufficient budget for trade: ${tradeCost} (available: ${budget.available})`, null, 'TradeManager');
+            throw new Error(`Insufficient budget for trade: ${tradeCost} (available: ${budget.available})`);
+          }
+        } else {
+          // Reserve the budget
+          const reserved = tradeService.reserveBudgetForTrade(strategyId, tradeCost, tradeId);
+          if (!reserved) {
+            logService.log('warn', `Failed to reserve budget for trade: ${tradeCost}`, null, 'TradeManager');
+            throw new Error(`Failed to reserve budget for trade: ${tradeCost}`);
+          }
         }
 
         logService.log('info', `Reserved ${tradeCost} for trade in strategy ${options.strategy_id}`, null, 'TradeManager');
@@ -425,6 +569,22 @@ class TradeManager extends EventEmitter {
         // Remove from active orders
         this.activeOrders.delete(orderId);
 
+        // Release budget for this trade
+        const strategyId = status.strategyId || status.strategy_id;
+        if (strategyId) {
+          try {
+            // Calculate the trade cost
+            const tradeCost = status.amount * entryPrice;
+
+            // Release the budget with profit/loss
+            tradeService.releaseBudgetFromTrade(strategyId, tradeCost, profitLoss, orderId);
+            logService.log('info', `Released budget for trade ${orderId} with profit/loss ${profitLoss}`,
+              { strategyId, tradeCost, profitLoss }, 'TradeManager');
+          } catch (budgetError) {
+            logService.log('warn', `Failed to release budget for trade ${orderId}`, budgetError, 'TradeManager');
+          }
+        }
+
         // Record transaction for this trade closure
         try {
           // Import dynamically to avoid circular dependencies
@@ -529,7 +689,11 @@ class TradeManager extends EventEmitter {
   }
 
   private generateTradeId(options: TradeOptions): string {
-    return `${options.symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    // Use a more structured ID format to prevent duplicates
+    // Include timestamp with milliseconds for uniqueness
+    const timestamp = Date.now();
+    const randomId = Math.random().toString(36).substring(2, 11);
+    return `${options.symbol}-${timestamp}-${randomId}`;
   }
 
   private async executeWithTimeout<T>(
@@ -649,31 +813,42 @@ class TradeManager extends EventEmitter {
     // Generate realistic price based on the symbol
     let entryPrice = options.entry_price || 0;
     if (!entryPrice || entryPrice === 0) {
-      // Set realistic base prices for common symbols
-      if (options.symbol.includes('BTC')) {
-        // Generate a random BTC price between $60,000 and $70,000
-        entryPrice = 60000 + (Math.random() * 10000);
-      } else if (options.symbol.includes('ETH')) {
-        // Generate a random ETH price between $2,800 and $3,500
-        entryPrice = 2800 + (Math.random() * 700);
-      } else if (options.symbol.includes('SOL')) {
-        // Generate a random SOL price between $120 and $180
-        entryPrice = 120 + (Math.random() * 60);
-      } else if (options.symbol.includes('BNB')) {
-        // Generate a random BNB price between $450 and $550
-        entryPrice = 450 + (Math.random() * 100);
-      } else if (options.symbol.includes('XRP')) {
-        // Generate a random XRP price between $0.45 and $0.65
-        entryPrice = 0.45 + (Math.random() * 0.2);
-      } else if (options.symbol.includes('DOGE')) {
-        // Generate a random DOGE price between $0.10 and $0.20
-        entryPrice = 0.10 + (Math.random() * 0.1);
-      } else if (options.symbol.includes('ADA')) {
-        // Generate a random ADA price between $0.35 and $0.55
-        entryPrice = 0.35 + (Math.random() * 0.2);
-      } else {
-        // Default for other symbols - random price between $1 and $100
-        entryPrice = 1 + (Math.random() * 99);
+      try {
+        // Try to get current market price from exchange service
+        const marketData = exchangeService.fetchMarketPrice(options.symbol);
+        if (marketData && marketData.price) {
+          entryPrice = marketData.price;
+          // Update the options with the current price
+          options.entry_price = entryPrice;
+          logService.log('info', `Updated entry price for ${options.symbol} to ${entryPrice}`, null, 'TradeManager');
+        }
+      } catch (error) {
+        logService.log('warn', `Failed to fetch market price for ${options.symbol}, using fallback price`, error, 'TradeManager');
+
+        // Set realistic base prices for common symbols as fallback
+        if (options.symbol.includes('BTC')) {
+          // Use a more stable BTC price around $45,000
+          entryPrice = 45000 + (Math.random() * 1000);
+        } else if (options.symbol.includes('ETH')) {
+          // Use a more stable ETH price around $3,000
+          entryPrice = 3000 + (Math.random() * 100);
+        } else if (options.symbol.includes('SOL')) {
+          entryPrice = 120 + (Math.random() * 10);
+        } else if (options.symbol.includes('BNB')) {
+          entryPrice = 450 + (Math.random() * 10);
+        } else if (options.symbol.includes('XRP')) {
+          entryPrice = 0.5 + (Math.random() * 0.05);
+        } else if (options.symbol.includes('DOGE')) {
+          entryPrice = 0.1 + (Math.random() * 0.01);
+        } else if (options.symbol.includes('ADA')) {
+          entryPrice = 0.4 + (Math.random() * 0.02);
+        } else {
+          // Default for other symbols - more stable price
+          entryPrice = 10 + (Math.random() * 5);
+        }
+
+        // Update the options with the fallback price
+        options.entry_price = entryPrice;
       }
     }
 
@@ -703,29 +878,66 @@ class TradeManager extends EventEmitter {
       ];
     }
 
-    // Generate a realistic amount based on the price
+    // Generate a realistic amount based on the price and budget
     let amount = options.amount;
     if (!amount || amount === 0) {
+      // Get strategy budget if available
+      let budget = null;
+      let maxAmount = 0;
+
+      if (options.strategyId || options.strategy_id) {
+        const strategyId = options.strategyId || options.strategy_id;
+        try {
+          budget = tradeService.getBudget(strategyId);
+          if (budget && budget.available > 0) {
+            // Calculate maximum amount based on available budget
+            // Use only a portion of the available budget (max 20%)
+            const maxBudgetToUse = Math.min(budget.available, budget.available * 0.2);
+            maxAmount = maxBudgetToUse / entryPrice;
+
+            logService.log('info', `Calculated max amount ${maxAmount} based on budget ${budget.available} for ${options.symbol}`, null, 'TradeManager');
+          }
+        } catch (error) {
+          logService.log('warn', `Failed to get budget for strategy ${strategyId}`, error, 'TradeManager');
+        }
+      }
+
+      // Calculate a reasonable amount based on price and budget
+      let calculatedAmount = 0;
+
       // For high-priced assets like BTC, use smaller amounts
       if (entryPrice > 10000) {
-        // For BTC: 0.001 to 0.05 BTC
-        amount = 0.001 + (Math.random() * 0.049);
+        // For BTC: 0.001 to 0.01 BTC
+        calculatedAmount = 0.001 + (Math.random() * 0.009);
       } else if (entryPrice > 1000) {
-        // For ETH: 0.01 to 0.5 ETH
-        amount = 0.01 + (Math.random() * 0.49);
+        // For ETH: 0.01 to 0.1 ETH
+        calculatedAmount = 0.01 + (Math.random() * 0.09);
       } else if (entryPrice > 100) {
-        // For mid-priced assets: 0.1 to 2.0 units
-        amount = 0.1 + (Math.random() * 1.9);
+        // For mid-priced assets: 0.1 to 1.0 units
+        calculatedAmount = 0.1 + (Math.random() * 0.9);
       } else if (entryPrice > 10) {
-        // For lower-priced assets: 1 to 10 units
-        amount = 1 + (Math.random() * 9);
+        // For lower-priced assets: 1 to 5 units
+        calculatedAmount = 1 + (Math.random() * 4);
       } else if (entryPrice > 1) {
-        // For very low-priced assets: 10 to 100 units
-        amount = 10 + (Math.random() * 90);
+        // For very low-priced assets: 5 to 20 units
+        calculatedAmount = 5 + (Math.random() * 15);
       } else {
-        // For extremely low-priced assets (like SHIB): 1000 to 10000 units
-        amount = 1000 + (Math.random() * 9000);
+        // For extremely low-priced assets (like SHIB): 100 to 500 units
+        calculatedAmount = 100 + (Math.random() * 400);
       }
+
+      // If we have a budget, ensure we don't exceed it
+      if (maxAmount > 0) {
+        amount = Math.min(calculatedAmount, maxAmount);
+      } else {
+        amount = calculatedAmount;
+      }
+
+      // Round to 6 decimal places for crypto
+      amount = Math.round(amount * 1000000) / 1000000;
+
+      // Update the options with the calculated amount
+      options.amount = amount;
     }
 
     // Log that we're creating a simulated order with entry/exit conditions
@@ -742,6 +954,30 @@ class TradeManager extends EventEmitter {
       },
       'TradeManager');
 
+    // Validate the trade cost against budget if available
+    const tradeCost = amount * entryPrice;
+    let budget = null;
+
+    if (options.strategyId || options.strategy_id) {
+      const strategyId = options.strategyId || options.strategy_id;
+      try {
+        budget = tradeService.getBudget(strategyId);
+        if (budget && budget.available < tradeCost) {
+          // Adjust amount to fit within available budget
+          const adjustedAmount = budget.available / entryPrice;
+          logService.log('warn',
+            `Trade cost ${tradeCost} exceeds available budget ${budget.available}. Adjusting amount from ${amount} to ${adjustedAmount}`,
+            null, 'TradeManager');
+          amount = adjustedAmount;
+          // Round to 6 decimal places for crypto
+          amount = Math.round(amount * 1000000) / 1000000;
+        }
+      } catch (error) {
+        logService.log('warn', `Failed to validate budget for strategy ${strategyId}`, error, 'TradeManager');
+      }
+    }
+
+    // Create the final trade object
     return {
       id: tradeId,
       status: 'pending', // Initial status is pending, will be updated to filled after a short delay
@@ -761,8 +997,9 @@ class TradeManager extends EventEmitter {
       exitConditions: exitConditions,
       // For backward compatibility
       entry_conditions: entryConditions,
-      exit_conditions: exitConditions
-      // Removed duplicate status key
+      exit_conditions: exitConditions,
+      // Add market type if available
+      marketType: options.marketType || 'spot'
     };
   }
 }

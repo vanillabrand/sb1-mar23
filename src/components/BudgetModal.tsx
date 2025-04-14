@@ -99,11 +99,31 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
     }
   };
 
+  // Calculate position sizing based on risk level
+  const effectiveRiskLevel = strategy?.riskLevel || strategy?.risk_level || riskLevel || 'Medium';
+  const positionSizeMultiplier = {
+    'Ultra Low': 0.05,
+    'Low': 0.1,
+    'Medium': 0.15,
+    'High': 0.2,
+    'Ultra High': 0.25,
+    'Extreme': 0.3,
+    'God Mode': 0.5
+  }[effectiveRiskLevel] || 0.15;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
       setIsProcessing(true);
       setError(null);
+
+      // Log for debugging
+      console.log('Budget submission:', {
+        strategy,
+        effectiveRiskLevel,
+        positionSizeMultiplier,
+        totalBudget
+      });
 
       const budget: StrategyBudget = {
         total: Number(totalBudget.toFixed(2)),
@@ -113,15 +133,15 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
       };
 
       await onConfirm(budget);
-      
+
       // Reset state after successful submission
       setIsProcessing(false);
       setError(null);
-      
+
       // Close modal
       if (onCancel) onCancel();
       else if (onClose) onClose();
-      
+
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to set budget');
       setIsProcessing(false);

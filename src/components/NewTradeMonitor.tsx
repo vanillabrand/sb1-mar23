@@ -636,30 +636,74 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
     const numTrades = Math.floor(Math.random() * 3) + 1;
     const maxAmount = budget.available * 0.2; // Max 20% of available budget per trade
 
+    // Track total amount allocated to ensure we don't exceed budget
+    let totalAllocated = 0;
+    const availableBudget = budget.available;
+
     for (let i = 0; i < numTrades; i++) {
+      // Check if we still have budget available
+      if (availableBudget - totalAllocated < 10) {
+        logService.log('info', `Stopping demo trade generation due to insufficient remaining budget`,
+          { remaining: availableBudget - totalAllocated }, 'TradeMonitor');
+        break;
+      }
+
       // Pick a random pair
       const pair = strategy.selected_pairs[Math.floor(Math.random() * strategy.selected_pairs.length)];
       const standardizedPair = standardizeSymbolFormat(pair);
 
-      // Get base price
-      const basePrice = getBasePrice(standardizedPair);
+      // Get base price with validation
+      let basePrice = getBasePrice(standardizedPair);
+      if (!basePrice || basePrice <= 0) {
+        basePrice = 100; // Default fallback price
+        logService.log('warn', `Invalid base price for ${standardizedPair}, using fallback price`, null, 'TradeMonitor');
+      }
 
       // Calculate amount (between 5% and 15% of available budget)
       const percentage = 0.05 + (Math.random() * 0.1);
-      const amount = Math.min(budget.available * percentage, maxAmount);
+      const remainingBudget = availableBudget - totalAllocated;
+      const calculatedAmount = Math.min(remainingBudget * percentage, maxAmount);
+
+      // Ensure amount is reasonable based on price
+      let amount;
+      if (basePrice > 10000) { // BTC
+        amount = Math.min(calculatedAmount / basePrice, 0.01); // Max 0.01 BTC
+      } else if (basePrice > 1000) { // ETH
+        amount = Math.min(calculatedAmount / basePrice, 0.1); // Max 0.1 ETH
+      } else if (basePrice > 100) { // Mid-priced assets
+        amount = Math.min(calculatedAmount / basePrice, 1.0); // Max 1.0 units
+      } else {
+        amount = Math.min(calculatedAmount / basePrice, 10.0); // Max 10 units
+      }
+
+      // Round to 6 decimal places for crypto
+      amount = Math.round(amount * 1000000) / 1000000;
+
+      // Skip if amount is too small
+      if (amount < 0.000001) {
+        logService.log('info', `Skipping trade with too small amount: ${amount}`, null, 'TradeMonitor');
+        continue;
+      }
+
+      // Update total allocated
+      totalAllocated += amount * basePrice;
+
+      // Create unique ID to prevent duplicates
+      const uniqueId = `demo-${Date.now()}-${i}-${Math.random().toString(36).substring(2, 11)}`;
 
       // Create trade
       const trade: Trade = {
-        id: `demo-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+        id: uniqueId,
         symbol: standardizedPair,
         side: Math.random() > 0.5 ? 'buy' : 'sell',
         status: 'pending',
         amount,
         entryPrice: basePrice * (1 + (Math.random() * 0.02 - 0.01)),
         timestamp: Date.now(),
-        strategyId: strategy.id, // This will be used in our app
+        strategyId: strategy.id,
         createdAt: new Date().toISOString(),
-        executedAt: null
+        executedAt: null,
+        marketType: strategy.marketType || 'spot'
       };
 
       // Add to active trades

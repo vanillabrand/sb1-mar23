@@ -135,33 +135,62 @@ class TradeService extends EventEmitter {
   }
 
   // Reserve a portion of the available budget for a trade.
-  reserveBudgetForTrade(strategyId: string, amount: number): boolean {
+  reserveBudgetForTrade(strategyId: string, amount: number, tradeId?: string): boolean {
     const budget = this.budgets.get(strategyId);
-    if (!budget || budget.available < amount) {
-      logService.log('warn', `Insufficient budget for trade: ${amount} (available: ${budget?.available || 0})`, null, 'TradeService');
+    if (!budget) {
+      logService.log('warn', `No budget found for strategy ${strategyId}`, null, 'TradeService');
       return false;
     }
 
+    // Validate the amount is positive and reasonable
+    if (!amount || amount <= 0) {
+      logService.log('warn', `Invalid amount for budget reservation: ${amount}`, null, 'TradeService');
+      return false;
+    }
+
+    // Check if we have enough available budget
+    if (budget.available < amount) {
+      logService.log('warn', `Insufficient budget for trade: ${amount} (available: ${budget.available})`,
+        { tradeId, strategyId, amount, available: budget.available }, 'TradeService');
+      return false;
+    }
+
+    // Format the amount to 2 decimal places to avoid floating point issues
     const formattedAmount = Number(amount.toFixed(2));
+
+    // Update the budget
     budget.available = Number((budget.available - formattedAmount).toFixed(2));
     budget.allocated = Number((budget.allocated + formattedAmount).toFixed(2));
+
+    // Ensure we don't have negative values due to rounding
+    if (budget.available < 0) budget.available = 0;
+
+    // Save the updated budget
     this.budgets.set(strategyId, budget);
     this.saveBudgets();
 
     // Emit budget updated event
-    this.emit('budgetUpdated', { strategyId, budget });
-    logService.log('info', `Reserved ${formattedAmount} for strategy ${strategyId}`, budget, 'TradeService');
+    this.emit('budgetUpdated', { strategyId, budget, tradeId });
+    logService.log('info', `Reserved ${formattedAmount} for strategy ${strategyId}${tradeId ? ` (trade: ${tradeId})` : ''}`,
+      { budget, tradeId }, 'TradeService');
     return true;
   }
 
   // Release reserved budget from a trade, applying any profit gained.
-  releaseBudgetFromTrade(strategyId: string, amount: number, profit: number = 0): void {
+  releaseBudgetFromTrade(strategyId: string, amount: number, profit: number = 0, tradeId?: string): void {
     const budget = this.budgets.get(strategyId);
     if (!budget) {
-      logService.log('warn', `No budget found for strategy ${strategyId}`, null, 'TradeService');
+      logService.log('warn', `No budget found for strategy ${strategyId}`, { tradeId }, 'TradeService');
       return;
     }
 
+    // Validate the amount is positive and reasonable
+    if (!amount || amount <= 0) {
+      logService.log('warn', `Invalid amount for budget release: ${amount}`, { tradeId, strategyId }, 'TradeService');
+      return;
+    }
+
+    // Format the values to 2 decimal places to avoid floating point issues
     const formattedAmount = Number(amount.toFixed(2));
     const formattedProfit = Number(profit.toFixed(2));
 
@@ -170,9 +199,20 @@ class TradeService extends EventEmitter {
     budget.available = Number((budget.available + formattedAmount + formattedProfit).toFixed(2));
     budget.total = Number((budget.total + formattedProfit).toFixed(2));
 
+    // Ensure we don't have negative values due to rounding or calculation errors
+    if (budget.allocated < 0) budget.allocated = 0;
+
+    // Update the last updated timestamp
+    budget.lastUpdated = Date.now();
+
     this.budgets.set(strategyId, budget);
     this.saveBudgets();
-    logService.log('info', `Released ${formattedAmount} (profit: ${formattedProfit}) for strategy ${strategyId}`, budget, 'TradeService');
+
+    // Emit budget updated event
+    this.emit('budgetUpdated', { strategyId, budget, tradeId });
+
+    logService.log('info', `Released ${formattedAmount} (profit: ${formattedProfit}) for strategy ${strategyId}${tradeId ? ` (trade: ${tradeId})` : ''}`,
+      { budget, tradeId }, 'TradeService');
   }
 
   /**
@@ -320,11 +360,17 @@ class TradeService extends EventEmitter {
     }
   }
 
-  async updateBudgetAfterTrade(strategyId: string, amount: number, profit: number = 0): Promise<void> {
+  async updateBudgetAfterTrade(strategyId: string, amount: number, profit: number = 0, tradeId?: string): Promise<void> {
     try {
       const budget = this.budgets.get(strategyId);
       if (!budget) {
         throw new Error('Budget not found for strategy');
+      }
+
+      // Validate the amount is positive and reasonable
+      if (!amount || amount <= 0) {
+        logService.log('warn', `Invalid amount for budget update: ${amount}`, { tradeId, strategyId }, 'TradeService');
+        return;
       }
 
       const formattedAmount = Number(amount.toFixed(2));
@@ -338,6 +384,9 @@ class TradeService extends EventEmitter {
         total: Number((budget.total + formattedProfit).toFixed(2)),
         lastUpdated: Date.now()
       };
+
+      // Ensure we don't have negative values due to rounding or calculation errors
+      if (updatedBudget.allocated < 0) updatedBudget.allocated = 0;
 
       // Update database
       const { error } = await supabase
@@ -354,15 +403,15 @@ class TradeService extends EventEmitter {
 
       // Update local cache
       this.budgets.set(strategyId, updatedBudget);
-      
+
       // Emit update event
       this.emit('budgetUpdated', { strategyId, budget: updatedBudget });
       eventBus.emit('budget:updated', { strategyId, budget: updatedBudget });
-      
-      logService.log('info', `Updated budget after trade for strategy ${strategyId}`, { 
-        amount: formattedAmount, 
-        profit: formattedProfit, 
-        budget: updatedBudget 
+
+      logService.log('info', `Updated budget after trade for strategy ${strategyId}`, {
+        amount: formattedAmount,
+        profit: formattedProfit,
+        budget: updatedBudget
       }, 'TradeService');
     } catch (error) {
       logService.log('error', `Failed to update budget after trade for strategy ${strategyId}`, error, 'TradeService');

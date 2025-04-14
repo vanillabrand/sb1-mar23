@@ -476,7 +476,29 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           setStrategyTrades(prev => {
             // Check if trade already exists in this strategy's trades
             const existingTrade = (prev[strategyId] || []).find(t => t.id === newTrade.id);
-            if (existingTrade) return prev; // Skip if trade already exists
+
+            if (existingTrade) {
+              // If trade exists, update it instead of adding a duplicate
+              const updatedStrategyTrades = (prev[strategyId] || []).map(t =>
+                t.id === newTrade.id ? { ...t, ...newTrade } : t
+              );
+
+              return {
+                ...prev,
+                [strategyId]: updatedStrategyTrades
+              };
+            }
+
+            // Validate the trade before adding it
+            if (!newTrade.entryPrice || newTrade.entryPrice <= 0) {
+              logService.log('warn', `Skipping trade with invalid entry price: ${newTrade.entryPrice}`, { trade: newTrade }, 'TradeMonitor');
+              return prev;
+            }
+
+            if (!newTrade.amount || newTrade.amount <= 0) {
+              logService.log('warn', `Skipping trade with invalid amount: ${newTrade.amount}`, { trade: newTrade }, 'TradeMonitor');
+              return prev;
+            }
 
             const updatedTrades = {
               ...prev,
@@ -856,27 +878,72 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
    * @param count Number of trades to generate
    * @returns Array of mock trades
    */
-  const generateMockTrades = (symbol: string, count: number): any[] => {
+  const generateMockTrades = (symbol: string, count: number, strategyId?: string, budget?: number): any[] => {
     const trades = [];
     const now = Date.now();
-    const basePrice = getBasePrice(symbol);
+    let basePrice = getBasePrice(symbol);
+
+    // Ensure we have a valid base price
+    if (!basePrice || basePrice <= 0) {
+      basePrice = 100; // Default fallback price
+    }
+
+    // Calculate maximum amount based on budget if provided
+    let maxTotalAmount = Infinity;
+    if (budget && budget > 0) {
+      // Use at most 80% of the budget for all trades
+      const budgetToUse = budget * 0.8;
+      // Divide by count to get per-trade budget
+      const perTradeBudget = budgetToUse / count;
+      // Calculate max amount per trade based on price
+      maxTotalAmount = perTradeBudget / basePrice;
+
+      logService.log('info', `Generating mock trades with budget constraint: ${budget}, max amount per trade: ${maxTotalAmount}`, null, 'TradeMonitor');
+    }
 
     for (let i = 0; i < count; i++) {
       const side = Math.random() > 0.5 ? 'buy' : 'sell';
-      const price = basePrice * (1 + (Math.random() * 0.1 - 0.05));
-      const amount = 0.1 + Math.random() * 0.9; // 0.1 to 1.0
+
+      // Generate a reasonable price (within 2% of base price)
+      const price = basePrice * (0.98 + Math.random() * 0.04);
+
+      // Calculate a reasonable amount based on price and budget
+      let amount;
+      if (maxTotalAmount !== Infinity) {
+        // Use a portion of the max amount (20-80%)
+        amount = maxTotalAmount * (0.2 + Math.random() * 0.6);
+      } else {
+        // Default amounts based on price ranges
+        if (price > 10000) { // BTC
+          amount = 0.001 + Math.random() * 0.009; // 0.001-0.01 BTC
+        } else if (price > 1000) { // ETH
+          amount = 0.01 + Math.random() * 0.09; // 0.01-0.1 ETH
+        } else if (price > 100) { // SOL, etc.
+          amount = 0.1 + Math.random() * 0.4; // 0.1-0.5 units
+        } else {
+          amount = 1 + Math.random() * 4; // 1-5 units
+        }
+      }
+
+      // Round to 6 decimal places for crypto
+      amount = Math.round(amount * 1000000) / 1000000;
+
       const cost = price * amount;
       const fee = cost * 0.001; // 0.1% fee
 
+      // Create unique ID with timestamp to prevent duplicates
+      const uniqueId = `mock-${symbol}-${i}-${now}-${Math.random().toString(36).substring(2, 11)}`;
+
       trades.push({
-        id: `mock-${now}-${i}`,
+        id: uniqueId,
         symbol,
         side,
         price,
         amount,
         cost,
         fee: { cost: fee, currency: symbol.split('/')[1] },
-        timestamp: now - (i * 60000) // Spread out over the last few minutes
+        timestamp: now - (i * 60000), // Spread out over the last few minutes
+        strategyId: strategyId || 'mock'
       });
     }
 
@@ -1237,18 +1304,37 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         await websocketService.subscribeToStrategy(strategy.id);
         logService.log('info', `Subscribed to WebSocket updates for strategy ${strategy.id}`, null, 'TradeMonitor');
 
-        // 8. Create a placeholder trade for immediate visual feedback
+        // Get the budget for this strategy
+        const strategyBudget = await tradeService.getBudget(strategy.id);
+
+        // Create a placeholder trade for immediate visual feedback with realistic values
+        const symbol = strategy.selected_pairs?.[0] || 'BTC/USDT';
+        const basePrice = getBasePrice(symbol);
+
+        // Calculate a reasonable amount based on budget
+        let amount = 0.1; // Default fallback
+
+        if (strategyBudget && strategyBudget.available > 0 && basePrice > 0) {
+          // Use at most 20% of available budget for a single trade
+          const maxBudgetToUse = Math.min(strategyBudget.available, strategyBudget.available * 0.2);
+          amount = maxBudgetToUse / basePrice;
+          // Round to 6 decimal places for crypto
+          amount = Math.round(amount * 1000000) / 1000000;
+
+          logService.log('info', `Calculated placeholder trade amount ${amount} based on budget ${strategyBudget.available} for ${symbol}`, null, 'TradeMonitor');
+        }
+
         const placeholderTrade: Trade = {
-          id: `placeholder-${strategy.id}-${Date.now()}`,
-          symbol: strategy.selected_pairs?.[0] || 'BTC/USDT',
+          id: `placeholder-${strategy.id}-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+          symbol: symbol,
           side: Math.random() > 0.5 ? 'buy' : 'sell',
           status: 'pending',
-          entryPrice: getBasePrice(strategy.selected_pairs?.[0] || 'BTC/USDT'),
+          entryPrice: basePrice,
           timestamp: Date.now(),
           strategyId: strategy.id,
           createdAt: new Date().toISOString(),
           executedAt: null,
-          amount: 0.1 + (Math.random() * 0.9)
+          amount: amount
         };
 
         // Add the placeholder trade to the strategy's trades only if it doesn't exist
@@ -1432,9 +1518,6 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                         })
                         .map(strategy => (
                           <div key={strategy.id} className="relative">
-                            <div className="absolute top-2 right-2 z-10">
-                              <MarketTypeBadge marketType={strategy.marketType || 'spot'} />
-                            </div>
                             <StrategyCard
                               strategy={strategy}
                               isExpanded={expandedStrategyId === strategy.id}

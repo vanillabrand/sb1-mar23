@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { formatDistanceToNow } from 'date-fns';
 import { eventBus } from '../lib/event-bus';
-import { analyticsService } from '../lib/services';
+import { analyticsService, logService } from '../lib/services';
 import { Pagination } from './ui/Pagination';
 import type { Strategy, Trade } from '../lib/types';
 
@@ -39,68 +39,66 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
     navigate(`/trade-monitor?strategy=${strategyId}`);
   };
 
-  // Generate demo trades for a strategy
-  const generateDemoTradesForStrategy = (strategy: Strategy, count: number): Trade[] => {
-    const trades: Trade[] = [];
-    const now = Date.now();
-    const symbols = strategy.selected_pairs || [];
-
-    // Use default symbols if none are defined
-    const availableSymbols = symbols.length > 0 ?
-      symbols : ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT'];
-
-    // Generate random trades
-    for (let i = 0; i < count; i++) {
-      const symbol = availableSymbols[Math.floor(Math.random() * availableSymbols.length)];
-      const side = Math.random() > 0.5 ? 'buy' : 'sell';
-      const isProfit = Math.random() > 0.4; // 60% chance of profit
-      const basePrice = getBasePrice(symbol);
-      const entryPrice = basePrice * (0.95 + Math.random() * 0.1);
-      const exitPrice = isProfit ?
-        entryPrice * (1 + (0.01 + Math.random() * 0.05)) :
-        entryPrice * (0.95 + Math.random() * 0.04);
-      const amount = 0.1 + Math.random() * 0.9;
-      const profit = side === 'buy' ?
-        ((exitPrice - entryPrice) / entryPrice) * 100 :
-        ((entryPrice - exitPrice) / entryPrice) * 100;
-
-      // Adjust profit based on side
-      const adjustedProfit = side === 'buy' ? profit : (isProfit ? profit : -profit);
-
-      trades.push({
-        id: `demo-${strategy.id}-${i}-${now}`,
-        symbol,
-        side,
-        status: Math.random() > 0.3 ? 'executed' : 'pending',
-        amount,
-        entryPrice,
-        exitPrice: Math.random() > 0.5 ? exitPrice : undefined,
-        profit: adjustedProfit,
-        timestamp: now - (i * 3600000), // Spread out over hours
-        strategyId: strategy.id,
-        createdAt: new Date(now - (i * 3600000)).toISOString(),
-        executedAt: Math.random() > 0.3 ? new Date(now - (i * 3600000) + 60000).toISOString() : null
-      });
-    }
-
-    return trades;
-  };
-
-  // Helper function to get base price for a symbol
-  const getBasePrice = (symbol: string): number => {
-    if (symbol.includes('BTC')) return 60000 + (Math.random() * 5000);
-    if (symbol.includes('ETH')) return 3000 + (Math.random() * 300);
-    if (symbol.includes('SOL')) return 150 + (Math.random() * 20);
-    if (symbol.includes('XRP')) return 0.5 + (Math.random() * 0.1);
-    if (symbol.includes('DOGE')) return 0.1 + (Math.random() * 0.02);
-    if (symbol.includes('ADA')) return 0.4 + (Math.random() * 0.05);
-    return 10 + (Math.random() * 5); // Default for other symbols
+  // Helper function to log trade data for debugging
+  const logTradeData = (message: string, data: any) => {
+    console.log(`[StrategyStatus] ${message}:`, data);
   };
 
   // Calculate stats for a strategy based on its trades
   const calculateStrategyStats = (strategyId: string, trades: Trade[]) => {
+    // Find the strategy object
+    const strategy = strategies.find(s => s.id === strategyId);
+
+    // Validate trades to ensure they have proper data
+    const validTrades = trades.filter(t => {
+      // Ensure trade has valid amount and entry price
+      if (!t.amount || t.amount <= 0) {
+        logService.log('warn', `Skipping trade with invalid amount: ${t.amount}`, { trade: t }, 'StrategyStatus');
+        return false;
+      }
+
+      if (!t.entryPrice || t.entryPrice <= 0) {
+        logService.log('warn', `Skipping trade with invalid entry price: ${t.entryPrice}`, { trade: t }, 'StrategyStatus');
+        return false;
+      }
+
+      return true;
+    });
+
+    // If we have the strategy and it has a performance value, use that directly
+    if (strategy && strategy.performance !== undefined && strategy.performance !== null) {
+      logService.log('info', `Using strategy performance value for ${strategyId}: ${strategy.performance}`, null, 'StrategyStatus');
+
+      // Only consider completed trades for win rate calculation
+      const completedTrades = validTrades.filter(t => t.status === 'executed' || t.status === 'closed' || t.exitPrice);
+      const totalCompletedTrades = completedTrades.length;
+
+      // Calculate profitable trades (only from completed trades)
+      const profitableTrades = completedTrades.filter(t => (t.profit || 0) > 0).length;
+
+      // Calculate win rate based on completed trades
+      const winRate = totalCompletedTrades > 0 ? (profitableTrades / totalCompletedTrades * 100) : 0;
+
+      // Get the most recent trade
+      const sortedTrades = [...validTrades].sort((a, b) =>
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      const lastTrade = sortedTrades[0]; // First trade is the most recent after sorting
+
+      // Format the last trade time with date and time
+      const lastTradeTime = lastTrade ? formatDistanceToNow(new Date(lastTrade.createdAt), { addSuffix: true }) : null;
+
+      return {
+        performance: strategy.performance.toFixed(2),
+        trades: validTrades.length, // Total number of valid trades (including pending)
+        winRate: winRate.toFixed(1),
+        lastTrade: lastTradeTime
+      };
+    }
+
+    // Otherwise calculate from trades
     // Only consider completed trades for win rate calculation
-    const completedTrades = trades.filter(t => t.status === 'executed' || t.status === 'closed' || t.exitPrice);
+    const completedTrades = validTrades.filter(t => t.status === 'executed' || t.status === 'closed' || t.exitPrice);
     const totalCompletedTrades = completedTrades.length;
 
     // Calculate profitable trades (only from completed trades)
@@ -110,17 +108,22 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
     const winRate = totalCompletedTrades > 0 ? (profitableTrades / totalCompletedTrades * 100) : 0;
 
     // Calculate total profit from all trades
-    const totalProfit = trades.reduce((sum, t) => sum + (t.profit || 0), 0);
+    const totalProfit = validTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
 
     // Get the most recent trade
-    const lastTrade = trades[0]; // First trade is the most recent due to ordering
+    const sortedTrades = [...validTrades].sort((a, b) =>
+      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+    const lastTrade = sortedTrades[0]; // First trade is the most recent after sorting
 
     // Format the last trade time with date and time
     const lastTradeTime = lastTrade ? formatDistanceToNow(new Date(lastTrade.createdAt), { addSuffix: true }) : null;
 
+    logService.log('info', `Calculated stats from trades for ${strategyId}: profit=${totalProfit}, trades=${validTrades.length}, winRate=${winRate}`, null, 'StrategyStatus');
+
     return {
       performance: totalProfit.toFixed(2),
-      trades: trades.length, // Total number of trades (including pending)
+      trades: validTrades.length, // Total number of valid trades (including pending)
       winRate: winRate.toFixed(1),
       lastTrade: lastTradeTime
     };
@@ -129,20 +132,39 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
   // Fetch trades for all strategies with improved data handling
   const fetchTrades = async () => {
     try {
-      // Get trades for all strategies
-      const { data: trades, error } = await supabase
-        .from('trades')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200); // Increased limit to get more trades
+      setLoading(true);
+      logService.log('info', 'Fetching trades for active strategies', null, 'StrategyStatus');
 
-      if (error) throw error;
+      // Get trades for all strategies from both tables
+      const [tradesResponse, strategyTradesResponse] = await Promise.all([
+        // Check the trades table
+        supabase
+          .from('trades')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(200),
+
+        // Also check the strategy_trades table
+        supabase
+          .from('strategy_trades')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(200)
+      ]);
+
+      if (tradesResponse.error) {
+        logService.log('error', 'Error fetching from trades table', tradesResponse.error, 'StrategyStatus');
+      }
+
+      if (strategyTradesResponse.error) {
+        logService.log('error', 'Error fetching from strategy_trades table', strategyTradesResponse.error, 'StrategyStatus');
+      }
 
       // Organize trades by strategy
       const tradesByStrategy: Record<string, Trade[]> = {};
 
-      // Process database trades
-      trades?.forEach(trade => {
+      // Process trades from the trades table
+      tradesResponse.data?.forEach(trade => {
         const strategyId = trade.strategyId || trade.strategy_id;
         if (!strategyId) return;
 
@@ -156,10 +178,10 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
           symbol: trade.symbol,
           side: trade.side,
           status: trade.status,
-          amount: trade.amount || (trade as any).entry_amount || (trade as any).quantity || 0.1,
-          entryPrice: trade.entry_price || (trade as any).entryPrice || 0,
-          exitPrice: trade.exit_price || (trade as any).exitPrice || 0,
-          profit: trade.profit || (trade as any).pnl || 0,
+          amount: trade.amount || trade.entry_amount || trade.quantity || 0.1,
+          entryPrice: trade.entry_price || trade.entryPrice || 0,
+          exitPrice: trade.exit_price || trade.exitPrice || 0,
+          profit: trade.profit || trade.pnl || 0,
           timestamp: new Date(trade.created_at || trade.timestamp).getTime(),
           strategyId: strategyId,
           createdAt: trade.created_at || new Date(trade.timestamp).toISOString(),
@@ -169,11 +191,67 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
         tradesByStrategy[strategyId].push(normalizedTrade);
       });
 
-      // If we have no trades for active strategies, generate some demo trades
+      // Process trades from the strategy_trades table
+      strategyTradesResponse.data?.forEach(trade => {
+        const strategyId = trade.strategy_id;
+        if (!strategyId) return;
+
+        if (!tradesByStrategy[strategyId]) {
+          tradesByStrategy[strategyId] = [];
+        }
+
+        // Normalize trade data
+        const normalizedTrade: Trade = {
+          id: trade.id,
+          symbol: trade.symbol,
+          side: trade.side,
+          status: trade.status,
+          amount: trade.amount || trade.entry_amount || trade.quantity || 0.1,
+          entryPrice: trade.entry_price || 0,
+          exitPrice: trade.exit_price || 0,
+          profit: trade.pnl || 0,
+          timestamp: new Date(trade.created_at).getTime(),
+          strategyId: strategyId,
+          createdAt: trade.created_at,
+          executedAt: trade.executed_at || null
+        };
+
+        // Only add if we don't already have this trade (avoid duplicates)
+        if (!tradesByStrategy[strategyId].some(t => t.id === normalizedTrade.id)) {
+          tradesByStrategy[strategyId].push(normalizedTrade);
+        }
+      });
+
+      // Log the number of trades found for each strategy
+      Object.entries(tradesByStrategy).forEach(([strategyId, trades]) => {
+        logService.log('info', `Found ${trades.length} trades for strategy ${strategyId}`, null, 'StrategyStatus');
+      });
+
+      // For strategies with no trades, check if we can get performance data from the strategy itself
       strategies.forEach(strategy => {
         if (strategy.status === 'active' && (!tradesByStrategy[strategy.id] || tradesByStrategy[strategy.id].length === 0)) {
-          // Generate demo trades for this strategy
-          tradesByStrategy[strategy.id] = generateDemoTradesForStrategy(strategy, 5);
+          logService.log('info', `No trades found for active strategy ${strategy.id}, checking strategy data`, null, 'StrategyStatus');
+
+          // If the strategy has performance data, create a synthetic trade to represent it
+          if (strategy.performance !== undefined && strategy.performance !== null) {
+            const syntheticTrade: Trade = {
+              id: `synthetic-${strategy.id}`,
+              symbol: (strategy.selected_pairs && strategy.selected_pairs[0]) || 'BTC/USDT',
+              side: 'buy',
+              status: 'executed',
+              amount: 1,
+              entryPrice: 100,
+              exitPrice: 100 * (1 + (strategy.performance / 100)),
+              profit: strategy.performance,
+              timestamp: Date.now(),
+              strategyId: strategy.id,
+              createdAt: new Date().toISOString(),
+              executedAt: new Date().toISOString()
+            };
+
+            tradesByStrategy[strategy.id] = [syntheticTrade];
+            logService.log('info', `Created synthetic trade for strategy ${strategy.id} with performance ${strategy.performance}`, null, 'StrategyStatus');
+          }
         }
       });
 
@@ -184,30 +262,38 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
 
       Object.entries(tradesByStrategy).forEach(([strategyId, strategyTrades]) => {
         stats[strategyId] = calculateStrategyStats(strategyId, strategyTrades);
+        logService.log('info', `Calculated stats for strategy ${strategyId}:`, stats[strategyId], 'StrategyStatus');
       });
 
       setStrategyStats(stats);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching trades:', error);
+      logService.log('error', 'Error fetching trades', error, 'StrategyStatus');
       setLoading(false);
 
-      // Generate fallback demo data if fetch fails
-      const fallbackStats: Record<string, any> = {};
-      const fallbackTrades: Record<string, Trade[]> = {};
+      // Set empty data instead of random data
+      const emptyStats: Record<string, any> = {};
+      const emptyTrades: Record<string, Trade[]> = {};
 
       strategies.forEach(strategy => {
-        fallbackTrades[strategy.id] = generateDemoTradesForStrategy(strategy, 5);
-        fallbackStats[strategy.id] = calculateStrategyStats(strategy.id, fallbackTrades[strategy.id]);
+        emptyTrades[strategy.id] = [];
+        emptyStats[strategy.id] = {
+          performance: '0.00',
+          trades: 0,
+          winRate: '0.0',
+          lastTrade: null
+        };
       });
 
-      setStrategyTrades(fallbackTrades);
-      setStrategyStats(fallbackStats);
+      setStrategyTrades(emptyTrades);
+      setStrategyStats(emptyStats);
     }
   };
 
   // Initial data load
   useEffect(() => {
+    logService.log('info', 'StrategyStatus component mounted, fetching trades', null, 'StrategyStatus');
     fetchTrades();
 
     // Subscribe to trade updates via WebSocket
@@ -235,8 +321,20 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
             timestamp: new Date(rawTrade.created_at || rawTrade.timestamp).getTime(),
             strategyId: strategyId,
             createdAt: rawTrade.created_at || new Date(rawTrade.timestamp).toISOString(),
-            executedAt: rawTrade.executed_at || null
+            executedAt: rawTrade.executed_at || null,
+            marketType: rawTrade.market_type || rawTrade.marketType || 'spot'
           };
+
+          // Validate the trade data
+          if (!trade.entryPrice || trade.entryPrice <= 0) {
+            logService.log('warn', `Skipping trade with invalid entry price: ${trade.entryPrice}`, { trade }, 'StrategyStatus');
+            return;
+          }
+
+          if (!trade.amount || trade.amount <= 0) {
+            logService.log('warn', `Skipping trade with invalid amount: ${trade.amount}`, { trade }, 'StrategyStatus');
+            return;
+          }
 
           // Update the trades for this strategy
           setStrategyTrades(prev => {
@@ -408,8 +506,9 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
       stats[strategyId] = calculateStrategyStats(strategyId, strategyTrades);
     });
 
+    logService.log('info', 'Updated strategy stats due to trade changes', stats, 'StrategyStatus');
     setStrategyStats(stats);
-  }, [strategyTrades]);
+  }, [strategyTrades, strategies]); // Also recalculate when strategies change
 
   // Get performance color based on value
   const getPerformanceColor = (value: string) => {

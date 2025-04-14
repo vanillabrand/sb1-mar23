@@ -36,6 +36,8 @@ export interface Trade {
   strategyId?: string;
   createdAt?: string;
   executedAt?: string | null;
+  marketType?: MarketType;
+  leverage?: number; // Only used for futures trading
 }
 
 export interface TradeOptions {
@@ -117,6 +119,7 @@ export interface StrategyBudget {
   allocated: number;
   available: number;
   maxPositionSize: number;
+  lastUpdated?: number;
 }
 
 export type ExchangeId = 'binance' | 'bitmart' | 'kucoin' | 'coinbase' | 'kraken' | string;
