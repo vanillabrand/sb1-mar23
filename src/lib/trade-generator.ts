@@ -250,9 +250,9 @@ class TradeGenerator extends EventEmitter {
                   const adjustedSize = positionSize * sizeMultiplier;
 
                   // Vary the side (buy/sell) for some trades to show variety
-                  const tradeSide = (i === 0) ?
-                    (signal.direction === 'Long' ? 'buy' : 'sell') : // First trade uses the signal direction
-                    (Math.random() > 0.3 ? (signal.direction === 'Long' ? 'buy' : 'sell') : (signal.direction === 'Long' ? 'sell' : 'buy')); // Other trades might flip
+                  const tradeSide = (i === 0) ? // First trade uses the signal direction
+                    (signal.direction === 'Long' ? 'buy' : 'sell') :
+                    (Math.random() > 0.3 ? (signal.direction === 'Long' ? 'sell' : 'buy') : (signal.direction === 'Long' ? 'buy' : 'sell')); // Other trades might flip
 
                   // Create trade options
                   const tradeOptions = {
@@ -514,7 +514,7 @@ class TradeGenerator extends EventEmitter {
       logService.log('info', `Generating trade signal for ${symbol} (Strategy: ${strategy.id})`, {
         currentPrice,
         availableBudget,
-        riskLevel: strategy.risk_level || (strategy as any).risk_level
+        riskLevel: strategy.riskLevel
       }, 'TradeGenerator');
 
       // Prepare a more detailed prompt for DeepSeek
@@ -527,7 +527,7 @@ Current Market Data:
 - Symbol: ${symbol}
 - Current Price: ${currentPrice}
 - Market State: ${JSON.stringify(marketState)}
-- Risk Level: ${strategy.risk_level || (strategy as any).risk_level || 'Medium'}
+- Risk Level: ${strategy.riskLevel || 'Medium'}
 - Available Budget: $${availableBudget ? availableBudget.toFixed(2) : 'Unknown'}
 
 Technical Indicators:
@@ -541,7 +541,7 @@ Requirements:
 2. Consider market state and indicators
 3. Calculate precise entry, exit, and risk levels
 4. Provide confidence score and detailed rationale
-5. Ensure risk parameters match ${strategy.risk_level || (strategy as any).risk_level || 'Medium'} risk level
+5. Ensure risk parameters match ${strategy.riskLevel || 'Medium'} risk level
 6. Consider the available budget when determining position size
 7. ONLY generate a trade if market conditions are favorable
 8. If conditions are not favorable, return null or a confidence score below 0.5
@@ -612,7 +612,7 @@ Return ONLY a JSON object with this structure:
     // Log inputs for debugging
     logService.log('debug', `Calculating position size with inputs:`, {
       strategyId: strategy.id,
-      riskLevel: strategy.risk_level,
+      riskLevel: strategy.riskLevel,
       availableBudget,
       currentPrice,
       confidence
@@ -627,7 +627,7 @@ Return ONLY a JSON object with this structure:
       'Ultra High': 0.25,
       'Extreme': 0.3,
       'God Mode': 0.5
-    }[strategy.risk_level] || 0.15;
+    }[strategy.riskLevel] || 0.15;
 
     // In demo mode, use a more varied approach to generate different trade sizes
     if (demoService.isInDemoMode()) {
@@ -1032,7 +1032,7 @@ ${JSON.stringify(strategy.strategy_config, null, 2)}
 Strategy Details:
 - ID: ${strategy.id}
 - Name: ${strategy.name || 'Unnamed Strategy'}
-- Risk Level: ${strategy.risk_level || (strategy as any).risk_level || 'Medium'}
+- Risk Level: ${strategy.riskLevel || 'Medium'}
 - Status: ${strategy.status || 'active'}
 
 Current Market Conditions:

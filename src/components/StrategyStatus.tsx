@@ -135,29 +135,40 @@ export function StrategyStatus({ strategies = [] }: StrategyStatusProps) {
       setLoading(true);
       logService.log('info', 'Fetching trades for active strategies', null, 'StrategyStatus');
 
-      // Get trades for all strategies from both tables
-      const [tradesResponse, strategyTradesResponse] = await Promise.all([
-        // Check the trades table
-        supabase
-          .from('trades')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(200),
-
-        // Also check the strategy_trades table
-        supabase
-          .from('strategy_trades')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(200)
-      ]);
+      // Get trades from the trades table
+      const tradesResponse = await supabase
+        .from('trades')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
 
       if (tradesResponse.error) {
         logService.log('error', 'Error fetching from trades table', tradesResponse.error, 'StrategyStatus');
       }
 
-      if (strategyTradesResponse.error) {
-        logService.log('error', 'Error fetching from strategy_trades table', strategyTradesResponse.error, 'StrategyStatus');
+      // Try to get trades from the strategy_trades table, but handle the case when it doesn't exist
+      let strategyTradesResponse = { data: null, error: null };
+      try {
+        strategyTradesResponse = await supabase
+          .from('strategy_trades')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(200);
+
+        if (strategyTradesResponse.error) {
+          // Check if the error is because the table doesn't exist
+          if (strategyTradesResponse.error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Strategy trades table does not exist yet. This is normal if you haven\'t created it.', null, 'StrategyStatus');
+            // Set data to empty array to avoid errors
+            strategyTradesResponse.data = [];
+          } else {
+            logService.log('error', 'Error fetching from strategy_trades table', strategyTradesResponse.error, 'StrategyStatus');
+          }
+        }
+      } catch (error) {
+        logService.log('error', 'Exception when fetching from strategy_trades table', error, 'StrategyStatus');
+        // Set data to empty array to avoid errors
+        strategyTradesResponse.data = [];
       }
 
       // Organize trades by strategy

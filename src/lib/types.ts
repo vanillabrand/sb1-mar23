@@ -27,7 +27,7 @@ export interface Trade {
   id: string;
   symbol: string;
   side: 'buy' | 'sell';
-  status: 'pending' | 'executed' | 'cancelled' | 'failed';
+  status: 'pending' | 'executed' | 'cancelled' | 'failed' | 'closed';  // Added 'closed'
   amount?: number;
   entryPrice?: number;
   exitPrice?: number;

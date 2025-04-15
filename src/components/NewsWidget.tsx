@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Clock, RefreshCw, Loader2 } from 'lucide-react';
 import { globalCacheService } from '../lib/global-cache-service';
 import { formatDistanceToNow } from 'date-fns';
 import { Pagination } from './ui/Pagination';
+import { logService } from '../lib/log-service';
 
 interface NewsWidgetProps {
   assets: string[];
@@ -20,12 +21,35 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(4);
 
-  const fetchNews = useCallback(async () => {
+  // Track if we've already fetched news to prevent multiple refreshes
+  const hasFetchedRef = useRef(false);
+  // Track the last time we manually refreshed
+  const lastManualRefreshRef = useRef(0);
+  // News refresh interval (10 minutes)
+  const NEWS_REFRESH_INTERVAL = 10 * 60 * 1000;
+
+  const fetchNews = useCallback(async (forceRefresh = false) => {
     try {
+      // Check if we've already fetched and it's not a forced refresh
+      if (hasFetchedRef.current && !forceRefresh) {
+        // Check if we need to refresh based on time elapsed
+        const now = Date.now();
+        const lastUpdate = globalCacheService.getNewsLastUpdate();
+        const timeSinceLastUpdate = now - lastUpdate;
+
+        // If it's been less than 10 minutes since the last update, don't refresh
+        if (timeSinceLastUpdate < NEWS_REFRESH_INTERVAL) {
+          logService.log('info', `Skipping news refresh, last update was ${Math.round(timeSinceLastUpdate/1000)}s ago`, null, 'NewsWidget');
+          return;
+        }
+      }
+
       setError(null);
       if (!refreshing) setLoading(true);
 
       const newsAssets = assets.length > 0 ? assets : ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
+
+      logService.log('info', `Fetching news for assets: ${newsAssets.join(', ')}`, null, 'NewsWidget');
 
       // Use the global cache service instead of direct API call
       const newsItems = await globalCacheService.getNewsForAssets(newsAssets);
@@ -37,14 +61,19 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
       // Get the last update time from the cache service
       const lastUpdate = globalCacheService.getNewsLastUpdate();
       setLastUpdateTime(lastUpdate);
+
+      // Mark that we've fetched news
+      hasFetchedRef.current = true;
+
+      logService.log('info', `News fetched successfully, ${newsItems.length} items`, null, 'NewsWidget');
     } catch (err) {
       setError('Failed to load news');
-      console.error('Error fetching news:', err);
+      logService.log('error', 'Error fetching news:', err, 'NewsWidget');
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [assets, refreshing]);
+  }, [assets, refreshing, NEWS_REFRESH_INTERVAL]);
 
   // Function to update paginated news
   const updatePaginatedNews = useCallback((items = allNews) => {
@@ -55,13 +84,29 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
 
   const handleRefresh = async () => {
     try {
+      // Check if we've refreshed recently (within the last minute)
+      const now = Date.now();
+      const timeSinceLastRefresh = now - lastManualRefreshRef.current;
+
+      if (timeSinceLastRefresh < 60000) { // 1 minute cooldown
+        logService.log('info', `Manual refresh requested too soon (${Math.round(timeSinceLastRefresh/1000)}s since last refresh)`, null, 'NewsWidget');
+        return;
+      }
+
       setRefreshing(true);
+      lastManualRefreshRef.current = now;
+
+      logService.log('info', 'Manual refresh requested', null, 'NewsWidget');
+
       // Force a refresh of the global cache
       await globalCacheService.forceRefreshNews();
-      // Then fetch the updated news
-      await fetchNews();
+
+      // Then fetch the updated news with force refresh flag
+      await fetchNews(true);
+
+      logService.log('info', 'Manual refresh completed successfully', null, 'NewsWidget');
     } catch (error) {
-      console.error('Error refreshing news:', error);
+      logService.log('error', 'Error refreshing news:', error, 'NewsWidget');
       setError('Failed to refresh news');
     } finally {
       setRefreshing(false);

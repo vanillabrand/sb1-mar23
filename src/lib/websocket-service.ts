@@ -3,8 +3,22 @@ import { logService } from './log-service';
 import { demoService } from './demo-service';
 import { configService } from './config-service';
 import { config } from './config';
+import { supabase } from './supabase';
 import ReconnectingWebSocket from 'reconnecting-websocket';
-import type { WebSocketMessage, WebSocketConfig } from './types';
+// Define WebSocket types locally since they're not in the main types file
+interface WebSocketMessage {
+  type: string;
+  [key: string]: any;
+}
+
+interface WebSocketConfig {
+  url?: string;
+  subscriptions?: string[];
+  onOpen?: () => void;
+  onClose?: () => void;
+  onError?: (error: any) => void;
+  onMessage?: (message: any) => void;
+}
 
 export class WebSocketService extends EventEmitter {
   private static instance: WebSocketService;
@@ -14,7 +28,7 @@ export class WebSocketService extends EventEmitter {
   private reconnectAttempts: number = 0;
   private pingInterval: NodeJS.Timeout | null = null;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
-  private readonly RECONNECT_INTERVAL = 5000;
+  // RECONNECT_INTERVAL is used in the ReconnectingWebSocket config
   private readonly MESSAGE_QUEUE_SIZE = 1000;
   private readonly PING_INTERVAL = 30000; // 30 seconds
 

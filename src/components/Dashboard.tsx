@@ -445,7 +445,12 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           table: 'trades'
         },
         (payload) => {
-          logService.log('info', `Trade ${payload.new?.id || payload.old?.id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
+          const tradeId = payload.new?.id || payload.old?.id;
+          if (tradeId) {
+            logService.log('info', `Trade ${tradeId} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
+          } else {
+            logService.log('debug', `Received trade update with undefined ID, eventType: ${payload.eventType}`, payload, 'Dashboard');
+          }
           loadStrategies();
         }
       )
@@ -493,11 +498,21 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         loadStrategies();
       }},
       { event: 'trade:update', handler: (data: any) => {
-        logService.log('info', `Trade ${data.tradeId || data.trade?.id} updated`, null, 'Dashboard');
+        const tradeId = data.tradeId || data.trade?.id;
+        if (tradeId) {
+          logService.log('info', `Trade ${tradeId} updated`, null, 'Dashboard');
+        } else {
+          logService.log('debug', 'Received trade update event with undefined ID', data, 'Dashboard');
+        }
         loadStrategies();
       }},
       { event: 'trade:closed', handler: (data: any) => {
-        logService.log('info', `Trade ${data.tradeId || data.trade?.id} closed`, null, 'Dashboard');
+        const tradeId = data.tradeId || data.trade?.id;
+        if (tradeId) {
+          logService.log('info', `Trade ${tradeId} closed`, null, 'Dashboard');
+        } else {
+          logService.log('debug', 'Received trade closed event with undefined ID', data, 'Dashboard');
+        }
         loadStrategies();
       }},
       { event: 'trades:closed', handler: (data: any) => {

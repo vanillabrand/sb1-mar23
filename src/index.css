@@ -202,6 +202,23 @@
   @apply bg-gunmetal-700;
 }
 
+/* Custom scrollbar for vertical scrolling */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-gunmetal-700 rounded-full;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-gunmetal-600;
+}
+
 /* Responsive table container */
 .table-container {
   @apply w-full overflow-x-auto pb-2;

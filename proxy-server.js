@@ -873,7 +873,10 @@ app.use('/api', createProxyMiddleware({
   }
 }));
 
-const PORT = process.env.PROXY_PORT || 3001;
+const PORT = process.env.PORT || 3004; // Ensure consistent port
+
+// We'll use the startServer function to handle this
+// app.listen is now handled by the HTTP server created below
 
 // Create HTTP server
 const server = http.createServer(app);
@@ -1166,21 +1169,35 @@ global.broadcastBinanceData = function(data) {
 };
 
 // Start the server with fallback ports if the primary port is in use
-const startServer = (port) => {
+const startServer = (port, maxAttempts = 10) => {
+  // If we've tried too many ports, give up
+  if (maxAttempts <= 0) {
+    console.error('Failed to find an available port after multiple attempts');
+    return;
+  }
+
+  // Try to start the server on the current port
   server.listen(port)
     .on('listening', () => {
+      // Update the environment variable with the actual port used
+      process.env.PORT = port.toString();
+      process.env.PROXY_PORT = port.toString();
+
       console.log(`Proxy server running on port ${port}`);
       console.log(`WebSocket server running at ws://localhost:${port}/ws`);
+      console.log(`Set your browser to use http://localhost:${port}/api for API requests`);
     })
     .on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
-        console.log(`Port ${port} is already in use, trying port ${port + 1}`);
-        startServer(port + 1);
+        // Try the next port
+        const nextPort = port + 1;
+        console.log(`Port ${port} is already in use, trying port ${nextPort}`);
+        startServer(nextPort, maxAttempts - 1);
       } else {
         console.error('Server error:', err);
       }
     });
 };
 
-// Start the server with the initial port
-startServer(PORT);
+// Start the server with the initial port and allow up to 20 attempts
+startServer(PORT, 20);

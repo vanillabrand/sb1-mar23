@@ -4,7 +4,7 @@ module.exports = {
       name: 'proxy-server',
       script: 'proxy-server.js',
       env: {
-        PROXY_PORT: 3001
+        PROXY_PORT: 3004
       }
     },
     {

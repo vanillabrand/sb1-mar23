@@ -25,6 +25,7 @@ class ExchangeService extends EventEmitter {
   private exchangeInstances: Map<string, any> = new Map();
   private demoMode = false;
   private activeOrders: Map<string, any> = new Map();
+  private loggedOrderErrors: Set<string> = new Set();
 
   private constructor() {
     super();
@@ -780,8 +781,23 @@ class ExchangeService extends EventEmitter {
       this.exchangeInstances.set('binance', testnetExchange);
 
       console.log('Loading markets from Binance TestNet...');
-      await testnetExchange.loadMarkets();
-      console.log('Successfully loaded markets from Binance TestNet');
+      try {
+        // Try to load markets, but if it fails, use mock data
+        await testnetExchange.loadMarkets();
+        console.log('Successfully loaded markets from Binance TestNet');
+      } catch (marketError) {
+        console.warn('Failed to load markets from Binance TestNet, using mock data:', marketError);
+        logService.log('warn', 'Failed to load markets from Binance TestNet, using mock data', marketError, 'ExchangeService');
+
+        // Create mock markets data
+        testnetExchange.markets = this.createMockMarkets();
+        testnetExchange.marketsById = {};
+        Object.values(testnetExchange.markets).forEach((market: any) => {
+          testnetExchange.marketsById[market.id] = market;
+        });
+
+        console.log('Successfully created mock markets data');
+      }
 
       this.activeExchange = {
         id: 'binance',
@@ -806,7 +822,7 @@ class ExchangeService extends EventEmitter {
 
         // Try to provide a more helpful error message
         if (error.message.includes('ECONNREFUSED')) {
-          console.error('Connection refused. Make sure the proxy server is running on port 3001.');
+          console.error('Connection refused. Make sure the proxy server is running on port 3003.');
         } else if (error.message.includes('NetworkError')) {
           console.error('Network error. Check your internet connection and proxy configuration.');
         }
@@ -1113,7 +1129,8 @@ class ExchangeService extends EventEmitter {
    */
   async fetchOrderStatus(orderId: string): Promise<any> {
     try {
-      if (!this.activeExchange) {
+      // In demo mode or no active exchange, return mock status immediately
+      if (this.demoMode || !this.activeExchange) {
         return this.createMockOrderStatus(orderId);
       }
 
@@ -1123,15 +1140,26 @@ class ExchangeService extends EventEmitter {
       }
 
       try {
-        // Extract symbol from orderId if it's in the format "SYMBOL-TIMESTAMP-ID"
+        // Extract symbol from orderId if it's in the format "SYMBOL-TIMESTAMP-ID" or "SYMBOL/QUOTE-TIMESTAMP-ID"
         let symbol = null;
         const orderIdParts = orderId.split('-');
+
         if (orderIdParts.length >= 3) {
-          symbol = orderIdParts[0];
-          // Convert to proper format if needed
-          if (!symbol.includes('/') && symbol.includes('USDT')) {
-            const base = symbol.replace('USDT', '');
+          const symbolPart = orderIdParts[0];
+
+          // Case 1: Symbol already includes '/' (e.g., "BTC/USDT-TIMESTAMP-ID")
+          if (symbolPart.includes('/')) {
+            symbol = symbolPart;
+          }
+          // Case 2: Symbol is just the base asset with USDT (e.g., "BTCUSDT-TIMESTAMP-ID")
+          else if (symbolPart.includes('USDT')) {
+            const base = symbolPart.replace('USDT', '');
             symbol = `${base}/USDT`;
+          }
+          // Case 3: Symbol is just the base asset (e.g., "BTC-TIMESTAMP-ID")
+          else {
+            // Assume USDT as the quote asset
+            symbol = `${symbolPart}/USDT`;
           }
         }
 
@@ -1143,15 +1171,17 @@ class ExchangeService extends EventEmitter {
           }
         }
 
-        // If we still don't have a symbol, log and return mock status
+        // If we still don't have a symbol, return mock status without logging
         if (!symbol) {
-          // Log at info level instead of warn to reduce noise
-          logService.log('info', `No symbol found for order ${orderId}, returning mock status`, null, 'ExchangeService');
           return this.createMockOrderStatus(orderId);
         }
 
         // Fetch the order status from the exchange with both orderId and symbol
         const order = await exchange.fetchOrder(orderId, symbol);
+
+        // If we successfully got the order, remove it from the logged errors set
+        this.loggedOrderErrors.delete(orderId);
+
         return {
           id: order.id,
           status: order.status,
@@ -1166,18 +1196,93 @@ class ExchangeService extends EventEmitter {
           lastTradeTimestamp: order.lastTradeTimestamp
         };
       } catch (exchangeError) {
-        // Log at info level instead of warn to reduce noise
-        logService.log('info',
-          `Failed to fetch order status for ${orderId} from exchange, returning mock status`,
-          exchangeError,
-          'ExchangeService'
-        );
+        // Check if this is a "not found" error, which is common and expected
+        const errorMessage = exchangeError instanceof Error ? exchangeError.message : String(exchangeError);
+        const isNotFoundError =
+          errorMessage.includes('Not found') ||
+          errorMessage.includes('does not exist') ||
+          errorMessage.includes('Order not found') ||
+          errorMessage.includes('code":30000');
+
+        // Only log once per order ID to reduce noise, and only if it's not a common "not found" error
+        if (!this.loggedOrderErrors.has(orderId) && !isNotFoundError) {
+          logService.log('info',
+            `Failed to fetch order status for ${orderId} from exchange, returning mock status`,
+            exchangeError,
+            'ExchangeService'
+          );
+          this.loggedOrderErrors.add(orderId);
+
+          // Limit the size of the logged errors set to prevent memory leaks
+          if (this.loggedOrderErrors.size > 1000) {
+            // Clear the oldest entries (first 500)
+            const oldEntries = Array.from(this.loggedOrderErrors).slice(0, 500);
+            oldEntries.forEach(entry => this.loggedOrderErrors.delete(entry));
+          }
+        }
         return this.createMockOrderStatus(orderId);
       }
     } catch (error) {
-      logService.log('error', `Failed to fetch order status for ${orderId}`, error, 'ExchangeService');
+      // Only log general errors once per order ID to reduce noise
+      if (!this.loggedOrderErrors.has(orderId)) {
+        logService.log('error', `Failed to fetch order status for ${orderId}`, error, 'ExchangeService');
+        this.loggedOrderErrors.add(orderId);
+      }
       return this.createMockOrderStatus(orderId);
     }
+  }
+
+  /**
+   * Create mock markets data for demo mode or when the exchange is unavailable
+   * @returns Object containing mock markets data
+   */
+  private createMockMarkets(): any {
+    // Create a set of common trading pairs
+    const pairs = [
+      'BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'SOL/USDT', 'ADA/USDT',
+      'XRP/USDT', 'DOT/USDT', 'DOGE/USDT', 'AVAX/USDT', 'MATIC/USDT',
+      'LINK/USDT', 'UNI/USDT', 'ATOM/USDT', 'LTC/USDT', 'BCH/USDT',
+      'ALGO/USDT', 'XLM/USDT', 'FIL/USDT', 'TRX/USDT', 'ETC/USDT'
+    ];
+
+    // Create mock markets object
+    const markets: Record<string, any> = {};
+
+    pairs.forEach(pair => {
+      const [base, quote] = pair.split('/');
+      const id = pair.replace('/', '');
+
+      markets[pair] = {
+        id,
+        symbol: pair,
+        base,
+        quote,
+        baseId: base,
+        quoteId: quote,
+        active: true,
+        precision: {
+          price: 8,
+          amount: 8
+        },
+        limits: {
+          amount: {
+            min: 0.00001,
+            max: 1000000
+          },
+          price: {
+            min: 0.00000001,
+            max: 1000000
+          },
+          cost: {
+            min: 1,
+            max: 1000000
+          }
+        },
+        info: {}
+      };
+    });
+
+    return markets;
   }
 
   /**
@@ -1239,33 +1344,67 @@ class ExchangeService extends EventEmitter {
   /**
    * Check the health of the exchange connection
    */
-  async checkHealth(): Promise<{ ok: boolean, degraded?: boolean, message?: string }> {
+  async checkHealth(): Promise<{ ok: boolean; degraded?: boolean; message?: string }> {
     try {
-      if (!this.activeExchange) {
-        return { ok: true, message: 'Using demo mode' };
+      // First try a simple ping without using CCXT
+      const pingResponse = await fetch(`${config.binanceTestnetApiUrl}/api/v3/ping`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
+      });
+
+      if (!pingResponse.ok) {
+        return {
+          ok: false,
+          message: `API ping failed with status ${pingResponse.status}`
+        };
       }
 
-      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      // If ping succeeds, try a more complex request
+      const exchange = await ccxtService.getExchange('binance', true);
       if (!exchange) {
-        return { ok: false, message: 'No active exchange instance' };
+        return {
+          ok: false,
+          message: 'Failed to initialize exchange'
+        };
       }
 
-      // Try a simple API call to check if the exchange is responsive
+      // Use fetchTime instead of direct API calls
       const start = performance.now();
       await exchange.fetchTime();
       const responseTime = performance.now() - start;
 
-      // If response time is over 1000ms, consider the connection degraded
-      const isDegraded = responseTime > 1000;
-
       return {
         ok: true,
-        degraded: isDegraded,
-        message: isDegraded ? `High latency: ${Math.round(responseTime)}ms` : undefined
+        degraded: responseTime > 1000,
+        message: responseTime > 1000 ? `High latency: ${Math.round(responseTime)}ms` : undefined
       };
+
     } catch (error) {
       logService.log('error', 'Exchange health check failed', error, 'ExchangeService');
-      return { ok: false, message: error instanceof Error ? error.message : 'Unknown error' };
+      
+      // Handle specific error types
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+        return {
+          ok: false,
+          message: 'Connection timed out'
+        };
+      }
+
+      if (errorMessage.includes('ECONNREFUSED')) {
+        return {
+          ok: false,
+          message: 'Connection refused'
+        };
+      }
+
+      return {
+        ok: false,
+        message: 'Connection failed'
+      };
     }
   }
 

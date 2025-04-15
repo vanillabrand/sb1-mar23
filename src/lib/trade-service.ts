@@ -3,6 +3,7 @@ import { logService } from './log-service';
 import { supabase } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
 import type { StrategyBudget } from './types';
+import { eventBus } from './event-bus';
 
 class TradeService extends EventEmitter {
   private static instance: TradeService;
@@ -30,12 +31,26 @@ class TradeService extends EventEmitter {
       if (savedBudgets) {
         const parsed = JSON.parse(savedBudgets);
         Object.entries(parsed).forEach(([strategyId, budget]) => {
-          this.budgets.set(strategyId, budget as StrategyBudget);
+          // Ensure all budget properties are properly formatted as numbers
+          const formattedBudget = {
+            ...budget as StrategyBudget,
+            total: Number(((budget as StrategyBudget).total || 0).toFixed(2)),
+            allocated: Number(((budget as StrategyBudget).allocated || 0).toFixed(2)),
+            available: Number(((budget as StrategyBudget).available || 0).toFixed(2)),
+            maxPositionSize: Number(((budget as StrategyBudget).maxPositionSize || 0).toFixed(2)),
+            profit: Number(((budget as StrategyBudget).profit || 0).toFixed(2)),
+            lastUpdated: (budget as StrategyBudget).lastUpdated || Date.now()
+          };
+          this.budgets.set(strategyId, formattedBudget);
+          logService.log('info', `Loaded budget from localStorage for strategy ${strategyId}`, formattedBudget, 'TradeService');
         });
+      } else {
+        logService.log('info', 'No saved budgets found in localStorage', null, 'TradeService');
       }
       this.initialized = true;
     } catch (error) {
       console.warn('Failed to load saved budgets:', error);
+      logService.log('error', 'Failed to load saved budgets from localStorage', error, 'TradeService');
       this.initialized = true;
     }
   }
@@ -92,16 +107,18 @@ class TradeService extends EventEmitter {
 
   // Validate that the budget object has correct numeric values.
   private validateBudget(budget: StrategyBudget): boolean {
+    // Special case for deactivation - allow zero budget
+    if (budget.total === 0 && budget.allocated === 0 && budget.available === 0 && budget.maxPositionSize === 0) {
+      return true;
+    }
+
+    // Normal budget validation
     return (
-      typeof budget.total === 'number' &&
-      typeof budget.allocated === 'number' &&
-      typeof budget.available === 'number' &&
-      typeof budget.maxPositionSize === 'number' &&
       budget.total > 0 &&
       budget.allocated >= 0 &&
       budget.available >= 0 &&
       budget.maxPositionSize > 0 &&
-      Math.abs(budget.allocated + budget.available - budget.total) < 0.01 // Allow small rounding differences
+      budget.allocated + budget.available <= budget.total
     );
   }
 
@@ -241,16 +258,28 @@ class TradeService extends EventEmitter {
     const isDemoMode = this.isDemo;
     const budgetAmount = isDemoMode ? 50000 : this.DEFAULT_BUDGET;
 
+    // Ensure values are properly formatted as numbers
+    const total = Number(budgetAmount.toFixed(2));
+    const allocated = 0;
+    const available = Number(budgetAmount.toFixed(2));
+    const maxPositionSize = Number((isDemoMode ? 0.2 : 0.1).toFixed(2)); // 20% max position in demo mode vs 10% in live
+    const profit = 0;
+    const lastUpdated = Date.now();
+
     // Log the budget creation
     logService.log('info', `Creating default budget in ${isDemoMode ? 'demo' : 'live'} mode: ${budgetAmount}`, null, 'TradeService');
 
-    return {
-      total: Number(budgetAmount.toFixed(2)),
-      allocated: 0,
-      available: Number(budgetAmount.toFixed(2)),
-      maxPositionSize: Number((isDemoMode ? 0.2 : 0.1).toFixed(2)), // 20% max position in demo mode vs 10% in live
-      lastUpdated: Date.now()
+    // Create the budget object with all required properties
+    const budget: StrategyBudget = {
+      total,
+      allocated,
+      available,
+      maxPositionSize,
+      profit,
+      lastUpdated
     };
+
+    return budget;
   }
 
   // Connect a strategy to the trading engine to start generating trades
@@ -344,7 +373,7 @@ class TradeService extends EventEmitter {
       }
 
       // Call the database function to handle deletion
-      const { data, error } = await supabase
+      const { error } = await supabase
         .rpc('delete_strategy', { strategy_id: strategyId });
 
       if (error) {
@@ -409,7 +438,7 @@ class TradeService extends EventEmitter {
           }
         }
       } catch (dbError) {
-        logService.log('warn', `Error updating strategy_budgets table: ${dbError.message}`, null, 'TradeService');
+        logService.log('warn', `Error updating strategy_budgets table: ${dbError instanceof Error ? dbError.message : String(dbError)}`, null, 'TradeService');
       }
 
       // Update local cache
@@ -434,8 +463,20 @@ class TradeService extends EventEmitter {
     try {
       // Check if we already have a budget for this strategy in memory
       if (this.budgets.has(strategyId)) {
-        logService.log('info', `Budget already exists in memory for strategy ${strategyId}`, null, 'TradeService');
-        return;
+        const existingBudget = this.budgets.get(strategyId);
+        // Validate the budget to ensure it has all required properties
+        if (existingBudget &&
+            existingBudget.total !== undefined &&
+            existingBudget.allocated !== undefined &&
+            existingBudget.available !== undefined &&
+            existingBudget.maxPositionSize !== undefined) {
+          logService.log('info', `Budget already exists in memory for strategy ${strategyId}`, existingBudget, 'TradeService');
+          return;
+        } else {
+          // Budget exists but is invalid, remove it and create a new one
+          logService.log('warn', `Invalid budget found for strategy ${strategyId}, creating a new one`, existingBudget, 'TradeService');
+          this.budgets.delete(strategyId);
+        }
       }
 
       // Try to get the budget from the database
@@ -472,7 +513,8 @@ class TradeService extends EventEmitter {
           return;
         }
       } catch (dbError) {
-        logService.log('warn', `Error accessing strategy_budgets table: ${dbError.message}`, null, 'TradeService');
+        const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+        logService.log('warn', `Error accessing strategy_budgets table: ${errorMessage}`, null, 'TradeService');
       }
 
       // No budget in database or table doesn't exist, create a default one
@@ -500,8 +542,9 @@ class TradeService extends EventEmitter {
             logService.log('warn', `Failed to save default budget to database for strategy ${strategyId}`, insertError, 'TradeService');
           }
         }
-      } catch (insertError) {
-        logService.log('warn', `Exception when saving default budget to database for strategy ${strategyId}`, insertError, 'TradeService');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logService.log('warn', `Exception when saving default budget to database for strategy ${strategyId}`, errorMessage, 'TradeService');
       }
 
       // Set in memory regardless of database success

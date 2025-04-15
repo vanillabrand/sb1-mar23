@@ -178,17 +178,9 @@ class BitmartService extends EventEmitter {
   private async fetchWithCORS(url: string, options: RequestInit = {}): Promise<Response> {
     const defaultOptions: RequestInit = {
       headers: {
-        'Content-Type': 'application/json',
-      },
-      // Remove credentials: 'include' as it's causing CORS issues
-      mode: 'cors'
+        'Content-Type': 'application/json'
+      }
     };
-
-    // Check if we're in demo mode first
-    if (this.demoMode) {
-      // In demo mode, return synthetic data instead of making actual API calls
-      return this.createSyntheticResponse(url);
-    }
 
     try {
       // Extract the path from the original URL
@@ -197,10 +189,8 @@ class BitmartService extends EventEmitter {
         path = url.substring(this.baseUrl.length);
       }
 
-      // Construct the URL properly to avoid double slashes
-      // Use the proxy base URL directly without any path manipulation
-      const proxyBaseUrl = 'http://localhost:3001';
-      const proxiedUrl = `${proxyBaseUrl}/api/bitmart${path.startsWith('/') ? path : '/' + path}`;
+      // Use the config's proxyBaseUrl instead of hardcoded value
+      const proxiedUrl = `${config.proxyBaseUrl}/api/bitmart${path.startsWith('/') ? path : '/' + path}`;
 
       const finalOptions = {
         ...defaultOptions,
@@ -215,7 +205,6 @@ class BitmartService extends EventEmitter {
       return fetch(proxiedUrl, finalOptions);
     } catch (error) {
       logService.log('error', `Error in fetchWithCORS: ${error.message}`, error, 'BitmartService');
-      // Fall back to synthetic data on error
       return this.createSyntheticResponse(url);
     }
   }

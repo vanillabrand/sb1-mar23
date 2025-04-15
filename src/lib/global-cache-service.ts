@@ -26,7 +26,7 @@ class GlobalCacheService {
 
   // Cache refresh interval (15 minutes for market insights)
   private readonly CACHE_REFRESH_INTERVAL = 15 * 60 * 1000;
-  private readonly NEWS_REFRESH_INTERVAL = 15 * 60 * 1000; // Keep news refreshing more frequently
+  private readonly NEWS_REFRESH_INTERVAL = 10 * 60 * 1000; // 10 minutes for news refresh
 
   // Background refresh timers
   private marketInsightsTimer: NodeJS.Timeout | null = null;
@@ -320,6 +320,10 @@ class GlobalCacheService {
     try {
       logService.log('info', 'Refreshing news cache', null, 'GlobalCacheService');
 
+      // Clear all previous news articles
+      this.newsCache.clear();
+      logService.log('info', 'Cleared previous news cache', null, 'GlobalCacheService');
+
       // First, try to get news for user strategies
       try {
         // Get news for all assets in user strategies
@@ -331,10 +335,6 @@ class GlobalCacheService {
           logService.log('info', 'Updated news cache with user strategy assets', { count: userStrategyNews.length }, 'GlobalCacheService');
         } else {
           logService.log('info', 'No news found for user strategies', null, 'GlobalCacheService');
-          // Remove the user_strategies key if it exists but is empty
-          if (this.newsCache.has('user_strategies')) {
-            this.newsCache.delete('user_strategies');
-          }
         }
       } catch (strategyError) {
         logService.log('warn', 'Failed to get news for user strategies, falling back to default assets', strategyError, 'GlobalCacheService');
@@ -354,10 +354,6 @@ class GlobalCacheService {
           foundAnyNews = true;
           logService.log('info', `Found ${news.length} news articles for ${normalizedAsset}`, null, 'GlobalCacheService');
         } else {
-          // Remove the asset from the cache if it exists but is empty
-          if (this.newsCache.has(normalizedAsset)) {
-            this.newsCache.delete(normalizedAsset);
-          }
           logService.log('info', `No news found for ${normalizedAsset}`, null, 'GlobalCacheService');
         }
       }
