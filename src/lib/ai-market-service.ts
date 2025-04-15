@@ -4,8 +4,8 @@ import { config } from './config';
 
 class AIMarketService {
   private static instance: AIMarketService;
-  private readonly API_URL = config.getFullUrl(config.deepseekApiUrl + '/v1/chat/completions');  // Use full proxy URL
-  private readonly MODEL = 'deepseek-chat';  // Updated model name
+  private readonly API_URL = config.getFullUrl(config.deepseekApiUrl + 'v1/chat/completions');  // Use full proxy URL
+  private readonly MODEL = 'DeepSeek-V3-0324';  // Updated to the latest DeepSeek model
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY = 1000;
 

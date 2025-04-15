@@ -198,8 +198,8 @@ class BitmartService extends EventEmitter {
       }
 
       // Construct the URL properly to avoid double slashes
-      // Use the proxy base URL directly without any path manipulation
-      const proxyBaseUrl = 'http://localhost:3001';
+      // Use the proxy base URL from config
+      const proxyBaseUrl = config.proxyBaseUrl;
       const proxiedUrl = `${proxyBaseUrl}/api/bitmart${path.startsWith('/') ? path : '/' + path}`;
 
       const finalOptions = {

@@ -5,12 +5,16 @@ class ProxyService {
   private proxyUrl: string;
 
   private constructor() {
-    this.proxyUrl = import.meta.env.VITE_PROXY_URL || 'http://localhost:3001/api/';
+    // Use the environment variable or a relative URL to avoid hardcoding localhost
+    this.proxyUrl = import.meta.env.VITE_PROXY_URL || '/api/';
 
     // Ensure the proxy URL ends with a slash
     if (!this.proxyUrl.endsWith('/')) {
       this.proxyUrl += '/';
     }
+
+    // Log the proxy URL for debugging
+    logService.log('info', `Initialized ProxyService with URL: ${this.proxyUrl}`, null, 'ProxyService');
   }
 
   static getInstance(): ProxyService {
@@ -63,7 +67,7 @@ class ProxyService {
   async fetchNews(asset: string, apiKey: string): Promise<any> {
     try {
       const endpoint = `coindesk-news?asset=${encodeURIComponent(asset.toLowerCase())}&apiKey=${encodeURIComponent(apiKey)}`;
-      
+
       logService.log('info', `Fetching news for ${asset} using endpoint: ${endpoint}`, null, 'ProxyService');
       return await this.fetchFromProxy(endpoint);
     } catch (error) {

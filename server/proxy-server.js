@@ -112,30 +112,60 @@ app.get('/api/coindesk-news', async (req, res) => {
 
     console.log(`Fetching Coindesk news for asset: ${asset} with API key: ${apiKey.substring(0, 5)}...`);
 
-    // Get the base URL from environment variables or use default
-    const baseUrl = process.env.NEWS_API_URL || 'https://data-api.coindesk.com/v1/news';
+    // Try multiple URL formats to handle potential API changes
+    const urlFormats = [
+      // Format 1: Base URL with tags parameter
+      `https://data-api.coindesk.com/v1/news?lang=EN&limit=10&sortBy=publishedAt&tags=${encodeURIComponent(asset.toLowerCase())}&api-key=${encodeURIComponent(apiKey)}`,
 
-    // Construct the URL for the Coindesk API with proper parameters
-    const url = new URL(baseUrl);
-    url.searchParams.append('lang', 'EN');
-    url.searchParams.append('limit', '10');
-    url.searchParams.append('sortBy', 'publishedAt');
-    url.searchParams.append('tags', encodeURIComponent(asset.toLowerCase()));
-    
-    console.log(`Coindesk News API URL: ${url.toString()}`);
+      // Format 2: Articles endpoint with tags parameter
+      `https://data-api.coindesk.com/v1/news/articles?tags=${encodeURIComponent(asset.toLowerCase())}&limit=10&sortBy=publishedAt&lang=EN&api-key=${encodeURIComponent(apiKey)}`,
+
+      // Format 3: Search endpoint
+      `https://data-api.coindesk.com/v1/news/search?q=${encodeURIComponent(asset)}&limit=10&sortBy=publishedAt&lang=EN&api-key=${encodeURIComponent(apiKey)}`,
+
+      // Format 4: From environment variable
+      `${process.env.NEWS_API_URL || 'https://data-api.coindesk.com/news/v1/article/list'}?tags=${encodeURIComponent(asset.toLowerCase())}&api-key=${encodeURIComponent(apiKey)}`
+    ];
+
+    let response = null;
+    let lastError = null;
+
+    // Try each URL format until one works
+    for (const urlFormat of urlFormats) {
+      try {
+        console.log(`Trying URL format: ${urlFormat}`);
+
+        response = await axios.get(urlFormat, {
+          headers: {
+            'x-api-key': apiKey,
+            'api-key': apiKey,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
+          }
+        });
+
+        console.log(`Success with URL format: ${urlFormat}`);
+        console.log(`Response status: ${response.status}`);
+
+        // If we got a successful response, break out of the loop
+        if (response.status === 200) {
+          break;
+        }
+      } catch (formatError) {
+        console.error(`Error with URL format ${urlFormat}:`, formatError.message);
+        lastError = formatError;
+      }
+    }
+
+    // If we didn't get a successful response from any format, throw the last error
+    if (!response) {
+      throw lastError || new Error('All URL formats failed');
+    }
 
     // Set CORS headers
     res.header('Access-Control-Allow-Origin', '*');
     res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-api-key');
-
-    // Make the request to the Coindesk API
-    const response = await axios.get(url.toString(), {
-      headers: {
-        'x-api-key': apiKey,
-        'Accept': 'application/json'
-      }
-    });
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, x-api-key, api-key');
 
     console.log(`Coindesk News API response status: ${response.status}`);
     console.log(`Coindesk News API response data length: ${response.data ? (Array.isArray(response.data) ? response.data.length : 'Not an array') : 'No data'}`);
@@ -279,6 +309,74 @@ app.all('/api/binance/*', async (req, res) => {
   }
 });
 
+// DeepSeek API proxy endpoint
+app.all('/api/deepseek/*', async (req, res) => {
+  try {
+    // Fix any double slashes in the path
+    const fixedPath = fixDoublePaths(req.path);
+    console.log(`Original DeepSeek path: ${req.path}`);
+    console.log(`Fixed DeepSeek path: ${fixedPath}`);
+
+    // Extract the DeepSeek API endpoint from the URL
+    const endpoint = fixedPath.replace('/api/deepseek/', '');
+
+    // Get the base URL from environment variables or use default
+    const baseUrl = process.env.DEEPSEEK_API_URL || 'https://api.deepseek.com';
+
+    // Construct the URL properly without double slashes
+    const url = endpoint ? `${baseUrl}/${endpoint}` : baseUrl;
+
+    console.log(`Proxying DeepSeek request to ${url}`);
+
+    // Get API key from request headers or query parameters
+    const apiKey = req.headers['authorization']?.replace('Bearer ', '') ||
+                  req.query.apiKey ||
+                  process.env.VITE_DEEPSEEK_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'Missing API key' });
+    }
+
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+
+    // Prepare request parameters
+    const method = req.method;
+
+    console.log(`Proxying ${method} request to ${url}`);
+
+    // Make the request to the DeepSeek API
+    const response = await axios({
+      method,
+      url,
+      data: method !== 'GET' && method !== 'DELETE' ? req.body : undefined,
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+
+    // Return the data from the DeepSeek API
+    res.json(response.data);
+  } catch (error) {
+    console.error('Error proxying DeepSeek request:', error.message);
+    console.error('Error details:', error.response ? error.response.data : 'No response data');
+
+    // Return a more detailed error response
+    res.status(error.response?.status || 500).json({
+      error: 'Failed to fetch data from DeepSeek API',
+      details: error.message,
+      response: error.response ? {
+        status: error.response.status,
+        data: error.response.data
+      } : null
+    });
+  }
+});
+
 // Dedicated Binance TestNet API proxy endpoint
 app.all('/api/binanceTestnet/*', async (req, res) => {
   try {
@@ -290,10 +388,18 @@ app.all('/api/binanceTestnet/*', async (req, res) => {
     // Extract the Binance TestNet API endpoint from the URL
     const endpoint = fixedPath.replace('/api/binanceTestnet/', '');
 
+    // Check if the endpoint already starts with 'api/' to avoid duplication
+    const cleanEndpoint = endpoint.startsWith('api/') ? endpoint.substring(4) : endpoint;
+
     // Always use TestNet URL
     const baseUrl = 'https://testnet.binance.vision';
 
-    console.log(`Proxying TestNet request to ${baseUrl}/${endpoint}`);
+    // Construct the URL properly
+    const url = `${baseUrl}/api/${cleanEndpoint}`;
+
+    console.log(`Original endpoint: ${endpoint}`);
+    console.log(`Clean endpoint: ${cleanEndpoint}`);
+    console.log(`Proxying TestNet request to ${url}`);
     console.log(`Query params:`, req.query);
 
     // Set CORS headers
@@ -314,7 +420,6 @@ app.all('/api/binanceTestnet/*', async (req, res) => {
 
     // Prepare request parameters
     const method = req.method;
-    let url = `${baseUrl}/${endpoint}`;
     let data = {};
 
     // Handle query parameters
@@ -347,7 +452,7 @@ app.all('/api/binanceTestnet/*', async (req, res) => {
         .join('&');
 
       if (queryString) {
-        url += `?${queryString}`;
+        url = `${url}?${queryString}`;
       }
     } else {
       // For POST, PUT, etc., parameters are in the request body

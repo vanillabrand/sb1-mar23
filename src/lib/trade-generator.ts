@@ -556,14 +556,14 @@ Return ONLY a JSON object with this structure:
   "rationale": string (detailed explanation)
 }`;
 
-      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}/v1/chat/completions`), {
+      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}v1/chat/completions`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'deepseek-chat',
+          model: 'DeepSeek-V3-0324',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 500
@@ -870,14 +870,14 @@ Return ONLY a JSON object with this structure:
 }`;
 
       // Call DeepSeek API
-      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}/v1/chat/completions`), {
+      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}v1/chat/completions`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'deepseek-chat',
+          model: 'DeepSeek-V3-0324',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 800
@@ -1070,14 +1070,14 @@ Return ONLY a JSON object with the updated strategy configuration:
 }`;
 
       // Call DeepSeek API
-      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}/v1/chat/completions`), {
+      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}v1/chat/completions`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'deepseek-chat',
+          model: 'DeepSeek-V3-0324',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 1000

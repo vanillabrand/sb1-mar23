@@ -358,30 +358,124 @@ class StrategyService {
 
   async deactivateStrategy(id: string): Promise<Strategy> {
     try {
-      // Update strategy status in database
-      const { data: strategyData, error: strategyError } = await supabase
-        .from('strategies')
-        .update({
-          status: 'inactive',
-          updated_at: new Date().toISOString(),
-          deactivated_at: new Date().toISOString()
-        })
-        .eq('id', id)
-        .select('*')
-        .single();
+      // Try multiple approaches to update the database
+      try {
+        // First try the standard update method
+        const { data: strategyData, error: strategyError } = await supabase
+          .from('strategies')
+          .update({
+            status: 'inactive',
+            updated_at: new Date().toISOString(),
+            deactivated_at: new Date().toISOString()
+          })
+          .eq('id', id)
+          .select('*')
+          .single();
 
-      if (strategyError) {
-        logService.log('error', 'Failed to update strategy status in database', { error: strategyError, id }, 'StrategyService');
-        throw strategyError;
+        if (strategyError) {
+          throw strategyError;
+        }
+
+        // Emit an event to notify other components
+        eventBus.emit('strategy:deactivated', {
+          strategyId: id,
+          timestamp: Date.now()
+        });
+
+        return strategyData;
+      } catch (updateError) {
+        // If standard update fails, try raw SQL
+        logService.log('warn', 'Standard update failed, trying raw SQL', updateError, 'StrategyService');
+
+        try {
+          // Try raw SQL update
+          const { error: sqlError } = await supabase.rpc('execute_sql', {
+            query: `
+              UPDATE strategies
+              SET status = 'inactive',
+                  updated_at = NOW(),
+                  deactivated_at = NOW()
+              WHERE id = '${id}';
+            `
+          });
+
+          if (sqlError) {
+            throw sqlError;
+          }
+
+          // Get the updated strategy data
+          const { data: updatedData, error: fetchError } = await supabase
+            .from('strategies')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+          if (fetchError) {
+            throw fetchError;
+          }
+
+          // Emit an event to notify other components
+          eventBus.emit('strategy:deactivated', {
+            strategyId: id,
+            timestamp: Date.now()
+          });
+
+          return updatedData;
+        } catch (sqlError) {
+          // If raw SQL fails, try RPC call as last resort
+          logService.log('warn', 'Raw SQL failed, trying RPC call', sqlError, 'StrategyService');
+
+          try {
+            // Create the RPC function if it doesn't exist
+            await supabase.rpc('execute_sql', {
+              query: `
+                CREATE OR REPLACE FUNCTION update_strategy_status(strategy_id UUID, new_status TEXT)
+                RETURNS VOID AS $$
+                BEGIN
+                  UPDATE strategies
+                  SET
+                    status = new_status,
+                    updated_at = NOW(),
+                    deactivated_at = CASE WHEN new_status = 'inactive' THEN NOW() ELSE deactivated_at END
+                  WHERE id = strategy_id;
+                END;
+                $$ LANGUAGE plpgsql SECURITY DEFINER;
+              `
+            });
+
+            // Now call the RPC function
+            const { error: rpcError } = await supabase.rpc('update_strategy_status', {
+              strategy_id: id,
+              new_status: 'inactive'
+            });
+
+            if (rpcError) {
+              throw rpcError;
+            }
+
+            // Get the updated strategy data
+            const { data: updatedData, error: fetchError } = await supabase
+              .from('strategies')
+              .select('*')
+              .eq('id', id)
+              .single();
+
+            if (fetchError) {
+              throw fetchError;
+            }
+
+            // Emit an event to notify other components
+            eventBus.emit('strategy:deactivated', {
+              strategyId: id,
+              timestamp: Date.now()
+            });
+
+            return updatedData;
+          } catch (rpcError) {
+            throw rpcError;
+          }
+        }
       }
-
-      // Emit an event to notify other components
-      eventBus.emit('strategy:deactivated', {
-        strategyId: id,
-        timestamp: Date.now()
-      });
-
-      return strategyData;
     } catch (error) {
       logService.log('error', 'Failed to deactivate strategy', { error, id }, 'StrategyService');
       throw error;

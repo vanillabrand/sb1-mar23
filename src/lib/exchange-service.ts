@@ -822,7 +822,7 @@ class ExchangeService extends EventEmitter {
 
         // Try to provide a more helpful error message
         if (error.message.includes('ECONNREFUSED')) {
-          console.error('Connection refused. Make sure the proxy server is running on port 3003.');
+          console.error('Connection refused. Make sure the proxy server is running on port 3004.');
         } else if (error.message.includes('NetworkError')) {
           console.error('Network error. Check your internet connection and proxy configuration.');
         }
@@ -1384,7 +1384,7 @@ class ExchangeService extends EventEmitter {
 
     } catch (error) {
       logService.log('error', 'Exchange health check failed', error, 'ExchangeService');
-      
+
       // Handle specific error types
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {

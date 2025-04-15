@@ -181,8 +181,8 @@ Use a reliable VPN service to connect from a supported country. Make sure your V
       return `CORS error detected. This is likely an issue with the proxy server. Please ensure the proxy server is running.`;
     }
 
-    if (message.includes('proxy') || message.includes('localhost')) {
-      return `Proxy server connection failed. Please ensure the proxy server is running at http://localhost:3001.`;
+    if (message.includes('proxy')) {
+      return `Proxy server connection failed. Please ensure the proxy server is running.`;
     }
 
     if (message.includes('certificate') || message.includes('ssl') || message.includes('tls')) {

@@ -54,7 +54,7 @@ const standardCorsHandler = (proxyRes, req, _res) => {
   });
 
   // Add our own CORS headers
-  proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
+  proxyRes.headers['access-control-allow-origin'] = req.headers.origin || '*';
   proxyRes.headers['access-control-allow-credentials'] = 'true';
   proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
   proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-API-KEY, API-Key, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase, ACCESS-KEY, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, api-sign, API-Sign, kc-api-timestamp, kc-api-key, kc-api-sign, kc-api-passphrase, api_key, apikey, key';
@@ -1167,7 +1167,7 @@ global.broadcastBinanceData = function(data) {
 
 // Start the server with fallback ports if the primary port is in use
 const startServer = (port) => {
-  server.listen(port)
+  server.listen(port, 'localhost')
     .on('listening', () => {
       console.log(`Proxy server running on port ${port}`);
       console.log(`WebSocket server running at ws://localhost:${port}/ws`);

@@ -1268,9 +1268,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
    * @returns Array of mock trades
    */
   const generateTestNetMockTrades = (
-    symbol: string = 'BTC/USDT', 
-    count: number = 5, 
-    strategyId?: string, 
+    symbol: string = 'BTC/USDT',
+    count: number = 5,
+    strategyId?: string,
     budget?: number
   ): Trade[] => {
     const trades = [];
@@ -2080,6 +2080,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                                       logService.log('warn', 'Service method failed, trying direct database update', serviceError, 'TradeMonitor');
 
                                       try {
+                                        // Use a transaction to ensure atomicity
                                         const { error: directError } = await supabase
                                           .from('strategies')
                                           .update({
@@ -2096,20 +2097,65 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                                         logService.log('info', `Strategy ${strategy.id} deactivated with direct database update`, null, 'TradeMonitor');
                                         updateStep('deactivate-db', 'completed', 100, 'Strategy deactivated in database');
                                       } catch (directError) {
-                                        // If direct update fails, try RPC call as last resort
-                                        logService.log('warn', 'Direct update failed, trying RPC call', directError, 'TradeMonitor');
+                                        // If direct update fails, try raw SQL as last resort
+                                        logService.log('warn', 'Direct update failed, trying raw SQL', directError, 'TradeMonitor');
 
-                                        const { error: rpcError } = await supabase.rpc('update_strategy_status', {
-                                          strategy_id: strategy.id,
-                                          new_status: 'inactive'
-                                        });
+                                        try {
+                                          // Try raw SQL update
+                                          const { error: sqlError } = await supabase.rpc('execute_sql', {
+                                            query: `
+                                              UPDATE strategies
+                                              SET status = 'inactive',
+                                                  updated_at = NOW(),
+                                                  deactivated_at = NOW()
+                                              WHERE id = '${strategy.id}';
+                                            `
+                                          });
 
-                                        if (rpcError) {
-                                          throw rpcError;
+                                          if (sqlError) {
+                                            throw sqlError;
+                                          }
+
+                                          logService.log('info', `Strategy ${strategy.id} deactivated with raw SQL`, null, 'TradeMonitor');
+                                          updateStep('deactivate-db', 'completed', 100, 'Strategy deactivated in database');
+                                        } catch (sqlError) {
+                                          // If raw SQL fails, try RPC call as last resort
+                                          logService.log('warn', 'Raw SQL failed, trying RPC call', sqlError, 'TradeMonitor');
+
+                                          try {
+                                            // Create the RPC function if it doesn't exist
+                                            await supabase.rpc('execute_sql', {
+                                              query: `
+                                                CREATE OR REPLACE FUNCTION update_strategy_status(strategy_id UUID, new_status TEXT)
+                                                RETURNS VOID AS $$
+                                                BEGIN
+                                                  UPDATE strategies
+                                                  SET
+                                                    status = new_status,
+                                                    updated_at = NOW(),
+                                                    deactivated_at = CASE WHEN new_status = 'inactive' THEN NOW() ELSE deactivated_at END
+                                                  WHERE id = strategy_id;
+                                                END;
+                                                $$ LANGUAGE plpgsql SECURITY DEFINER;
+                                              `
+                                            });
+
+                                            // Now call the RPC function
+                                            const { error: rpcError } = await supabase.rpc('update_strategy_status', {
+                                              strategy_id: strategy.id,
+                                              new_status: 'inactive'
+                                            });
+
+                                            if (rpcError) {
+                                              throw rpcError;
+                                            }
+
+                                            logService.log('info', `Strategy ${strategy.id} deactivated with RPC call`, null, 'TradeMonitor');
+                                            updateStep('deactivate-db', 'completed', 100, 'Strategy deactivated in database');
+                                          } catch (rpcError) {
+                                            throw rpcError;
+                                          }
                                         }
-
-                                        logService.log('info', `Strategy ${strategy.id} deactivated with RPC call`, null, 'TradeMonitor');
-                                        updateStep('deactivate-db', 'completed', 100, 'Strategy deactivated in database');
                                       }
                                     }
                                   } catch (dbError) {

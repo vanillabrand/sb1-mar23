@@ -65,7 +65,8 @@ export class WebSocketService extends EventEmitter {
       proxyPort = parseInt(storedPort, 10);
     }
 
-    const proxyHost = `localhost:${proxyPort}`;
+    // Use window.location.hostname instead of hardcoded localhost
+    const proxyHost = `${window.location.hostname}:${proxyPort}`;
     const demoParam = '';
 
     // Use the proxy server WebSocket endpoint
@@ -95,12 +96,10 @@ export class WebSocketService extends EventEmitter {
       });
 
       // Store the URL for future reference
-      if (!demoService.isDemoMode() && wsUrl.includes('localhost')) {
-        // Extract port from URL
-        const portMatch = wsUrl.match(/localhost:(\d+)/);
-        if (portMatch && portMatch[1]) {
-          localStorage.setItem('proxyPort', portMatch[1]);
-        }
+      // Store the port regardless of hostname
+      const portMatch = wsUrl.match(/:([0-9]+)\/ws/);
+      if (portMatch && portMatch[1]) {
+        localStorage.setItem('proxyPort', portMatch[1]);
       }
 
       this.setupEventListeners();
@@ -119,8 +118,8 @@ export class WebSocketService extends EventEmitter {
       logService.log('error', 'Failed to establish WebSocket connection',
         error, 'WebSocketService');
 
-      // If we're not in demo mode and using localhost, try a different port
-      if (!demoService.isDemoMode() && !config.url) {
+      // Try a different port if connection fails
+      if (!config.url) {
         const storedPort = localStorage.getItem('proxyPort');
         if (storedPort) {
           const currentPort = parseInt(storedPort, 10);

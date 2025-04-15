@@ -685,19 +685,19 @@ export function PortfolioPerformance() {
 
 
   return (
-    <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-4 sm:p-6 md:p-8 shadow-lg border border-gunmetal-800/50">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <Activity className="w-6 h-6 text-neon-raspberry" />
-          <h2 className="text-xl font-bold gradient-text">Portfolio Performance</h2>
+    <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-3 sm:p-4 md:p-5 shadow-lg border border-gunmetal-800/50">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Activity className="w-5 h-5 text-neon-raspberry" />
+          <h2 className="text-lg font-bold gradient-text">Portfolio Performance</h2>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
           <div className="flex gap-0.5 bg-gunmetal-800 rounded-lg p-0.5">
             {(['1h', '1d', '1w', '1m'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
-                className={`px-1.5 py-1 rounded text-xs ${
+                className={`px-1 py-0.5 rounded text-xs ${
                   timeframe === tf
                     ? 'bg-neon-raspberry text-white'
                     : 'text-gray-400 hover:text-white'
@@ -711,7 +711,7 @@ export function PortfolioPerformance() {
           {/* Download CSV Button */}
           <button
             onClick={handleDownloadCSV}
-            className="flex items-center gap-2 px-3 py-1.5 bg-gunmetal-800 text-gray-200 rounded-lg hover:bg-gunmetal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+            className="flex items-center gap-1 px-2 py-1 bg-gunmetal-800 text-gray-200 rounded-lg hover:bg-gunmetal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-xs"
             disabled={downloadingCSV || performanceData.length === 0}
           >
             {downloadingCSV ? (
@@ -719,7 +719,7 @@ export function PortfolioPerformance() {
             ) : (
               <Download className="w-3 h-3" />
             )}
-            Download CSV
+            CSV
           </button>
         </div>
       </div>
@@ -743,18 +743,18 @@ export function PortfolioPerformance() {
         <>
           {/* Portfolio Summary Stats - Consolidated Panel */}
           <div className="bg-gunmetal-900/50 rounded-lg p-4 mb-6">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
-              <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Current Value</p>
-              <p className="text-xl md:text-2xl font-bold text-white truncate" key={`value-${portfolioSummary?.currentValue || 0}`}>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+              <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Current Value</p>
+              <p className="text-base md:text-lg font-bold text-white truncate" key={`value-${portfolioSummary?.currentValue || 0}`}>
                 ${portfolioSummary?.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
               </p>
             </div>
-            <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
-              <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Profit/Loss</p>
+            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+              <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Profit/Loss</p>
               <div className="flex items-baseline">
                 <p
-                  className={`text-xl md:text-2xl font-bold truncate ${(portfolioSummary?.totalChange || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}
+                  className={`text-base md:text-lg font-bold truncate ${(portfolioSummary?.totalChange || 0) >= 0 ? 'text-green-500' : 'text-red-500'}`}
                   key={`profit-${portfolioSummary?.totalChange || 0}`}
                 >
                   {(portfolioSummary?.totalChange || 0) >= 0 ? '+' : ''}
@@ -765,15 +765,15 @@ export function PortfolioPerformance() {
                 </span>
               </div>
             </div>
-            <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
-              <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Total Trades</p>
-              <p className="text-xl md:text-2xl font-bold text-white" key={`trades-${portfolioSummary?.totalTrades || 0}`}>
+            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+              <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Total Trades</p>
+              <p className="text-base md:text-lg font-bold text-white" key={`trades-${portfolioSummary?.totalTrades || 0}`}>
                 {portfolioSummary?.totalTrades || 0}
               </p>
             </div>
-            <div className="bg-gunmetal-800/50 rounded-lg p-3 border border-gunmetal-700/50">
-              <p className="text-gray-400 text-xs leading-tight mb-1 whitespace-normal">Win Rate</p>
-              <p className="text-xl md:text-2xl font-bold text-white" key={`winrate-${portfolioSummary?.winRate || 0}`}>
+            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+              <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Win Rate</p>
+              <p className="text-base md:text-lg font-bold text-white" key={`winrate-${portfolioSummary?.winRate || 0}`}>
                 {(portfolioSummary?.winRate || 0).toFixed(1)}%
               </p>
             </div>
@@ -781,12 +781,13 @@ export function PortfolioPerformance() {
         </div>
 
           {/* Performance Chart - Smaller Size */}
-          <div className="h-[250px]">
+          <div className="h-[200px]">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart
                 data={performanceData}
                 // Add key to prevent unnecessary redraws
                 key={`chart-${timeframe}`}
+                margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
               >
                 <defs>
                   <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
@@ -798,13 +799,15 @@ export function PortfolioPerformance() {
                 <XAxis
                   dataKey="date"
                   stroke="#6B7280"
-                  tick={{ fill: '#9CA3AF' }}
-                  tickFormatter={(value) => new Date(value).toLocaleDateString()}
+                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
+                  tickFormatter={(value) => new Date(value).toLocaleDateString(undefined, { month: 'numeric', day: 'numeric' })}
+                  height={20}
                 />
                 <YAxis
                   stroke="#6B7280"
-                  tick={{ fill: '#9CA3AF' }}
+                  tick={{ fill: '#9CA3AF', fontSize: 10 }}
                   tickFormatter={(value) => `$${value.toLocaleString()}`}
+                  width={40}
                 />
                 <Tooltip
                   contentStyle={{
@@ -812,8 +815,10 @@ export function PortfolioPerformance() {
                     border: '1px solid rgba(75, 85, 99, 0.4)',
                     borderRadius: '8px',
                     backdropFilter: 'blur(4px)',
+                    fontSize: '12px',
+                    padding: '8px'
                   }}
-                  labelStyle={{ color: '#9CA3AF' }}
+                  labelStyle={{ color: '#9CA3AF', fontSize: '11px' }}
                   formatter={(value: number, name: string) => {
                     // Format based on the data key
                     if (name === 'value') return [`$${value.toLocaleString()}`, 'Total Value'];
@@ -830,7 +835,9 @@ export function PortfolioPerformance() {
                 />
                 <Legend
                   verticalAlign="top"
-                  height={36}
+                  height={20}
+                  iconSize={8}
+                  wrapperStyle={{ fontSize: '10px' }}
                   formatter={(value) => {
                     if (value === 'value') return 'Total Portfolio';
                     if (value.startsWith('strategy_')) {
@@ -856,14 +863,14 @@ export function PortfolioPerformance() {
 
           {/* Strategy Breakdown */}
           {portfolioSummary?.strategies && portfolioSummary.strategies.length > 0 && (
-            <div className="mt-8">
-              <h3 className="text-lg font-semibold text-white mb-4">Strategy Breakdown</h3>
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-white mb-2">Strategy Breakdown</h3>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
                 {/* Strategy Contribution Pie Chart */}
-                <div className="h-[250px]">
+                <div className="h-[180px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
+                    <PieChart margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
                       <Pie
                         data={portfolioSummary.strategies.map((strategy: any) => ({
                           name: strategy.name,
@@ -872,11 +879,15 @@ export function PortfolioPerformance() {
                         cx="50%"
                         cy="50%"
                         labelLine={false}
-                        outerRadius={80}
+                        outerRadius={60}
                         fill="#8884d8"
                         dataKey="value"
                         nameKey="name"
-                        label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(1)}%`}
+                        label={({ name, percent }) => {
+                          // Truncate long strategy names
+                          const displayName = name.length > 10 ? name.substring(0, 8) + '...' : name;
+                          return `${displayName}: ${(percent * 100).toFixed(0)}%`;
+                        }}
                       >
                         {portfolioSummary.strategies.map((_entry: any, index: number) => {
                           const colors = ['#2dd4bf', '#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171'];
@@ -889,6 +900,8 @@ export function PortfolioPerformance() {
                           backgroundColor: 'rgba(17, 24, 39, 0.8)',
                           border: '1px solid rgba(75, 85, 99, 0.4)',
                           borderRadius: '8px',
+                          fontSize: '11px',
+                          padding: '6px'
                         }}
                       />
                     </PieChart>
@@ -897,30 +910,30 @@ export function PortfolioPerformance() {
 
                 {/* Strategy Performance Table */}
                 <div className="lg:col-span-2 table-container">
-                  <table className="w-full text-sm text-left">
+                  <table className="w-full text-xs text-left">
                     <thead className="text-xs text-gray-400 uppercase bg-gunmetal-800/50">
                       <tr>
-                        <th className="px-4 py-3">Strategy</th>
-                        <th className="px-4 py-3">Current Value</th>
-                        <th className="px-4 py-3">P/L</th>
-                        <th className="px-4 py-3">Win Rate</th>
-                        <th className="px-4 py-3">Trades</th>
+                        <th className="px-2 py-1.5">Strategy</th>
+                        <th className="px-2 py-1.5">Value</th>
+                        <th className="px-2 py-1.5">P/L</th>
+                        <th className="px-2 py-1.5">Win Rate</th>
+                        <th className="px-2 py-1.5">Trades</th>
                       </tr>
                     </thead>
                     <tbody>
                       {portfolioSummary.strategies.map((strategy: any) => (
                         <tr key={strategy.id} className="border-b border-gunmetal-800/50 hover:bg-gunmetal-800/30">
-                          <td className="px-4 py-3 font-medium text-white">{strategy.name}</td>
-                          <td className="px-4 py-3">${strategy.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-3">
+                          <td className="px-2 py-1.5 font-medium text-white">{strategy.name}</td>
+                          <td className="px-2 py-1.5">${strategy.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                          <td className="px-2 py-1.5">
                             <span className={strategy.totalChange >= 0 ? 'text-green-500' : 'text-red-500'}>
                               {strategy.totalChange >= 0 ? '+' : ''}
                               ${Math.abs(strategy.totalChange).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                               <span className="text-xs ml-1">({strategy.percentChange.toFixed(1)}%)</span>
                             </span>
                           </td>
-                          <td className="px-4 py-3">{strategy.winRate.toFixed(1)}%</td>
-                          <td className="px-4 py-3">{strategy.totalTrades}</td>
+                          <td className="px-2 py-1.5">{strategy.winRate.toFixed(1)}%</td>
+                          <td className="px-2 py-1.5">{strategy.totalTrades}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -933,12 +946,12 @@ export function PortfolioPerformance() {
       )}
 
       {/* Export Button - Moved to bottom left */}
-      <div className="mt-6">
+      <div className="mt-3">
         <button
           onClick={() => setShowTransactionModal(true)}
-          className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800 text-gray-200 rounded-lg hover:text-neon-turquoise transition-colors"
+          className="flex items-center gap-1 px-3 py-1.5 bg-gunmetal-800 text-gray-200 rounded-lg hover:text-neon-turquoise transition-colors text-xs"
         >
-          <Download className="w-4 h-4" />
+          <Download className="w-3 h-3" />
           Export Transactions
         </button>
       </div>

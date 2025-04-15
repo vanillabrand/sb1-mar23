@@ -11,7 +11,7 @@ export const config = {
   // API URLs
   apiBaseUrl: '/api', // Base URL for all API requests through the proxy server
   proxyUrl: import.meta.env.VITE_PROXY_URL || '',
-  proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL || 'http://localhost:3001', // Base URL for the proxy server
+  proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL || '', // Base URL for the proxy server - empty string means use relative URLs
 
   // External API endpoints through proxy
   binanceApiUrl: '/api/binance',
@@ -23,7 +23,7 @@ export const config = {
   kucoinSandboxApiUrl: '/api/kucoinSandbox',
 
   // External API endpoints (direct)
-  deepseekApiUrl: '/api/deepseek', // Use proxy for DeepSeek API
+  deepseekApiUrl: '/api/deepseek/', // Use proxy for DeepSeek API with trailing slash
 
   // Function to get the full URL for an API endpoint
   getFullUrl: function(endpoint: string): string {
