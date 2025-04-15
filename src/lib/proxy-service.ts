@@ -5,7 +5,7 @@ class ProxyService {
   private proxyUrl: string;
 
   private constructor() {
-    this.proxyUrl = import.meta.env.VITE_PROXY_URL || 'http://localhost:3001/api/';
+    this.proxyUrl = import.meta.env.VITE_PROXY_URL || 'http://localhost:3004/api/';
 
     // Ensure the proxy URL ends with a slash
     if (!this.proxyUrl.endsWith('/')) {
@@ -63,7 +63,7 @@ class ProxyService {
   async fetchNews(asset: string, apiKey: string): Promise<any> {
     try {
       const endpoint = `coindesk-news?asset=${encodeURIComponent(asset.toLowerCase())}&apiKey=${encodeURIComponent(apiKey)}`;
-      
+
       logService.log('info', `Fetching news for ${asset} using endpoint: ${endpoint}`, null, 'ProxyService');
       return await this.fetchFromProxy(endpoint);
     } catch (error) {

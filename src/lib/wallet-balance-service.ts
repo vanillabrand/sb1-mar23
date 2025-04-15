@@ -3,6 +3,7 @@ import { ccxtService } from './ccxt-service';
 import { logService } from './log-service';
 import { demoService } from './demo-service';
 import { WalletBalance } from './types';
+import { exchangeService } from './exchange-service';
 
 /**
  * Service for managing wallet balances from exchanges
@@ -16,6 +17,7 @@ class WalletBalanceService extends EventEmitter {
   private intervalId: number | null = null;
   private isInitialized: boolean = false;
   private isUpdating: boolean = false;
+  private exchangeService = exchangeService;
 
   private constructor() {
     super();
@@ -303,7 +305,8 @@ class WalletBalanceService extends EventEmitter {
   private async fetchExchangeBalances(): Promise<void> {
     try {
       // Get the current exchange instance
-      const exchange = ccxtService.getCurrentExchange();
+      const activeExchange = await this.exchangeService.getActiveExchange();
+      const exchange = this.exchangeService.getExchangeInstance(activeExchange?.id || '');
 
       if (!exchange) {
         // If no exchange is connected, use mock data
@@ -317,9 +320,9 @@ class WalletBalanceService extends EventEmitter {
       // Process and store the balances
       if (balanceData && balanceData.total) {
         // Store USDT balance
-        const usdtBalance = balanceData.free.USDT || 0;
-        const usdtUsed = balanceData.used.USDT || 0;
-        const usdtTotal = balanceData.total.USDT || 0;
+        const usdtBalance = (balanceData.free as unknown as Record<string, number>).USDT || 0;
+        const usdtUsed = ((balanceData.used as unknown) as Record<string, number>).USDT || 0;
+        const usdtTotal = ((balanceData.total as unknown) as Record<string, number>).USDT || 0;
 
         this.balances.set('USDT', {
           free: parseFloat(usdtBalance.toString()),

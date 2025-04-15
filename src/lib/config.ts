@@ -11,7 +11,7 @@ export const config = {
   // API URLs
   apiBaseUrl: '/api', // Base URL for all API requests through the proxy server
   proxyUrl: import.meta.env.VITE_PROXY_URL || '',
-  proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL || 'http://localhost:3001', // Base URL for the proxy server
+  proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL || 'http://localhost:3002', // Base URL for the proxy server
 
   // External API endpoints through proxy
   binanceApiUrl: '/api/binance',

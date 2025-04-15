@@ -97,30 +97,77 @@ class DemoService {
    * Override ccxt methods to provide mock data
    */
   private overrideCcxtMethods(): void {
-    // Store the original method
-    const originalExecuteWithRetry = ccxtService.executeWithRetry.bind(ccxtService);
+    try {
+      // Check if the executeWithRetry method exists
+      if (typeof ccxtService.executeWithRetry === 'function') {
+        // Store the original method
+        const originalExecuteWithRetry = ccxtService.executeWithRetry.bind(ccxtService);
 
-    // Override the method
-    (ccxtService as any).executeWithRetry = async <T>(
-      operation: () => Promise<T>,
-      operationName: string,
-      maxRetries: number = 3
-    ): Promise<T> => {
-      try {
-        // Try to execute the original operation
-        return await originalExecuteWithRetry(operation, operationName, maxRetries);
-      } catch (error) {
-        // If it fails, return mock data based on the operation name
-        logService.log('info', `Providing mock data for ${operationName}`, null, 'DemoService');
+        // Override the method
+        (ccxtService as any).executeWithRetry = async <T>(
+          operation: () => Promise<T>,
+          operationName: string,
+          maxRetries: number = 3
+        ): Promise<T> => {
+          try {
+            // Try to execute the original operation
+            return await originalExecuteWithRetry(operation, operationName, maxRetries);
+          } catch (error) {
+            // If it fails, return mock data based on the operation name
+            logService.log('info', `Providing mock data for ${operationName}`, null, 'DemoService');
+
+            if (operationName.includes('fetchMarketData')) {
+              return this.getMockMarketData(operationName) as unknown as T;
+            }
+
+            // For other operations, return a basic mock object
+            return {} as T;
+          }
+        };
+
+        logService.log('info', 'Successfully overrode ccxtService.executeWithRetry method', null, 'DemoService');
+      } else {
+        // If the method doesn't exist, add it
+        (ccxtService as any).executeWithRetry = async <T>(
+          operation: () => Promise<T>,
+          operationName: string,
+          maxRetries: number = 3
+        ): Promise<T> => {
+          try {
+            // Try to execute the operation directly
+            return await operation();
+          } catch (error) {
+            // If it fails, return mock data based on the operation name
+            logService.log('info', `Providing mock data for ${operationName}`, null, 'DemoService');
+
+            if (operationName.includes('fetchMarketData')) {
+              return this.getMockMarketData(operationName) as unknown as T;
+            }
+
+            // For other operations, return a basic mock object
+            return {} as T;
+          }
+        };
+
+        logService.log('info', 'Added executeWithRetry method to ccxtService', null, 'DemoService');
+      }
+    } catch (error) {
+      // If anything goes wrong, create a simple mock implementation
+      logService.log('warn', 'Error while overriding ccxtService methods, creating simple mock implementation', error, 'DemoService');
+
+      (ccxtService as any).executeWithRetry = async <T>(
+        operation: () => Promise<T>,
+        operationName: string
+      ): Promise<T> => {
+        logService.log('info', `Mock implementation called for ${operationName}`, null, 'DemoService');
 
         if (operationName.includes('fetchMarketData')) {
           return this.getMockMarketData(operationName) as unknown as T;
         }
 
-        // For other operations, return a basic mock object
         return {} as T;
-      }
-    };
+      };
+    }
   }
 
   /**
