@@ -10,7 +10,7 @@ export function NetworkStatus() {
 
   useEffect(() => {
     checkStatus();
-    const interval = setInterval(checkStatus, 10000); // Check every 10 seconds
+    const interval = setInterval(checkStatus, 60000); // Check every 60 seconds (reduced frequency)
     return () => clearInterval(interval);
   }, []);
 

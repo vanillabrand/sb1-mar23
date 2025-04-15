@@ -237,25 +237,37 @@ class TradeEngine extends EventEmitter {
 
   private async updateMonitoringStatus(
     strategyId: string,
-    update: {
-      status: 'monitoring' | 'generating' | 'executing' | 'idle';
-      message: string;
-      indicators?: Record<string, number>;
-      market_conditions?: any;
-    }
-  ) {
+    status: 'monitoring' | 'generating' | 'executing' | 'idle',
+    message: string,
+    indicators?: Record<string, number>,
+    market_conditions?: any
+  ): Promise<void> {
     try {
       const { error } = await supabase
         .from('monitoring_status')
         .upsert({
           strategy_id: strategyId,
-          ...update,
+          status,
+          message,
+          indicators: indicators || {},
+          market_conditions: market_conditions || {},
           updated_at: new Date().toISOString()
         });
 
       if (error) throw error;
+
+      // Emit event for UI updates
+      eventBus.emit('monitoring:status:changed', {
+        strategyId,
+        status,
+        message,
+        indicators,
+        market_conditions,
+        timestamp: new Date().toISOString()
+      });
     } catch (error) {
-      logService.log('error', `Error updating monitoring status for ${strategyId}`, error, 'TradeEngine');
+      logService.log('error', `Failed to update monitoring status for ${strategyId}`, error, 'TradeEngine');
+      throw error;
     }
   }
 
@@ -448,6 +460,31 @@ class TradeEngine extends EventEmitter {
       this.BACKOFF_DELAY * Math.pow(2, attempt - 1) + Math.random() * 1000,
       30000
     );
+  }
+
+  private async updateStrategyStatus(strategyId: string, status: 'active' | 'inactive'): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('strategies')
+        .update({ 
+          status,
+          updated_at: new Date().toISOString(),
+          ...(status === 'inactive' ? { deactivated_at: new Date().toISOString() } : {})
+        })
+        .eq('id', strategyId);
+
+      if (error) throw error;
+
+      // Emit event for UI updates
+      eventBus.emit('strategy:status:changed', {
+        strategyId,
+        status,
+        timestamp: new Date().toISOString()
+      });
+    } catch (error) {
+      logService.log('error', `Failed to update strategy status for ${strategyId}`, error, 'TradeEngine');
+      throw error;
+    }
   }
 }
 

@@ -6,6 +6,7 @@ import { eventBus } from './event-bus';
 import { v4 as uuidv4 } from 'uuid';
 import { AIService } from './ai-service';
 import type { Strategy } from './supabase-types';
+import { CreateStrategyData } from '../lib/types';
 
 /**
  * Manages synchronization of trading strategies with a remote database.
@@ -144,8 +145,8 @@ class StrategySync extends EventEmitter {
 
             // Force sync all components
             await Promise.all([
-              marketService.syncStrategies(),
-              tradeManager.syncTrades()
+              (await import('./market-service')).marketService.initialize(),
+              (await import('./trade-manager')).tradeManager.getActiveTradesForStrategy(payload.old.id)
             ]);
 
             // Broadcast updated strategies list
@@ -361,20 +362,8 @@ class StrategySync extends EventEmitter {
         strategy_config: data.strategy_config || {},
       };
 
-      // Ensure both risk_level and riskLevel are set consistently
-      if (data.riskLevel && !data.risk_level) {
-        strategyData.risk_level = data.riskLevel;
-        strategyData.riskLevel = data.riskLevel;
-      } else if (data.risk_level && !data.riskLevel) {
-        strategyData.riskLevel = data.risk_level;
-        strategyData.risk_level = data.risk_level;
-      } else if (!data.risk_level && !data.riskLevel) {
-        strategyData.risk_level = 'Medium';
-        strategyData.riskLevel = 'Medium';
-      }
-
-      // Remove riskLevel to avoid database errors
-      delete strategyData.riskLevel;
+      // Set risk_level for database compatibility
+      strategyData.riskLevel = data.riskLevel || 'Medium';
 
       // Log the data we're trying to insert
       console.log('Creating strategy with data:', strategyData);
@@ -406,7 +395,7 @@ class StrategySync extends EventEmitter {
             description: data.description || '',
             type: data.type || 'custom',
             status: data.status || 'inactive',
-            risk_level: data.riskLevel || data.risk_level || 'Medium',
+            risk_level: data.riskLevel || 'Medium',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           };

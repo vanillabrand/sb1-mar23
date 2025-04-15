@@ -6,7 +6,7 @@ class ProxyService {
 
   private constructor() {
     this.proxyUrl = import.meta.env.VITE_PROXY_URL || 'http://localhost:3001/api/';
-    
+
     // Ensure the proxy URL ends with a slash
     if (!this.proxyUrl.endsWith('/')) {
       this.proxyUrl += '/';
@@ -30,9 +30,9 @@ class ProxyService {
     try {
       // Construct the proxy URL
       const url = `${this.proxyUrl}${endpoint}`;
-      
+
       logService.log('info', `Fetching from proxy: ${url}`, null, 'ProxyService');
-      
+
       // Make the request
       const response = await fetch(url, {
         ...options,
@@ -41,12 +41,12 @@ class ProxyService {
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`Proxy request failed: ${response.status} ${errorText}`);
       }
-      
+
       return await response.json();
     } catch (error) {
       logService.log('error', 'Proxy request failed', error, 'ProxyService');
@@ -62,9 +62,9 @@ class ProxyService {
    */
   async fetchNews(asset: string, apiKey: string): Promise<any> {
     try {
-      // Encode the endpoint to avoid issues with special characters
-      const endpoint = `news?asset=${encodeURIComponent(asset)}&apiKey=${encodeURIComponent(apiKey)}`;
+      const endpoint = `coindesk-news?asset=${encodeURIComponent(asset.toLowerCase())}&apiKey=${encodeURIComponent(apiKey)}`;
       
+      logService.log('info', `Fetching news for ${asset} using endpoint: ${endpoint}`, null, 'ProxyService');
       return await this.fetchFromProxy(endpoint);
     } catch (error) {
       logService.log('error', `Failed to fetch news for ${asset} through proxy`, error, 'ProxyService');

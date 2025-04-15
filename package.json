@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "proxy": "cross-env PROXY_PORT=3001 node proxy-server.js",
+    "proxy": "cross-env PROXY_PORT=3003 node proxy-server.js",
     "frontend": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",

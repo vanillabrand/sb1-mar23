@@ -3,6 +3,7 @@ import { logService } from './log-service';
 import { supabase } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
 import type { StrategyBudget } from './types';
+import { eventBus } from './event-bus';
 
 class TradeService extends EventEmitter {
   private static instance: TradeService;
@@ -92,16 +93,18 @@ class TradeService extends EventEmitter {
 
   // Validate that the budget object has correct numeric values.
   private validateBudget(budget: StrategyBudget): boolean {
+    // Special case for deactivation - allow zero budget
+    if (budget.total === 0 && budget.allocated === 0 && budget.available === 0 && budget.maxPositionSize === 0) {
+      return true;
+    }
+
+    // Normal budget validation
     return (
-      typeof budget.total === 'number' &&
-      typeof budget.allocated === 'number' &&
-      typeof budget.available === 'number' &&
-      typeof budget.maxPositionSize === 'number' &&
       budget.total > 0 &&
       budget.allocated >= 0 &&
       budget.available >= 0 &&
       budget.maxPositionSize > 0 &&
-      Math.abs(budget.allocated + budget.available - budget.total) < 0.01 // Allow small rounding differences
+      budget.allocated + budget.available <= budget.total
     );
   }
 
@@ -409,7 +412,7 @@ class TradeService extends EventEmitter {
           }
         }
       } catch (dbError) {
-        logService.log('warn', `Error updating strategy_budgets table: ${dbError.message}`, null, 'TradeService');
+        logService.log('warn', `Error updating strategy_budgets table: ${dbError instanceof Error ? dbError.message : String(dbError)}`, null, 'TradeService');
       }
 
       // Update local cache
@@ -500,8 +503,9 @@ class TradeService extends EventEmitter {
             logService.log('warn', `Failed to save default budget to database for strategy ${strategyId}`, insertError, 'TradeService');
           }
         }
-      } catch (insertError) {
-        logService.log('warn', `Exception when saving default budget to database for strategy ${strategyId}`, insertError, 'TradeService');
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logService.log('warn', `Exception when saving default budget to database for strategy ${strategyId}`, errorMessage, 'TradeService');
       }
 
       // Set in memory regardless of database success

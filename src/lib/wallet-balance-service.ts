@@ -170,21 +170,12 @@ class WalletBalanceService extends EventEmitter {
           hasSecret: !!exchange.secret,
         });
 
-        // Try a simple ping request first to test connectivity
-        try {
-          console.log('Pinging TestNet exchange...');
-          await exchange.publicGetPing();
-          console.log('TestNet ping successful');
-        } catch (pingError) {
-          console.error('TestNet ping failed:', pingError);
-          logService.log('warn', 'Failed to ping TestNet exchange', pingError, 'WalletBalanceService');
-          // Continue anyway, as loadMarkets might still work
-        }
+        // Skip direct API calls to avoid CORS issues
+        console.log('Skipping direct TestNet API calls to avoid CORS issues');
+        logService.log('info', 'Skipping direct TestNet API calls to avoid CORS issues', null, 'WalletBalanceService');
 
-        // Load markets first to ensure the exchange is properly initialized
-        console.log('Loading TestNet markets...');
-        await exchange.loadMarkets();
-        logService.log('info', 'TestNet markets loaded successfully', null, 'WalletBalanceService');
+        // Use mock data instead
+        logService.log('info', 'Using mock data for TestNet markets', null, 'WalletBalanceService');
       } catch (marketError) {
         console.error('Failed to load TestNet markets:', marketError);
         logService.log('warn', 'Failed to load TestNet markets', marketError, 'WalletBalanceService');
@@ -200,15 +191,9 @@ class WalletBalanceService extends EventEmitter {
           throw new Error('Exchange is missing API key or secret');
         }
 
-        // Try a simple ping request first to test connectivity
-        try {
-          logService.log('info', 'Testing TestNet connectivity with ping...', null, 'WalletBalanceService');
-          const pingResponse = await exchange.publicGetPing();
-          logService.log('info', 'TestNet ping successful', pingResponse, 'WalletBalanceService');
-        } catch (pingError) {
-          logService.log('warn', 'TestNet ping failed', pingError, 'WalletBalanceService');
-          // Continue anyway, as fetchBalance might still work
-        }
+        // Skip direct API calls to avoid CORS issues
+        logService.log('info', 'Skipping TestNet ping to avoid CORS issues', null, 'WalletBalanceService');
+        // Continue with mock data
 
         // Log the exchange configuration
         console.log('Exchange configuration before fetchBalance:', {
@@ -225,7 +210,11 @@ class WalletBalanceService extends EventEmitter {
         logService.log('info', 'Using realistic mock data for TestNet balances', null, 'WalletBalanceService');
 
         // Create realistic mock balances
-        const mockBalances = {
+        const mockBalances: {
+          free: Record<string, number>;
+          used: Record<string, number>;
+          total: Record<string, number>;
+        } = {
           free: {
             'BTC': 0.5,
             'ETH': 10.0,
@@ -270,7 +259,8 @@ class WalletBalanceService extends EventEmitter {
           this.balances.set('USDT', {
             free: parseFloat(usdtBalance.toString()),
             used: parseFloat(usdtUsed.toString()),
-            total: parseFloat(usdtTotal.toString())
+            total: parseFloat(usdtTotal.toString()),
+            currency: 'USDT'
           });
 
           logService.log('info', 'TestNet balances fetched successfully',
@@ -334,7 +324,8 @@ class WalletBalanceService extends EventEmitter {
         this.balances.set('USDT', {
           free: parseFloat(usdtBalance.toString()),
           used: parseFloat(usdtUsed.toString()),
-          total: parseFloat(usdtTotal.toString())
+          total: parseFloat(usdtTotal.toString()),
+          currency: 'USDT'
         });
 
         logService.log('info', 'Exchange balances fetched successfully',
@@ -357,7 +348,8 @@ class WalletBalanceService extends EventEmitter {
     this.balances.set('USDT', {
       free: 10000,
       used: 0,
-      total: 10000
+      total: 10000,
+      currency: 'USDT'
     });
 
     logService.log('info', 'Generated mock balances',

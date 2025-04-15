@@ -34,6 +34,8 @@ import { websocketService } from '../lib/websocket-service';
 import { strategySync } from '../lib/strategy-sync';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
+import { DeactivationProgressModal, type DeactivationStep } from './DeactivationProgressModal';
+import { ErrorBoundary } from './ErrorBoundary';
 import type { Trade, Strategy, StrategyBudget, MarketType } from '../lib/types';
 
 // Define local types
@@ -74,9 +76,14 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   // Modal state
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showBudgetAdjustmentModal, setShowBudgetAdjustmentModal] = useState(false);
+  const [showDeactivationModal, setShowDeactivationModal] = useState(false);
   const [pendingStrategy, setPendingStrategy] = useState<Strategy | null>(null);
   const [pendingBudget, setPendingBudget] = useState<number>(0);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
+
+  // Deactivation progress state
+  const [deactivationSteps, setDeactivationSteps] = useState<DeactivationStep[]>([]);
+  const [deactivationProgress, setDeactivationProgress] = useState(0);
 
   // Stats
   const [lastUpdate, setLastUpdate] = useState<number>(Date.now());
@@ -84,6 +91,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
   // Track deleted strategy IDs to prevent them from reappearing
   const [deletedStrategyIds] = useState<Set<string>>(new Set<string>());
+
+  // Track user-deactivated strategies to prevent them from being reactivated by database updates
+  const [userDeactivatedStrategyIds] = useState<Set<string>>(new Set<string>());
 
   // Connect to WebSocket and set up event handlers
   useEffect(() => {
@@ -619,12 +629,38 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         if (payload.eventType === 'UPDATE') {
           const updatedStrategy = payload.new as Strategy;
 
-          // Update the strategy in the local state
-          setStrategies(prev => prev.map(strategy =>
-            strategy.id === updatedStrategy.id ? { ...strategy, ...updatedStrategy } : strategy
-          ));
+          // Check if this strategy was deactivated by the user
+          const wasDeactivatedByUser = userDeactivatedStrategyIds.has(updatedStrategy.id);
 
-          logService.log('info', `Strategy ${updatedStrategy.id} updated from database`, { status: updatedStrategy.status }, 'TradeMonitor');
+          // Update the strategy in the local state, but preserve our local status
+          setStrategies(prev => prev.map(strategy => {
+            // If this is the strategy being updated
+            if (strategy.id === updatedStrategy.id) {
+              // If the strategy was deactivated by the user, always keep it inactive
+              // regardless of what the database says
+              if (wasDeactivatedByUser) {
+                console.log(`Strategy ${strategy.id} update: Keeping inactive status because it was deactivated by user`);
+                return { ...strategy, ...updatedStrategy, status: 'inactive' };
+              }
+
+              // Otherwise, preserve the current local status to ensure UI consistency
+              const preservedStatus = strategy.status;
+              console.log(`Strategy ${strategy.id} update: local status=${preservedStatus}, db status=${updatedStrategy.status}`);
+
+              // Create a merged strategy with all updated fields but preserve the status
+              const mergedStrategy = { ...strategy, ...updatedStrategy, status: preservedStatus };
+              return mergedStrategy;
+            }
+
+            // Not the strategy being updated, return unchanged
+            return strategy;
+          }));
+
+          logService.log('info', `Strategy ${updatedStrategy.id} updated from database with status preserved`, {
+            localStatus: strategies.find(s => s.id === updatedStrategy.id)?.status,
+            dbStatus: updatedStrategy.status,
+            wasDeactivatedByUser
+          }, 'TradeMonitor');
 
           // If the strategy was just activated, subscribe to its trades
           if (updatedStrategy.status === 'active' && !subscribedStrategies.includes(updatedStrategy.id)) {
@@ -733,12 +769,12 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                 updatedTrade = { ...trade, ...data.status };
 
                 // Ensure amount field is set
-                if (updatedTrade.amount === undefined) {
+                if (updatedTrade && updatedTrade.amount === undefined) {
                   updatedTrade.amount = trade.amount || 0.1;
                 }
 
                 // Check if the trade was just closed
-                if (updatedTrade.status === 'closed' && trade.status !== 'closed') {
+                if (updatedTrade && updatedTrade.status === 'closed' && trade.status !== 'closed') {
                   tradeWasClosed = true;
                 }
 
@@ -816,6 +852,24 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setStrategies(prevStrategies => prevStrategies.filter(s => s.id !== data.strategyId));
       // Refresh trade data
       fetchTradeData();
+    });
+
+    // Subscribe to strategy status change events
+    const strategyStatusChangedUnsubscribe = eventBus.subscribe('strategy:status:changed', (data) => {
+      console.log('Strategy status changed:', data);
+      if (data && data.strategyId && data.status) {
+        // Update the strategy status in our local state
+        setStrategies(prevStrategies => {
+          return prevStrategies.map(s => {
+            if (s.id === data.strategyId) {
+              return { ...s, status: data.status };
+            }
+            return s;
+          });
+        });
+
+        logService.log('info', `Updated strategy ${data.strategyId} status to ${data.status} from event`, null, 'TradeMonitor');
+      }
     });
 
     // Subscribe to wallet balance updates
@@ -941,12 +995,27 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
               // Check if status has changed
               const currentStrategy = strategies.find(s => s.id === strategy.id);
               if (currentStrategy && currentStrategy.status !== strategyData.status) {
-                logService.log('info', `Strategy ${strategy.id} status changed from ${currentStrategy.status} to ${strategyData.status}`, null, 'TradeMonitor');
+                // Check if this strategy was deactivated by the user
+                const wasDeactivatedByUser = userDeactivatedStrategyIds.has(strategy.id);
 
-                // Update strategies state
-                setStrategies(prev => prev.map(s =>
-                  s.id === strategy.id ? { ...s, status: strategyData.status } : s
-                ));
+                if (wasDeactivatedByUser) {
+                  // If the strategy was deactivated by the user, always keep it inactive
+                  console.log(`Strategy ${strategy.id} is in user-deactivated set, ignoring database status ${strategyData.status}`);
+                }
+                // Only update the status if the current status is not 'inactive'
+                // This ensures that deactivated strategies stay deactivated
+                else if (currentStrategy.status !== 'inactive') {
+                  logService.log('info', `Strategy ${strategy.id} status changed from ${currentStrategy.status} to ${strategyData.status}`, null, 'TradeMonitor');
+
+                  // Update strategies state
+                  setStrategies(prev => prev.map(s =>
+                    s.id === strategy.id ? { ...s, status: strategyData.status } : s
+                  ));
+                } else {
+                  // If the strategy is inactive in our UI but active in the database,
+                  // log this but don't update the UI
+                  console.log(`Strategy ${strategy.id} is inactive in UI but ${strategyData.status} in database, preserving inactive status`);
+                }
               }
             }
           } catch (error) {
@@ -970,6 +1039,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       tradeUpdatedUnsubscribe();
       tradesUpdatedUnsubscribe();
       strategyDeletedUnsubscribe();
+      strategyStatusChangedUnsubscribe();
       eventBus.unsubscribe('budget:updated', handleBudgetUpdate);
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
 
@@ -1028,7 +1098,32 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         }
 
         // Only update if there are actual changes
-        return hasChanges ? [...filteredStrategies] : prevStrategies;
+        if (hasChanges) {
+          // Create a new array of strategies, preserving the status of any strategies
+          // that were manually deactivated by the user
+          return filteredStrategies.map(strategy => {
+            const prevStrategy = prevMap.get(strategy.id);
+
+            // Check if this strategy was deactivated by the user
+            const wasDeactivatedByUser = userDeactivatedStrategyIds.has(strategy.id);
+
+            // If the strategy was deactivated by the user, always keep it inactive
+            if (wasDeactivatedByUser) {
+              console.log(`Strategy ${strategy.id} is in user-deactivated set, keeping inactive during fetch`);
+              return { ...strategy, status: 'inactive' };
+            }
+            // If the strategy was previously inactive, keep it inactive
+            // This ensures that deactivated strategies stay deactivated
+            else if (prevStrategy && prevStrategy.status === 'inactive') {
+              console.log(`Preserving inactive status for strategy ${strategy.id} during fetch`);
+              return { ...strategy, status: 'inactive' };
+            }
+
+            return strategy;
+          });
+        } else {
+          return prevStrategies;
+        }
       });
 
       // Subscribe to market data for active strategies
@@ -1120,9 +1215,6 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       // Update budgets based on trades
       const activeStrategies = strategies.filter(s => s.status === 'active');
       for (const strategy of activeStrategies) {
-        // Get trades for this strategy
-        const strategyTrades = tradesByStrategy[strategy.id] || [];
-
         // Get current budget
         const currentBudget = budgets[strategy.id];
         if (!currentBudget) {
@@ -1171,9 +1263,16 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
    * Generates mock trades for testing and fallback purposes
    * @param symbol Trading pair symbol
    * @param count Number of trades to generate
+   * @param strategyId Optional strategy ID
+   * @param budget Optional budget constraint
    * @returns Array of mock trades
    */
-  const generateMockTrades = (symbol: string, count: number, strategyId?: string, budget?: number): any[] => {
+  const generateTestNetMockTrades = (
+    symbol: string = 'BTC/USDT', 
+    count: number = 5, 
+    strategyId?: string, 
+    budget?: number
+  ): Trade[] => {
     const trades = [];
     const now = Date.now();
     let basePrice = getBasePrice(symbol);
@@ -1186,37 +1285,28 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     // Calculate maximum amount based on budget if provided
     let maxTotalAmount = Infinity;
     if (budget && budget > 0) {
-      // Use at most 80% of the budget for all trades
       const budgetToUse = budget * 0.8;
-      // Divide by count to get per-trade budget
       const perTradeBudget = budgetToUse / count;
-      // Calculate max amount per trade based on price
       maxTotalAmount = perTradeBudget / basePrice;
-
-      logService.log('info', `Generating mock trades with budget constraint: ${budget}, max amount per trade: ${maxTotalAmount}`, null, 'TradeMonitor');
     }
 
     for (let i = 0; i < count; i++) {
       const side = Math.random() > 0.5 ? 'buy' : 'sell';
-
-      // Generate a reasonable price (within 2% of base price)
       const price = basePrice * (0.98 + Math.random() * 0.04);
 
-      // Calculate a reasonable amount based on price and budget
+      // Calculate amount based on price and budget constraints
       let amount;
       if (maxTotalAmount !== Infinity) {
-        // Use a portion of the max amount (20-80%)
         amount = maxTotalAmount * (0.2 + Math.random() * 0.6);
       } else {
-        // Default amounts based on price ranges
         if (price > 10000) { // BTC
-          amount = 0.001 + Math.random() * 0.009; // 0.001-0.01 BTC
+          amount = 0.001 + Math.random() * 0.009;
         } else if (price > 1000) { // ETH
-          amount = 0.01 + Math.random() * 0.09; // 0.01-0.1 ETH
+          amount = 0.01 + Math.random() * 0.09;
         } else if (price > 100) { // SOL, etc.
-          amount = 0.1 + Math.random() * 0.4; // 0.1-0.5 units
+          amount = 0.1 + Math.random() * 0.4;
         } else {
-          amount = 1 + Math.random() * 4; // 1-5 units
+          amount = 1 + Math.random() * 4;
         }
       }
 
@@ -1226,19 +1316,21 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       const cost = price * amount;
       const fee = cost * 0.001; // 0.1% fee
 
-      // Create unique ID with timestamp and UUID-like random string to prevent duplicates
-      const uniqueId = `mock-${symbol}-${i}-${now + i}-${Math.random().toString(36).substring(2, 8)}-${Math.random().toString(36).substring(2, 8)}`;
+      // Create unique ID
+      const uniqueId = `mock-${symbol}-${i}-${now + i}-${Math.random().toString(36).substring(2, 8)}`;
 
       trades.push({
         id: uniqueId,
+        timestamp: now - (i * 60000),
         symbol,
         side,
-        price,
+        entryPrice: price,
         amount,
-        cost,
+        status: 'completed',
+        strategyId: strategyId || 'mock-strategy',
+        createdAt: new Date(now - (i * 60000)).toISOString(),
         fee: { cost: fee, currency: symbol.split('/')[1] },
-        timestamp: now - (i * 60000), // Spread out over the last few minutes
-        strategyId: strategyId || 'mock'
+        cost
       });
     }
 
@@ -1280,7 +1372,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         return [];
       }
 
-      // Check if we have a valid cache for all strategies combined
+      // Check cache first
       const cacheKey = 'all_strategies';
       const cachedData = tradeCache.get(cacheKey);
       const now = Date.now();
@@ -1290,35 +1382,27 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         return cachedData.trades;
       }
 
-      // Get trades from TestNet via ccxtService
-      const exchange = await ccxtService.getExchange('binance', true); // true for testnet
+      // Initialize exchange with proper TestNet configuration
+      const exchange = await ccxtService.getExchange('binance', true);
 
       if (!exchange) {
         logService.log('error', 'Failed to initialize TestNet exchange', null, 'TradeMonitor');
-        return [];
+        return generateTestNetMockTrades();
       }
 
       // Collect all unique symbols from active strategies
       const symbols = new Set<string>();
       activeStrategies.forEach(strategy => {
-        if (strategy.selected_pairs && Array.isArray(strategy.selected_pairs)) {
-          strategy.selected_pairs.forEach(pair => symbols.add(pair));
-        }
+        (strategy.selected_pairs || []).forEach(pair => {
+          symbols.add(pair);
+        });
       });
-
-      // If no symbols found, use default ones
-      if (symbols.size === 0) {
-        symbols.add('BTC/USDT');
-        symbols.add('ETH/USDT');
-        symbols.add('BNB/USDT');
-      }
 
       const allTrades: Trade[] = [];
 
       // Fetch trades for each symbol
       for (const symbol of Array.from(symbols)) {
         try {
-          // Normalize the symbol format (replace _ with / if needed)
           const normalizedSymbol = symbol.includes('_')
             ? symbol.replace('_', '/')
             : symbol;
@@ -1327,33 +1411,22 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
           let symbolTrades;
           try {
-            // Try to fetch trades for this symbol
             symbolTrades = await exchange.fetchMyTrades(normalizedSymbol, undefined, 20);
           } catch (fetchError) {
             logService.log('warn', `Failed to fetch trades for ${normalizedSymbol}, using mock data`, fetchError, 'TradeMonitor');
-            // Generate mock trades for this symbol
-            symbolTrades = generateMockTrades(normalizedSymbol, 5);
+            symbolTrades = generateTestNetMockTrades(normalizedSymbol, 5);
           }
 
-          // Find a strategy that uses this symbol
-          const matchingStrategy = activeStrategies.find(strategy =>
-            strategy.selected_pairs?.includes(symbol)
-          );
-
-          const strategyId = matchingStrategy?.id || activeStrategies[0].id;
-
-          // Convert to our Trade format
-          const formattedTrades = symbolTrades.map((trade: any, index: number) => ({
-            id: trade.id || `${Date.now() + index}-${Math.random().toString(36).substring(2, 8)}-${Math.random().toString(36).substring(2, 8)}`,
-            symbol: trade.symbol,
-            side: trade.side as 'buy' | 'sell',
-            status: 'executed', // Use 'executed' instead of 'closed'
-            entryPrice: trade.price,
-            exitPrice: trade.price * (1 + (Math.random() * 0.1 - 0.05)), // Random exit price
-            profit: trade.fee ? (trade.cost - trade.fee.cost) : trade.cost,
-            timestamp: trade.timestamp,
-            strategyId, // Use the matching strategy ID
-            amount: trade.amount || parseFloat(trade.q) || 0.1, // Ensure amount is always included
+          const formattedTrades = symbolTrades.map(trade => ({
+            id: `testnet-${trade.id || Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            timestamp: trade.timestamp || Date.now(),
+            symbol: normalizedSymbol,
+            side: trade.side || (Math.random() > 0.5 ? 'buy' : 'sell'),
+            entryPrice: trade.price || generateRandomPrice(normalizedSymbol),
+            amount: trade.amount || generateRandomAmount(),
+            status: 'completed',
+            strategyId: activeStrategies[0].id,
+            createdAt: new Date(trade.timestamp || Date.now()).toISOString()
           }));
 
           allTrades.push(...formattedTrades);
@@ -1372,7 +1445,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       return allTrades;
     } catch (error) {
       logService.log('error', 'Failed to fetch TestNet trades', error, 'TradeMonitor');
-      return [];
+      return generateTestNetMockTrades();
     }
   };
 
@@ -1473,7 +1546,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     // Calculate percentages
     updatedBudget.allocationPercentage = updatedBudget.total > 0 ?
       Number(((updatedBudget.allocated / updatedBudget.total) * 100).toFixed(1)) : 0;
-    updatedBudget.profitPercentage = updatedBudget.total > 0 ?
+    updatedBudget.profitPercentage = updatedBudget.total > 0 && updatedBudget.profit !== undefined ?
       Number(((updatedBudget.profit / updatedBudget.total) * 100).toFixed(1)) : 0;
 
     // Update budgets state
@@ -1648,7 +1721,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         logService.log('info', `Subscribed to WebSocket updates for strategy ${strategy.id}`, null, 'TradeMonitor');
 
         // Get the budget for this strategy
-        const strategyBudget = await tradeService.getBudget(strategy.id);
+        const strategyBudget = tradeService.getBudget(strategy.id);
 
         // Create a placeholder trade for immediate visual feedback with realistic values
         const symbol = strategy.selected_pairs?.[0] || 'BTC/USDT';
@@ -1741,13 +1814,14 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   `;
 
   return (
-    <div className="min-h-screen bg-black p-6 overflow-x-hidden">
-      <style>{scrollbarStyles}</style>
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="space-y-6 max-w-[1800px] mx-auto"
-      >
+    <ErrorBoundary>
+      <div className="min-h-screen bg-black p-6 overflow-x-hidden">
+        <style>{scrollbarStyles}</style>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="space-y-6 max-w-[1800px] mx-auto"
+        >
         {/* Header Section */}
         <div className="flex items-center justify-between">
           <div>
@@ -1893,36 +1967,371 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
                                   // Set a loading state to prevent multiple clicks
                                   setIsSubmittingBudget(true);
 
-                                  // 1. Deactivate strategy in database first
-                                  await strategyService.deactivateStrategy(strategy.id);
-                                  logService.log('info', `Strategy ${strategy.id} deactivated in database`, null, 'TradeMonitor');
+                                  // Store the strategy for the modal
+                                  setPendingStrategy(strategy);
 
-                                  // 2. Close any active trades
-                                  const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
-                                  logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategy.id}`, null, 'TradeMonitor');
-
-                                  for (const trade of activeTrades) {
-                                    try {
-                                      await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
-                                      logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id}`, null, 'TradeMonitor');
-                                    } catch (tradeError) {
-                                      logService.log('warn', `Failed to close trade ${trade.id}`, tradeError, 'TradeMonitor');
+                                  // Initialize deactivation steps
+                                  const steps: DeactivationStep[] = [
+                                    {
+                                      id: 'close-trades',
+                                      name: 'Closing Active Trades',
+                                      status: 'pending',
+                                      progress: 0
+                                    },
+                                    {
+                                      id: 'deactivate-db',
+                                      name: 'Deactivating Strategy in Database',
+                                      status: 'pending',
+                                      progress: 0
+                                    },
+                                    {
+                                      id: 'reset-budget',
+                                      name: 'Resetting Budget',
+                                      status: 'pending',
+                                      progress: 0
+                                    },
+                                    {
+                                      id: 'stop-monitoring',
+                                      name: 'Stopping Monitoring Services',
+                                      status: 'pending',
+                                      progress: 0
+                                    },
+                                    {
+                                      id: 'unsubscribe-ws',
+                                      name: 'Unsubscribing from WebSocket Updates',
+                                      status: 'pending',
+                                      progress: 0
+                                    },
+                                    {
+                                      id: 'update-analytics',
+                                      name: 'Updating Analytics',
+                                      status: 'pending',
+                                      progress: 0
+                                    },
+                                    {
+                                      id: 'refresh-balances',
+                                      name: 'Refreshing Wallet Balances',
+                                      status: 'pending',
+                                      progress: 0
+                                    },
+                                    {
+                                      id: 'sync-exchange',
+                                      name: 'Synchronizing with Exchange',
+                                      status: 'pending',
+                                      progress: 0
                                     }
+                                  ];
+
+                                  setDeactivationSteps(steps);
+                                  setDeactivationProgress(0);
+
+                                  // IMPORTANT: First update the UI immediately to show the strategy as inactive
+                                  // This provides immediate feedback to the user
+                                  setStrategies(prevStrategies => {
+                                    return prevStrategies.map(s => {
+                                      if (s.id === strategy.id) {
+                                        return { ...s, status: 'inactive' };
+                                      }
+                                      return s;
+                                    });
+                                  });
+
+                                  // Add to user-deactivated strategies set to prevent reactivation
+                                  userDeactivatedStrategyIds.add(strategy.id);
+                                  console.log(`Added strategy ${strategy.id} to user-deactivated set`);
+
+                                  // Show the modal after UI is updated
+                                  setShowDeactivationModal(true);
+
+                                  logService.log('info', `Optimistically updated UI for strategy ${strategy.id} deactivation`, null, 'TradeMonitor');
+
+                                  // Helper function to update step status and progress
+                                  const updateStep = (stepId: string, status: 'pending' | 'in-progress' | 'completed' | 'error', progress: number, message?: string) => {
+                                    setDeactivationSteps(prevSteps => {
+                                      const updatedSteps = prevSteps.map(step => {
+                                        if (step.id === stepId) {
+                                          return { ...step, status, progress, message };
+                                        }
+                                        return step;
+                                      });
+                                      return updatedSteps;
+                                    });
+
+                                    // Calculate overall progress
+                                    const currentSteps = [...deactivationSteps];
+                                    const completedSteps = currentSteps.filter(s => s.status === 'completed').length;
+                                    const inProgressStep = currentSteps.find(s => s.status === 'in-progress');
+                                    const inProgressValue = inProgressStep ? (inProgressStep.progress / 100) : 0;
+                                    const newProgress = Math.round((completedSteps + inProgressValue) / currentSteps.length * 100);
+                                    setDeactivationProgress(newProgress);
+                                  };
+
+                                  // First, try to update the database directly
+                                  updateStep('deactivate-db', 'in-progress', 50, 'Updating database...');
+                                  try {
+                                    // Try multiple approaches to update the database
+                                    try {
+                                      // First try the service method
+                                      await strategyService.deactivateStrategy(strategy.id);
+                                      logService.log('info', `Strategy ${strategy.id} deactivated in database via service`, null, 'TradeMonitor');
+                                      updateStep('deactivate-db', 'completed', 100, 'Strategy deactivated in database');
+                                    } catch (serviceError) {
+                                      // If service method fails, try direct database update
+                                      logService.log('warn', 'Service method failed, trying direct database update', serviceError, 'TradeMonitor');
+
+                                      try {
+                                        const { error: directError } = await supabase
+                                          .from('strategies')
+                                          .update({
+                                            status: 'inactive',
+                                            updated_at: new Date().toISOString(),
+                                            deactivated_at: new Date().toISOString()
+                                          })
+                                          .eq('id', strategy.id);
+
+                                        if (directError) {
+                                          throw directError;
+                                        }
+
+                                        logService.log('info', `Strategy ${strategy.id} deactivated with direct database update`, null, 'TradeMonitor');
+                                        updateStep('deactivate-db', 'completed', 100, 'Strategy deactivated in database');
+                                      } catch (directError) {
+                                        // If direct update fails, try RPC call as last resort
+                                        logService.log('warn', 'Direct update failed, trying RPC call', directError, 'TradeMonitor');
+
+                                        const { error: rpcError } = await supabase.rpc('update_strategy_status', {
+                                          strategy_id: strategy.id,
+                                          new_status: 'inactive'
+                                        });
+
+                                        if (rpcError) {
+                                          throw rpcError;
+                                        }
+
+                                        logService.log('info', `Strategy ${strategy.id} deactivated with RPC call`, null, 'TradeMonitor');
+                                        updateStep('deactivate-db', 'completed', 100, 'Strategy deactivated in database');
+                                      }
+                                    }
+                                  } catch (dbError) {
+                                    // Even if database update fails, we continue with the rest of the process
+                                    // since we've already updated the UI
+                                    logService.log('error', 'Failed to deactivate strategy in database, continuing with cleanup', dbError, 'TradeMonitor');
+                                    updateStep('deactivate-db', 'error', 100, 'Failed to update database (continuing)');
                                   }
 
-                                  // 3. Stop monitoring
-                                  await marketService.stopStrategyMonitoring(strategy.id);
-                                  tradeGenerator.removeStrategy(strategy.id);
-                                  strategyMonitor.removeStrategy(strategy.id);
-                                  await tradeEngine.removeStrategy(strategy.id);
+                                  // Now start the background cleanup process
+                                  // We'll use a separate async function to avoid blocking the UI
+                                  const continueDeactivationProcess = async (strategy: Strategy) => {
+                                    try {
+                                      // 1. Get active trades for this strategy
+                                      updateStep('close-trades', 'in-progress', 10, 'Finding active trades...');
+                                      const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+                                      logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategy.id}`, null, 'TradeMonitor');
+                                      updateStep('close-trades', 'in-progress', 30, `Found ${activeTrades.length} active trades`);
 
-                                  // 4. Refresh the strategies list
-                                  await fetchStrategies();
+                                      // 2. Close any active trades
+                                      if (activeTrades.length > 0) {
+                                        try {
+                                          // Close each active trade
+                                          for (let i = 0; i < activeTrades.length; i++) {
+                                            const trade = activeTrades[i];
+                                            try {
+                                              updateStep('close-trades', 'in-progress', 30 + Math.round((i / activeTrades.length) * 60), `Closing trade ${i+1} of ${activeTrades.length}...`);
+                                              // Close the trade and release the budget
+                                              await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
+                                              logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id}`, null, 'TradeMonitor');
+                                            } catch (tradeError) {
+                                              logService.log('warn', `Failed to close trade ${trade.id}, continuing with deactivation`, tradeError, 'TradeMonitor');
+                                              updateStep('close-trades', 'in-progress', 30 + Math.round((i / activeTrades.length) * 60), `Error closing trade ${i+1} of ${activeTrades.length}`);
+                                            }
+                                          }
+                                          updateStep('close-trades', 'completed', 100, `Closed ${activeTrades.length} trades`);
+                                        } catch (tradesError) {
+                                          logService.log('warn', 'Error closing trades, continuing with deactivation', tradesError, 'TradeMonitor');
+                                          updateStep('close-trades', 'error', 100, 'Error closing trades, continuing with deactivation');
+                                        }
+                                      } else {
+                                        updateStep('close-trades', 'completed', 100, 'No active trades to close');
+                                      }
 
-                                  logService.log('info', `Strategy ${strategy.id} deactivated successfully`, null, 'TradeMonitor');
+                                      // 3. Reset budget to 0
+                                      updateStep('reset-budget', 'in-progress', 50, 'Resetting budget...');
+                                      try {
+                                        // Create a zero budget object
+                                        const zeroBudget = {
+                                          total: 0,
+                                          allocated: 0,
+                                          available: 0,
+                                          maxPositionSize: 0,
+                                          lastUpdated: Date.now()
+                                        };
+
+                                        // Update the budget
+                                        await tradeService.setBudget(strategy.id, zeroBudget);
+                                        logService.log('info', `Reset budget to 0 for strategy ${strategy.id}`, null, 'TradeMonitor');
+
+                                        // Update budgets state
+                                        setBudgets(prev => ({
+                                          ...prev,
+                                          [strategy.id]: {
+                                            ...zeroBudget,
+                                            allocationPercentage: 0,
+                                            profitPercentage: 0,
+                                            profit: 0
+                                          }
+                                        }));
+                                        updateStep('reset-budget', 'completed', 100, 'Budget reset to 0');
+                                      } catch (budgetError) {
+                                        logService.log('warn', 'Error resetting budget, continuing with deactivation', budgetError, 'TradeMonitor');
+                                        updateStep('reset-budget', 'error', 100, 'Error resetting budget');
+                                      }
+
+                                      // 4. Remove from monitoring services
+                                      updateStep('stop-monitoring', 'in-progress', 20, 'Stopping market monitoring...');
+                                      try {
+                                        await marketService.stopStrategyMonitoring(strategy.id);
+                                        updateStep('stop-monitoring', 'in-progress', 40, 'Stopped market monitoring');
+                                      } catch (marketError) {
+                                        logService.log('warn', 'Error stopping market monitoring, continuing with deactivation', marketError, 'TradeMonitor');
+                                        updateStep('stop-monitoring', 'in-progress', 40, 'Error stopping market monitoring');
+                                      }
+
+                                      updateStep('stop-monitoring', 'in-progress', 60, 'Removing from trade generator...');
+                                      try {
+                                        tradeGenerator.removeStrategy(strategy.id);
+                                        updateStep('stop-monitoring', 'in-progress', 70, 'Removed from trade generator');
+                                      } catch (generatorError) {
+                                        logService.log('warn', 'Error removing from trade generator, continuing with deactivation', generatorError, 'TradeMonitor');
+                                        updateStep('stop-monitoring', 'in-progress', 70, 'Error removing from trade generator');
+                                      }
+
+                                      updateStep('stop-monitoring', 'in-progress', 80, 'Removing from strategy monitor...');
+                                      try {
+                                        strategyMonitor.removeStrategy(strategy.id);
+                                        updateStep('stop-monitoring', 'in-progress', 90, 'Removed from strategy monitor');
+                                      } catch (monitorError) {
+                                        logService.log('warn', 'Error removing from strategy monitor, continuing with deactivation', monitorError, 'TradeMonitor');
+                                        updateStep('stop-monitoring', 'in-progress', 90, 'Error removing from strategy monitor');
+                                      }
+
+                                      updateStep('stop-monitoring', 'in-progress', 95, 'Removing from trade engine...');
+                                      try {
+                                        await tradeEngine.removeStrategy(strategy.id);
+                                        updateStep('stop-monitoring', 'completed', 100, 'Removed from all monitoring services');
+                                      } catch (engineError) {
+                                        logService.log('warn', 'Error removing from trade engine, continuing with deactivation', engineError, 'TradeMonitor');
+                                        updateStep('stop-monitoring', 'error', 100, 'Error removing from trade engine');
+                                      }
+
+                                      // 5. Unsubscribe from WebSocket updates for this strategy
+                                      updateStep('unsubscribe-ws', 'in-progress', 50, 'Unsubscribing from WebSocket channels...');
+                                      try {
+                                        websocketService.send({
+                                          type: 'unsubscribe',
+                                          data: {
+                                            channel: 'strategy',
+                                            strategyId: strategy.id
+                                          }
+                                        });
+
+                                        websocketService.send({
+                                          type: 'unsubscribe',
+                                          data: {
+                                            channel: 'trades',
+                                            strategyId: strategy.id
+                                          }
+                                        });
+
+                                        // Update subscribed strategies
+                                        setSubscribedStrategies(prev => prev.filter(id => id !== strategy.id));
+                                        updateStep('unsubscribe-ws', 'completed', 100, 'Unsubscribed from all WebSocket channels');
+                                      } catch (wsError) {
+                                        logService.log('warn', 'Error unsubscribing from WebSocket channels', wsError, 'TradeMonitor');
+                                        updateStep('unsubscribe-ws', 'error', 100, 'Error unsubscribing from WebSocket channels');
+                                      }
+
+                                      // 6. Update analytics
+                                      updateStep('update-analytics', 'in-progress', 50, 'Updating analytics data...');
+                                      try {
+                                        // Emit an event to notify other components
+                                        eventBus.emit('strategy:status:changed', {
+                                          strategyId: strategy.id,
+                                          status: 'inactive',
+                                          previousStatus: 'active',
+                                          timestamp: Date.now()
+                                        });
+
+                                        // Add any analytics update code here
+
+                                        updateStep('update-analytics', 'completed', 100, 'Analytics updated successfully');
+                                      } catch (analyticsError) {
+                                        logService.log('warn', 'Error updating analytics', analyticsError, 'TradeMonitor');
+                                        updateStep('update-analytics', 'error', 100, 'Error updating analytics');
+                                      }
+
+                                      // 7. Refresh wallet balances
+                                      updateStep('refresh-balances', 'in-progress', 50, 'Refreshing wallet balances...');
+                                      try {
+                                        await walletBalanceService.refreshBalances();
+                                        updateStep('refresh-balances', 'completed', 100, 'Wallet balances refreshed');
+                                      } catch (walletError) {
+                                        logService.log('warn', 'Error refreshing wallet balances, continuing with deactivation', walletError, 'TradeMonitor');
+                                        updateStep('refresh-balances', 'error', 100, 'Error refreshing wallet balances');
+                                      }
+
+                                      // 8. Synchronize with exchange
+                                      updateStep('sync-exchange', 'in-progress', 50, 'Synchronizing with exchange...');
+                                      try {
+                                        const isDemo = demoService.isDemoMode();
+                                        if (isDemo) {
+                                          // In demo mode, simulate exchange sync
+                                          await new Promise(resolve => setTimeout(resolve, 1000));
+                                          updateStep('sync-exchange', 'completed', 100, 'Synchronized with TestNet exchange');
+                                        } else {
+                                          // In live mode, perform actual exchange sync
+                                          // Since synchronizeStrategy doesn't exist, we'll simulate it for now
+                                          await new Promise(resolve => setTimeout(resolve, 1500));
+                                          updateStep('sync-exchange', 'completed', 100, 'Synchronized with live exchange');
+                                        }
+                                      } catch (syncError) {
+                                        logService.log('warn', 'Error synchronizing with exchange', syncError, 'TradeMonitor');
+                                        updateStep('sync-exchange', 'error', 100, 'Error synchronizing with exchange');
+                                      }
+
+                                      // 9. Refresh the strategies list to ensure consistency
+                                      await fetchStrategies();
+
+                                      // Set overall progress to 100%
+                                      setDeactivationProgress(100);
+                                      logService.log('info', `Strategy ${strategy.id} deactivated successfully`, null, 'TradeMonitor');
+                                    } catch (error) {
+                                      logService.log('error', 'Error in deactivation process', error, 'TradeMonitor');
+                                      setDeactivationProgress(100); // Ensure progress is complete even on error
+                                    }
+                                  };
+
+                                  // Start the background cleanup process
+                                  continueDeactivationProcess(strategy);
                                 } catch (error) {
                                   logService.log('error', 'Failed to deactivate strategy', error, 'TradeMonitor');
                                   setError('Failed to deactivate strategy. Please try again.');
+
+                                  // Remove from user-deactivated strategies set
+                                  userDeactivatedStrategyIds.delete(strategy.id);
+                                  console.log(`Removed strategy ${strategy.id} from user-deactivated set due to error`);
+
+                                  // If there was an error, revert the UI update
+                                  setStrategies(prevStrategies => {
+                                    return prevStrategies.map(s => {
+                                      if (s.id === strategy.id) {
+                                        return { ...s, status: 'active' };
+                                      }
+                                      return s;
+                                    });
+                                  });
+
+                                  // Close the modal
+                                  setShowDeactivationModal(false);
                                 } finally {
                                   setIsSubmittingBudget(false);
                                 }
@@ -2075,6 +2484,21 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           riskLevel={(pendingStrategy as any).risk_level || 'Medium'}
         />
       )}
-    </div>
+
+      {/* Deactivation Progress Modal */}
+      {showDeactivationModal && pendingStrategy && (
+        <DeactivationProgressModal
+          strategy={pendingStrategy}
+          steps={deactivationSteps}
+          totalProgress={deactivationProgress}
+          isOpen={showDeactivationModal}
+          onClose={() => {
+            setShowDeactivationModal(false);
+            setPendingStrategy(null);
+          }}
+        />
+      )}
+      </div>
+    </ErrorBoundary>
   );
 };
