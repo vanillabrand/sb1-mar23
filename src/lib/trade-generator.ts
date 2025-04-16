@@ -259,13 +259,18 @@ class TradeGenerator extends EventEmitter {
                     strategy_id: strategy.id,
                     symbol: symbol,
                     side: tradeSide,
-                    type: 'market',
+                    type: 'market', // Default to market order
+                    orderType: Math.random() > 0.3 ? 'market' : 'limit', // Mix of market and limit orders
                     entry_price: currentPrice * (0.98 + Math.random() * 0.04), // Vary price slightly
                     amount: adjustedSize,
                     stop_loss: signal.stopLoss * (0.95 + Math.random() * 0.1), // Vary stop loss
                     take_profit: signal.takeProfit * (0.95 + Math.random() * 0.1), // Vary take profit
                     trailing_stop: signal.trailingStop,
-                    testnet: true // Always use TestNet in demo mode
+                    testnet: true, // Always use TestNet in demo mode
+                    marketType: strategy.marketType || 'spot', // Use strategy's market type
+                    marginType: strategy.marketType === 'futures' ? (Math.random() > 0.5 ? 'cross' : 'isolated') : undefined, // Set margin type for futures
+                    leverage: strategy.marketType === 'futures' ? Math.floor(Math.random() * 10) + 1 : undefined, // Set leverage for futures (1-10x)
+                    tradeValue: adjustedSize * currentPrice // Calculate trade value
                   };
 
                   // Execute the trade
@@ -290,12 +295,17 @@ class TradeGenerator extends EventEmitter {
                   symbol: symbol,
                   side: signal.direction === 'Long' ? 'buy' : 'sell',
                   type: 'market',
+                  orderType: 'market', // Default to market order in live mode for reliability
                   entry_price: currentPrice,
                   amount: positionSize,
                   stop_loss: signal.stopLoss,
                   take_profit: signal.takeProfit,
                   trailing_stop: signal.trailingStop,
-                  testnet: false // Not using TestNet in live mode
+                  testnet: false, // Not using TestNet in live mode
+                  marketType: strategy.marketType || 'spot', // Use strategy's market type
+                  marginType: strategy.marketType === 'futures' ? 'cross' : undefined, // Default to cross margin for futures
+                  leverage: strategy.marketType === 'futures' ? 2 : undefined, // Conservative leverage in live mode
+                  tradeValue: positionSize * currentPrice // Calculate trade value
                 };
 
                 // Execute the trade
@@ -556,7 +566,7 @@ Return ONLY a JSON object with this structure:
   "rationale": string (detailed explanation)
 }`;
 
-      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}v1/chat/completions`), {
+      const response = await fetch(`/api/deepseek/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -870,7 +880,7 @@ Return ONLY a JSON object with this structure:
 }`;
 
       // Call DeepSeek API
-      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}v1/chat/completions`), {
+      const response = await fetch(`/api/deepseek/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1070,7 +1080,7 @@ Return ONLY a JSON object with the updated strategy configuration:
 }`;
 
       // Call DeepSeek API
-      const response = await fetch(config.getFullUrl(`${config.deepseekApiUrl}v1/chat/completions`), {
+      const response = await fetch(`/api/deepseek/v1/chat/completions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -826,6 +826,37 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Add a handler for the coindesk-news endpoint
+app.get('/api/coindesk-news', async (req, res) => {
+  try {
+    const asset = req.query.asset || 'btc';
+    const apiKey = req.query.apiKey;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API key is required' });
+    }
+
+    const url = `https://data-api.coindesk.com/news/v1/article/list?lang=EN&limit=10&tag=${asset}`;
+
+    const response = await fetch(url, {
+      headers: {
+        'x-api-key': apiKey,
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Coindesk API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('Error fetching news:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Set up proxy routes for each exchange
 Object.keys(exchangeProxies).forEach(exchange => {
   // Special handling for BitMart to fix double slash issue
@@ -1167,10 +1198,12 @@ global.broadcastBinanceData = function(data) {
 
 // Start the server with fallback ports if the primary port is in use
 const startServer = (port) => {
-  server.listen(port, 'localhost')
+  // Make sure the server is running on port 3003 to match the vite.config.ts proxy setting
+  const actualPort = port === 3003 ? port : 3003;
+  server.listen(actualPort, 'localhost')
     .on('listening', () => {
-      console.log(`Proxy server running on port ${port}`);
-      console.log(`WebSocket server running at ws://localhost:${port}/ws`);
+      console.log(`Proxy server running on port ${actualPort}`);
+      console.log(`WebSocket server running at ws://localhost:${actualPort}/ws`);
     })
     .on('error', (err) => {
       if (err.code === 'EADDRINUSE') {

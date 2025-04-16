@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react';
-import type { Trade } from '../lib/types';
+import type { Trade, MarketType } from '../lib/types';
 import { marketDataService } from '../lib/market-data-service';
 import { Pagination } from './ui/Pagination';
 
@@ -29,7 +29,7 @@ export const TradeList: React.FC<TradeListProps> = ({
   const [isLoadingPrices, setIsLoadingPrices] = useState<boolean>(false);
 
   // Function to get market type color
-  const getMarketTypeColor = (marketType?: string): string => {
+  const getMarketTypeColor = (marketType?: MarketType): string => {
     switch (marketType) {
       case 'spot':
         return 'text-green-400';
@@ -182,6 +182,8 @@ export const TradeList: React.FC<TradeListProps> = ({
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Amount</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Entry</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Trade Value</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Market Type</th>
+              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Risk Params</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Exit</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Profit/Loss</th>
               <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
@@ -217,22 +219,22 @@ export const TradeList: React.FC<TradeListProps> = ({
                 </td>
                 <td className="px-4 py-3 text-sm text-white">
                   {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
+                  {trade.orderType && (
+                    <span className="ml-1 text-xs text-gray-400">
+                      ({trade.orderType})
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-sm">
                   {trade.amount !== undefined && trade.entryPrice !== undefined ? (
                     <div className="flex flex-col">
                       <span className="text-white font-medium">
-                        ${(trade.amount * trade.entryPrice).toFixed(2)} USDT
+                        ${trade.tradeValue?.toFixed(2) || (trade.amount * trade.entryPrice).toFixed(2)} USDT
                       </span>
                       <div className="flex flex-col gap-0.5">
                         {trade.leverage && (
                           <span className="text-xs text-blue-400">
                             {trade.leverage}x leverage
-                          </span>
-                        )}
-                        {trade.marketType && (
-                          <span className={`text-xs ${getMarketTypeColor(trade.marketType)}`}>
-                            {trade.marketType.charAt(0).toUpperCase() + trade.marketType.slice(1)}
                           </span>
                         )}
                         {marketPrices[trade.symbol] && trade.status !== 'closed' && (
@@ -245,6 +247,38 @@ export const TradeList: React.FC<TradeListProps> = ({
                   ) : (
                     <span className="text-gray-400">-</span>
                   )}
+                </td>
+                <td className="px-4 py-3 text-sm text-white">
+                  <span className="px-2 py-1 rounded-full text-xs bg-gunmetal-700">
+                    {trade.marketType || 'spot'}
+                    {trade.marginType && (
+                      <span className="ml-1 text-xs text-gray-400">
+                        ({trade.marginType})
+                      </span>
+                    )}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-sm">
+                  <div className="flex flex-col gap-1 text-xs">
+                    {trade.stopLoss && (
+                      <span className="text-red-400">
+                        SL: ${trade.stopLoss.toFixed(2)}
+                      </span>
+                    )}
+                    {trade.takeProfit && (
+                      <span className="text-green-400">
+                        TP: ${trade.takeProfit.toFixed(2)}
+                      </span>
+                    )}
+                    {trade.trailingStop && (
+                      <span className="text-blue-400">
+                        TS: {trade.trailingStop}%
+                      </span>
+                    )}
+                    {!trade.stopLoss && !trade.takeProfit && !trade.trailingStop && (
+                      <span className="text-gray-400">-</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-4 py-3 text-sm text-white">
                   {trade.exitPrice ? `$${trade.exitPrice.toFixed(2)}` : '-'}

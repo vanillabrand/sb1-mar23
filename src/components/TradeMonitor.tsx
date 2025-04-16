@@ -36,6 +36,8 @@ import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { DeactivationProgressModal, type DeactivationStep } from './DeactivationProgressModal';
 import { ErrorBoundary } from './ErrorBoundary';
+import AvailableBalanceDisplay from './AvailableBalanceDisplay';
+import MarketTypeBalanceDisplay from './MarketTypeBalanceDisplay';
 import type { Trade, Strategy, StrategyBudget, MarketType } from '../lib/types';
 
 // Define local types
@@ -1829,6 +1831,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             <p className="description-text mt-1">Monitor your active trades in real-time. Track positions, P&L, and market conditions.</p>
           </div>
           <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 mr-4">
+              <MarketTypeBalanceDisplay compact />
+            </div>
             <span className="text-sm text-gray-400 flex items-center gap-2">
               <Clock className="w-4 h-4" />
               Last update: {new Date(lastUpdate).toLocaleTimeString()}

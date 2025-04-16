@@ -20,6 +20,7 @@ import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { MarketTypeBadge } from './ui/MarketTypeBadge';
+import AvailableBalanceDisplay from './AvailableBalanceDisplay';
 import type { RiskLevel, Strategy, StrategyBudget, Trade, MarketType } from '../lib/types';
 import { standardizeAssetPairFormat } from '../lib/format-utils';
 
@@ -923,12 +924,13 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   {strategy.status === 'active' ? 'ACTIVE' : 'INACTIVE'}
                 </span>
                 <MarketTypeBadge marketType={strategy.market_type || strategy.marketType || 'spot'} />
-                {strategy.status === 'active' && budget && (
-                  <span className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-400 flex items-center">
-                    <Wallet className="w-3 h-3 mr-1" />
-                    <span className="font-medium">${budget.available ? budget.available.toFixed(2) : '0.00'}</span>
-                    <span className="ml-1 opacity-70">USDT</span>
-                  </span>
+                {strategy.status === 'active' && (
+                  <AvailableBalanceDisplay
+                    marketType={strategy.market_type || strategy.marketType || 'spot'}
+                    compact
+                    showLabel={false}
+                    className="px-3 py-1 rounded-full text-xs bg-blue-500/20 text-blue-400 flex items-center"
+                  />
                 )}
                 {/* Trading pairs as lozenges with price indicators */}
                 {(strategy.selected_pairs || []).slice(0, 3).map((pair, index) => (

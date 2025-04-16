@@ -38,6 +38,12 @@ export interface Trade {
   executedAt?: string | null;
   marketType?: MarketType;
   leverage?: number; // Only used for futures trading
+  stopLoss?: number; // Stop loss price
+  takeProfit?: number; // Take profit price
+  trailingStop?: number; // Trailing stop percentage
+  orderType?: 'market' | 'limit'; // Order type
+  marginType?: 'cross' | 'isolated'; // Margin type for futures/margin
+  tradeValue?: number; // Total value of the trade
 }
 
 export interface TradeOptions {
@@ -123,6 +129,7 @@ export interface StrategyBudget {
   profit?: number;
   allocationPercentage?: number;
   profitPercentage?: number;
+  marketType?: MarketType; // Added market type
 }
 
 export type ExchangeId = 'binance' | 'bitmart' | 'kucoin' | 'coinbase' | 'kraken' | string;

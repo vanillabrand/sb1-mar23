@@ -27,6 +27,8 @@ export const config = {
 
   // Function to get the full URL for an API endpoint
   getFullUrl: function(endpoint: string): string {
-    return `${this.proxyBaseUrl}${endpoint}`;
+    // If endpoint already starts with a slash, don't add another one
+    const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    return `${this.proxyBaseUrl}${formattedEndpoint}`;
   }
 };

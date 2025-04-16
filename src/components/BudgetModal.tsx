@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { DollarSign, AlertCircle, Loader2, Wallet, RefreshCw } from 'lucide-react';
 import { logService } from '../lib/log-service';
 import { walletBalanceService } from '../lib/wallet-balance-service';
-import type { StrategyBudget, Strategy, RiskLevel } from '../lib/types';
+import { exchangeService } from '../lib/exchange-service';
+import type { StrategyBudget, Strategy, RiskLevel, MarketType, WalletBalance } from '../lib/types';
 
 interface BudgetModalProps {
   onConfirm: (budget: StrategyBudget) => Promise<void>;
@@ -13,9 +14,10 @@ interface BudgetModalProps {
   initialBudget?: StrategyBudget;
   strategy?: Strategy;
   riskLevel?: RiskLevel;
+  marketType?: MarketType; // Added market type
 }
 
-export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, isSubmitting = false, initialBudget, strategy, riskLevel = 'Medium' }: BudgetModalProps) {
+export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, isSubmitting = false, initialBudget, strategy, riskLevel = 'Medium', marketType = 'spot' }: BudgetModalProps) {
   const [totalBudget, setTotalBudget] = useState<number>(
     initialBudget?.total || Math.min((maxBudget || 0) * 0.1, maxBudget || 0)
   );
@@ -23,6 +25,11 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [availableBalance, setAvailableBalance] = useState<number>(maxBudget);
+  const [marketBalances, setMarketBalances] = useState<{
+    spot?: WalletBalance;
+    margin?: WalletBalance;
+    futures?: WalletBalance;
+  }>({});
 
   // Reset state when modal closes
   useEffect(() => {
@@ -44,13 +51,40 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
           await walletBalanceService.initialize();
         }
 
-        // Get the available balance
-        const balance = walletBalanceService.getAvailableBalance();
-        setAvailableBalance(balance);
+        // Get the available balance for all market types
+        try {
+          const balances = await exchangeService.fetchAllWalletBalances();
+          setMarketBalances(balances);
 
-        // If initial budget is not set, use 10% of available balance
-        if (!initialBudget) {
-          setTotalBudget(Math.min(balance * 0.1, balance));
+          // Set the available balance based on the selected market type
+          const marketTypeBalance = balances[marketType];
+          if (marketTypeBalance) {
+            setAvailableBalance(marketTypeBalance.free);
+
+            // If initial budget is not set, use 10% of available balance
+            if (!initialBudget) {
+              setTotalBudget(Math.min(marketTypeBalance.free * 0.1, marketTypeBalance.free));
+            }
+          } else {
+            // Fallback to general available balance
+            const balance = walletBalanceService.getAvailableBalance();
+            setAvailableBalance(balance);
+
+            // If initial budget is not set, use 10% of available balance
+            if (!initialBudget) {
+              setTotalBudget(Math.min(balance * 0.1, balance));
+            }
+          }
+        } catch (balanceError) {
+          logService.log('error', 'Failed to fetch market type balances', balanceError, 'BudgetModal');
+          // Fallback to general available balance
+          const balance = walletBalanceService.getAvailableBalance();
+          setAvailableBalance(balance);
+
+          // If initial budget is not set, use 10% of available balance
+          if (!initialBudget) {
+            setTotalBudget(Math.min(balance * 0.1, balance));
+          }
         }
       } catch (error) {
         logService.log('error', 'Failed to initialize wallet balances', error, 'BudgetModal');
@@ -65,8 +99,25 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
 
     // Subscribe to balance updates
     const handleBalanceUpdate = () => {
-      const balance = walletBalanceService.getAvailableBalance();
-      setAvailableBalance(balance);
+      // Refresh all market type balances
+      exchangeService.fetchAllWalletBalances().then(balances => {
+        setMarketBalances(balances);
+
+        // Update the available balance based on the selected market type
+        const marketTypeBalance = balances[marketType];
+        if (marketTypeBalance) {
+          setAvailableBalance(marketTypeBalance.free);
+        } else {
+          // Fallback to general available balance
+          const balance = walletBalanceService.getAvailableBalance();
+          setAvailableBalance(balance);
+        }
+      }).catch(error => {
+        logService.log('error', 'Failed to update market type balances', error, 'BudgetModal');
+        // Fallback to general available balance
+        const balance = walletBalanceService.getAvailableBalance();
+        setAvailableBalance(balance);
+      });
     };
 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
@@ -74,9 +125,9 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
     return () => {
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
     };
-  }, [initialBudget, maxBudget]);
+  }, [initialBudget, maxBudget, marketType]);
 
-  // Use the fetched available balance
+  // Use the fetched available balance for the selected market type
   const marketBalance = availableBalance;
 
   const handleBudgetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -89,9 +140,30 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
   const refreshBalance = async () => {
     try {
       setIsLoadingBalance(true);
+
+      // Refresh all balances
       await walletBalanceService.refreshBalances();
-      const balance = walletBalanceService.getAvailableBalance();
-      setAvailableBalance(balance);
+
+      // Get the available balance for all market types
+      try {
+        const balances = await exchangeService.fetchAllWalletBalances();
+        setMarketBalances(balances);
+
+        // Set the available balance based on the selected market type
+        const marketTypeBalance = balances[marketType];
+        if (marketTypeBalance) {
+          setAvailableBalance(marketTypeBalance.free);
+        } else {
+          // Fallback to general available balance
+          const balance = walletBalanceService.getAvailableBalance();
+          setAvailableBalance(balance);
+        }
+      } catch (balanceError) {
+        logService.log('error', 'Failed to fetch market type balances', balanceError, 'BudgetModal');
+        // Fallback to general available balance
+        const balance = walletBalanceService.getAvailableBalance();
+        setAvailableBalance(balance);
+      }
     } catch (error) {
       logService.log('error', 'Failed to refresh wallet balance', error, 'BudgetModal');
     } finally {
@@ -129,7 +201,8 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
         total: Number(totalBudget.toFixed(2)),
         allocated: 0,
         available: Number(totalBudget.toFixed(2)),
-        maxPositionSize: Number((totalBudget * positionSizeMultiplier).toFixed(2))
+        maxPositionSize: Number((totalBudget * positionSizeMultiplier).toFixed(2)),
+        marketType: marketType // Include the market type in the budget
       };
 
       await onConfirm(budget);
@@ -180,7 +253,7 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
               <div className="flex items-center gap-3">
                 <Wallet className="w-5 h-5 text-neon-turquoise" />
                 <h3 className="text-sm font-medium text-gray-300">
-                  Available Balance
+                  Available Balance ({marketType.charAt(0).toUpperCase() + marketType.slice(1)})
                 </h3>
               </div>
               <button
@@ -199,6 +272,26 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
                 maximumFractionDigits: 2,
               })}
             </p>
+
+            {/* Show all market type balances */}
+            <div className="mt-3 pt-3 border-t border-gunmetal-700">
+              <h4 className="text-xs text-gray-400 mb-2">All Market Type Balances:</h4>
+              <div className="space-y-1">
+                {Object.entries(marketBalances).map(([type, balance]) => (
+                  balance && (
+                    <div key={type} className="flex justify-between items-center">
+                      <span className="text-xs text-gray-400 capitalize">{type}:</span>
+                      <span className={`text-xs font-medium ${type === marketType ? 'text-neon-turquoise' : 'text-white'}`}>
+                        ${balance.free.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )
+                ))}
+                {Object.keys(marketBalances).length === 0 && (
+                  <div className="text-xs text-gray-500 text-center">No market balances available</div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div>
