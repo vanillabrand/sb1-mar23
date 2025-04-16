@@ -23,8 +23,8 @@ class TradeGenerator extends EventEmitter {
   private readonly CHECK_FREQUENCY = 60000; // 1 minute
   private readonly LOOKBACK_PERIOD = 86400000; // 24 hours
   private activeStrategies: Map<string, Strategy> = new Map();
-  private monitorState: Map<string, { 
-    isActive: boolean; 
+  private monitorState: Map<string, {
+    isActive: boolean;
     lastCheckTime: number;
     lastGeneratedTime: number | null;
   }> = new Map();
@@ -146,7 +146,7 @@ class TradeGenerator extends EventEmitter {
 
           if (signal) {
             // Emit event to notify that we're generating a trade
-            eventBus.emit(`trade:generating:${strategy.id}`, { 
+            eventBus.emit(`trade:generating:${strategy.id}`, {
               strategyId: strategy.id,
               symbol,
               signal
@@ -193,7 +193,7 @@ class TradeGenerator extends EventEmitter {
             }
 
             // Emit event to notify that a trade was created
-            eventBus.emit(`trade:created:${strategy.id}`, { 
+            eventBus.emit(`trade:created:${strategy.id}`, {
               strategyId: strategy.id,
               trade: createdTrade
             });
@@ -344,7 +344,7 @@ class TradeGenerator extends EventEmitter {
       };
 
       // Call DeepSeek API
-      const response = await fetch(`${config.PROXY_URL}/api/deepseek/trading-signal`, {
+      const response = await fetch(`${config.deepseekApiUrl}/trading-signal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -451,8 +451,8 @@ class TradeGenerator extends EventEmitter {
 
       // Add to active strategies
       this.activeStrategies.set(strategy.id, strategy);
-      this.monitorState.set(strategy.id, { 
-        isActive: true, 
+      this.monitorState.set(strategy.id, {
+        isActive: true,
         lastCheckTime: 0,
         lastGeneratedTime: null
       });

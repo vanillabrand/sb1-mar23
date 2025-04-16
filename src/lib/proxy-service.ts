@@ -6,11 +6,12 @@ class ProxyService {
 
   private constructor() {
     // Use the environment variable or a relative URL to avoid hardcoding localhost
-    this.proxyUrl = import.meta.env.VITE_PROXY_URL || '/api/';
+    // Never use localhost in the URL to avoid CORS issues
+    this.proxyUrl = import.meta.env.VITE_PROXY_URL || '/api';
 
-    // Ensure the proxy URL ends with a slash
-    if (!this.proxyUrl.endsWith('/')) {
-      this.proxyUrl += '/';
+    // Ensure the proxy URL doesn't end with a slash
+    if (this.proxyUrl.endsWith('/')) {
+      this.proxyUrl = this.proxyUrl.slice(0, -1);
     }
 
     // Log the proxy URL for debugging
@@ -32,8 +33,11 @@ class ProxyService {
    */
   async fetchFromProxy(endpoint: string, options: RequestInit = {}): Promise<any> {
     try {
+      // Ensure endpoint starts with a slash
+      const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+
       // Construct the proxy URL
-      const url = `${this.proxyUrl}${endpoint}`;
+      const url = `${this.proxyUrl}${formattedEndpoint}`;
 
       logService.log('info', `Fetching from proxy: ${url}`, null, 'ProxyService');
 
@@ -48,6 +52,7 @@ class ProxyService {
 
       if (!response.ok) {
         const errorText = await response.text();
+        logService.log('error', `Proxy request failed: ${response.status}`, { url, errorText }, 'ProxyService');
         throw new Error(`Proxy request failed: ${response.status} ${errorText}`);
       }
 
@@ -72,7 +77,8 @@ class ProxyService {
       return await this.fetchFromProxy(endpoint);
     } catch (error) {
       logService.log('error', `Failed to fetch news for ${asset} through proxy`, error, 'ProxyService');
-      throw error;
+      // Return empty array instead of throwing to prevent UI errors
+      return { articles: [] };
     }
   }
 }

@@ -735,7 +735,7 @@ Return ONLY a JSON object with this structure:
           'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'DeepSeek-V3-0324',
+          model: 'deepseek-chat',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 500
@@ -1066,7 +1066,7 @@ Return ONLY a JSON object with this structure:
           'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'DeepSeek-V3-0324',
+          model: 'deepseek-chat',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 800
@@ -1420,7 +1420,7 @@ Return ONLY a JSON object with the updated strategy configuration:
           'Authorization': `Bearer ${this.DEEPSEEK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'DeepSeek-V3-0324',
+          model: 'deepseek-chat',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 1000

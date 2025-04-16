@@ -231,7 +231,7 @@ import { config } from './config';
 class AITradeService {
   private static instance: AITradeService;
   private static DEEPSEEK_API_KEY = import.meta.env.VITE_DEEPSEEK_API_KEY;
-  private static DEEPSEEK_API_URL = config.getFullUrl(config.deepseekApiUrl + 'v1/chat/completions'); // Use full proxy URL
+  private static DEEPSEEK_API_URL = config.deepseekApiUrl + '/v1/chat/completions'; // Use proxy URL from config
   // Model to use for API calls
   // private static readonly MODEL = 'DeepSeek-V3-0324'; // Commented out to avoid unused variable warning
   // Use a stable key for each strategy rather than a unique timestamp per request
@@ -328,7 +328,7 @@ Return an array of trade signals with this exact structure:
           'Authorization': `Bearer ${AITradeService.DEEPSEEK_API_KEY}`
         },
         body: JSON.stringify({
-          model: 'DeepSeek-V3-0324',
+          model: 'deepseek-chat',
           messages: [{ role: 'user', content: prompt }],
           temperature: 0.3,
           max_tokens: 1000

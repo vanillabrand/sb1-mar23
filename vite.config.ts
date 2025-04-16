@@ -10,11 +10,12 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:3003',
+        target: process.env.PROXY_SERVER_URL || 'http://localhost:3001',
         changeOrigin: true,
         secure: false,
         rewrite: (path) => path
       }
-    }
+    },
+    host: '0.0.0.0' // Allow connections from all network interfaces
   }
 });

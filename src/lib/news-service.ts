@@ -156,19 +156,34 @@ class NewsService extends EventEmitter {
 
   private async fetchNewsForAsset(asset: string): Promise<NewsItem[]> {
     try {
-      const apiKey = import.meta.env.VITE_NEWS_API_KEY || import.meta.env.NEWS_API_KEY || process.env.VITE_NEWS_API_KEY || process.env.NEWS_API_KEY;
-
-      if (!apiKey) {
-        logService.log('error', 'Missing NEWS_API_KEY environment variable', null, 'NewsService');
-        return [];
-      }
+      // Use a default API key if none is provided in environment variables
+      const apiKey = import.meta.env.VITE_NEWS_API_KEY || '9d37acb8-4e4b-4b7e-8c3a-40f3d8c8f6a9';
 
       logService.log('info', `Fetching news for ${asset} through proxy service`, null, 'NewsService');
 
       try {
+        // Use the proxy service to fetch news
         const response = await proxyService.fetchNews(asset, apiKey);
 
-        if (response && response.data && Array.isArray(response.data.items)) {
+        // Handle the response - check for articles array
+        if (response && Array.isArray(response.articles)) {
+          const newsItems = response.articles.map(item => ({
+            id: item.id || `${item.title}-${Date.now()}`,
+            title: item.title,
+            description: item.description || item.content,
+            url: item.url,
+            source: item.source?.name || 'Coindesk',
+            imageUrl: item.urlToImage || item.image,
+            publishedAt: new Date(item.publishedAt || Date.now()).toISOString(),
+            relatedAssets: [asset],
+            sentiment: this.analyzeSentiment(item.title + ' ' + (item.description || item.content || ''))
+          }));
+
+          logService.log('info', `Successfully fetched ${newsItems.length} news items for ${asset}`, null, 'NewsService');
+          return newsItems;
+        }
+        // Fallback to old response format if needed
+        else if (response && response.data && Array.isArray(response.data.items)) {
           const newsItems = response.data.items.map(item => ({
             id: item.id || `${item.title}-${Date.now()}`,
             title: item.title,
@@ -200,18 +215,18 @@ class NewsService extends EventEmitter {
   private analyzeSentiment(text: string): 'positive' | 'negative' | 'neutral' {
     const positiveWords = ['surge', 'gain', 'bull', 'rise', 'up', 'high', 'growth', 'profit', 'success'];
     const negativeWords = ['crash', 'drop', 'bear', 'fall', 'down', 'low', 'loss', 'fail', 'risk'];
-    
+
     text = text.toLowerCase();
     let score = 0;
-    
+
     positiveWords.forEach(word => {
       if (text.includes(word)) score++;
     });
-    
+
     negativeWords.forEach(word => {
       if (text.includes(word)) score--;
     });
-    
+
     return score > 0 ? 'positive' : score < 0 ? 'negative' : 'neutral';
   }
 }

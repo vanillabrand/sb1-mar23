@@ -826,6 +826,151 @@ app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+// Add a handler for the DeepSeek API endpoint
+app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
+  try {
+    const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.DEEPSEEK_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API key is required in Authorization header' });
+    }
+
+    // Validate the request body
+    if (!req.body || !req.body.model || !req.body.messages) {
+      return res.status(400).json({
+        error: 'Invalid request body',
+        message: 'Request must include model and messages fields',
+        required_format: {
+          model: 'deepseek-chat',
+          messages: [{ role: 'user', content: 'Your message here' }],
+          temperature: 0.7,
+          max_tokens: 1000
+        }
+      });
+    }
+
+    // Make sure the model is set to deepseek-chat
+    const requestBody = {
+      ...req.body,
+      model: 'deepseek-chat'
+    };
+
+    console.log(`Calling DeepSeek API with model: ${requestBody.model}`);
+
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`DeepSeek API error: ${response.status}`, errorText);
+      return res.status(response.status).json({
+        error: `DeepSeek API error: ${response.status}`,
+        message: errorText
+      });
+    }
+
+    const data = await response.json();
+    console.log('Successfully received response from DeepSeek API');
+    res.json(data);
+  } catch (error) {
+    console.error('Error calling DeepSeek API:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
+// Add a handler for the DeepSeek trading signal endpoint
+app.post('/api/deepseek/trading-signal', async (req, res) => {
+  try {
+    const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.DEEPSEEK_API_KEY;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API key is required in Authorization header' });
+    }
+
+    // Validate the request body
+    if (!req.body || !req.body.symbol) {
+      return res.status(400).json({
+        error: 'Invalid request body',
+        message: 'Request must include symbol field'
+      });
+    }
+
+    // Create a prompt for the DeepSeek API based on the trading data
+    const prompt = `Analyze this trading data and generate a trading signal:
+
+Symbol: ${req.body.symbol}
+Current Price: ${req.body.currentPrice || 'Unknown'}
+Market State: ${JSON.stringify(req.body.marketState || {})}
+Indicators: ${JSON.stringify(req.body.indicators || [])}
+
+Generate a trading signal with direction (Long/Short), confidence level, stop loss, take profit, and rationale.
+
+Return ONLY a JSON object with this structure:
+{
+  "signal": true,
+  "direction": "Long" | "Short",
+  "confidence": number (0-1),
+  "entry": number,
+  "stopLoss": number,
+  "takeProfit": number,
+  "rationale": string
+}`;
+
+    // Call the DeepSeek API
+    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.3,
+        max_tokens: 500
+      })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`DeepSeek API error: ${response.status}`, errorText);
+      return res.status(response.status).json({
+        error: `DeepSeek API error: ${response.status}`,
+        message: errorText
+      });
+    }
+
+    const data = await response.json();
+    console.log('Successfully received response from DeepSeek API for trading signal');
+
+    // Extract the JSON from the response
+    const content = data.choices?.[0]?.message?.content;
+    if (!content) {
+      return res.status(500).json({ error: 'Empty response from DeepSeek API' });
+    }
+
+    // Extract JSON from the response
+    const jsonStart = content.indexOf('{');
+    const jsonEnd = content.lastIndexOf('}');
+
+    if (jsonStart === -1 || jsonEnd === -1) {
+      return res.status(500).json({ error: 'No valid JSON found in response' });
+    }
+
+    const signal = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
+    res.json(signal);
+  } catch (error) {
+    console.error('Error calling DeepSeek API for trading signal:', error);
+    res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
+});
+
 // Add a handler for the coindesk-news endpoint
 app.get('/api/coindesk-news', async (req, res) => {
   try {
@@ -836,24 +981,30 @@ app.get('/api/coindesk-news', async (req, res) => {
       return res.status(400).json({ error: 'API key is required' });
     }
 
-    const url = `https://data-api.coindesk.com/news/v1/article/list?lang=EN&limit=10&tag=${asset}`;
+    console.log(`Fetching news for ${asset} with API key ${apiKey.substring(0, 5)}...`);
+
+    // Use the News API instead of Coindesk API
+    const url = `https://newsapi.org/v2/everything?q=${asset}&language=en&sortBy=publishedAt&apiKey=${apiKey}`;
 
     const response = await fetch(url, {
       headers: {
-        'x-api-key': apiKey,
         'Content-Type': 'application/json'
       }
     });
 
     if (!response.ok) {
-      throw new Error(`Coindesk API error: ${response.status}`);
+      const errorText = await response.text();
+      console.error(`News API error: ${response.status}`, errorText);
+      throw new Error(`News API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
+    console.log(`Successfully fetched ${data.articles?.length || 0} news articles for ${asset}`);
     res.json(data);
   } catch (error) {
     console.error('Error fetching news:', error);
-    res.status(500).json({ error: error.message });
+    // Return empty articles array instead of error to prevent UI issues
+    res.json({ articles: [] });
   }
 });
 
@@ -1198,12 +1349,15 @@ global.broadcastBinanceData = function(data) {
 
 // Start the server with fallback ports if the primary port is in use
 const startServer = (port) => {
-  // Make sure the server is running on port 3003 to match the vite.config.ts proxy setting
-  const actualPort = port === 3003 ? port : 3003;
-  server.listen(actualPort, 'localhost')
+  // Try the specified port first, then try other ports if it's in use
+  server.listen(port, 'localhost')
     .on('listening', () => {
-      console.log(`Proxy server running on port ${actualPort}`);
-      console.log(`WebSocket server running at ws://localhost:${actualPort}/ws`);
+      console.log(`Proxy server running on port ${port}`);
+      console.log(`WebSocket server running at ws://localhost:${port}/ws`);
+
+      // Update the VITE_PROXY_PORT environment variable
+      process.env.VITE_PROXY_PORT = port.toString();
+      console.log(`Set VITE_PROXY_PORT environment variable to ${port}`);
     })
     .on('error', (err) => {
       if (err.code === 'EADDRINUSE') {

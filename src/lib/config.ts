@@ -23,7 +23,7 @@ export const config = {
   kucoinSandboxApiUrl: '/api/kucoinSandbox',
 
   // External API endpoints (direct)
-  deepseekApiUrl: '/api/deepseek/', // Use proxy for DeepSeek API with trailing slash
+  deepseekApiUrl: '/api/deepseek', // Use proxy for DeepSeek API without trailing slash
 
   // Function to get the full URL for an API endpoint
   getFullUrl: function(endpoint: string): string {
