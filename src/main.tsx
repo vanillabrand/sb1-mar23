@@ -8,13 +8,13 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import { systemSync } from './lib/system-sync';
 import { logService } from './lib/log-service';
 import { globalCacheService } from './lib/global-cache-service';
+import { config } from './lib/config';
 import { ErrorHandler } from './lib/error-handler';
 import './index.css';
 import './styles/rainbow-effect.css'; // Import rainbow effect styles
 import './styles/mobile.css'; // Import mobile-specific styles
 
-// Import test Supabase client for debugging
-import './test-supabase';
+// Removed test Supabase client import to avoid storage key conflicts
 
 // Initialize the global cache service
 // This will start background refresh timers for AI Market Insights and News
@@ -43,6 +43,9 @@ const initApp = async () => {
     try {
       await logService.initialize();
       console.log('Main: Log service initialized');
+
+      // Log configuration
+      config.logConfig();
     } catch (logError) {
       console.warn('Main: Log service initialization failed:', logError);
     }

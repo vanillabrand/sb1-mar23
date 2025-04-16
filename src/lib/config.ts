@@ -25,6 +25,19 @@ export const config = {
   // External API endpoints (direct)
   deepseekApiUrl: '/api/deepseek', // Use proxy for DeepSeek API without trailing slash
 
+  // Log configuration on startup
+  logConfig: function() {
+    console.log('Config initialized:', {
+      nodeEnv: this.nodeEnv,
+      tradingEnabled: this.tradingEnabled,
+      apiBaseUrl: this.apiBaseUrl,
+      proxyUrl: this.proxyUrl,
+      proxyBaseUrl: this.proxyBaseUrl,
+      deepseekApiUrl: this.deepseekApiUrl,
+      fullDeepseekUrl: this.getFullUrl(this.deepseekApiUrl)
+    });
+  },
+
   // Function to get the full URL for an API endpoint
   getFullUrl: function(endpoint: string): string {
     // If endpoint already starts with a slash, don't add another one

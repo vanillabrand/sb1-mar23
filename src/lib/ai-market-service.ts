@@ -43,21 +43,21 @@ class AIMarketService {
           logService.log('info', `Retrying DeepSeek API call (${retries}/${this.MAX_RETRIES}) after ${delay}ms delay`, null, 'AIMarketService');
           await new Promise(resolve => setTimeout(resolve, delay));
         }
-      const response = await fetch(this.API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${API_KEY}`,
-          'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-          model: this.MODEL,
-          messages: [{
-            role: 'system',
-            content: 'You are a crypto market analyst. Provide concise, accurate market insights in JSON format only. Keep explanations brief and focus on key indicators.'
-          }, {
-            role: 'user',
-            content: `Analyze these crypto assets: ${assets.join(', ')}. Return ONLY a JSON object with this structure:
+      // Log the API request for debugging
+      logService.log('info', 'Making DeepSeek API request', {
+        url: this.API_URL,
+        model: this.MODEL,
+        assets: assets.join(', ')
+      }, 'AIMarketService');
+
+      const requestBody = {
+        model: this.MODEL,
+        messages: [{
+          role: 'system',
+          content: 'You are a crypto market analyst. Provide concise, accurate market insights in JSON format only. Keep explanations brief and focus on key indicators.'
+        }, {
+          role: 'user',
+          content: `Analyze these crypto assets: ${assets.join(', ')}. Return ONLY a JSON object with this structure:
 {
   "timestamp": ${Date.now()},
   "assets": [{
@@ -73,17 +73,26 @@ class AIMarketService {
   },
   "recommendations": string[] // 2-3 brief recommendations
 }`
-          }],
-          temperature: 0.2,
-          max_tokens: 1000,
-          stream: false,
-          timeout: 10
-        })
+        }],
+        temperature: 0.2,
+        max_tokens: 1000,
+        stream: false,
+        timeout: 10
+      };
+
+      const response = await fetch(this.API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${API_KEY}`,
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
         const errorText = await response.text();
-        logService.log('error', `DeepSeek API error response: ${errorText}`, null, 'AIMarketService');
+        logService.log('error', `DeepSeek API error response: ${response.status}`, { error: errorText, url: this.API_URL }, 'AIMarketService');
         throw new Error(`DeepSeek API error: ${response.status} - ${errorText}`);
       }
 

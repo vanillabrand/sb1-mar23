@@ -1,22 +1,5 @@
 import { useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-
-// Use environment variables directly
-const supabaseUrl = 'https://gsuiserbzoebcdptglzm.supabase.co';
-const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzdWlzZXJiem9lYmNkcHRnbHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM0MjE1MzgsImV4cCI6MjA1ODk5NzUzOH0.kSsWOfPW7RI3IXbCUzXi9oKK0zSC__-6p6ukfDJbk-k';
-
-// Create a test Supabase client
-const testSupabase = createClient(
-  supabaseUrl,
-  supabaseAnonKey,
-  {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true
-    }
-  }
-);
+import { supabase } from '../lib/supabase';
 
 export function TestPage() {
   const [email, setEmail] = useState('');
@@ -31,11 +14,11 @@ export function TestPage() {
 
     try {
       console.log('TestPage: Attempting to sign in with:', { email });
-      const { data, error } = await testSupabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
-      
+
       console.log('TestPage: Sign in result:', { data, error });
       setResult({ data, error });
     } catch (err) {
@@ -50,7 +33,7 @@ export function TestPage() {
     <div className="min-h-screen flex items-center justify-center bg-gunmetal-900 p-4">
       <div className="bg-gunmetal-800 p-8 rounded-xl shadow-xl w-full max-w-md">
         <h1 className="text-2xl font-bold text-white mb-6">Supabase Test Page</h1>
-        
+
         <form onSubmit={handleSignIn} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">

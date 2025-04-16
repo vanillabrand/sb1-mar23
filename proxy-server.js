@@ -829,17 +829,25 @@ app.get('/health', (_req, res) => {
 // Add a handler for the DeepSeek API endpoint
 app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
   try {
-    const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.DEEPSEEK_API_KEY;
+    console.log('Received DeepSeek API request:', {
+      model: req.body?.model,
+      hasMessages: !!req.body?.messages,
+      hasAuth: !!req.headers.authorization
+    });
+
+    const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.VITE_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
 
     if (!apiKey) {
+      console.error('Missing API key for DeepSeek request');
       return res.status(400).json({ error: 'API key is required in Authorization header' });
     }
 
     // Validate the request body
-    if (!req.body || !req.body.model || !req.body.messages) {
+    if (!req.body || !req.body.messages) {
+      console.error('Invalid request body for DeepSeek:', req.body);
       return res.status(400).json({
         error: 'Invalid request body',
-        message: 'Request must include model and messages fields',
+        message: 'Request must include messages field',
         required_format: {
           model: 'deepseek-chat',
           messages: [{ role: 'user', content: 'Your message here' }],
@@ -849,7 +857,7 @@ app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
       });
     }
 
-    // Make sure the model is set to deepseek-chat
+    // Always use deepseek-chat model regardless of what was sent
     const requestBody = {
       ...req.body,
       model: 'deepseek-chat'
@@ -887,14 +895,21 @@ app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
 // Add a handler for the DeepSeek trading signal endpoint
 app.post('/api/deepseek/trading-signal', async (req, res) => {
   try {
-    const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.DEEPSEEK_API_KEY;
+    console.log('Received DeepSeek trading signal request:', {
+      symbol: req.body?.symbol,
+      hasAuth: !!req.headers.authorization
+    });
+
+    const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.VITE_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
 
     if (!apiKey) {
+      console.error('Missing API key for DeepSeek trading signal request');
       return res.status(400).json({ error: 'API key is required in Authorization header' });
     }
 
     // Validate the request body
     if (!req.body || !req.body.symbol) {
+      console.error('Invalid request body for DeepSeek trading signal:', req.body);
       return res.status(400).json({
         error: 'Invalid request body',
         message: 'Request must include symbol field'
@@ -921,6 +936,8 @@ Return ONLY a JSON object with this structure:
   "takeProfit": number,
   "rationale": string
 }`;
+
+    console.log(`Calling DeepSeek API for trading signal with model: deepseek-chat`);
 
     // Call the DeepSeek API
     const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
@@ -952,6 +969,7 @@ Return ONLY a JSON object with this structure:
     // Extract the JSON from the response
     const content = data.choices?.[0]?.message?.content;
     if (!content) {
+      console.error('Empty response from DeepSeek API for trading signal');
       return res.status(500).json({ error: 'Empty response from DeepSeek API' });
     }
 
@@ -960,6 +978,7 @@ Return ONLY a JSON object with this structure:
     const jsonEnd = content.lastIndexOf('}');
 
     if (jsonStart === -1 || jsonEnd === -1) {
+      console.error('No valid JSON found in DeepSeek API response for trading signal');
       return res.status(500).json({ error: 'No valid JSON found in response' });
     }
 
@@ -1349,15 +1368,12 @@ global.broadcastBinanceData = function(data) {
 
 // Start the server with fallback ports if the primary port is in use
 const startServer = (port) => {
-  // Try the specified port first, then try other ports if it's in use
-  server.listen(port, 'localhost')
+  // Make sure the server is running on port 3001 to match the vite.config.ts proxy setting
+  const actualPort = port === 3001 ? port : 3001;
+  server.listen(actualPort, 'localhost')
     .on('listening', () => {
-      console.log(`Proxy server running on port ${port}`);
-      console.log(`WebSocket server running at ws://localhost:${port}/ws`);
-
-      // Update the VITE_PROXY_PORT environment variable
-      process.env.VITE_PROXY_PORT = port.toString();
-      console.log(`Set VITE_PROXY_PORT environment variable to ${port}`);
+      console.log(`Proxy server running on port ${actualPort}`);
+      console.log(`WebSocket server running at ws://localhost:${actualPort}/ws`);
     })
     .on('error', (err) => {
       if (err.code === 'EADDRINUSE') {
