@@ -33,8 +33,66 @@ export function Pagination({
   const screenSize = useScreenSize();
   const isMobile = screenSize === 'sm';
 
-  // Don't render pagination on mobile or if there's only one page
-  if (isMobile || totalPages <= 1) return null;
+  // Don't render pagination if there's only one page
+  if (totalPages <= 1) return null;
+
+  // Simplified version for mobile
+  if (isMobile) {
+    return (
+      <motion.div
+        layout
+        className={`flex flex-col items-center gap-2 mt-4 ${className}`}
+      >
+        {/* Items per page selector */}
+        {showItemsPerPage && onItemsPerPageChange && (
+          <div className="flex items-center gap-2 text-xs text-gray-400">
+            <span>Show:</span>
+            <select
+              value={itemsPerPage}
+              onChange={handleItemsPerPageChange}
+              className="bg-gunmetal-800 text-white rounded-md px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-pink-500"
+            >
+              {itemsPerPageOptions.map(option => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Simple pagination for mobile */}
+        <div className="flex items-center justify-center gap-2 w-full">
+          <button
+            onClick={() => onPageChange(Math.max(1, currentPage - 1))}
+            disabled={currentPage === 1}
+            className={`px-3 py-1 rounded-md text-xs ${currentPage === 1 ? 'bg-gunmetal-800 text-gray-500' : 'bg-gunmetal-700 text-white'}`}
+          >
+            Prev
+          </button>
+
+          <span className="text-xs text-gray-400">
+            Page {currentPage} of {totalPages}
+          </span>
+
+          <button
+            onClick={() => onPageChange(Math.min(totalPages, currentPage + 1))}
+            disabled={currentPage === totalPages}
+            className={`px-3 py-1 rounded-md text-xs ${currentPage === totalPages ? 'bg-gunmetal-800 text-gray-500' : 'bg-gunmetal-700 text-white'}`}
+          >
+            Next
+          </button>
+        </div>
+
+        {/* Page info */}
+        {totalItems !== undefined && (
+          <div className="text-xs text-gray-400">
+            Showing {startItem} - {endItem} of {totalItems}
+          </div>
+        )}
+      </motion.div>
+    );
+  }
 
   // Calculate page numbers to show
   const getPageNumbers = () => {
@@ -107,7 +165,7 @@ export function Pagination({
           <select
             value={itemsPerPage}
             onChange={handleItemsPerPageChange}
-            className="bg-gunmetal-800 text-white rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-neon-turquoise"
+            className="bg-gunmetal-800 text-white rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-pink-500"
           >
             {itemsPerPageOptions.map(option => (
               <option key={option} value={option}>
@@ -144,7 +202,7 @@ export function Pagination({
                       onClick={() => onPageChange(page)}
                       className={`w-8 h-8 flex items-center justify-center rounded-full text-sm transition-all duration-300 ${
                         currentPage === page
-                          ? 'bg-neon-turquoise text-black font-medium scale-110'
+                          ? 'bg-pink-600 text-white font-medium scale-110'
                           : 'text-gray-300 hover:bg-gunmetal-800'
                       }`}
                       whileHover={{ scale: 1.05 }}
@@ -174,7 +232,7 @@ export function Pagination({
                   onClick={() => onPageChange(index + 1)}
                   className={`w-2 h-2 rounded-full transition-all ${
                     index + 1 === currentPage
-                      ? 'bg-neon-turquoise w-8'
+                      ? 'bg-pink-600 w-8'
                       : 'bg-gunmetal-700 hover:bg-gunmetal-600'
                   }`}
                   whileHover={{ scale: 1.1 }}

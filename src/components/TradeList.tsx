@@ -163,7 +163,7 @@ export const TradeList: React.FC<TradeListProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="bg-gunmetal-800 rounded-lg table-container">
+      <div className="bg-gunmetal-800 rounded-lg table-container overflow-x-auto">
         <div className="flex justify-end p-2">
           <button
             onClick={refreshPrices}
@@ -174,21 +174,22 @@ export const TradeList: React.FC<TradeListProps> = ({
             {isLoadingPrices ? 'Updating...' : 'Refresh Prices'}
           </button>
         </div>
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gunmetal-900">
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Symbol</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Side</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Amount</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Entry</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Trade Value</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Market Type</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Risk Params</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Exit</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Profit/Loss</th>
-              <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
-            </tr>
-          </thead>
+        <div className="min-w-[1000px]">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-gunmetal-900">
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Symbol</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Side</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Amount</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Entry</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Trade Value</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Market Type</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Risk Params</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Exit</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Profit/Loss</th>
+                <th className="px-4 py-3 text-left text-sm font-medium text-gray-400">Status</th>
+              </tr>
+            </thead>
           <tbody>
             <AnimatePresence mode="popLayout">
               {displayedTrades.map((trade) => (
@@ -330,6 +331,7 @@ export const TradeList: React.FC<TradeListProps> = ({
             </AnimatePresence>
           </tbody>
         </table>
+        </div>
       </div>
 
       <Pagination
@@ -340,9 +342,9 @@ export const TradeList: React.FC<TradeListProps> = ({
         totalItems={trades.length}
         showPageNumbers={true}
         showItemsPerPage={true}
-        itemsPerPageOptions={[10, 20, 50]}
+        itemsPerPageOptions={[6, 10, 20]}
         onItemsPerPageChange={handleItemsPerPageChange}
-        className="mt-4"
+        className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4"
       />
     </div>
   );

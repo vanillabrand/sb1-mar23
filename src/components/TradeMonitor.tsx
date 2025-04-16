@@ -1817,18 +1817,21 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-black p-6 overflow-x-hidden">
+      <div className="min-h-screen bg-black p-6 sm:p-8 mobile-p-4 overflow-x-hidden pb-24 sm:pb-8">
         <style>{scrollbarStyles}</style>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="space-y-6 max-w-[1800px] mx-auto"
         >
-        {/* Header Section */}
-        <div className="flex items-center justify-between">
+        {/* Header Section - Desktop */}
+        <div className="hidden sm:flex items-center justify-between mb-6">
           <div>
-            <h1 className="gradient-text">Trade Monitor</h1>
-            <p className="description-text mt-1">Monitor your active trades in real-time. Track positions, P&L, and market conditions.</p>
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-6 h-6 text-neon-pink" />
+              <h1 className="text-2xl font-bold gradient-text">Trade Monitor</h1>
+            </div>
+            <p className="description-text mt-1 text-gray-300">Monitor your active trades in real-time. Track positions, P&L, and market conditions.</p>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-4 mr-4">
@@ -1841,7 +1844,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             <button
               onClick={refresh}
               disabled={refreshing}
-              className="px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-neon-raspberry/90 transition-colors flex items-center gap-2 btn-text-small"
+              className="px-4 py-2 bg-pink-600 text-white rounded-lg hover:bg-pink-700 transition-colors flex items-center gap-2 btn-text-small"
             >
               {refreshing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -1850,6 +1853,35 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
               )}
               Refresh
             </button>
+          </div>
+        </div>
+
+        {/* Header Section - Mobile */}
+        <div className="sm:hidden mb-4">
+          <div className="flex items-center justify-center mb-2">
+            <Activity className="w-5 h-5 text-neon-pink mr-2" />
+            <h1 className="text-xl font-bold gradient-text">Trade Monitor</h1>
+          </div>
+          <div className="flex items-center justify-between">
+            <MarketTypeBalanceDisplay compact />
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 flex items-center">
+                <Clock className="w-3 h-3 mr-1" />
+                {new Date(lastUpdate).toLocaleTimeString()}
+              </span>
+              <button
+                onClick={refresh}
+                disabled={refreshing}
+                className="px-2 py-1 bg-pink-600 hover:bg-pink-700 text-white text-xs rounded-md transition-colors flex items-center gap-1"
+              >
+                {refreshing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
+                Refresh
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1871,36 +1903,36 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
           </div>
         ) : (
-          <div className="flex gap-6">
+          <div className="flex flex-col lg:flex-row gap-6">
             {/* Left side - Strategies */}
-            <div className="flex-1">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 sm:gap-0 mb-6">
-                <div className="relative w-full max-w-xs">
+            <div className="w-full lg:flex-1">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 mb-6">
+                <div className="relative w-full md:max-w-xs">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                   <input
                     type="text"
                     placeholder="Search strategies..."
-                    className="pl-10 pr-4 py-2 bg-gunmetal-800 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-full"
+                    className="pl-10 pr-4 py-2 bg-gunmetal-800 rounded-lg text-sm text-white focus:outline-none focus:ring-1 focus:ring-pink-500 w-full"
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
                 </div>
 
-                <div className="flex gap-2 w-full sm:w-auto">
+                <div className="flex gap-2 w-full md:w-auto">
                   <button
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'all' ? 'bg-neon-raspberry text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'all' ? 'bg-pink-600 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('all')}
                   >
                     All
                   </button>
                   <button
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'active' ? 'bg-pink-500 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'active' ? 'bg-pink-600 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('active')}
                   >
                     Active
                   </button>
                   <button
-                    className={`flex-1 sm:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'inactive' ? 'bg-neon-raspberry text-white' : 'bg-gunmetal-800 text-gray-300'}`}
+                    className={`flex-1 md:flex-none px-3 py-1.5 rounded-lg btn-text-small ${statusFilter === 'inactive' ? 'bg-pink-600 text-white' : 'bg-gunmetal-800 text-gray-300'}`}
                     onClick={() => setStatusFilter('inactive')}
                   >
                     Inactive
