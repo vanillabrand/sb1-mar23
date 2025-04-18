@@ -8,6 +8,12 @@ export const config = {
   marketFitCheckInterval: parseInt(import.meta.env.VITE_MARKET_FIT_CHECK_INTERVAL || '14400000', 10), // 4 hours
   recoveryAttempts: parseInt(import.meta.env.VITE_RECOVERY_ATTEMPTS || '3', 10),
 
+  // Performance optimization flags
+  DEMO_MODE: import.meta.env.VITE_DEMO_MODE === 'true' || import.meta.env.VITE_FAST_INIT === 'true' ? true : false,
+  FAST_INIT: import.meta.env.VITE_FAST_INIT === 'false' ? false : true, // Default to true for faster loading
+  LAZY_LOAD_SERVICES: import.meta.env.VITE_LAZY_LOAD_SERVICES === 'false' ? false : true, // Default to true for faster loading
+  INITIALIZATION_TIMEOUT: parseInt(import.meta.env.VITE_INITIALIZATION_TIMEOUT || '5000', 10), // 5 seconds timeout for initialization
+
   // API URLs
   apiBaseUrl: '/api', // Base URL for all API requests through the proxy server
   proxyUrl: import.meta.env.VITE_PROXY_URL || '',
@@ -34,7 +40,12 @@ export const config = {
       proxyUrl: this.proxyUrl,
       proxyBaseUrl: this.proxyBaseUrl,
       deepseekApiUrl: this.deepseekApiUrl,
-      fullDeepseekUrl: this.getFullUrl(this.deepseekApiUrl)
+      fullDeepseekUrl: this.getFullUrl(this.deepseekApiUrl),
+      // Performance optimization flags
+      DEMO_MODE: this.DEMO_MODE,
+      FAST_INIT: this.FAST_INIT,
+      LAZY_LOAD_SERVICES: this.LAZY_LOAD_SERVICES,
+      INITIALIZATION_TIMEOUT: this.INITIALIZATION_TIMEOUT
     });
   },
 

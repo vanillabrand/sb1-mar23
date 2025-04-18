@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { CollapsibleDescription } from './CollapsibleDescription';
 import { motion, AnimatePresence } from 'framer-motion';
+import { fadeUpVariants, cardVariants, staggerContainerVariants, buttonVariants, controlsVariants } from '../lib/animation-utils';
 import { SwipeAnimation } from './ui/SwipeAnimation';
-import { Brain, Plus, Search, Filter, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import { Brain, Plus, Search, Filter, Loader2, AlertCircle, RefreshCw, BarChart3, Monitor } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import { useStrategies } from '../hooks/useStrategies';
 import { useAuth } from '../hooks/useAuth';
@@ -25,6 +26,8 @@ import { LoadingSpinner } from './LoadingStates';
 import { Pagination } from './ui/Pagination';
 import { MetallicPagination } from './ui/MetallicPagination';
 import { SwipeableCardList } from './ui/SwipeableCardList';
+import { AssetDisplayPanel } from './AssetDisplayPanel';
+import { RiskLevelBadge } from './risk/RiskLevelBadge';
 import type {
   Strategy,
   SortOption,
@@ -71,6 +74,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [templateSearchTerm, setTemplateSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('performance');
   const [currentPage, setCurrentPage] = useState(1);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({
@@ -374,10 +378,18 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     setPaginatedTemplates(paginated);
   }, [filteredTemplates, templatePage, TEMPLATES_PER_PAGE]);
 
-  // Update filtered templates whenever templates change
+  // Update filtered templates whenever templates or search term changes
   useEffect(() => {
-    setFilteredTemplates(templates);
-  }, [templates]);
+    if (templateSearchTerm.trim() === '') {
+      setFilteredTemplates(templates);
+    } else {
+      const filtered = templates.filter(template =>
+        template.title.toLowerCase().includes(templateSearchTerm.toLowerCase()) ||
+        (template.description && template.description.toLowerCase().includes(templateSearchTerm.toLowerCase()))
+      );
+      setFilteredTemplates(filtered);
+    }
+  }, [templates, templateSearchTerm]);
 
   // Load templates on component mount
   useEffect(() => {
@@ -1024,7 +1036,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             <div className="flex items-center gap-4">
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all duration-300 btn-text-small font-bold"
+                className="flex items-center gap-2 px-4 py-2 bg-neon-orange text-white rounded-lg hover:bg-opacity-90 transition-all duration-300 btn-text-small font-bold"
               >
                 <Plus className="w-4 h-4" />
                 Create Strategy
@@ -1036,27 +1048,31 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           <StrategyStats strategies={strategies} className="mb-8" />
 
           {/* Filters Section */}
-          <div className="panel-metallic rounded-xl p-6 mb-8">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  placeholder="Search strategies..."
-                  value={searchTerm}
-                  onChange={handleSearch}
-                  className="w-full pl-10 pr-4 py-2 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise"
-                />
-              </div>
-            </div>
-          </div>
+          {/* Main search and filter section removed - now each panel has its own search */}
 
-          <div className="flex flex-col gap-8 mb-8">
+          {/* Asset Display Panel */}
+          <AssetDisplayPanel className="mb-4" />
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 mb-6">
             {/* Your Strategies Section */}
-            <div className="w-full panel-metallic rounded-xl p-6 bg-black">
-              <div className="flex items-center justify-between mb-6">
+            <div className="w-full panel-metallic rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
                 <h2 className="text-xl font-semibold gradient-text">Your Strategies</h2>
                 <span className="text-sm text-gray-400">{filteredStrategies.length} strategies</span>
+              </div>
+
+              {/* Strategy Search Filter */}
+              <div className="mb-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search your strategies..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm"
+                  />
+                </div>
               </div>
 
               {/* Content */}
@@ -1065,7 +1081,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
                 </div>
               ) : strategiesError ? (
-                <div className="bg-black rounded-xl p-6 text-center">
+                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
                   <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
                   <p className="text-gray-300 mb-2">Error loading strategies</p>
                   <p className="text-gray-400 text-sm mb-4">Please try refreshing the page</p>
@@ -1077,13 +1093,13 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   </button>
                 </div>
               ) : (filteredStrategies?.length || 0) === 0 ? (
-                <div className="bg-black rounded-xl p-6 text-center">
+                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
                   <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
                   <p className="text-gray-300 mb-2">No strategies found</p>
                   <p className="text-gray-400 text-sm mb-4">{searchTerm ? "Try adjusting your search" : "Create your first strategy"}</p>
                   <button
                     onClick={() => setShowCreateModal(true)}
-                    className="px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all font-bold"
+                    className="px-4 py-2 bg-neon-orange text-white rounded-lg hover:bg-opacity-90 transition-all font-bold"
                   >
                     Create Strategy
                   </button>
@@ -1156,11 +1172,25 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             </div>
 
             {/* Template Strategies Section */}
-            <div className="w-full panel-metallic rounded-xl p-6 bg-black">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-semibold gradient-text">Template Strategies</h2>
+            <div className="w-full panel-metallic rounded-xl p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry">Template Strategies</h2>
                 <div className="flex items-center gap-2">
                   <span className="text-sm text-gray-400">{filteredTemplates.length} templates available</span>
+                </div>
+              </div>
+
+              {/* Template Search Filter */}
+              <div className="mb-3">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Search templates..."
+                    value={templateSearchTerm}
+                    onChange={(e) => setTemplateSearchTerm(e.target.value)}
+                    className="w-full pl-9 pr-3 py-1.5 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm"
+                  />
                 </div>
               </div>
 
@@ -1169,7 +1199,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
                 </div>
               ) : templateError ? (
-                <div className="bg-black rounded-xl p-6 text-center">
+                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
                   <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
                   <p className="text-gray-300 mb-2">Failed to load templates</p>
                   <p className="text-gray-400 text-sm mb-4">{templateError}</p>
@@ -1181,7 +1211,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   </button>
                 </div>
               ) : filteredTemplates.length === 0 ? (
-                <div className="bg-black rounded-xl p-6 text-center">
+                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
                   <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
                   <p className="text-gray-300 mb-2">No templates available</p>
                   <p className="text-gray-400 text-sm">Check back later for new templates</p>
@@ -1191,75 +1221,89 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                   <div className="grid grid-cols-1 gap-3 mb-3 relative pt-8 pb-4">
                     {/* Metallic pagination with tabs */}
                     <MetallicPagination
-                      currentPage={0}
-                      totalPages={Math.ceil(filteredTemplates.length / 6)}
-                      onPageChange={() => {}}
+                      currentPage={templatePage + 1}
+                      totalPages={totalTemplatePages}
+                      onPageChange={(page) => setTemplatePage(page - 1)}
                     />
 
-                    {filteredTemplates.slice(0, 6).map((template) => (
+                    {paginatedTemplates.map((template) => (
                       <motion.div
                         key={template.id}
                         initial={{ opacity: 0, y: 20 }}
                         animate={{ opacity: 1, y: 0 }}
                         exit={{ opacity: 0, y: -20 }}
-                        className="bg-gunmetal-800/50 rounded-xl p-6"
+                        className="panel-metallic rounded-xl p-6 flex flex-col h-full"
                       >
                         {screenSize === 'sm' ? (
                           <SwipeAnimation>
-                            <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
-                              <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
-                                {template.riskLevel} Risk
-                              </div>
-                            </div>
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Monitor className="w-5 h-5 text-neon-turquoise" />
+                                  <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
+                                  <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
+                                    {template.riskLevel} Risk
+                                  </div>
+                                </div>
 
-                            <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
+                                <p className="text-sm text-gray-400 mb-3 line-clamp-2">{template.description}</p>
 
-                            <div className="flex items-center justify-between mt-4">
-                              <div className="text-sm">
-                                <span className="text-gray-400">Win Rate: </span>
-                                <span className="text-neon-turquoise">
-                                  {template.metrics?.winRate
-                                    ? `${Number(template.metrics.winRate).toFixed(1)}%`
-                                    : 'N/A'}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-gray-400">Win Rate: </span>
+                                  <span className="text-sm text-neon-turquoise">
+                                    {template.metrics?.winRate
+                                      ? `${Number(template.metrics.winRate).toFixed(1)}%`
+                                      : 'N/A'}
+                                  </span>
+                                </div>
                               </div>
-                              <button
-                                onClick={() => handleUseTemplate(template)}
-                                className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 btn-text-small"
-                              >
-                                <Plus className="w-4 h-4" />
-                                Use Template
-                              </button>
+
+                              <div className="ml-4 flex-shrink-0 self-center">
+                                <button
+                                  onClick={() => handleUseTemplate(template)}
+                                  className="px-3 py-2 border rounded-lg text-sm transition-all flex items-center justify-center gap-1 bg-transparent border-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry bg-clip-text text-transparent hover:opacity-80"
+                                  style={{ borderImage: 'linear-gradient(to right, #00ffd1, #fff152, #ff3864) 1' }}
+                                >
+                                  <Plus className="w-4 h-4 text-neon-turquoise" />
+                                  Add +
+                                </button>
+                              </div>
                             </div>
                           </SwipeAnimation>
                         ) : (
                           <>
-                            <div className="flex items-center justify-between mb-4">
-                              <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
-                              <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
-                                {template.riskLevel} Risk
-                              </div>
-                            </div>
+                            <div className="flex items-center justify-between">
+                              <div className="flex-1">
+                                <div className="flex items-center gap-2 mb-3">
+                                  <Monitor className="w-5 h-5 text-neon-turquoise" />
+                                  <h3 className="text-lg font-semibold text-neon-turquoise">{template.title}</h3>
+                                  <div className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs font-medium text-gray-400">
+                                    {template.riskLevel} Risk
+                                  </div>
+                                </div>
 
-                            <p className="text-sm text-gray-400 mb-4 line-clamp-2">{template.description}</p>
+                                <p className="text-sm text-gray-400 mb-3 line-clamp-2">{template.description}</p>
 
-                            <div className="flex items-center justify-between mt-4">
-                              <div className="text-sm">
-                                <span className="text-gray-400">Win Rate: </span>
-                                <span className="text-neon-turquoise">
-                                  {template.metrics?.winRate
-                                    ? `${Number(template.metrics.winRate).toFixed(1)}%`
-                                    : 'N/A'}
-                                </span>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm text-gray-400">Win Rate: </span>
+                                  <span className="text-sm text-neon-turquoise">
+                                    {template.metrics?.winRate
+                                      ? `${Number(template.metrics.winRate).toFixed(1)}%`
+                                      : 'N/A'}
+                                  </span>
+                                </div>
                               </div>
-                              <button
-                                onClick={() => handleUseTemplate(template)}
-                                className="flex items-center gap-2 px-4 py-2 bg-gunmetal-900 text-gray-200 rounded-lg hover:text-neon-turquoise transition-all duration-300 btn-text-small"
-                              >
-                                <Plus className="w-4 h-4" />
-                                Use Template
-                              </button>
+
+                              <div className="ml-4 flex-shrink-0 self-center">
+                                <button
+                                  onClick={() => handleUseTemplate(template)}
+                                  className="px-3 py-2 border rounded-lg text-sm transition-all flex items-center justify-center gap-1 bg-transparent border-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry bg-clip-text text-transparent hover:opacity-80"
+                                  style={{ borderImage: 'linear-gradient(to right, #00ffd1, #fff152, #ff3864) 1' }}
+                                >
+                                  <Plus className="w-4 h-4 text-neon-turquoise" />
+                                  Add +
+                                </button>
+                              </div>
                             </div>
                           </>
                         )}

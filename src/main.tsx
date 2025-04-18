@@ -13,6 +13,7 @@ import { ErrorHandler } from './lib/error-handler';
 import './index.css';
 import './styles/rainbow-effect.css'; // Import rainbow effect styles
 import './styles/mobile.css'; // Import mobile-specific styles
+import './styles/animations.css'; // Import animation styles
 
 // Removed test Supabase client import to avoid storage key conflicts
 

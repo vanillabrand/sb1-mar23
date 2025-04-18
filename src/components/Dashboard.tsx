@@ -23,7 +23,10 @@ import {
   WorldClock,
   DefconMonitor,
   AssetDistribution,
-  AnimatedPanel
+  AnimatedPanel,
+  AssetPairIndicators,
+  VestaboardDisplay,
+  AssetDisplayPanel
 } from './index';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type {
@@ -642,19 +645,19 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             <StrategyStatus strategies={activeStrategies} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={2} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
             <AIMarketInsight assets={new Set(allAssets)} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={0} className="w-full">
+          <AnimatedPanel index={3} className="w-full">
             <PortfolioPerformance />
           </AnimatedPanel>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3 md:gap-4">
-            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+            <AnimatedPanel index={4} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
               <RiskExposure assets={new Set(allAssets)} />
             </AnimatedPanel>
-            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+            <AnimatedPanel index={5} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
               <div className="flex flex-col h-full">
                 <EmergencyStopButton />
               </div>
@@ -663,7 +666,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         </div>
 
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-5'} space-y-4`}>
-          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={6} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-neon-turquoise" />
@@ -685,7 +688,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
 
           {/* DEFCON Monitor - Only shown in sidebar on non-mobile */}
           {screenSize !== 'sm' && (
-            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg">
+            <AnimatedPanel index={7} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg">
               <DefconMonitor
                 strategies={activeStrategies}
                 className="mb-2 sm:mb-3"
@@ -694,11 +697,24 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             </AnimatedPanel>
           )}
 
-          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={8} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+            <ErrorBoundary fallback={
+              <div className="p-4 text-center">
+                <h3 className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry mb-2">
+                  Asset Pair Indicators
+                </h3>
+                <p className="text-gray-400 text-sm">Unable to load asset data</p>
+              </div>
+            }>
+              <AssetDisplayPanel />
+            </ErrorBoundary>
+          </AnimatedPanel>
+
+          <AnimatedPanel index={9} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
             <NewsWidget assets={newsAssets} limit={screenSize === 'sm' ? 2 : 4} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={10} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
             <AssetDistribution assets={new Set(allAssets)} />
           </AnimatedPanel>
         </div>

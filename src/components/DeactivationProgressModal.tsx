@@ -28,19 +28,42 @@ export function DeactivationProgressModal({
 }: DeactivationProgressModalProps) {
   const [timeElapsed, setTimeElapsed] = useState(0);
 
+  // Track if we should show the close button (after 10 seconds)
+  const [showCloseButton, setShowCloseButton] = useState(false);
+
   useEffect(() => {
     if (!isOpen) {
-      // Reset time when modal closes
+      // Reset time and close button state when modal closes
       setTimeElapsed(0);
+      setShowCloseButton(false);
       return;
     }
 
     const interval = setInterval(() => {
-      setTimeElapsed(prev => prev + 1);
+      setTimeElapsed(prev => {
+        const newTime = prev + 1;
+        // Show close button after 10 seconds
+        if (newTime >= 10 && !showCloseButton) {
+          setShowCloseButton(true);
+        }
+        return newTime;
+      });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isOpen]);
+  }, [isOpen, showCloseButton]);
+
+  // Auto-close the modal when process completes
+  useEffect(() => {
+    if (totalProgress >= 100 || steps.some(s => s.status === 'error')) {
+      // Add a small delay before closing to show the completed state
+      const closeTimer = setTimeout(() => {
+        onClose();
+      }, 1500);
+
+      return () => clearTimeout(closeTimer);
+    }
+  }, [totalProgress, steps, onClose]);
 
   // Format time elapsed as mm:ss
   const formatTime = (seconds: number) => {
@@ -62,18 +85,15 @@ export function DeactivationProgressModal({
         animate={{ opacity: 1, scale: 1 }}
         className="modal-dark-metal rounded-xl p-5 w-full max-w-md relative"
       >
-        {/* Close button in the top-right corner */}
-        <button
-          onClick={onClose}
-          disabled={totalProgress < 100 && !hasError}
-          className={`absolute right-4 top-4 p-1 rounded-full ${
-            totalProgress < 100 && !hasError
-              ? 'text-gray-500 cursor-not-allowed'
-              : 'text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50'
-          }`}
-        >
-          <X className="w-5 h-5" />
-        </button>
+        {/* Close button in the top-right corner - only shown after 10 seconds */}
+        {showCloseButton && (
+          <button
+            onClick={onClose}
+            className="absolute right-4 top-4 p-1 rounded-full text-gray-400 hover:text-gray-200 hover:bg-gunmetal-800/50"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
 
         {/* Header with title */}
         <div className="mb-4">
@@ -108,20 +128,17 @@ export function DeactivationProgressModal({
           </div>
         </div>
 
-        {/* Close button at the bottom */}
-        <div className="mt-4 flex justify-end">
-          <button
-            onClick={onClose}
-            disabled={totalProgress < 100 && !hasError}
-            className={`px-4 py-2 rounded-lg text-sm ${
-              totalProgress < 100 && !hasError
-                ? 'bg-gunmetal-800 text-gray-500 cursor-not-allowed'
-                : 'bg-neon-pink text-white hover:bg-neon-pink/90'
-            }`}
-          >
-            {totalProgress >= 100 ? 'Close' : 'Please wait...'}
-          </button>
-        </div>
+        {/* Close button at the bottom - only shown after 10 seconds */}
+        {showCloseButton && (
+          <div className="mt-4 flex justify-end">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 rounded-lg text-sm bg-neon-pink text-white hover:bg-neon-pink/90"
+            >
+              Close
+            </button>
+          </div>
+        )}
       </motion.div>
     </div>
   );

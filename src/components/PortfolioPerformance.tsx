@@ -16,6 +16,7 @@ import { globalCacheService } from '../lib/global-cache-service';
 import { portfolioService } from '../lib/portfolio-service';
 import { eventBus } from '../lib/event-bus';
 import { walletBalanceService } from '../lib/wallet-balance-service';
+import { strategyMetricsService, StrategyMetrics } from '../lib/strategy-metrics-service';
 import {
   Area,
   CartesianGrid,
@@ -41,12 +42,53 @@ export function PortfolioPerformance() {
   const [endDate, setEndDate] = useState('');
   const [transactionType, setTransactionType] = useState<'all' | 'trade' | 'deposit' | 'withdrawal'>('all');
   const [portfolioSummary, setPortfolioSummary] = useState<any>(null);
+  const [strategyMetrics, setStrategyMetrics] = useState<StrategyMetrics[]>([]);
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState<boolean>(false);
 
   // Separate useEffect for initial data loading
   useEffect(() => {
     loadPerformanceData();
     loadPortfolioSummary();
   }, [timeframe]);
+
+  // Initialize and subscribe to strategy metrics service
+  useEffect(() => {
+    const initializeMetrics = async () => {
+      try {
+        setIsLoadingMetrics(true);
+
+        // Initialize the metrics service if not already initialized
+        if (!strategyMetricsService.getAllStrategyMetrics().length) {
+          await strategyMetricsService.initialize();
+        }
+
+        // Get initial metrics
+        const initialMetrics = strategyMetricsService.getAllStrategyMetrics();
+        setStrategyMetrics(initialMetrics);
+
+        // Update portfolio summary with metrics data
+        updatePortfolioSummaryWithMetrics(initialMetrics);
+
+        // Subscribe to metrics updates
+        const handleAllMetricsUpdate = (updatedMetrics: StrategyMetrics[]) => {
+          setStrategyMetrics(updatedMetrics);
+          updatePortfolioSummaryWithMetrics(updatedMetrics);
+        };
+
+        strategyMetricsService.on('allMetricsUpdated', handleAllMetricsUpdate);
+
+        return () => {
+          strategyMetricsService.off('allMetricsUpdated', handleAllMetricsUpdate);
+        };
+      } catch (error) {
+        logService.log('error', 'Failed to initialize strategy metrics', error, 'PortfolioPerformance');
+      } finally {
+        setIsLoadingMetrics(false);
+      }
+    };
+
+    initializeMetrics();
+  }, []);
 
   // Separate useEffect for real-time updates to avoid unnecessary redraws
   useEffect(() => {
@@ -364,6 +406,80 @@ export function PortfolioPerformance() {
       logService.log('error', 'Failed to load performance data', error, 'PortfolioPerformance');
       setError('Failed to load performance data. Please try again later.');
       setLoading(false);
+    }
+  };
+
+  /**
+   * Update portfolio summary with metrics data
+   * @param metrics Array of strategy metrics
+   */
+  const updatePortfolioSummaryWithMetrics = (metrics: StrategyMetrics[]) => {
+    if (!metrics || metrics.length === 0) return;
+
+    try {
+      // Calculate total portfolio value
+      const totalValue = metrics.reduce((sum, metric) => sum + metric.currentValue, 0);
+
+      // Calculate starting value
+      const startingValue = metrics.reduce((sum, metric) => sum + metric.startingValue, 0);
+
+      // Calculate total change and percent change
+      const totalChange = totalValue - startingValue;
+      const percentChange = startingValue > 0 ? (totalChange / startingValue) * 100 : 0;
+
+      // Calculate total trades and profitable trades
+      const totalTrades = metrics.reduce((sum, metric) => sum + metric.totalTrades, 0);
+      const profitableTrades = metrics.reduce((sum, metric) => sum + metric.profitableTrades, 0);
+
+      // Calculate win rate
+      const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
+
+      // Update contribution percentages
+      const metricsWithContribution = metrics.map(metric => ({
+        ...metric,
+        contribution: totalValue > 0 ? (metric.currentValue / totalValue) * 100 : 0
+      }));
+
+      // Update strategy metrics service with new contribution values
+      strategyMetricsService.updateContributions(totalValue);
+
+      // Create portfolio summary object
+      const summary = {
+        currentValue: totalValue,
+        startingValue,
+        totalChange,
+        percentChange,
+        totalTrades,
+        profitableTrades,
+        winRate,
+        strategies: metricsWithContribution.map(metric => ({
+          id: metric.id,
+          name: metric.name,
+          currentValue: metric.currentValue,
+          startingValue: metric.startingValue,
+          totalChange: metric.totalChange,
+          percentChange: metric.percentChange,
+          totalTrades: metric.totalTrades,
+          profitableTrades: metric.profitableTrades,
+          winRate: metric.winRate,
+          contribution: metric.contribution,
+          status: metric.status
+        }))
+      };
+
+      // Update portfolio summary state
+      setPortfolioSummary(summary);
+
+      // Update global cache
+      globalCacheService.setPortfolioSummary(summary);
+
+      logService.log('info', 'Updated portfolio summary with metrics data', {
+        strategies: summary.strategies.length,
+        currentValue: summary.currentValue,
+        totalChange: summary.totalChange
+      }, 'PortfolioPerformance');
+    } catch (error) {
+      logService.log('error', 'Failed to update portfolio summary with metrics', error, 'PortfolioPerformance');
     }
   };
 
@@ -864,80 +980,115 @@ export function PortfolioPerformance() {
           {/* Strategy Breakdown */}
           {portfolioSummary?.strategies && portfolioSummary.strategies.length > 0 && (
             <div className="mt-4">
-              <h3 className="text-sm font-semibold text-white mb-2">Strategy Breakdown</h3>
+              <h3 className="text-sm font-semibold text-neon-pink mb-3">Strategy Breakdown</h3>
 
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-                {/* Strategy Contribution Pie Chart */}
-                <div className="h-[180px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
-                      <Pie
-                        data={portfolioSummary.strategies.map((strategy: any) => ({
-                          name: strategy.name,
-                          value: strategy.contribution
-                        }))}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={false}
-                        outerRadius={60}
-                        fill="#8884d8"
-                        dataKey="value"
-                        nameKey="name"
-                        label={({ name, percent }) => {
-                          // Truncate long strategy names
-                          const displayName = name.length > 10 ? name.substring(0, 8) + '...' : name;
-                          return `${displayName}: ${(percent * 100).toFixed(0)}%`;
-                        }}
-                      >
-                        {portfolioSummary.strategies.map((_entry: any, index: number) => {
-                          const colors = ['#2dd4bf', '#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171'];
-                          return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
-                        })}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value: number) => [`${value.toFixed(1)}%`, 'Contribution']}
-                        contentStyle={{
-                          backgroundColor: 'rgba(17, 24, 39, 0.8)',
-                          border: '1px solid rgba(75, 85, 99, 0.4)',
-                          borderRadius: '8px',
-                          fontSize: '11px',
-                          padding: '6px'
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+                  {/* Strategy Contribution Pie Chart */}
+                  <div className="h-[180px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                        <Pie
+                          data={portfolioSummary.strategies.map((strategy: any) => ({
+                            name: strategy.name,
+                            value: strategy.contribution
+                          }))}
+                          cx="50%"
+                          cy="50%"
+                          labelLine={false}
+                          outerRadius={60}
+                          fill="#8884d8"
+                          dataKey="value"
+                          nameKey="name"
+                          label={({ name, percent }) => {
+                            // Truncate long strategy names
+                            const displayName = name.length > 10 ? name.substring(0, 8) + '...' : name;
+                            return `${displayName}: ${(percent * 100).toFixed(0)}%`;
+                          }}
+                        >
+                          {portfolioSummary.strategies.map((_entry: any, index: number) => {
+                            const colors = ['#2dd4bf', '#f472b6', '#a78bfa', '#60a5fa', '#34d399', '#fbbf24', '#f87171'];
+                            return <Cell key={`cell-${index}`} fill={colors[index % colors.length]} />;
+                          })}
+                        </Pie>
+                        <Tooltip
+                          formatter={(value: number) => [`${value.toFixed(1)}%`, 'Contribution']}
+                          contentStyle={{
+                            backgroundColor: 'rgba(17, 24, 39, 0.8)',
+                            border: '1px solid rgba(75, 85, 99, 0.4)',
+                            borderRadius: '8px',
+                            fontSize: '11px',
+                            padding: '6px'
+                          }}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  {/* Strategy Performance Table */}
+                  <div className="lg:col-span-2 table-container">
+                    <table className="w-full text-xs text-left">
+                      <thead className="text-xs text-gray-400 uppercase bg-gunmetal-800/50">
+                        <tr>
+                          <th className="px-2 py-1.5">Strategy</th>
+                          <th className="px-2 py-1.5">Value</th>
+                          <th className="px-2 py-1.5">P/L</th>
+                          <th className="px-2 py-1.5">Win Rate</th>
+                          <th className="px-2 py-1.5">Trades</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {portfolioSummary.strategies.map((strategy: any) => (
+                          <tr key={strategy.id} className="border-b border-gunmetal-800/50 hover:bg-gunmetal-800/30">
+                            <td className="px-2 py-1.5 font-medium text-white">{strategy.name}</td>
+                            <td className="px-2 py-1.5">${strategy.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                            <td className="px-2 py-1.5">
+                              <span className={strategy.totalChange >= 0 ? 'text-green-500' : 'text-red-500'}>
+                                {strategy.totalChange >= 0 ? '+' : ''}
+                                ${Math.abs(strategy.totalChange).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                <span className="text-xs ml-1">({strategy.percentChange.toFixed(1)}%)</span>
+                              </span>
+                            </td>
+                            <td className="px-2 py-1.5">{strategy.winRate.toFixed(1)}%</td>
+                            <td className="px-2 py-1.5">{strategy.totalTrades}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
-                {/* Strategy Performance Table */}
-                <div className="lg:col-span-2 table-container">
-                  <table className="w-full text-xs text-left">
-                    <thead className="text-xs text-gray-400 uppercase bg-gunmetal-800/50">
-                      <tr>
-                        <th className="px-2 py-1.5">Strategy</th>
-                        <th className="px-2 py-1.5">Value</th>
-                        <th className="px-2 py-1.5">P/L</th>
-                        <th className="px-2 py-1.5">Win Rate</th>
-                        <th className="px-2 py-1.5">Trades</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {portfolioSummary.strategies.map((strategy: any) => (
-                        <tr key={strategy.id} className="border-b border-gunmetal-800/50 hover:bg-gunmetal-800/30">
-                          <td className="px-2 py-1.5 font-medium text-white">{strategy.name}</td>
-                          <td className="px-2 py-1.5">${strategy.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                          <td className="px-2 py-1.5">
-                            <span className={strategy.totalChange >= 0 ? 'text-green-500' : 'text-red-500'}>
-                              {strategy.totalChange >= 0 ? '+' : ''}
-                              ${Math.abs(strategy.totalChange).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                              <span className="text-xs ml-1">({strategy.percentChange.toFixed(1)}%)</span>
-                            </span>
-                          </td>
-                          <td className="px-2 py-1.5">{strategy.winRate.toFixed(1)}%</td>
-                          <td className="px-2 py-1.5">{strategy.totalTrades}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                {/* Additional Strategy Metrics */}
+                <div className="bg-gunmetal-800/30 rounded-lg p-3 border border-gunmetal-700/50">
+                  <h4 className="text-xs font-medium text-gray-300 mb-3">Strategy Metrics Summary</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <p className="text-xs text-gray-500">Avg Win Rate</p>
+                      <p className="text-sm text-white">
+                        {portfolioSummary.strategies.length > 0
+                          ? (portfolioSummary.strategies.reduce((sum: number, s: any) => sum + s.winRate, 0) / portfolioSummary.strategies.length).toFixed(1)
+                          : 0}%
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Active Strategies</p>
+                      <p className="text-sm text-white">
+                        {portfolioSummary.strategies.filter((s: any) => s.status === 'active').length} / {portfolioSummary.strategies.length}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Total Trades</p>
+                      <p className="text-sm text-white">
+                        {portfolioSummary.strategies.reduce((sum: number, s: any) => sum + s.totalTrades, 0)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Profitable Trades</p>
+                      <p className="text-sm text-white">
+                        {portfolioSummary.strategies.reduce((sum: number, s: any) => sum + (s.profitableTrades || 0), 0)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

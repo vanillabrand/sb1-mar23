@@ -44,6 +44,12 @@ const ALL_EXCHANGE_HEADERS = [
 
 const app = express();
 
+// Parse JSON bodies
+app.use(express.json());
+
+// Parse URL-encoded bodies
+app.use(express.urlencoded({ extended: true }));
+
 // Standard CORS handler for proxy responses
 const standardCorsHandler = (proxyRes, req, _res) => {
   // Remove ALL existing CORS headers
@@ -195,6 +201,21 @@ app.options('/api/kucoin/*', (req, res) => {
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, KC-API-KEY, KC-API-SIGN, KC-API-TIMESTAMP, KC-API-PASSPHRASE');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).send();
+});
+
+// Add a specific handler for Deepseek OPTIONS requests
+app.options('/api/deepseek/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+
+  // Log the headers for debugging
+  console.log('Deepseek OPTIONS request headers:', req.headers);
+  console.log('Deepseek OPTIONS response headers:', res.getHeaders());
+
   res.status(200).send();
 });
 
@@ -829,12 +850,34 @@ app.get('/health', (_req, res) => {
 // Add a handler for the DeepSeek API endpoint
 app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
   try {
+    // Log the full request for debugging
     console.log('Received DeepSeek API request:', {
-      model: req.body?.model,
-      hasMessages: !!req.body?.messages,
-      hasAuth: !!req.headers.authorization
+      method: req.method,
+      url: req.url,
+      headers: req.headers,
+      body: req.body ? {
+        model: req.body.model,
+        hasMessages: !!req.body.messages,
+        messageCount: req.body.messages?.length || 0
+      } : 'No body'
     });
 
+    // Set CORS headers for the response
+    res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    // Check if we have a request body
+    if (!req.body) {
+      console.error('No request body received for DeepSeek API');
+      return res.status(400).json({
+        error: 'Missing request body',
+        message: 'Request body is required'
+      });
+    }
+
+    // Get API key from headers or environment variables
     const apiKey = req.headers.authorization?.replace('Bearer ', '') || process.env.VITE_DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY;
 
     if (!apiKey) {
@@ -843,7 +886,7 @@ app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
     }
 
     // Validate the request body
-    if (!req.body || !req.body.messages) {
+    if (!req.body.messages) {
       console.error('Invalid request body for DeepSeek:', req.body);
       return res.status(400).json({
         error: 'Invalid request body',
@@ -865,30 +908,46 @@ app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
 
     console.log(`Calling DeepSeek API with model: ${requestBody.model}`);
 
-    const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`
-      },
-      body: JSON.stringify(requestBody)
-    });
+    // Make the request to the DeepSeek API
+    try {
+      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify(requestBody)
+      });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`DeepSeek API error: ${response.status}`, errorText);
-      return res.status(response.status).json({
-        error: `DeepSeek API error: ${response.status}`,
-        message: errorText
+      // Log the response status
+      console.log(`DeepSeek API response status: ${response.status}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`DeepSeek API error: ${response.status}`, errorText);
+        return res.status(response.status).json({
+          error: `DeepSeek API error: ${response.status}`,
+          message: errorText
+        });
+      }
+
+      // Parse the response
+      const data = await response.json();
+      console.log('Successfully received response from DeepSeek API');
+      return res.json(data);
+    } catch (fetchError) {
+      console.error('Error fetching from DeepSeek API:', fetchError);
+      return res.status(500).json({
+        error: 'Error fetching from DeepSeek API',
+        message: fetchError.message
       });
     }
-
-    const data = await response.json();
-    console.log('Successfully received response from DeepSeek API');
-    res.json(data);
   } catch (error) {
-    console.error('Error calling DeepSeek API:', error);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    console.error('Error in DeepSeek API handler:', error);
+    return res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
   }
 });
 

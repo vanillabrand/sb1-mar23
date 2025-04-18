@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { DollarSign } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { DollarSign, RefreshCw } from 'lucide-react';
 import { tradeService } from '../lib/trade-service';
 import { eventBus } from '../lib/event-bus';
 import { logService } from '../lib/log-service';
 import { demoService } from '../lib/demo-service';
+import { budgetStreamingService } from '../lib/budget-streaming-service';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Trade } from '../lib/types';
 
 interface BudgetPanelProps {
@@ -24,253 +26,107 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
     lastUpdated?: number;
   } | null>(null);
 
-  // Function to calculate and update budget
-  const updateBudget = () => {
-    try {
-      // Get the latest budget from the trade service
-      const serviceBudget = tradeService.getBudget(strategyId);
-      if (!serviceBudget) return;
+  // State for tracking value changes for animations
+  const [prevBudget, setPrevBudget] = useState<any>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [changedFields, setChangedFields] = useState<Record<string, boolean>>({});
 
-      // Check if we're in demo mode
-      const isDemo = demoService.isInDemoMode();
-      logService.log('debug', `Updating budget for strategy ${strategyId} in ${isDemo ? 'demo' : 'live'} mode`, null, 'BudgetPanel');
+  // Refs for tracking animation timeouts
+  const animationTimeouts = useRef<Record<string, NodeJS.Timeout>>({});
 
-      // Calculate allocated budget from active trades
-      let allocatedFromTrades = 0;
-      let totalProfit = 0;
-
-      // Process each trade to calculate allocated budget and profit
-      trades.forEach(trade => {
-        // Only count open or pending trades for allocation
-        if (trade.status === 'open' || trade.status === 'pending') {
-          // Calculate the trade cost (amount * entry price)
-          const entryPrice = trade.entryPrice || trade.entry_price || 0;
-          const amount = trade.amount || trade.quantity || 0;
-          const tradeCost = entryPrice * amount;
-
-          // Add to allocated budget
-          if (tradeCost > 0) {
-            allocatedFromTrades += tradeCost;
-            logService.log('debug', `Trade ${trade.id} adds ${tradeCost.toFixed(2)} to allocated budget`, {
-              entryPrice,
-              amount,
-              tradeCost,
-              status: trade.status
-            }, 'BudgetPanel');
-          }
-        }
-
-        // Add profit/loss from all trades
-        const tradeProfit = trade.profit || 0;
-        totalProfit += tradeProfit;
-
-        if (tradeProfit !== 0) {
-          logService.log('debug', `Trade ${trade.id} has profit/loss of ${tradeProfit.toFixed(2)}`, {
-            status: trade.status,
-            profit: tradeProfit
-          }, 'BudgetPanel');
-        }
-      });
-
-      // In demo mode, we need to be more aggressive about updating the budget
-      // because the trade service might not be properly updated
-      if (isDemo) {
-        logService.log('debug', `Demo mode budget calculation for strategy ${strategyId}`, {
-          allocatedFromTrades,
-          serviceAllocated: serviceBudget.allocated,
-          tradesCount: trades.length,
-          activeTradesCount: trades.filter(t => t.status === 'open' || t.status === 'pending').length
-        }, 'BudgetPanel');
-      }
-
-      // If allocated from trades is different from service budget, update it
-      // This ensures the budget is accurate even if the trade service hasn't been updated
-      // In demo mode, we trust our calculation more than the service
-      const allocated = isDemo ?
-        allocatedFromTrades : // In demo mode, use our calculation
-        Math.max(allocatedFromTrades, serviceBudget.allocated); // In live mode, use the higher value
-
-      // Calculate available budget (total - allocated)
-      const available = serviceBudget.total - allocated;
-
-      // Calculate percentages
-      const profitPercentage = serviceBudget.total > 0 ? (totalProfit / serviceBudget.total) * 100 : 0;
-      const allocationPercentage = serviceBudget.total > 0 ? (allocated / serviceBudget.total) * 100 : 0;
-
-      // Create the budget object
-      const calculatedBudget = {
-        total: serviceBudget.total,
-        allocated: allocated,
-        available: available,
-        profit: totalProfit,
-        profitPercentage,
-        allocationPercentage,
-        remaining: available,
-        lastUpdated: Date.now(),
-        isDemo // Add a flag to indicate if this is demo mode
-      };
-
-      // Update the budget state
-      setBudget(calculatedBudget);
-
-      // If our calculation is different from the service, update the service
-      // In demo mode, always update the service to ensure it's accurate
-      if (isDemo || Math.abs(allocated - serviceBudget.allocated) > 0.01 ||
-          Math.abs(available - serviceBudget.available) > 0.01) {
-        // Update the trade service budget
-        const updatedBudget = {
-          ...serviceBudget,
-          allocated: allocated,
-          available: available,
-          lastUpdated: Date.now()
-        };
-
-        // Set the updated budget in the trade service
-        tradeService.setBudget(strategyId, updatedBudget);
-
-        logService.log('info', `Updated trade service budget for strategy ${strategyId} in ${isDemo ? 'demo' : 'live'} mode`, {
-          before: serviceBudget,
-          after: updatedBudget,
-          allocatedFromTrades,
-          tradesCount: trades.length
-        }, 'BudgetPanel');
-      }
-
-      logService.log('info', `Updated budget for strategy ${strategyId} in ${isDemo ? 'demo' : 'live'} mode`, {
-        budget: calculatedBudget,
-        tradesCount: trades.length,
-        activeTradesCount: trades.filter(t => t.status === 'open' || t.status === 'pending').length
-      }, 'BudgetPanel');
-    } catch (error) {
-      logService.log('error', `Failed to update budget for strategy ${strategyId}`, error, 'BudgetPanel');
-    }
+  // Function to manually refresh budget
+  const refreshBudget = () => {
+    setIsRefreshing(true);
+    // Force budget streaming service to update
+    budgetStreamingService.updateTrades(strategyId, trades);
+    setTimeout(() => setIsRefreshing(false), 500);
   };
 
-  // Initialize budget on component mount
+  // Initialize budget streaming on component mount
   useEffect(() => {
-    // Check if we're in demo mode
-    const isDemo = demoService.isInDemoMode();
-    updateBudget();
+    // Start budget streaming for this strategy
+    budgetStreamingService.startBudgetStream(strategyId, trades);
 
-    // Subscribe to budget updates
-    const handleBudgetUpdate = (data: any) => {
-      if (data.strategyId === strategyId || (data.budgets && data.budgets[strategyId])) {
-        logService.log('info', `Budget update received for strategy ${strategyId}`, data, 'BudgetPanel');
-        updateBudget();
+    // Handler for budget stream updates
+    const handleBudgetStreamUpdate = (data: any) => {
+      if (data.strategyId !== strategyId) return;
+
+      // Track which values have changed for animations
+      const newChangedFields: Record<string, boolean> = {};
+
+      if (budget) {
+        // Check which fields have changed
+        if (budget.total !== data.budget.total) newChangedFields.total = true;
+        if (budget.allocated !== data.budget.allocated) newChangedFields.allocated = true;
+        if (budget.available !== data.budget.available) newChangedFields.available = true;
+        if (budget.profit !== data.profit) newChangedFields.profit = true;
       }
+
+      // Save previous budget for comparison
+      setPrevBudget(budget);
+
+      // Update budget state with new values
+      setBudget({
+        total: data.budget.total,
+        allocated: data.budget.allocated,
+        available: data.budget.available,
+        profit: data.profit,
+        profitPercentage: data.profitPercentage,
+        allocationPercentage: data.allocationPercentage,
+        remaining: data.budget.available,
+        lastUpdated: data.lastUpdated
+      });
+
+      // Set changed fields for animations
+      setChangedFields(newChangedFields);
+
+      // Clear animation after 1 second
+      Object.keys(newChangedFields).forEach(field => {
+        // Clear any existing timeout for this field
+        if (animationTimeouts.current[field]) {
+          clearTimeout(animationTimeouts.current[field]);
+        }
+
+        // Set new timeout
+        animationTimeouts.current[field] = setTimeout(() => {
+          setChangedFields(prev => ({
+            ...prev,
+            [field]: false
+          }));
+        }, 1000);
+      });
     };
 
-    // Subscribe to trade updates
-    const handleTradeUpdate = (data: any) => {
-      if (data.strategyId === strategyId || data.trade?.strategyId === strategyId) {
-        logService.log('info', `Trade update received for strategy ${strategyId}`, data, 'BudgetPanel');
-        updateBudget();
+    // Subscribe to budget stream updates
+    budgetStreamingService.on(`budgetStreamUpdated:${strategyId}`, handleBudgetStreamUpdate);
+
+    // Also subscribe to event bus for broader coverage
+    eventBus.subscribe('budgetStream:updated', (data: any) => {
+      if (data.strategyId === strategyId) {
+        handleBudgetStreamUpdate(data);
       }
+    });
+
+    // Return cleanup function
+    return () => {
+      // Stop budget streaming for this strategy
+      budgetStreamingService.stopBudgetStream(strategyId);
+
+      // Unsubscribe from budget stream updates
+      budgetStreamingService.off(`budgetStreamUpdated:${strategyId}`, handleBudgetStreamUpdate);
+
+      // Unsubscribe from event bus
+      eventBus.unsubscribe('budgetStream:updated', handleBudgetStreamUpdate);
+
+      // Clear any remaining animation timeouts
+      Object.values(animationTimeouts.current).forEach(timeout => clearTimeout(timeout));
     };
+  }, [strategyId]);
 
-    // Generic handler for any event that might affect budget
-    const handleAnyUpdate = () => {
-      updateBudget();
-    };
-
-    // Subscribe to events with broader coverage
-    eventBus.subscribe(`budgetUpdated:${strategyId}`, handleBudgetUpdate);
-    eventBus.subscribe('budgetUpdated', handleBudgetUpdate);
-    eventBus.subscribe(`trade:created:${strategyId}`, handleTradeUpdate);
-    eventBus.subscribe(`trade:updated:${strategyId}`, handleTradeUpdate);
-    eventBus.subscribe(`trade:executed:${strategyId}`, handleTradeUpdate);
-    eventBus.subscribe(`trade:closed:${strategyId}`, handleTradeUpdate);
-    eventBus.subscribe('trade:created', handleTradeUpdate);
-    eventBus.subscribe('trade:updated', handleTradeUpdate);
-    eventBus.subscribe('trade:executed', handleTradeUpdate);
-    eventBus.subscribe('tradesUpdated', handleTradeUpdate);
-
-    // Also subscribe to direct events from trade service
-    tradeService.on('budgetUpdated', handleBudgetUpdate);
-    tradeService.on('tradeCreated', handleTradeUpdate);
-    tradeService.on('tradeUpdated', handleTradeUpdate);
-    tradeService.on('tradeExecuted', handleTradeUpdate);
-    tradeService.on('tradeClosed', handleTradeUpdate);
-
-    // In demo mode, subscribe to additional events that might affect budget
-    if (isDemo) {
-      // Subscribe to websocket events that might indicate trade activity
-      eventBus.subscribe('websocket:message', handleAnyUpdate);
-      eventBus.subscribe('ticker', handleAnyUpdate);
-
-      // Subscribe to demo-specific events
-      eventBus.subscribe('demo:trade:created', handleAnyUpdate);
-      eventBus.subscribe('demo:trade:updated', handleAnyUpdate);
-      eventBus.subscribe('demo:trade:executed', handleAnyUpdate);
-
-      // Set up more frequent refresh in demo mode (every 1 second)
-      const demoRefreshInterval = setInterval(updateBudget, 1000);
-
-      // Return cleanup function for demo-specific subscriptions
-      return () => {
-        // Unsubscribe from event bus
-        eventBus.unsubscribe(`budgetUpdated:${strategyId}`, handleBudgetUpdate);
-        eventBus.unsubscribe('budgetUpdated', handleBudgetUpdate);
-        eventBus.unsubscribe(`trade:created:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe(`trade:updated:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe(`trade:executed:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe(`trade:closed:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe('trade:created', handleTradeUpdate);
-        eventBus.unsubscribe('trade:updated', handleTradeUpdate);
-        eventBus.unsubscribe('trade:executed', handleTradeUpdate);
-        eventBus.unsubscribe('tradesUpdated', handleTradeUpdate);
-
-        // Unsubscribe from demo-specific events
-        eventBus.unsubscribe('websocket:message', handleAnyUpdate);
-        eventBus.unsubscribe('ticker', handleAnyUpdate);
-        eventBus.unsubscribe('demo:trade:created', handleAnyUpdate);
-        eventBus.unsubscribe('demo:trade:updated', handleAnyUpdate);
-        eventBus.unsubscribe('demo:trade:executed', handleAnyUpdate);
-
-        // Unsubscribe from trade service
-        tradeService.off('budgetUpdated', handleBudgetUpdate);
-        tradeService.off('tradeCreated', handleTradeUpdate);
-        tradeService.off('tradeUpdated', handleTradeUpdate);
-        tradeService.off('tradeExecuted', handleTradeUpdate);
-        tradeService.off('tradeClosed', handleTradeUpdate);
-
-        clearInterval(demoRefreshInterval);
-      };
-    } else {
-      // Set up standard refresh interval for live mode (every 2 seconds)
-      const refreshInterval = setInterval(updateBudget, 2000);
-
-      // Return cleanup function for standard subscriptions
-      return () => {
-        // Unsubscribe from event bus
-        eventBus.unsubscribe(`budgetUpdated:${strategyId}`, handleBudgetUpdate);
-        eventBus.unsubscribe('budgetUpdated', handleBudgetUpdate);
-        eventBus.unsubscribe(`trade:created:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe(`trade:updated:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe(`trade:executed:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe(`trade:closed:${strategyId}`, handleTradeUpdate);
-        eventBus.unsubscribe('trade:created', handleTradeUpdate);
-        eventBus.unsubscribe('trade:updated', handleTradeUpdate);
-        eventBus.unsubscribe('trade:executed', handleTradeUpdate);
-        eventBus.unsubscribe('tradesUpdated', handleTradeUpdate);
-
-        // Unsubscribe from trade service
-        tradeService.off('budgetUpdated', handleBudgetUpdate);
-        tradeService.off('tradeCreated', handleTradeUpdate);
-        tradeService.off('tradeUpdated', handleTradeUpdate);
-        tradeService.off('tradeExecuted', handleTradeUpdate);
-        tradeService.off('tradeClosed', handleTradeUpdate);
-
-        clearInterval(refreshInterval);
-      };
-    }
-  }, [strategyId, trades]);
-
-  // Force budget recalculation when trades change
+  // Update trades in budget streaming service when they change
   useEffect(() => {
-    // This effect will run whenever trades array changes
-    updateBudget();
-    logService.log('info', `Trades changed for strategy ${strategyId}, recalculating budget`, { tradesCount: trades.length }, 'BudgetPanel');
+    budgetStreamingService.updateTrades(strategyId, trades);
+    logService.log('info', `Trades changed for strategy ${strategyId}, updating budget stream`, { tradesCount: trades.length }, 'BudgetPanel');
   }, [trades]);
 
   // If no budget is available, show loading state
@@ -283,7 +139,13 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
         </h4>
         <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner animate-fadeIn">
           <div className="flex justify-center items-center h-20">
-            <span className="text-gray-400">Loading budget information...</span>
+            <motion.div
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            >
+              <RefreshCw className="w-6 h-6 text-neon-turquoise" />
+            </motion.div>
+            <span className="text-gray-400 ml-3">Loading budget information...</span>
           </div>
         </div>
       </div>
@@ -293,27 +155,78 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
   // Check if we're in demo mode
   const isDemo = demoService.isInDemoMode();
 
+  // Helper function to render animated values
+  const AnimatedValue = ({ value, prefix = "$", suffix = "", className = "", isChanged = false }) => {
+    return (
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={value}
+          initial={{ opacity: 0.7, y: isChanged ? -20 : 0 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`${className} ${isChanged ? 'relative' : ''}`}
+        >
+          {prefix}{typeof value === 'number'
+            ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : value
+          }{suffix}
+          {isChanged && (
+            <motion.span
+              className="absolute inset-0 bg-neon-turquoise/20 rounded-md -z-10"
+              initial={{ opacity: 1 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: 1 }}
+            />
+          )}
+        </motion.span>
+      </AnimatePresence>
+    );
+  };
+
   return (
     <div>
-      <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
-        <DollarSign className="w-4 h-4" />
-        Trading Budget
-        {isDemo && (
-          <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full ml-2">DEMO</span>
-        )}
+      <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center justify-between uppercase tracking-wider">
+        <div className="flex items-center gap-2">
+          <DollarSign className="w-4 h-4" />
+          Trading Budget
+          {isDemo && (
+            <span className="text-xs bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded-full ml-2">DEMO</span>
+          )}
+        </div>
+        <motion.button
+          onClick={refreshBudget}
+          disabled={isRefreshing}
+          className="p-1.5 bg-gunmetal-800/70 rounded-full text-gray-400 hover:text-neon-turquoise transition-colors disabled:opacity-50"
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-neon-turquoise' : ''}`} />
+        </motion.button>
       </h4>
-      <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner animate-fadeIn">
+      <motion.div
+        className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+      >
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm text-gray-400">Total Budget</span>
-                <span className="text-md font-bold text-neon-yellow">${budget.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <AnimatedValue
+                  value={budget.total}
+                  className="text-md font-bold text-neon-yellow"
+                  isChanged={changedFields.total}
+                />
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-400">Available</span>
                 <div className="flex items-center">
-                  <span className="text-md font-bold text-neon-turquoise">${budget.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <AnimatedValue
+                    value={budget.available}
+                    className="text-md font-bold text-neon-turquoise"
+                    isChanged={changedFields.available}
+                  />
                   {budget.allocationPercentage !== undefined && (
                     <span className="text-xs text-gray-400 ml-1">({(100 - budget.allocationPercentage).toFixed(1)}%)</span>
                   )}
@@ -324,7 +237,11 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm text-gray-400">Allocated</span>
                 <div className="flex items-center">
-                  <span className="text-md font-bold text-neon-orange">${budget.allocated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  <AnimatedValue
+                    value={budget.allocated}
+                    className="text-md font-bold text-neon-orange"
+                    isChanged={changedFields.allocated}
+                  />
                   {budget.allocationPercentage !== undefined && (
                     <span className="text-xs text-gray-400 ml-1">({budget.allocationPercentage.toFixed(1)}%)</span>
                   )}
@@ -333,9 +250,11 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
               <div className="flex justify-between items-center mb-2">
                 <span className="text-sm text-gray-400">Profit/Loss</span>
                 <div className="flex items-center">
-                  <span className={`text-md font-bold ${budget.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                    ${budget.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+                  <AnimatedValue
+                    value={budget.profit}
+                    className={`text-md font-bold ${budget.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                    isChanged={changedFields.profit}
+                  />
                   {budget.profitPercentage !== undefined && (
                     <span className={`text-xs ml-1 ${budget.profit >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
                       ({budget.profit >= 0 ? '+' : ''}{budget.profitPercentage.toFixed(2)}%)
@@ -346,9 +265,11 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
               <div className="flex justify-between items-center">
                 <span className="text-sm text-gray-400">Remaining Budget</span>
                 <div className="flex items-center">
-                  <span className={`text-md font-bold ${budget.remaining && budget.remaining < 100 ? 'text-red-400' : 'text-neon-yellow'}`}>
-                    ${budget.remaining.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+                  <AnimatedValue
+                    value={budget.remaining}
+                    className={`text-md font-bold ${budget.remaining && budget.remaining < 100 ? 'text-red-400' : 'text-neon-yellow'}`}
+                    isChanged={changedFields.available}
+                  />
                   {budget.remaining && budget.remaining < 100 && (
                     <span className="text-xs text-red-400 ml-2">(Low)</span>
                   )}
@@ -358,26 +279,40 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
           </div>
 
           {/* Budget warning if too low */}
-          {budget.remaining && budget.remaining < 100 && (
-            <div className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-md">
-              <p className="text-xs text-red-400">
-                <span className="font-bold">Warning:</span> Budget is too low to generate new trades. Add more funds to continue trading.
-              </p>
-            </div>
-          )}
+          <AnimatePresence>
+            {budget.remaining && budget.remaining < 100 && (
+              <motion.div
+                className="mt-2 p-2 bg-red-500/10 border border-red-500/20 rounded-md"
+                initial={{ opacity: 0, height: 0, marginTop: 0 }}
+                animate={{ opacity: 1, height: 'auto', marginTop: 8 }}
+                exit={{ opacity: 0, height: 0, marginTop: 0 }}
+              >
+                <p className="text-xs text-red-400">
+                  <span className="font-bold">Warning:</span> Budget is too low to generate new trades. Add more funds to continue trading.
+                </p>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           {/* Budget progress bar */}
           {budget.total > 0 && (
             <div className="mt-2">
               <div className="h-2 w-full bg-gunmetal-700 rounded-full overflow-hidden">
-                <div
+                <motion.div
                   className="h-full bg-gradient-to-r from-neon-orange to-neon-yellow rounded-full"
-                  style={{ width: `${Math.min(100, budget.allocationPercentage || 0)}%` }}
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.min(100, budget.allocationPercentage || 0)}%` }}
+                  transition={{ duration: 0.5, ease: "easeOut" }}
                 />
               </div>
               <div className="flex justify-between text-xs text-gray-400 mt-1">
                 <span>Allocation</span>
-                <span>{budget.allocationPercentage?.toFixed(1) || 0}%</span>
+                <AnimatedValue
+                  value={budget.allocationPercentage?.toFixed(1) || 0}
+                  prefix=""
+                  suffix="%"
+                  className="text-xs text-gray-400"
+                />
               </div>
             </div>
           )}
@@ -392,7 +327,7 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
             )}
           </div>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

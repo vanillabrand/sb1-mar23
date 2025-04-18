@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { ChevronDown, ChevronUp, Activity, DollarSign, BarChart3, Clock, Edit, ArrowUpRight, ArrowDownRight, Wallet } from 'lucide-react';
+import { RiskLevelBadge } from './risk/RiskLevelBadge';
 import { AssetPriceIndicator } from './AssetPriceIndicator';
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
@@ -15,6 +16,7 @@ import { demoService } from '../lib/demo-service';
 import { walletBalanceService } from '../lib/wallet-balance-service';
 import { eventBus } from '../lib/event-bus';
 import { supabase } from '../lib/supabase';
+import { strategyMetricsService, StrategyMetrics } from '../lib/strategy-metrics-service';
 import { directDeleteStrategy } from '../lib/direct-delete';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
@@ -30,27 +32,7 @@ interface ExtendedTrade extends Trade {
   executedAt?: string | null;
 }
 
-// Helper function to get color based on risk level
-const getRiskLevelColor = (riskLevel?: RiskLevel): string => {
-  switch (riskLevel) {
-    case 'Ultra Low':
-      return 'bg-emerald-400/20 text-emerald-400';
-    case 'Low':
-      return 'bg-neon-turquoise/20 text-neon-turquoise';
-    case 'Medium':
-      return 'bg-neon-yellow/20 text-neon-yellow';
-    case 'High':
-      return 'bg-neon-orange/20 text-neon-orange';
-    case 'Ultra High':
-      return 'bg-neon-pink/20 text-neon-pink';
-    case 'Extreme':
-      return 'bg-purple-400/20 text-purple-400';
-    case 'God Mode':
-      return 'bg-red-500/20 text-red-500';
-    default:
-      return 'bg-gray-400/20 text-gray-400';
-  }
-};
+// Helper function is now replaced by RiskLevelBadge component
 
 // Helper function to get risk level from strategy (handles both riskLevel and risk_level properties)
 const getStrategyRiskLevel = (strategy: Strategy): RiskLevel => {
@@ -113,6 +95,8 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   const [availableBalance, setAvailableBalance] = useState<number>(0);
   const [strategyTrades, setStrategyTrades] = useState<ExtendedTrade[]>([]);
   const [isLoadingTrades, setIsLoadingTrades] = useState<boolean>(false);
+  const [metrics, setMetrics] = useState<StrategyMetrics | null>(null);
+  const [isLoadingMetrics, setIsLoadingMetrics] = useState<boolean>(false);
 
   // Section visibility states
   const [showTradingParameters, setShowTradingParameters] = useState(false);
@@ -133,6 +117,51 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
     lastGenerated: null,
     message: 'Waiting for market conditions...'
   });
+
+  // Initialize and subscribe to strategy metrics service
+  useEffect(() => {
+    const initializeMetrics = async () => {
+      try {
+        setIsLoadingMetrics(true);
+
+        // Initialize the metrics service if not already initialized
+        if (!strategyMetricsService.getAllStrategyMetrics().length) {
+          await strategyMetricsService.initialize();
+        }
+
+        // Get initial metrics
+        const initialMetrics = strategyMetricsService.getStrategyMetrics(strategy.id);
+        if (initialMetrics) {
+          setMetrics(initialMetrics);
+        } else {
+          // If no metrics exist yet, refresh them
+          const refreshedMetrics = await strategyMetricsService.refreshStrategyMetrics(strategy.id);
+          if (refreshedMetrics) {
+            setMetrics(refreshedMetrics);
+          }
+        }
+
+        // Subscribe to metrics updates for this strategy
+        const handleMetricsUpdate = (strategyId: string, updatedMetrics: StrategyMetrics) => {
+          if (strategyId === strategy.id) {
+            setMetrics(updatedMetrics);
+          }
+        };
+
+        strategyMetricsService.on('metricsUpdated', handleMetricsUpdate);
+
+        return () => {
+          strategyMetricsService.off('metricsUpdated', handleMetricsUpdate);
+        };
+      } catch (error) {
+        logService.log('error', `Failed to initialize metrics for strategy ${strategy.id}`, error, 'StrategyCard');
+      } finally {
+        setIsLoadingMetrics(false);
+      }
+    };
+
+    initializeMetrics();
+  }, [strategy.id]);
 
   // Fetch the budget, available balance, and trades when the component mounts or when the strategy changes
   useEffect(() => {
@@ -914,9 +943,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-gray-200 truncate">{(strategy as any).name || (strategy as any).title || 'Unnamed Strategy'}</h3>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${getRiskLevelColor(getStrategyRiskLevel(strategy))}`}>
-                  {getStrategyRiskLevel(strategy)}
-                </span>
+                <RiskLevelBadge level={getStrategyRiskLevel(strategy)} size="sm" />
               </div>
               <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{strategy.description || 'No description available'}</p>
               <div className="flex flex-wrap items-center gap-1.5 mt-1.5 max-w-full overflow-hidden">
@@ -1052,11 +1079,89 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                     <p className="text-xs text-gray-500">Trailing Stop</p>
                     <p className="text-sm text-white">{(((strategy as any).strategy_config?.trailingStop || 0.02) * 100).toFixed(1)}%</p>
                   </div>
+                </div>
+            </div>
+
+            {/* Performance Metrics */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-neon-pink mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <BarChart3 className="w-4 h-4" />
+                Performance Metrics
+              </h4>
+              {isLoadingMetrics ? (
+                <div className="flex justify-center py-4">
+                  <div className="animate-spin rounded-full h-6 w-6 border-t-2 border-b-2 border-neon-pink"></div>
+                </div>
+              ) : metrics ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
-                    <p className="text-xs text-gray-500">Max Drawdown</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
+                    <p className="text-xs text-gray-500">Current Value</p>
+                    <p className="text-sm text-white">${metrics.currentValue.toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Profit/Loss</p>
+                    <p className={`text-sm ${metrics.totalChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {metrics.totalChange >= 0 ? '+' : ''}{metrics.totalChange.toFixed(2)} ({metrics.percentChange.toFixed(2)}%)
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Win Rate</p>
+                    <p className="text-sm text-white">{metrics.winRate.toFixed(1)}%</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Total Trades</p>
+                    <p className="text-sm text-white">{metrics.totalTrades}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Active Trades</p>
+                    <p className="text-sm text-white">{metrics.activeTrades}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Avg Trade Profit</p>
+                    <p className={`text-sm ${metrics.avgTradeProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {metrics.avgTradeProfit >= 0 ? '+' : ''}{metrics.avgTradeProfit.toFixed(2)}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Avg Duration</p>
+                    <p className="text-sm text-white">{metrics.avgTradeDuration > 60 ? (metrics.avgTradeDuration / 60).toFixed(1) + 'h' : metrics.avgTradeDuration.toFixed(0) + 'm'}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-500">Portfolio Contribution</p>
+                    <p className="text-sm text-white">{metrics.contribution.toFixed(1)}%</p>
                   </div>
                 </div>
+              ) : (
+                <div className="text-center py-4 text-gray-400">
+                  No performance data available yet
+                </div>
+              )}
+            </div>
+
+            {/* Risk Limits */}
+            <div className="mb-6">
+              <h4 className="text-sm font-medium text-neon-yellow mb-4 flex items-center gap-2 uppercase tracking-wider">
+                <DollarSign className="w-4 h-4" />
+                Risk Limits
+              </h4>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
+                <div>
+                  <p className="text-xs text-gray-500">Max Drawdown</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Max Open Trades</p>
+                  <p className="text-sm text-white">{(strategy as any).strategy_config?.maxOpenTrades || 3}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Max Daily Trades</p>
+                  <p className="text-sm text-white">{(strategy as any).strategy_config?.maxDailyTrades || 10}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Budget Allocation</p>
+                  <p className="text-sm text-white">${metrics?.budget?.allocated.toFixed(2) || '0.00'}</p>
+                </div>
+              </div>
             </div>
 
             {/* Trading Pairs */}

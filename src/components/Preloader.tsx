@@ -1,8 +1,30 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { Zap } from 'lucide-react';
 
 export function Preloader() {
+  const [visibilityState, setVisibilityState] = useState<string>(document.visibilityState);
+
+  useEffect(() => {
+    // Handle visibility change events
+    const handleVisibilityChange = () => {
+      setVisibilityState(document.visibilityState);
+
+      // If the page becomes visible again and was previously hidden
+      if (document.visibilityState === 'visible' && visibilityState === 'hidden') {
+        console.log('Page visibility changed from hidden to visible');
+        // Don't reload the page, just update the state
+      }
+    };
+
+    // Add event listener for visibility changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Clean up the event listener when component unmounts
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [visibilityState]);
   return (
     <div className="fixed inset-0 bg-gunmetal-950 flex items-center justify-center z-50">
       <div className="text-center">
@@ -18,7 +40,7 @@ export function Preloader() {
             transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
             className="absolute inset-0 rounded-xl bg-gradient-to-br from-neon-turquoise via-neon-yellow to-neon-raspberry"
           />
-          
+
           {/* Inner Shape */}
           <div className="absolute inset-[2px] rounded-xl bg-gunmetal-950 flex items-center justify-center">
             <Zap className="w-10 h-10 text-neon-yellow transform rotate-12" />

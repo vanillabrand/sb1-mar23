@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { DollarSign, AlertCircle, Loader2, Wallet, RefreshCw } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { logService } from '../lib/log-service';
 import { walletBalanceService } from '../lib/wallet-balance-service';
 import { exchangeService } from '../lib/exchange-service';
+import { budgetStreamingService } from '../lib/budget-streaming-service';
 import type { StrategyBudget, Strategy, RiskLevel, MarketType, WalletBalance } from '../lib/types';
 
 interface BudgetModalProps {
@@ -25,11 +27,14 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [availableBalance, setAvailableBalance] = useState<number>(maxBudget);
+  const [prevAvailableBalance, setPrevAvailableBalance] = useState<number | null>(null);
+  const [isBalanceChanged, setIsBalanceChanged] = useState(false);
   const [marketBalances, setMarketBalances] = useState<{
     spot?: WalletBalance;
     margin?: WalletBalance;
     futures?: WalletBalance;
   }>({});
+  const animationTimeout = useRef<NodeJS.Timeout | null>(null);
 
   // Reset state when modal closes
   useEffect(() => {
@@ -103,6 +108,9 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
       exchangeService.fetchAllWalletBalances().then(balances => {
         setMarketBalances(balances);
 
+        // Save previous balance for comparison
+        setPrevAvailableBalance(availableBalance);
+
         // Update the available balance based on the selected market type
         const marketTypeBalance = balances[marketType];
         if (marketTypeBalance) {
@@ -116,16 +124,43 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
         logService.log('error', 'Failed to update market type balances', error, 'BudgetModal');
         // Fallback to general available balance
         const balance = walletBalanceService.getAvailableBalance();
+        setPrevAvailableBalance(availableBalance);
         setAvailableBalance(balance);
       });
     };
+
+    // Set up polling for real-time updates (every 5 seconds)
+    const pollingInterval = setInterval(() => {
+      handleBalanceUpdate();
+    }, 5000);
 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
 
     return () => {
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
+      clearInterval(pollingInterval);
+      if (animationTimeout.current) {
+        clearTimeout(animationTimeout.current);
+      }
     };
   }, [initialBudget, maxBudget, marketType]);
+
+  // Effect to handle value change animations
+  useEffect(() => {
+    if (prevAvailableBalance !== null && availableBalance !== prevAvailableBalance) {
+      setIsBalanceChanged(true);
+
+      // Clear any existing timeout
+      if (animationTimeout.current) {
+        clearTimeout(animationTimeout.current);
+      }
+
+      // Set timeout to clear the animation
+      animationTimeout.current = setTimeout(() => {
+        setIsBalanceChanged(false);
+      }, 1000);
+    }
+  }, [availableBalance, prevAvailableBalance]);
 
   // Use the fetched available balance for the selected market type
   const marketBalance = availableBalance;
@@ -149,6 +184,9 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
         const balances = await exchangeService.fetchAllWalletBalances();
         setMarketBalances(balances);
 
+        // Save previous balance for comparison
+        setPrevAvailableBalance(availableBalance);
+
         // Set the available balance based on the selected market type
         const marketTypeBalance = balances[marketType];
         if (marketTypeBalance) {
@@ -162,6 +200,7 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
         logService.log('error', 'Failed to fetch market type balances', balanceError, 'BudgetModal');
         // Fallback to general available balance
         const balance = walletBalanceService.getAvailableBalance();
+        setPrevAvailableBalance(availableBalance);
         setAvailableBalance(balance);
       }
     } catch (error) {
@@ -169,6 +208,33 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
     } finally {
       setIsLoadingBalance(false);
     }
+  };
+
+  // Helper function to render animated values
+  const AnimatedValue = ({ value, prefix = "$", suffix = "", className = "" }) => {
+    return (
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={value}
+          initial={{ opacity: 0.7, y: isBalanceChanged ? -10 : 0 }}
+          animate={{ opacity: 1, y: 0 }}
+          className={`${className} ${isBalanceChanged ? 'relative' : ''}`}
+        >
+          {prefix}{typeof value === 'number'
+            ? value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+            : value
+          }{suffix}
+          {isBalanceChanged && (
+            <motion.span
+              className="absolute inset-0 bg-neon-turquoise/20 rounded-md -z-10"
+              initial={{ opacity: 1 }}
+              animate={{ opacity: 0 }}
+              transition={{ duration: 1 }}
+            />
+          )}
+        </motion.span>
+      </AnimatePresence>
+    );
   };
 
   // Calculate position sizing based on risk level
@@ -256,22 +322,22 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
                   Available Balance ({marketType.charAt(0).toUpperCase() + marketType.slice(1)})
                 </h3>
               </div>
-              <button
+              <motion.button
                 onClick={refreshBalance}
                 disabled={isLoadingBalance}
                 className="p-1 rounded-full hover:bg-gunmetal-700 transition-colors"
                 title="Refresh balance"
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
               >
                 <RefreshCw className={`w-4 h-4 text-gray-400 ${isLoadingBalance ? 'animate-spin' : ''}`} />
-              </button>
+              </motion.button>
             </div>
 
-            <p className="text-2xl font-bold text-neon-turquoise">
-              ${(marketBalance || 0).toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </p>
+            <AnimatedValue
+              value={marketBalance || 0}
+              className="text-2xl font-bold text-neon-turquoise"
+            />
 
             {/* Show all market type balances */}
             <div className="mt-3 pt-3 border-t border-gunmetal-700">
@@ -281,9 +347,10 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
                   balance && (
                     <div key={type} className="flex justify-between items-center">
                       <span className="text-xs text-gray-400 capitalize">{type}:</span>
-                      <span className={`text-xs font-medium ${type === marketType ? 'text-neon-turquoise' : 'text-white'}`}>
-                        ${balance.free.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </span>
+                      <AnimatedValue
+                        value={balance.free}
+                        className={`text-xs font-medium ${type === marketType ? 'text-neon-turquoise' : 'text-white'}`}
+                      />
                     </div>
                   )
                 ))}

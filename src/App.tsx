@@ -5,6 +5,7 @@ import { NetworkErrorProvider } from './components';
 import { systemSync } from './lib/system-sync';
 import { analyticsService } from './lib/analytics-service';
 import { templateManager } from './lib/template-manager';
+import { performanceMonitor } from './lib/performance-monitor';
 
 import { demoTradeGenerator } from './lib/demo-trade-generator';
 import { tradeGenerator } from './lib/trade-generator';
@@ -23,6 +24,7 @@ function App() {
   const [isAppReady, setIsAppReady] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
   const [initStep, setInitStep] = useState<string>('');
+  const [visibilityState, setVisibilityState] = useState<string>(document.visibilityState);
 
   const navigate = useNavigate();
 
@@ -31,6 +33,8 @@ function App() {
       setIsInitializing(true);
       setInitError(null);
 
+      // Start measuring initialization time
+      performanceMonitor.startMeasurement('app_initialization_total');
       console.log('App: Starting initialization process');
 
       // Check authentication first
@@ -54,81 +58,199 @@ function App() {
         // This allows the app to initialize in demo mode
       }
 
-      // Initialize core services with better error handling
-      const services = [
+      // Define service initialization with priority levels
+      const criticalServices = [
         { name: 'database', fn: async () => {
           await systemSync.initializeDatabase();
-          // Fix database schema issues if needed
           console.log('App: Database schema initialized');
-        } },
-        { name: 'websocket', fn: () => systemSync.initializeWebSocket() },
+        }},
+        { name: 'demo', fn: () => Promise.resolve(demoService.isInDemoMode()) }
+      ];
+
+      const importantServices = [
         { name: 'exchange', fn: () => systemSync.initializeExchange() },
-        { name: 'analytics', fn: () => analyticsService.initialize() },
+        { name: 'wallet', fn: () => walletBalanceService.initialize() }
+      ];
+
+      const secondaryServices = [
+        { name: 'websocket', fn: () => systemSync.initializeWebSocket() },
+        { name: 'trading', fn: () => tradeEngine.initialize() }
+      ];
+
+      const nonCriticalServices = [
+        { name: 'analytics', fn: () => analyticsService.initialize(), timeout: 5000 },
         { name: 'templates', fn: async () => {
-          await templateManager.initialize();
-          // Force generation of demo templates
-          await templateManager.generateDemoTemplatesIfNeeded();
-        } },
-        { name: 'trading', fn: () => tradeEngine.initialize() },
-        { name: 'wallet', fn: () => walletBalanceService.initialize() },
-        { name: 'demo', fn: () => Promise.resolve(demoService.isInDemoMode()) },
+          // Skip template initialization during startup - it will be done in the background
+          console.log('App: Scheduling template initialization for background');
+          setTimeout(async () => {
+            try {
+              await templateManager.initialize();
+              await templateManager.generateDemoTemplatesIfNeeded();
+              console.log('App: Templates initialized in background');
+            } catch (error) {
+              console.warn('App: Background template initialization failed', error);
+            }
+          }, 5000); // 5 seconds after app is ready
+        }},
         { name: 'tradeGenerator', fn: async () => {
           if (!demoService.isInDemoMode()) {
-            console.log('App: Initializing trade generator for normal mode');
-            await tradeGenerator.initialize();
+            console.log('App: Scheduling trade generator initialization for background');
+            setTimeout(async () => {
+              try {
+                await tradeGenerator.initialize();
+                console.log('App: Trade generator initialized in background');
+              } catch (error) {
+                console.warn('App: Background trade generator initialization failed', error);
+              }
+            }, 3000);
             return true;
           }
           return false;
         }},
         { name: 'demoTrading', fn: async () => {
           if (demoService.isInDemoMode()) {
-            console.log('App: Initializing demo trade generator for demo mode');
-            await demoTradeGenerator.initialize();
+            console.log('App: Scheduling demo trade generator initialization for background');
+            setTimeout(async () => {
+              try {
+                await demoTradeGenerator.initialize();
+                console.log('App: Demo trade generator initialized in background');
+              } catch (error) {
+                console.warn('App: Background demo trade generator initialization failed', error);
+              }
+            }, 3000);
             return true;
           }
           return false;
         }},
         { name: 'strategyUpdates', fn: async () => {
-          console.log('App: Initializing strategy update service');
-          await strategyUpdateService.initialize();
+          console.log('App: Scheduling strategy update service initialization for background');
+          setTimeout(async () => {
+            try {
+              await strategyUpdateService.initialize();
+              console.log('App: Strategy update service initialized in background');
+            } catch (error) {
+              console.warn('App: Background strategy update service initialization failed', error);
+            }
+          }, 4000);
           return true;
         }}
       ];
 
-      for (const service of services) {
+      // Initialize critical services first - these must succeed
+      for (const service of criticalServices) {
         setInitStep(service.name);
-        console.log(`App: Starting initialization of ${service.name}`);
+        console.log(`App: Starting initialization of critical service: ${service.name}`);
+        performanceMonitor.startMeasurement(`critical_service_${service.name}`);
 
         try {
-          if (service.name === 'analytics') {
+          await service.fn();
+          const duration = performanceMonitor.endMeasurement(`critical_service_${service.name}`);
+          console.log(`App: Critical service ${service.name} initialized successfully in ${duration.toFixed(2)}ms`);
+        } catch (error) {
+          performanceMonitor.endMeasurement(`critical_service_${service.name}`);
+          console.error(`App: Error initializing critical service ${service.name}:`, error);
+          console.log('App: Critical service failed, attempting demo mode');
+          await systemSync.initializeDemoMode();
+          setIsAppReady(true);
+          return;
+        }
+      }
+
+      // Initialize important services in parallel
+      console.log('App: Starting initialization of important services in parallel');
+      performanceMonitor.startMeasurement('important_services');
+      try {
+        await Promise.all(
+          importantServices.map(async (service) => {
+            setInitStep(service.name);
+            performanceMonitor.startMeasurement(`important_service_${service.name}`);
             try {
               await Promise.race([
                 service.fn(),
                 new Promise((_, reject) =>
-                  setTimeout(() => reject(new Error('Analytics initialization timed out')), 10000)
+                  setTimeout(() => reject(new Error(`${service.name} initialization timed out`)), 5000)
                 )
               ]);
-            } catch (analyticsError) {
-              console.warn('App: Analytics initialization timed out, continuing without analytics');
-              // Don't rethrow - analytics is non-critical
+              const duration = performanceMonitor.endMeasurement(`important_service_${service.name}`);
+              console.log(`App: Important service ${service.name} initialized successfully in ${duration.toFixed(2)}ms`);
+            } catch (error) {
+              performanceMonitor.endMeasurement(`important_service_${service.name}`);
+              console.warn(`App: Important service ${service.name} initialization failed, continuing`, error);
+              // Don't rethrow - we can continue without these services
             }
-          } else {
-            await service.fn();
-          }
-          console.log(`App: ${service.name} initialized successfully`);
-        } catch (error) {
-          console.error(`App: Error initializing ${service.name}:`, error);
-
-          if (['database', 'exchange'].includes(service.name)) {
-            console.log('App: Critical service failed, attempting demo mode');
-            await systemSync.initializeDemoMode();
-            setIsAppReady(true);
-            return;
-          }
-        }
+          })
+        );
+        const duration = performanceMonitor.endMeasurement('important_services');
+        console.log(`App: All important services initialized in ${duration.toFixed(2)}ms`);
+      } catch (error) {
+        // This shouldn't happen due to the inner try/catch, but just in case
+        performanceMonitor.endMeasurement('important_services');
+        console.warn('App: Some important services failed to initialize', error);
       }
 
+      // Initialize secondary services in parallel
+      console.log('App: Starting initialization of secondary services in parallel');
+      performanceMonitor.startMeasurement('secondary_services');
+      try {
+        await Promise.all(
+          secondaryServices.map(async (service) => {
+            setInitStep(service.name);
+            performanceMonitor.startMeasurement(`secondary_service_${service.name}`);
+            try {
+              await Promise.race([
+                service.fn(),
+                new Promise((_, reject) =>
+                  setTimeout(() => reject(new Error(`${service.name} initialization timed out`)), 3000)
+                )
+              ]);
+              const duration = performanceMonitor.endMeasurement(`secondary_service_${service.name}`);
+              console.log(`App: Secondary service ${service.name} initialized successfully in ${duration.toFixed(2)}ms`);
+            } catch (error) {
+              performanceMonitor.endMeasurement(`secondary_service_${service.name}`);
+              console.warn(`App: Secondary service ${service.name} initialization failed, continuing`, error);
+              // Don't rethrow - we can continue without these services
+            }
+          })
+        );
+        const duration = performanceMonitor.endMeasurement('secondary_services');
+        console.log(`App: All secondary services initialized in ${duration.toFixed(2)}ms`);
+      } catch (error) {
+        // This shouldn't happen due to the inner try/catch, but just in case
+        performanceMonitor.endMeasurement('secondary_services');
+        console.warn('App: Some secondary services failed to initialize', error);
+      }
+
+      // Start non-critical services in parallel but don't wait for them
+      console.log('App: Starting initialization of non-critical services in background');
+      performanceMonitor.startMeasurement('non_critical_services_start');
+      nonCriticalServices.forEach(service => {
+        setInitStep(service.name);
+        performanceMonitor.startMeasurement(`non_critical_service_${service.name}_start`);
+        try {
+          // Don't await these - they'll complete in the background
+          service.fn().then(() => {
+            const duration = performanceMonitor.endMeasurement(`non_critical_service_${service.name}_start`);
+            console.log(`App: Non-critical service ${service.name} initialized in background after ${duration.toFixed(2)}ms`);
+          }).catch(error => {
+            performanceMonitor.endMeasurement(`non_critical_service_${service.name}_start`);
+            console.warn(`App: Non-critical service ${service.name} initialization failed`, error);
+          });
+          console.log(`App: Non-critical service ${service.name} initialization started`);
+        } catch (error) {
+          performanceMonitor.endMeasurement(`non_critical_service_${service.name}_start`);
+          console.warn(`App: Failed to start non-critical service ${service.name}`, error);
+        }
+      });
+      const startDuration = performanceMonitor.endMeasurement('non_critical_services_start');
+      console.log(`App: All non-critical services started in ${startDuration.toFixed(2)}ms`);
+
       console.log('App: All services initialized successfully');
+
+      // End measuring initialization time and report results
+      const initTime = performanceMonitor.endMeasurement('app_initialization_total');
+      console.log(`App: Total initialization time: ${initTime.toFixed(2)}ms`);
+      performanceMonitor.reportAllDurations();
+
       setIsAppReady(true);
     } catch (error) {
       console.error('App: Critical initialization error:', error);
@@ -137,6 +259,35 @@ function App() {
       setIsInitializing(false);
     }
   };
+
+  // Handle visibility changes
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      const newVisibilityState = document.visibilityState;
+      console.log(`App: Visibility changed from ${visibilityState} to ${newVisibilityState}`);
+      setVisibilityState(newVisibilityState);
+
+      // If the page becomes visible again and was previously hidden
+      if (newVisibilityState === 'visible' && visibilityState === 'hidden') {
+        console.log('App: Page became visible again');
+        // Don't restart initialization if app is already ready
+        if (!isAppReady && isInitializing) {
+          console.log('App: Resuming initialization after visibility change');
+          // Force app to be ready to prevent getting stuck on preloader
+          setIsInitializing(false);
+          setIsAppReady(true);
+        }
+      }
+    };
+
+    // Add event listener for visibility changes
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Clean up the event listener when component unmounts
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [visibilityState, isAppReady, isInitializing]);
 
   useEffect(() => {
     console.log('App: User state changed:', user ? 'logged in' : 'not logged in');

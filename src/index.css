@@ -432,6 +432,42 @@
   animation: rotate-3d 8s ease-in-out infinite;
 }
 
+/* Price change pulse animations */
+.pulse-turquoise {
+  animation: pulse-turquoise 1s ease-in-out;
+  color: #00ffd1 !important;
+}
+
+.pulse-raspberry {
+  animation: pulse-raspberry 1s ease-in-out;
+  color: #ff3864 !important;
+}
+
+@keyframes pulse-turquoise {
+  0% { text-shadow: 0 0 0 rgba(0, 255, 209, 0); }
+  25% { text-shadow: 0 0 15px rgba(0, 255, 209, 0.9); }
+  50% { text-shadow: 0 0 5px rgba(0, 255, 209, 0.6); }
+  75% { text-shadow: 0 0 10px rgba(0, 255, 209, 0.8); }
+  100% { text-shadow: 0 0 0 rgba(0, 255, 209, 0); }
+}
+
+@keyframes pulse-raspberry {
+  0% { text-shadow: 0 0 0 rgba(255, 56, 100, 0); }
+  25% { text-shadow: 0 0 15px rgba(255, 56, 100, 0.9); }
+  50% { text-shadow: 0 0 5px rgba(255, 56, 100, 0.6); }
+  75% { text-shadow: 0 0 10px rgba(255, 56, 100, 0.8); }
+  100% { text-shadow: 0 0 0 rgba(255, 56, 100, 0); }
+}
+
+/* Dark metal panel styling */
+.panel-metallic {
+  background: linear-gradient(145deg, #1a1d21, #22262d);
+  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.7),
+              inset -2px -2px 5px rgba(255, 255, 255, 0.05),
+              0 2px 10px rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
 .animate-gradient-shift {
   background-size: 200% 200%;
   animation: gradient-shift 8s ease infinite;

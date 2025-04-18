@@ -23,13 +23,13 @@ export function AnimatedPanel({
       (entries) => {
         entries.forEach((entry) => {
           if (entry.isIntersecting) {
-            // Use a consistent animation for all panels
+            // Use a consistent animation for all panels with staggered delay
             controls.start({
               opacity: 1,
               y: 0,
               transition: {
                 duration: 0.3, // Consistent duration
-                delay: 0, // No delay based on index
+                delay: 0.2 + (index * 0.2), // Staggered delay based on index
                 ease: "easeOut" // Consistent easing
               }
             });
