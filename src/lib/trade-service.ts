@@ -69,6 +69,7 @@ class TradeService extends EventEmitter {
 
     if (budget === null) {
       this.budgets.delete(strategyId);
+      logService.log('info', `Budget removed for strategy ${strategyId}`, null, 'TradeService');
     } else {
       // Format budget values to 2 decimal places.
       const formattedBudget = {
@@ -76,19 +77,42 @@ class TradeService extends EventEmitter {
         total: Number(budget.total.toFixed(2)),
         allocated: Number(budget.allocated.toFixed(2)),
         available: Number(budget.available.toFixed(2)),
-        maxPositionSize: Number(budget.maxPositionSize.toFixed(2))
+        maxPositionSize: Number(budget.maxPositionSize.toFixed(2)),
+        lastUpdated: Date.now() // Add timestamp
       };
 
       // Validate the budget configuration.
       if (!this.validateBudget(formattedBudget)) {
         throw new Error('Invalid budget configuration');
       }
+
+      // Set the budget in memory
       this.budgets.set(strategyId, formattedBudget);
+
+      // Log detailed information for debugging
+      logService.log('info', `Budget set for strategy ${strategyId}`, {
+        budget: formattedBudget,
+        isDemoMode: this.isDemo,
+        budgetsSize: this.budgets.size
+      }, 'TradeService');
+
+      // Try to save to database if not in demo mode
+      if (!this.isDemo) {
+        try {
+          await this.saveBudgetToDatabase(strategyId, formattedBudget);
+        } catch (dbError) {
+          logService.log('warn', `Failed to save budget to database: ${dbError.message}`, { strategyId }, 'TradeService');
+          // Continue even if database save fails
+        }
+      }
     }
 
+    // Save to localStorage
     this.saveBudgets();
+
+    // Emit events
     this.emit('budgetUpdated', { strategyId, budget });
-    logService.log('info', `Budget ${budget ? 'set' : 'removed'} for strategy ${strategyId}`, budget, 'TradeService');
+    eventBus.emit('budget:updated', { strategyId, budget });
   }
 
   // Validate that the budget object has correct numeric values.
@@ -254,6 +278,69 @@ class TradeService extends EventEmitter {
       maxPositionSize: Number((isDemoMode ? 0.2 : 0.1).toFixed(2)), // 20% max position in demo mode vs 10% in live
       lastUpdated: Date.now()
     };
+  }
+
+  /**
+   * Save a budget to the database
+   * @param strategyId The strategy ID
+   * @param budget The budget to save
+   */
+  private async saveBudgetToDatabase(strategyId: string, budget: StrategyBudget): Promise<void> {
+    try {
+      // Check if the budget already exists in the database
+      const { data, error: fetchError } = await supabase
+        .from('strategy_budgets')
+        .select('*')
+        .eq('strategy_id', strategyId)
+        .single();
+
+      if (fetchError && fetchError.code !== 'PGRST116') { // Not a 'no rows returned' error
+        throw fetchError;
+      }
+
+      if (data) {
+        // Update existing budget
+        const { error: updateError } = await supabase
+          .from('strategy_budgets')
+          .update({
+            total: budget.total,
+            allocated: budget.allocated,
+            available: budget.available,
+            max_position_size: budget.maxPositionSize,
+            profit: budget.profit || 0,
+            last_updated: new Date().toISOString()
+          })
+          .eq('strategy_id', strategyId);
+
+        if (updateError) throw updateError;
+
+        logService.log('info', `Updated budget in database for strategy ${strategyId}`, budget, 'TradeService');
+      } else {
+        // Insert new budget
+        const { error: insertError } = await supabase
+          .from('strategy_budgets')
+          .insert({
+            strategy_id: strategyId,
+            total: budget.total,
+            allocated: budget.allocated,
+            available: budget.available,
+            max_position_size: budget.maxPositionSize,
+            profit: budget.profit || 0,
+            last_updated: new Date().toISOString()
+          });
+
+        if (insertError) throw insertError;
+
+        logService.log('info', `Inserted new budget in database for strategy ${strategyId}`, budget, 'TradeService');
+      }
+    } catch (error) {
+      // Check if the error is because the table doesn't exist
+      if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+        logService.log('warn', 'Strategy budgets table does not exist yet. This is normal if you haven\'t created it.', null, 'TradeService');
+      } else {
+        throw error;
+      }
+    }
   }
 
   // Connect a strategy to the trading engine to start generating trades

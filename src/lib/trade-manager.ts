@@ -10,9 +10,20 @@ import { tradeService } from './trade-service';
 
 class TradeManager extends EventEmitter {
   private readonly EXECUTION_TIMEOUT = 30000;
-  private readonly MAX_RETRIES = 3;
+  private readonly MAX_RETRIES = 5; // Increased from 3 to 5
+  private readonly INITIAL_BACKOFF = 1000; // 1 second
+  private readonly MAX_BACKOFF = 30000; // 30 seconds
+  private readonly BACKOFF_FACTOR = 2; // Exponential backoff factor
+  private readonly BACKOFF_JITTER = 0.2; // 20% jitter to avoid thundering herd
   private activeOrders = new Map<string, TradeStatus>();
   private orderUpdateInterval: NodeJS.Timeout | null = null;
+  private circuitBreaker = {
+    failures: 0,
+    lastFailure: 0,
+    threshold: 5,
+    resetTimeout: 300000, // 5 minutes
+    isOpen: false
+  };
 
   constructor() {
     super();
@@ -368,20 +379,75 @@ class TradeManager extends EventEmitter {
   }
 
   private async executeTradeWithRetry(options: TradeOptions): Promise<any> {
+    // Check if circuit breaker is open
+    if (this.isCircuitBreakerOpen()) {
+      throw new Error('Circuit breaker is open due to multiple failures. Trading temporarily disabled.');
+    }
+
     let lastError: Error | null = null;
+    let backoffTime = this.INITIAL_BACKOFF;
 
     for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
       try {
-        return await this.executeWithTimeout(
+        // Log the attempt
+        logService.log('info', `Trade execution attempt ${attempt}/${this.MAX_RETRIES} for ${options.symbol}`,
+          { attempt, maxRetries: this.MAX_RETRIES }, 'TradeManager');
+
+        // Execute the trade with timeout
+        const result = await this.executeWithTimeout(
           () => exchangeService.createOrder(options),
           this.EXECUTION_TIMEOUT
         );
+
+        // Reset circuit breaker on success
+        this.resetCircuitBreaker();
+
+        // Log success
+        logService.log('info', `Trade execution successful for ${options.symbol} on attempt ${attempt}`,
+          { orderId: result.id }, 'TradeManager');
+
+        return result;
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
-        if (this.isRetryableError(error) && attempt < this.MAX_RETRIES) {
-          await this.handleRetry(attempt, options);
+        // Record failure for circuit breaker
+        this.recordFailure();
+
+        // Log the error with detailed information
+        logService.log('error', `Trade execution failed on attempt ${attempt}/${this.MAX_RETRIES}`,
+          {
+            error: lastError.message,
+            symbol: options.symbol,
+            attempt,
+            isRetryable: this.isRetryableError(error),
+            circuitBreakerStatus: {
+              failures: this.circuitBreaker.failures,
+              isOpen: this.circuitBreaker.isOpen
+            }
+          },
+          'TradeManager');
+
+        // Check if we should retry
+        if (this.isRetryableError(error) && attempt < this.MAX_RETRIES && !this.isCircuitBreakerOpen()) {
+          // Calculate backoff time with jitter
+          const jitter = 1 + (Math.random() * this.BACKOFF_JITTER * 2 - this.BACKOFF_JITTER);
+          const actualBackoff = Math.min(backoffTime * jitter, this.MAX_BACKOFF);
+
+          logService.log('info', `Retrying in ${actualBackoff}ms (attempt ${attempt}/${this.MAX_RETRIES})`,
+            { backoffTime: actualBackoff }, 'TradeManager');
+
+          // Wait for backoff period
+          await new Promise(resolve => setTimeout(resolve, actualBackoff));
+
+          // Increase backoff for next attempt
+          backoffTime = Math.min(backoffTime * this.BACKOFF_FACTOR, this.MAX_BACKOFF);
+
           continue;
+        }
+
+        // If circuit breaker opened during retries, throw specific error
+        if (this.isCircuitBreakerOpen()) {
+          throw new Error('Circuit breaker opened during retry attempts. Trading temporarily disabled.');
         }
 
         break;
@@ -723,18 +789,158 @@ class TradeManager extends EventEmitter {
     ]);
   }
 
+  // This method is replaced by the more comprehensive version below
+
+  /**
+   * Determines if an error is retryable
+   * @param error The error to check
+   * @returns True if the error is retryable, false otherwise
+   */
   private isRetryableError(error: any): boolean {
-    // Add logic to determine if error is retryable
-    return error.message?.includes('timeout') ||
-           error.message?.includes('rate limit') ||
-           error.message?.includes('network');
+    // Don't retry if circuit breaker is open
+    if (this.isCircuitBreakerOpen()) {
+      return false;
+    }
+
+    const errorMessage = error?.message?.toLowerCase() || '';
+
+    // Network errors are generally retryable
+    if (
+      errorMessage.includes('network') ||
+      errorMessage.includes('timeout') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('econnrefused') ||
+      errorMessage.includes('econnreset') ||
+      errorMessage.includes('etimedout')
+    ) {
+      return true;
+    }
+
+    // Rate limit errors are retryable
+    if (
+      errorMessage.includes('rate limit') ||
+      errorMessage.includes('ratelimit') ||
+      errorMessage.includes('too many requests') ||
+      error?.code === 429
+    ) {
+      return true;
+    }
+
+    // Temporary server errors are retryable
+    if (
+      errorMessage.includes('server error') ||
+      errorMessage.includes('service unavailable') ||
+      error?.code === 500 ||
+      error?.code === 502 ||
+      error?.code === 503 ||
+      error?.code === 504
+    ) {
+      return true;
+    }
+
+    // Insufficient funds errors are not retryable
+    if (
+      errorMessage.includes('insufficient') ||
+      errorMessage.includes('not enough') ||
+      errorMessage.includes('balance')
+    ) {
+      return false;
+    }
+
+    // Invalid parameter errors are not retryable
+    if (
+      errorMessage.includes('invalid') ||
+      errorMessage.includes('parameter') ||
+      errorMessage.includes('argument')
+    ) {
+      return false;
+    }
+
+    // By default, don't retry unknown errors
+    return false;
   }
 
-  private async handleRetry(attempt: number, options: TradeOptions): Promise<void> {
-    const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
-    await new Promise(resolve => setTimeout(resolve, delay));
-    logService.log('info', `Retrying trade execution (attempt ${attempt + 1})`,
-      { options }, 'TradeManager');
+  /**
+   * Checks if the circuit breaker is open
+   * @returns True if the circuit breaker is open, false otherwise
+   */
+  private isCircuitBreakerOpen(): boolean {
+    // If the circuit breaker is open, check if it's time to reset
+    if (this.circuitBreaker.isOpen) {
+      const now = Date.now();
+      const timeSinceLastFailure = now - this.circuitBreaker.lastFailure;
+
+      // If enough time has passed, reset the circuit breaker
+      if (timeSinceLastFailure >= this.circuitBreaker.resetTimeout) {
+        this.resetCircuitBreaker();
+        return false;
+      }
+
+      return true;
+    }
+
+    return false;
+  }
+
+  /**
+   * Records a failure for the circuit breaker
+   */
+  private recordFailure(): void {
+    const now = Date.now();
+    const timeSinceLastFailure = now - this.circuitBreaker.lastFailure;
+
+    // If it's been a while since the last failure, reset the counter
+    if (timeSinceLastFailure >= this.circuitBreaker.resetTimeout) {
+      this.circuitBreaker.failures = 1;
+    } else {
+      this.circuitBreaker.failures++;
+    }
+
+    this.circuitBreaker.lastFailure = now;
+
+    // If we've reached the threshold, open the circuit breaker
+    if (this.circuitBreaker.failures >= this.circuitBreaker.threshold) {
+      this.circuitBreaker.isOpen = true;
+
+      // Log that the circuit breaker has opened
+      logService.log('warn', 'Circuit breaker opened due to multiple failures',
+        {
+          failures: this.circuitBreaker.failures,
+          threshold: this.circuitBreaker.threshold,
+          resetTimeout: this.circuitBreaker.resetTimeout
+        },
+        'TradeManager');
+
+      // Emit circuit breaker event
+      this.emit('circuitBreakerOpened', {
+        failures: this.circuitBreaker.failures,
+        threshold: this.circuitBreaker.threshold,
+        resetTimeout: this.circuitBreaker.resetTimeout
+      });
+
+      eventBus.emit('trade:circuitBreakerOpened', {
+        failures: this.circuitBreaker.failures,
+        threshold: this.circuitBreaker.threshold,
+        resetTimeout: this.circuitBreaker.resetTimeout
+      });
+    }
+  }
+
+  /**
+   * Resets the circuit breaker
+   */
+  private resetCircuitBreaker(): void {
+    // Only log if the circuit breaker was previously open
+    if (this.circuitBreaker.isOpen) {
+      logService.log('info', 'Circuit breaker reset', null, 'TradeManager');
+
+      // Emit circuit breaker event
+      this.emit('circuitBreakerReset', {});
+      eventBus.emit('trade:circuitBreakerReset', {});
+    }
+
+    this.circuitBreaker.failures = 0;
+    this.circuitBreaker.isOpen = false;
   }
 
   /**

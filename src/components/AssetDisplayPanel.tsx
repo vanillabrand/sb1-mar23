@@ -110,13 +110,13 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
       const width = window.innerWidth;
       if (width < 640) {
         setScreenSize('sm');
-        setItemsPerPage(3); // 3 items for small screens (1 row of 3 or 3 rows of 1)
+        setItemsPerPage(1); // 1 item for small screens (1 row of 1)
       } else if (width < 1024) {
         setScreenSize('md');
-        setItemsPerPage(4); // 4 items for medium screens (2 rows of 2)
+        setItemsPerPage(2); // 2 items for medium screens (1 row of 2)
       } else {
         setScreenSize('lg');
-        setItemsPerPage(6); // 6 items for large screens (2 rows of 3)
+        setItemsPerPage(3); // 3 items for large screens (1 row of 3)
       }
     };
 
@@ -306,35 +306,35 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
   };
 
   return (
-    <div className={`${className} panel-metallic rounded-xl p-4 relative`}>
-      <div className="flex items-center justify-between mb-4">
+    <div className={`${className} panel-metallic rounded-xl p-3 sm:p-4 relative`}>
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
         <div className="flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-neon-turquoise" />
-          <h3 className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry">
+          <h3 className="text-base sm:text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry">
             Live Asset Prices
           </h3>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => handlePageChange('prev')}
-            className="p-1 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-all"
+            className="flex items-center justify-center p-1 w-6 h-6 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-all"
             aria-label="Previous page"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-400 min-w-[40px] text-center">
             {currentPage + 1}/{totalPages}
           </span>
           <button
             onClick={() => handlePageChange('next')}
-            className="p-1 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-all"
+            className="flex items-center justify-center p-1 w-6 h-6 rounded-full bg-gunmetal-800 hover:bg-gunmetal-700 transition-all"
             aria-label="Next page"
           >
             <ChevronRight className="w-4 h-4" />
           </button>
           <button
             onClick={toggleAutoRotate}
-            className={`p-1 rounded-full ${autoRotate ? 'bg-neon-turquoise text-black' : 'bg-gunmetal-800 text-gray-400'} hover:bg-neon-turquoise hover:text-black transition-all`}
+            className={`flex items-center justify-center p-1 w-6 h-6 rounded-full ${autoRotate ? 'bg-neon-turquoise text-black' : 'bg-gunmetal-800 text-gray-400'} hover:bg-neon-turquoise hover:text-black transition-all`}
             aria-label={autoRotate ? 'Disable auto-rotate' : 'Enable auto-rotate'}
             title={autoRotate ? 'Disable auto-rotate' : 'Enable auto-rotate'}
           >
@@ -350,7 +350,7 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
       ) : (
         <div className="relative overflow-hidden">
           {/* Dark metal panel with circular disks behind lozenge cutouts */}
-          <div className="relative bg-gunmetal-900 rounded-lg p-4 shadow-inner">
+          <div className="relative panel-metallic rounded-lg p-3 sm:p-4 shadow-inner">
             {/* Rotating disk display */}
             <div className="relative">
               <AnimatePresence mode="wait">
@@ -361,7 +361,7 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
                   exit={{ opacity: 0 }}
                   transition={{ duration: 0.5 }}
                 >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4 auto-rows-fr w-full mx-auto" style={{ maxWidth: '100%' }}>
                     {getCurrentPageItems().map((asset, index) => {
                       // Generate random data for missing fields
                       const enrichedAsset = generateRandomData(asset);
@@ -369,20 +369,20 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
                       const rotationDelay = index * 0.8 + Math.random() * 2;
 
                       return (
-                        <div key={asset.symbol} className="relative">
-                          <div className="panel-metallic rounded-xl overflow-hidden">
+                        <div key={asset.symbol} className="relative h-full">
+                          <div className="panel-metallic rounded-xl overflow-hidden h-full flex flex-col">
                             {/* Asset header with symbol */}
-                            <div className="p-3 flex justify-between items-center bg-gunmetal-950/80 backdrop-blur-sm border-b border-gunmetal-800">
-                              <div className="text-sm font-mono font-bold text-gray-200">
+                            <div className="p-2 sm:p-3 flex justify-between items-center bg-gunmetal-950/80 backdrop-blur-sm border-b border-gunmetal-800">
+                              <div className="text-xs sm:text-sm font-mono font-bold text-gray-200">
                                 {asset.symbol}
                               </div>
-                              <div className="text-xs font-mono text-gray-400">
+                              <div className="text-[10px] sm:text-xs font-mono text-gray-400">
                                 Last Updated: {formatTime(Date.now())}
                               </div>
                             </div>
 
                             {/* Asset data display */}
-                            <div className="p-4 space-y-3">
+                            <div className="p-2 sm:p-4 space-y-2 sm:space-y-3 flex-grow">
                               {/* Current price with pulsing effect */}
                               <div className="flex justify-between items-center">
                                 <div className="flex items-center gap-2">
@@ -390,7 +390,7 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
                                   <span className="text-xs text-gray-400">Price</span>
                                 </div>
                                 <div
-                                  className={`text-lg font-mono font-bold ${asset.pulsing ? (asset.status === 'up' ? 'pulse-turquoise' : 'pulse-raspberry') : ''}`}
+                                  className={`text-base sm:text-lg font-mono font-bold ${asset.pulsing ? (asset.status === 'up' ? 'pulse-turquoise' : 'pulse-raspberry') : ''}`}
                                   style={{
                                     color: asset.status === 'up' ? PANEL_COLORS.upColor :
                                           asset.status === 'down' ? PANEL_COLORS.downColor :

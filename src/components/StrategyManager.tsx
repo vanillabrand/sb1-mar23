@@ -1107,12 +1107,21 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               ) : (
                 <>
                   {screenSize === 'sm' ? (
-                    <SwipeableCardList
-                      items={filteredStrategies || []}
-                      renderItem={(strategy, index) => (
-                        <SwipeAnimation
+                    <div className="grid grid-cols-1 gap-3 mb-3 relative pt-8 pb-4">
+                      {/* Metallic pagination with tabs */}
+                      <MetallicPagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={setCurrentPage}
+                      />
+
+                      {(paginatedStrategies || []).map((strategy) => (
+                        <motion.div
                           key={strategy.id}
-                          onComplete={() => {}}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -20 }}
+                          className="strategy-card rounded-xl"
                         >
                           <StrategyCard
                             key={strategy.id}
@@ -1125,14 +1134,9 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                             hideExpandArrow={true}
                             // Deliberately not passing onActivate and onDeactivate to hide those buttons
                           />
-                        </SwipeAnimation>
-                      )}
-                      itemsPerPage={ITEMS_PER_PAGE}
-                      currentPage={currentPage}
-                      totalPages={totalPages}
-                      onPageChange={setCurrentPage}
-                      className="mb-4"
-                    />
+                        </motion.div>
+                      ))}
+                    </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-3 mb-3 relative pt-8 pb-4">
                       {/* Metallic pagination with tabs */}

@@ -18,7 +18,7 @@ export function LoginPanel({ onClose, onSignupClick }: LoginPanelProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!email || !password) {
       setError('Please fill in all fields');
       return;
@@ -51,7 +51,7 @@ export function LoginPanel({ onClose, onSignupClick }: LoginPanelProps) {
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-gunmetal-800"
+        className="panel-metallic rounded-xl p-6 w-full max-w-md"
       >
         <h2 className="text-2xl font-bold gradient-text mb-2">Welcome Back</h2>
         <p className="text-gray-400 mb-6">Sign in to access your account</p>

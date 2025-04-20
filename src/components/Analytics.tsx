@@ -266,7 +266,7 @@ export const Analytics: React.FC = () => {
           {/* Left Column - 8/12 width */}
           <div className="col-span-12 lg:col-span-8 space-y-6">
             {/* Risk Performance Panel */}
-            <div className="bg-black rounded-xl p-6 border border-gunmetal-800/50 shadow-lg">
+            <div className="panel-metallic rounded-xl p-6">
               <div className="flex items-center gap-2 mb-6">
                 <Shield className="w-5 h-5 text-neon-pink" />
                 <h2 className="text-xl font-bold text-white">Risk Performance</h2>
@@ -277,7 +277,7 @@ export const Analytics: React.FC = () => {
             </div>
 
             {/* Portfolio Performance Panel */}
-            <div className="bg-black rounded-xl p-6 border border-gunmetal-800/50 shadow-lg">
+            <div className="panel-metallic rounded-xl p-6">
               <div className="flex items-center gap-2 mb-6">
                 <BarChart3 className="w-5 h-5 text-neon-turquoise" />
                 <h2 className="text-xl font-bold text-white">Portfolio Performance by Strategy</h2>
@@ -288,7 +288,7 @@ export const Analytics: React.FC = () => {
             </div>
 
             {/* Performance Over Time Panel */}
-            <div className="bg-black rounded-xl p-6 border border-gunmetal-800/50 shadow-lg">
+            <div className="panel-metallic rounded-xl p-6">
               <div className="flex items-center gap-2 mb-6">
                 <Activity className="w-5 h-5 text-neon-yellow" />
                 <h2 className="text-xl font-bold text-white">Performance Over Time</h2>
@@ -302,7 +302,7 @@ export const Analytics: React.FC = () => {
           {/* Right Column - 4/12 width */}
           <div className="col-span-12 lg:col-span-4 space-y-6">
             {/* Live Asset Prices Panel */}
-            <div className="bg-black rounded-xl p-6 border border-gunmetal-800/50 shadow-lg">
+            <div className="panel-metallic rounded-xl p-6">
               <div className="flex items-center justify-between mb-6">
                 <div className="flex items-center gap-2">
                   <Zap className="w-5 h-5 text-neon-orange" />
@@ -319,7 +319,7 @@ export const Analytics: React.FC = () => {
             </div>
 
             {/* Strategy Leaderboard Panel */}
-            <div className="bg-black rounded-xl p-6 border border-gunmetal-800/50 shadow-lg">
+            <div className="panel-metallic rounded-xl p-6">
               <div className="flex items-center gap-2 mb-6">
                 <Award className="w-5 h-5 text-neon-yellow" />
                 <h2 className="text-xl font-bold text-white">Strategy Leaderboard</h2>
@@ -330,7 +330,7 @@ export const Analytics: React.FC = () => {
             </div>
 
             {/* Wallet Balance Panel */}
-            <div className="bg-black rounded-xl p-6 border border-gunmetal-800/50 shadow-lg">
+            <div className="panel-metallic rounded-xl p-6">
               <div className="flex items-center gap-2 mb-6">
                 <Wallet className="w-5 h-5 text-neon-turquoise" />
                 <h2 className="text-xl font-bold text-white">Wallet Balance</h2>
@@ -655,10 +655,10 @@ const LiveAssetPricesPanel: React.FC<{ data: any[] }> = ({ data }) => {
       {/* Asset Price Cards */}
       <div className="space-y-3">
         {priceData.map((asset, index) => (
-          <div key={index} className="bg-gunmetal-900/50 p-4 rounded-lg flex justify-between items-center">
+          <div key={index} className="panel-metallic p-3 sm:p-4 rounded-lg flex flex-wrap sm:flex-nowrap justify-between items-center gap-2">
             <div>
-              <h3 className="font-medium text-white">{asset.symbol}</h3>
-              <div className="flex items-center gap-2 mt-1">
+              <h3 className="font-medium text-white text-sm sm:text-base">{asset.symbol}</h3>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
                 <span className={`text-xs ${asset.change24h >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                   {asset.change24h >= 0 ? '↑' : '↓'} {Math.abs(asset.change24h).toFixed(2)}%
                 </span>
@@ -666,10 +666,10 @@ const LiveAssetPricesPanel: React.FC<{ data: any[] }> = ({ data }) => {
               </div>
             </div>
             <div className="text-right">
-              <p className="text-lg font-bold text-neon-turquoise">
+              <p className="text-base sm:text-lg font-bold text-neon-turquoise">
                 ${asset.price < 1 ? asset.price.toFixed(4) : asset.price.toFixed(2)}
               </p>
-              <p className="text-xs text-gray-400 mt-1">
+              <p className="text-[10px] sm:text-xs text-gray-400 mt-1">
                 Vol: ${(asset.volume / 1000000).toFixed(2)}M
               </p>
             </div>
@@ -678,9 +678,9 @@ const LiveAssetPricesPanel: React.FC<{ data: any[] }> = ({ data }) => {
       </div>
 
       {/* Market Summary */}
-      <div className="bg-gunmetal-900/30 rounded-lg p-4">
+      <div className="panel-metallic rounded-lg p-3 sm:p-4">
         <h3 className="text-sm font-medium text-gray-400 mb-3">Market Summary</h3>
-        <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3 text-[10px] sm:text-xs">
           <div>
             <p className="text-gray-400">Top Gainer</p>
             <p className="text-green-400 font-medium">

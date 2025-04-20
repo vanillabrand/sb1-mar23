@@ -7,6 +7,7 @@ import { tradeManager } from './trade-manager';
 import { tradeService } from './trade-service';
 import { aiService } from './ai-service';
 import type { Strategy } from './types';
+import { v4 as uuidv4 } from 'uuid';
 
 /**
  * Demo Trade Generator
@@ -17,7 +18,7 @@ import type { Strategy } from './types';
 class DemoTradeGenerator extends EventEmitter {
   private static instance: DemoTradeGenerator;
   private initialized: boolean = false;
-  private readonly CHECK_FREQUENCY = 15000; // 15 seconds - increased frequency for more active trading
+  private readonly CHECK_FREQUENCY = 10000; // 10 seconds - increased frequency for more active trading
   private activeStrategies: Map<string, Strategy> = new Map();
   private checkInterval: NodeJS.Timeout | null = null;
   private lastPrices: Map<string, number> = new Map();
@@ -275,8 +276,13 @@ class DemoTradeGenerator extends EventEmitter {
         return;
       }
 
-      // Let DeepSeek decide if we should generate trades (30% chance)
-      if (Math.random() > 0.3) return;
+      // Increase the chance of generating trades in demo mode (70% chance)
+      if (Math.random() > 0.7) {
+        logService.log('debug', `Skipping trade generation for strategy ${strategy.id} (random check)`, null, 'DemoTradeGenerator');
+        return;
+      }
+
+      logService.log('info', `Generating trades for strategy ${strategy.id} with budget ${budget.available}`, null, 'DemoTradeGenerator');
 
       // Collect price history for all trading pairs
       const pairHistories = new Map<string, any[]>();
@@ -483,6 +489,17 @@ class DemoTradeGenerator extends EventEmitter {
       // Get strategy configuration
       const strategyConfig = strategy.strategy_config || {};
 
+      // Get market type from strategy or detect from description
+      const marketType = strategy.marketType ||
+                        strategy.market_type ||
+                        (strategy.description ? detectMarketType(strategy.description) : 'spot');
+
+      logService.log('info', `Using market type ${marketType} for strategy ${strategy.id}`, {
+        strategyId: strategy.id,
+        marketType,
+        description: strategy.description?.substring(0, 50) + '...'
+      }, 'DemoTradeGenerator');
+
       // Prepare market data for AI analysis
       const marketData: any[] = [];
 
@@ -503,11 +520,18 @@ class DemoTradeGenerator extends EventEmitter {
 
       try {
         // Use DeepSeek AI to analyze market conditions for all pairs
+        // Include market type in the analysis request
         const aiResult = await aiService.analyzeMarketConditions(
           Array.from(pairHistories.keys()).join(','),
           strategy.riskLevel || 'Medium',
           marketData,
-          strategyConfig
+          {
+            ...strategyConfig,
+            marketType: marketType, // Explicitly pass market type
+            strategyId: strategy.id, // Pass strategy ID for unique trade generation
+            strategyName: strategy.name || strategy.title, // Pass strategy name for context
+            strategyDescription: strategy.description // Pass description for context
+          }
         );
 
         if (!aiResult) return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId);
@@ -525,7 +549,11 @@ class DemoTradeGenerator extends EventEmitter {
               stopLossPercent: trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02),
               takeProfitPercent: trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04),
               trailingStop: trade.trailingStop || 0.01,
-              rationale: trade.rationale || `AI-generated trade for ${trade.symbol}`,
+              rationale: trade.rationale || `AI-generated ${marketType} trade for ${trade.symbol} based on ${strategy.name || strategy.title} strategy`,
+              marketType: trade.marketType || marketType, // Ensure market type is included
+              strategyId: strategy.id, // Include strategy ID for tracking
+              leverage: trade.leverage || (marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) : undefined),
+              marginType: trade.marginType || (marketType === 'futures' ? 'cross' : undefined),
               // Include detailed entry and exit conditions
               entryConditions: trade.entryConditions || [
                 `Price crosses ${trade.direction === 'Long' ? 'above' : 'below'} ${this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0}`
@@ -797,6 +825,24 @@ class DemoTradeGenerator extends EventEmitter {
     }
   }
 
+  /**
+   * Get appropriate leverage based on risk level
+   * @param riskLevel Risk level of the strategy
+   * @returns Leverage value as a string (e.g., '5x')
+   */
+  private getLeverageForRiskLevel(riskLevel: string): string {
+    switch(riskLevel) {
+      case 'Ultra Low': return '1x';
+      case 'Low': return '2x';
+      case 'Medium': return '5x';
+      case 'High': return '10x';
+      case 'Ultra High': return '20x';
+      case 'Extreme': return '50x';
+      case 'God Mode': return '100x';
+      default: return '5x';
+    }
+  }
+
   private async createTrade(
     strategy: Strategy,
     symbol: string,
@@ -811,6 +857,33 @@ class DemoTradeGenerator extends EventEmitter {
   ) {
     try {
       // Create trade directly in the database
+      // Store trade details in metadata since some fields aren't in the database schema
+      const tradeMetadata = {
+        demo: true,
+        source: 'demo-generator',
+        uniqueToStrategy: strategy.id, // Mark this trade as unique to this strategy
+        strategyName: strategy.name || strategy.title, // Include strategy name
+        marketType: strategy.marketType || strategy.market_type || 'spot', // Include market type
+        entry_price: currentPrice,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        trailing_stop: 0.01,
+        entry_condition: `Price crossed ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`,
+        exit_condition: `${direction === 'Long' ? 'Take profit at ' + takeProfit + ' or stop loss at ' + stopLoss : 'Take profit at ' + takeProfit + ' or stop loss at ' + stopLoss}`,
+        entryConditions: entryConditions || [
+          `Price crossed ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
+        ],
+        exitConditions: exitConditions || [
+          `Take profit at ${takeProfit}`,
+          `Stop loss at ${stopLoss}`
+        ],
+        leverage: strategy.marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) : undefined,
+        marginType: strategy.marketType === 'futures' ? 'cross' : undefined,
+        tradeGeneratedAt: new Date().toISOString(),
+        riskLevel: strategy.riskLevel
+      };
+
+      // Create trade in the database with only the fields that exist in the schema
       const { data: trade, error } = await supabase
         .from('trades')
         .insert({
@@ -820,26 +893,11 @@ class DemoTradeGenerator extends EventEmitter {
           side: direction === 'Long' ? 'buy' : 'sell',
           quantity: positionSize,
           price: currentPrice,
-          entry_price: currentPrice,
-          stop_loss: stopLoss,
-          take_profit: takeProfit,
-          trailing_stop: 0.01,
           status: 'open',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           metadata: {
-            demo: true,
-            source: 'demo-generator',
-            uniqueToStrategy: strategy.id, // Mark this trade as unique to this strategy
-            entry_condition: `Price crossed ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`,
-            exit_condition: `${direction === 'Long' ? 'Take profit at ' + takeProfit + ' or stop loss at ' + stopLoss : 'Take profit at ' + takeProfit + ' or stop loss at ' + stopLoss}`,
-            entryConditions: entryConditions || [
-              `Price crossed ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
-            ],
-            exitConditions: exitConditions || [
-              `Take profit at ${takeProfit}`,
-              `Stop loss at ${stopLoss}`
-            ]
+            ...tradeMetadata
           }
         })
         .select()
@@ -948,6 +1006,99 @@ class DemoTradeGenerator extends EventEmitter {
       logService.log('debug', `Broadcasting trade update for strategy ${strategyId}`, { tradeId: trade.id }, 'DemoTradeGenerator');
     } catch (error) {
       logService.log('error', 'Failed to broadcast trade update', error, 'DemoTradeGenerator');
+    }
+  }
+
+  /**
+   * Add a strategy to the demo trade generator
+   * @param strategy The strategy to add
+   */
+  async addStrategy(strategy: Strategy): Promise<void> {
+    try {
+      this.activeStrategies.set(strategy.id, strategy);
+      logService.log('info', `Added strategy ${strategy.id} to demo trade generator`, null, 'DemoTradeGenerator');
+
+      // Generate initial trades immediately to ensure the user sees activity
+      setTimeout(() => {
+        this.generateInitialTrades(strategy);
+      }, 2000); // Wait 2 seconds before generating initial trades
+    } catch (error) {
+      logService.log('error', `Failed to add strategy ${strategy.id} to demo trade generator`, error, 'DemoTradeGenerator');
+    }
+  }
+
+  /**
+   * Generate initial trades for a strategy to ensure the user sees activity
+   * @param strategy The strategy to generate trades for
+   */
+  private async generateInitialTrades(strategy: Strategy): Promise<void> {
+    try {
+      // Get budget for this strategy
+      const budget = await tradeService.getBudget(strategy.id);
+      if (!budget || budget.available <= 0) {
+        logService.log('debug', `No available budget for initial trades in strategy ${strategy.id}`, null, 'DemoTradeGenerator');
+        return;
+      }
+
+      // Get the trading pairs from the strategy
+      const tradingPairs = strategy.selected_pairs || ['BTC/USDT'];
+
+      // Generate 1-3 initial trades
+      const numTrades = 1 + Math.floor(Math.random() * 3);
+      let remainingBudget = budget.available;
+
+      logService.log('info', `Generating ${numTrades} initial trades for strategy ${strategy.id}`, null, 'DemoTradeGenerator');
+
+      for (let i = 0; i < numTrades; i++) {
+        // Pick a random trading pair
+        const symbol = tradingPairs[Math.floor(Math.random() * tradingPairs.length)];
+        const currentPrice = this.lastPrices.get(symbol) || 0;
+        if (currentPrice === 0) continue;
+
+        // Randomly decide direction
+        const direction = Math.random() > 0.5 ? 'Long' : 'Short';
+
+        // Calculate stop loss and take profit
+        const stopLossPercent = direction === 'Long' ? -0.02 : 0.02;
+        const takeProfitPercent = direction === 'Long' ? 0.04 : -0.04;
+
+        const stopLoss = currentPrice * (1 + stopLossPercent);
+        const takeProfit = currentPrice * (1 + takeProfitPercent);
+
+        // Calculate position size (10-20% of remaining budget)
+        const positionSizePercent = 0.1 + (Math.random() * 0.1);
+        const positionSize = (remainingBudget * positionSizePercent) / currentPrice;
+
+        // Calculate trade cost
+        const tradeCost = positionSize * currentPrice;
+
+        // Skip if not enough budget
+        if (tradeCost > remainingBudget) continue;
+
+        // Create the trade directly
+        await this.createTrade(
+          strategy,
+          symbol,
+          direction,
+          currentPrice,
+          positionSize,
+          stopLoss,
+          takeProfit
+        );
+
+        // Update remaining budget
+        remainingBudget -= tradeCost;
+
+        logService.log('info', `Created initial trade for ${symbol} in strategy ${strategy.id}`, {
+          direction,
+          positionSize,
+          currentPrice,
+          tradeCost,
+          remainingBudget
+        }, 'DemoTradeGenerator');
+      }
+    } catch (error) {
+      logService.log('error', `Failed to generate initial trades for strategy ${strategy.id}`, error, 'DemoTradeGenerator');
     }
   }
 }

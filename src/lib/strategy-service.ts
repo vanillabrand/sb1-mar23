@@ -3,57 +3,21 @@ import { logService } from './log-service';
 import { v4 as uuidv4 } from 'uuid';
 import { eventBus } from './event-bus';
 import { globalCacheService } from './global-cache-service';
-import type { Strategy, CreateStrategyData, StrategyBudget } from './types';
+// Import the StrategyManager class directly since it's not exported as a singleton
+import { StrategyManager } from './strategy-manager';
+import { riskManagementService } from './risk-management-service';
+import { detectMarketType, normalizeMarketType } from './market-type-detection';
+import type { Strategy, CreateStrategyData, StrategyBudget, MarketType } from './types';
 
 class StrategyService {
   /**
    * Detects the market type from a strategy description
    * @param description The strategy description
    * @returns The detected market type ('spot', 'margin', or 'futures')
+   * @deprecated Use the detectMarketType function from market-type-detection.ts instead
    */
-  detectMarketType(description: string): 'spot' | 'margin' | 'futures' {
-    if (!description) return 'spot'; // Default to spot if no description
-
-    const lowerDesc = description.toLowerCase();
-
-    // Check for futures market indicators
-    if (
-      lowerDesc.includes('futures') ||
-      lowerDesc.includes('leverage') ||
-      lowerDesc.includes('leveraged') ||
-      lowerDesc.includes('perpetual') ||
-      lowerDesc.includes('perp') ||
-      lowerDesc.includes('contract') ||
-      lowerDesc.includes('contracts') ||
-      lowerDesc.includes('long position') ||
-      lowerDesc.includes('short position') ||
-      lowerDesc.includes('liquidation') ||
-      lowerDesc.includes('funding rate') ||
-      lowerDesc.includes('funding rates') ||
-      lowerDesc.includes('10x') ||
-      lowerDesc.includes('20x') ||
-      lowerDesc.includes('50x') ||
-      lowerDesc.includes('100x') ||
-      lowerDesc.match(/\d+x\s+leverage/) // Pattern like "5x leverage"
-    ) {
-      return 'futures';
-    }
-
-    // Check for margin market indicators
-    if (
-      lowerDesc.includes('margin') ||
-      lowerDesc.includes('borrow') ||
-      lowerDesc.includes('loan') ||
-      lowerDesc.includes('interest') ||
-      lowerDesc.includes('collateral') ||
-      lowerDesc.includes('lending') ||
-      lowerDesc.includes('borrowed')
-    ) {
-      return 'margin';
-    }
-
-    // Default to spot market
-    return 'spot';
+  detectMarketTypeFromDescription(description: string): MarketType {
+    return detectMarketType(description);
   }
 
   async createStrategy(data: CreateStrategyData): Promise<Strategy> {
@@ -65,12 +29,69 @@ class StrategyService {
       }
 
       // Detect market type from description if not explicitly provided
-      const marketType = data.marketType || this.detectMarketType(data.description || '');
+      let marketType: MarketType;
+
+      if (data.marketType) {
+        // If marketType is provided, normalize it to ensure it's valid
+        marketType = normalizeMarketType(data.marketType);
+      } else if (data.market_type) {
+        // Support for market_type field (database field name)
+        marketType = normalizeMarketType(data.market_type);
+      } else {
+        // Detect from description
+        marketType = detectMarketType(data.description || '');
+      }
 
       logService.log('info', `Detected market type: ${marketType} for strategy`, {
         title: data.title,
         description: data.description?.substring(0, 50) + '...',
       }, 'StrategyService');
+
+      // Validate margin and leverage settings if applicable
+      if (marketType === 'margin' || marketType === 'futures') {
+        // Get the first selected pair for validation
+        const symbol = data.selected_pairs && data.selected_pairs.length > 0 ?
+          data.selected_pairs[0] : 'BTC/USDT';
+
+        // Get leverage and margin settings from strategy config
+        const leverage = marketType === 'futures' && data.strategy_config?.leverage ?
+          data.strategy_config.leverage : undefined;
+
+        const marginRatio = marketType === 'margin' && data.strategy_config?.marginRatio ?
+          data.strategy_config.marginRatio : undefined;
+
+        // Validate against exchange limits and risk level
+        const marginLeverageValidation = await riskManagementService.validateMarginAndLeverage(
+          symbol,
+          marketType,
+          data.riskLevel || 'Medium',
+          leverage,
+          marginRatio
+        );
+
+        if (!marginLeverageValidation.valid) {
+          throw new Error(marginLeverageValidation.reason || 'Invalid margin or leverage settings');
+        }
+
+        // If we have a recommended value, use it
+        if (marginLeverageValidation.recommendedValue !== undefined) {
+          if (marketType === 'futures' && leverage !== undefined) {
+            // Update leverage to recommended value
+            if (!data.strategy_config) data.strategy_config = {};
+            data.strategy_config.leverage = marginLeverageValidation.recommendedValue;
+
+            logService.log('info', `Adjusted leverage to ${marginLeverageValidation.recommendedValue}x based on exchange limits and risk level`,
+              null, 'StrategyService');
+          } else if (marketType === 'margin' && marginRatio !== undefined) {
+            // Update margin ratio to recommended value
+            if (!data.strategy_config) data.strategy_config = {};
+            data.strategy_config.marginRatio = marginLeverageValidation.recommendedValue;
+
+            logService.log('info', `Adjusted margin ratio to ${(marginLeverageValidation.recommendedValue * 100).toFixed(0)}% based on exchange limits and risk level`,
+              null, 'StrategyService');
+          }
+        }
+      }
 
       // Ensure we have a name field (required by the database schema)
       // Map title to name if name is not provided
@@ -154,6 +175,79 @@ class StrategyService {
 
   async updateStrategy(id: string, updates: Partial<Strategy>): Promise<Strategy> {
     try {
+      // Get the current strategy to check market type and risk level
+      const currentStrategy = await this.getStrategy(id);
+
+      // Determine the market type (use updated value if provided, otherwise use current)
+      let marketType: MarketType;
+
+      if (updates.marketType) {
+        // If marketType is provided in updates, normalize it
+        marketType = normalizeMarketType(updates.marketType);
+      } else if (updates.market_type) {
+        // Support for market_type field (database field name)
+        marketType = normalizeMarketType(updates.market_type);
+      } else {
+        // Use current strategy's market type or default to spot
+        marketType = currentStrategy.market_type || 'spot';
+      }
+
+      // Determine the risk level (use updated value if provided, otherwise use current)
+      const riskLevel = updates.riskLevel || currentStrategy.riskLevel || 'Medium';
+
+      // Validate margin and leverage settings if applicable
+      if (marketType === 'margin' || marketType === 'futures') {
+        // Get the first selected pair for validation
+        const symbol = updates.selected_pairs && updates.selected_pairs.length > 0 ?
+          updates.selected_pairs[0] :
+          (currentStrategy.selected_pairs && currentStrategy.selected_pairs.length > 0 ?
+            currentStrategy.selected_pairs[0] : 'BTC/USDT');
+
+        // Get leverage and margin settings from strategy config
+        const updatedConfig = updates.strategy_config || {};
+        const currentConfig = currentStrategy.strategy_config || {};
+
+        const leverage = marketType === 'futures' ?
+          (updatedConfig.leverage !== undefined ? updatedConfig.leverage : currentConfig.leverage) :
+          undefined;
+
+        const marginRatio = marketType === 'margin' ?
+          (updatedConfig.marginRatio !== undefined ? updatedConfig.marginRatio : currentConfig.marginRatio) :
+          undefined;
+
+        // Validate against exchange limits and risk level
+        const marginLeverageValidation = await riskManagementService.validateMarginAndLeverage(
+          symbol,
+          marketType,
+          riskLevel,
+          leverage,
+          marginRatio
+        );
+
+        if (!marginLeverageValidation.valid) {
+          throw new Error(marginLeverageValidation.reason || 'Invalid margin or leverage settings');
+        }
+
+        // If we have a recommended value, use it
+        if (marginLeverageValidation.recommendedValue !== undefined) {
+          if (marketType === 'futures' && leverage !== undefined) {
+            // Update leverage to recommended value
+            if (!updates.strategy_config) updates.strategy_config = {...currentConfig};
+            updates.strategy_config.leverage = marginLeverageValidation.recommendedValue;
+
+            logService.log('info', `Adjusted leverage to ${marginLeverageValidation.recommendedValue}x based on exchange limits and risk level`,
+              null, 'StrategyService');
+          } else if (marketType === 'margin' && marginRatio !== undefined) {
+            // Update margin ratio to recommended value
+            if (!updates.strategy_config) updates.strategy_config = {...currentConfig};
+            updates.strategy_config.marginRatio = marginLeverageValidation.recommendedValue;
+
+            logService.log('info', `Adjusted margin ratio to ${(marginLeverageValidation.recommendedValue * 100).toFixed(0)}% based on exchange limits and risk level`,
+              null, 'StrategyService');
+          }
+        }
+      }
+
       // Ensure we're not updating protected fields
       const safeUpdates = { ...updates };
       delete safeUpdates.id;
@@ -334,7 +428,11 @@ class StrategyService {
     try {
       const { data, error } = await supabase
         .from('strategies')
-        .update({ status: 'active', updated_at: new Date().toISOString() })
+        .update({
+          status: 'active',
+          updated_at: new Date().toISOString(),
+          deactivated_at: null // Clear deactivated_at when activating
+        })
         .eq('id', id)
         .select()
         .single();

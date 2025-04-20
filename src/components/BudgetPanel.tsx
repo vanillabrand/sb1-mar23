@@ -203,7 +203,7 @@ export function BudgetPanel({ strategyId, trades }: BudgetPanelProps) {
         </motion.button>
       </h4>
       <motion.div
-        className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner"
+        className="panel-metallic p-4 rounded-lg"
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}

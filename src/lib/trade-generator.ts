@@ -503,6 +503,82 @@ class TradeGenerator extends EventEmitter {
             } catch (tradeError) {
               logService.log('error', `Failed to create trade for ${symbol}`, tradeError, 'TradeGenerator');
 
+              // Emit error event for UI notification
+              eventBus.emit(`trade:error:${strategy.id}`, {
+                strategyId: strategy.id,
+                symbol,
+                error: tradeError
+              });
+
+              // Try to create a fallback trade with minimal fields if in demo mode
+              if (demoService.isInDemoMode()) {
+                try {
+                  logService.log('info', `Attempting to create fallback trade for ${symbol} in demo mode`, null, 'TradeGenerator');
+
+                  // Create a simplified trade directly in the database
+                  const { data: fallbackTrade, error: fallbackError } = await supabase
+                    .from('trades')
+                    .insert({
+                      id: `${strategy.id}-${symbol}-${Date.now()}-fallback-${Math.random().toString(36).substring(2, 15)}`,
+                      strategy_id: strategy.id,
+                      symbol,
+                      side: signal.direction === 'Long' ? 'buy' : 'sell',
+                      quantity: positionSize,
+                      price: currentPrice,
+                      status: 'open',
+                      created_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString(),
+                      metadata: {
+                        demo: true,
+                        source: 'trade-generator-fallback',
+                        entry_price: currentPrice,
+                        stop_loss: signal.stopLoss,
+                        take_profit: signal.takeProfit,
+                        entry_condition: `Price crossed ${signal.direction === 'Long' ? 'above' : 'below'} ${currentPrice}`,
+                        exit_condition: `Take profit or stop loss`,
+                        fallback: true,
+                        original_error: tradeError.message
+                      }
+                    })
+                    .select()
+                    .single();
+
+                  if (fallbackError) {
+                    throw fallbackError;
+                  }
+
+                  // Update trade status to executed after a short delay
+                  setTimeout(async () => {
+                    try {
+                      const { error: updateError } = await supabase
+                        .from('trades')
+                        .update({
+                          status: 'executed',
+                          executed_at: new Date().toISOString()
+                        })
+                        .eq('id', fallbackTrade.id);
+
+                      if (!updateError) {
+                        logService.log('info', `Updated fallback trade status to executed for ${symbol}`, null, 'TradeGenerator');
+                      }
+                    } catch (updateError) {
+                      logService.log('error', `Failed to update fallback trade status for ${symbol}`, updateError, 'TradeGenerator');
+                    }
+                  }, 2000);
+
+                  logService.log('info', `Created fallback trade for ${symbol}`, { trade: fallbackTrade }, 'TradeGenerator');
+
+                  // Emit trade created event for the fallback trade
+                  eventBus.emit('trade:created', {
+                    strategy,
+                    trade: fallbackTrade,
+                    fallback: true
+                  });
+                } catch (fallbackError) {
+                  logService.log('error', `Failed to create fallback trade for ${symbol}`, fallbackError, 'TradeGenerator');
+                }
+              }
+
               // Still emit the opportunity for monitoring purposes
               this.emit('tradeOpportunity', {
                 strategy,

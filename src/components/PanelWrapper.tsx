@@ -54,7 +54,8 @@ export function PanelWrapper({
       ref={panelRef}
       initial={{ opacity: 0, y: 20 }}
       animate={controls}
-      className={`panel-metallic backdrop-blur-xl rounded-xl p-4 sm:p-6 ${className}`}
+      className={`panel-metallic rounded-xl p-3 sm:p-4 md:p-5 ${className}`}
+      style={{ border: 'none' }}
     >
       {title && (
         <div className="flex items-center gap-3 mb-6">

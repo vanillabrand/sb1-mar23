@@ -212,13 +212,13 @@ export function DefconMonitor({ strategies, className = '', volatility, marketCo
   return (
     <div className={`${className}`}>
       <div className={`
+        panel-metallic rounded-xl backdrop-blur-sm
         bg-gradient-to-br ${getDefconBackground(defconLevel)}
-        rounded-xl backdrop-blur-sm
       `}>
         <div className="px-3 py-3 sm:px-4">
           {/* Mobile layout (stacked) */}
           <div className="md:hidden">
-            <div className="flex items-center justify-between mb-2 flex-wrap gap-y-2">
+            <div className="flex items-center justify-between mb-2 flex-wrap gap-x-2 gap-y-2">
               <div className="flex items-center gap-2">
                 <div className={`
                   ${getDefconColor(defconLevel)}
@@ -242,12 +242,12 @@ export function DefconMonitor({ strategies, className = '', volatility, marketCo
               </span>
             </div>
 
-            <div className="pl-9"> {/* Align with the icon */}
+            <div className="pl-0 sm:pl-9"> {/* Align with the icon on larger screens */}
               <p className="text-[10px] text-gray-400 font-mono tracking-wider mb-1">
                 {getDefconDescription(defconLevel)}
               </p>
 
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="flex flex-wrap gap-1 sm:gap-2 mt-2">
                 <span className="text-[10px] text-gray-500 font-mono tracking-wider bg-gunmetal-900/50 px-2 py-0.5 rounded-full">
                   {strategies.length} STRATEGIES
                 </span>

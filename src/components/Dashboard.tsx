@@ -641,15 +641,17 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         {/* DEFCON Monitor removed from mobile */}
 
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-4`}>
-          <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
-            <StrategyStatus strategies={activeStrategies} />
-          </AnimatedPanel>
+          {activeStrategies.length > 0 && (
+            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+              <StrategyStatus strategies={activeStrategies} />
+            </AnimatedPanel>
+          )}
 
-          <AnimatedPanel index={2} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={2} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
             <AIMarketInsight assets={new Set(allAssets)} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={3} className="w-full">
+          <AnimatedPanel index={3} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg w-full">
             <PortfolioPerformance />
           </AnimatedPanel>
 

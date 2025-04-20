@@ -12,6 +12,7 @@ import {
 import { TradeList } from './TradeList';
 import { StrategyCard } from './StrategyCard';
 import { MarketTypeBadge } from './ui/MarketTypeBadge';
+import TradeExecutionMetrics from './TradeExecutionMetrics';
 import { marketService } from '../lib/market-service';
 import { marketDataService } from '../lib/market-data-service';
 import { marketAnalyzer } from '../lib/market-analyzer';

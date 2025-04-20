@@ -1,5 +1,6 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
+import { exchangeService } from './exchange-service';
 import { RiskManagementConfig, RiskLevel, MarketType, MarketAnalysis } from './types';
 
 /**
@@ -453,6 +454,145 @@ class RiskManagementService extends EventEmitter {
     } catch (error) {
       logService.log('error', 'Failed to validate trade risk', error, 'RiskManagementService');
       return { valid: false, reason: 'Error validating trade risk' };
+    }
+  }
+
+  /**
+   * Validate margin and leverage settings for a strategy
+   * @param symbol Trading pair symbol
+   * @param marketType Market type (spot, margin, futures)
+   * @param riskLevel Risk level of the strategy
+   * @param leverage Current leverage setting (for futures)
+   * @param marginRatio Current margin ratio (for margin, 0-1)
+   */
+  async validateMarginAndLeverage(
+    symbol: string,
+    marketType: MarketType,
+    riskLevel: RiskLevel,
+    leverage?: number,
+    marginRatio?: number
+  ): Promise<{ valid: boolean; reason?: string; recommendedValue?: number }> {
+    try {
+      // Skip validation for spot trading
+      if (marketType === 'spot') {
+        return { valid: true };
+      }
+
+      // For futures trading, validate leverage
+      if (marketType === 'futures' && leverage !== undefined) {
+        // Get maximum allowed leverage from exchange
+        const maxAllowedLeverage = await exchangeService.getMaxAllowedLeverage(symbol, 'futures');
+
+        // Get recommended leverage based on risk level
+        const recommendedLeverage = this.getRecommendedLeverage(riskLevel, 'futures');
+
+        // Check if leverage exceeds exchange maximum
+        if (leverage > maxAllowedLeverage) {
+          return {
+            valid: false,
+            reason: `Leverage (${leverage}x) exceeds exchange maximum (${maxAllowedLeverage}x)`,
+            recommendedValue: Math.min(recommendedLeverage, maxAllowedLeverage)
+          };
+        }
+
+        // Check if leverage is appropriate for risk level
+        if (leverage > recommendedLeverage * 1.5) { // Allow some flexibility (50% over recommended)
+          return {
+            valid: false,
+            reason: `Leverage (${leverage}x) is too high for ${riskLevel} risk level`,
+            recommendedValue: recommendedLeverage
+          };
+        }
+      }
+
+      // For margin trading, validate margin ratio
+      if (marketType === 'margin' && marginRatio !== undefined) {
+        // Get maximum allowed margin from exchange
+        const maxAllowedMargin = await exchangeService.getMaxAllowedMargin();
+
+        // Get recommended margin based on risk level
+        const recommendedMargin = this.getRecommendedMargin(riskLevel);
+
+        // Check if margin exceeds exchange maximum
+        if (marginRatio > maxAllowedMargin) {
+          return {
+            valid: false,
+            reason: `Margin ratio (${(marginRatio * 100).toFixed(0)}%) exceeds exchange maximum (${(maxAllowedMargin * 100).toFixed(0)}%)`,
+            recommendedValue: Math.min(recommendedMargin, maxAllowedMargin)
+          };
+        }
+
+        // Check if margin is appropriate for risk level
+        if (marginRatio > recommendedMargin * 1.2) { // Allow some flexibility (20% over recommended)
+          return {
+            valid: false,
+            reason: `Margin ratio (${(marginRatio * 100).toFixed(0)}%) is too high for ${riskLevel} risk level`,
+            recommendedValue: recommendedMargin
+          };
+        }
+      }
+
+      return { valid: true };
+    } catch (error) {
+      logService.log('error', 'Failed to validate margin and leverage', error, 'RiskManagementService');
+      return { valid: false, reason: 'Error validating margin and leverage settings' };
+    }
+  }
+
+  /**
+   * Get recommended leverage based on risk level
+   * @param riskLevel Risk level of the strategy
+   * @param marketType Market type (margin or futures)
+   */
+  getRecommendedLeverage(riskLevel: RiskLevel, marketType: 'margin' | 'futures'): number {
+    // For margin trading, leverage is usually fixed at 3x or 5x
+    if (marketType === 'margin') {
+      return 3; // Standard margin leverage
+    }
+
+    // For futures trading, leverage varies by risk level
+    switch (riskLevel) {
+      case 'Ultra Low':
+        return 2;
+      case 'Low':
+        return 5;
+      case 'Medium':
+        return 10;
+      case 'High':
+        return 20;
+      case 'Ultra High':
+        return 50;
+      case 'Extreme':
+        return 75;
+      case 'God Mode':
+        return 100;
+      default:
+        return 10; // Default to Medium
+    }
+  }
+
+  /**
+   * Get recommended margin ratio based on risk level
+   * @param riskLevel Risk level of the strategy
+   */
+  getRecommendedMargin(riskLevel: RiskLevel): number {
+    switch (riskLevel) {
+      case 'Ultra Low':
+        return 0.2; // 20%
+      case 'Low':
+        return 0.3; // 30%
+      case 'Medium':
+        return 0.5; // 50%
+      case 'High':
+        return 0.6; // 60%
+      case 'Ultra High':
+        return 0.7; // 70%
+      case 'Extreme':
+        return 0.8; // 80%
+      case 'God Mode':
+        return 0.9; // 90%
+      default:
+        return 0.5; // Default to Medium
     }
   }
 

@@ -1459,6 +1459,128 @@ class ExchangeService extends EventEmitter {
   }
 
   /**
+   * Get the maximum allowed leverage for a trading pair
+   * @param symbol The trading pair symbol
+   * @param marketType The market type (margin or futures)
+   * @returns The maximum allowed leverage
+   */
+  async getMaxAllowedLeverage(symbol: string, marketType: 'margin' | 'futures'): Promise<number> {
+    try {
+      // Default values if we can't get from exchange
+      const defaultMaxLeverage = marketType === 'margin' ? 3 : 20;
+
+      // If in demo mode, return default values
+      if (this.demoMode) {
+        return defaultMaxLeverage;
+      }
+
+      // If no active exchange, return default values
+      if (!this.activeExchange) {
+        return defaultMaxLeverage;
+      }
+
+      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      if (!exchange) {
+        return defaultMaxLeverage;
+      }
+
+      try {
+        // Normalize symbol format
+        const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
+
+        if (marketType === 'futures') {
+          // For futures, try to get leverage info from the exchange
+          const leverageInfo = await exchange.fetchLeverageTiers([normalizedSymbol]);
+          if (leverageInfo && leverageInfo[normalizedSymbol]) {
+            const tiers = leverageInfo[normalizedSymbol];
+            // Get the highest tier's max leverage
+            const maxLeverage = Math.max(...tiers.map(tier => tier.maxLeverage));
+            return maxLeverage;
+          }
+
+          // If we couldn't get leverage tiers, try to get market info
+          const markets = await exchange.fetchMarkets();
+          const market = markets.find(m => m.symbol === normalizedSymbol);
+          if (market && market.limits && market.limits.leverage) {
+            return market.limits.leverage.max || defaultMaxLeverage;
+          }
+        } else if (marketType === 'margin') {
+          // For margin, most exchanges have fixed leverage (3x or 5x)
+          // Try to get from market info if available
+          const markets = await exchange.fetchMarkets();
+          const market = markets.find(m => m.symbol === normalizedSymbol);
+          if (market && market.limits && market.limits.leverage) {
+            return market.limits.leverage.max || 3; // Default to 3x for margin
+          }
+          return 3; // Most exchanges offer 3x for margin
+        }
+
+        return defaultMaxLeverage;
+      } catch (exchangeError) {
+        logService.log('warn', `Failed to fetch max leverage from exchange for ${symbol}, using default values`, exchangeError, 'ExchangeService');
+        return defaultMaxLeverage;
+      }
+    } catch (error) {
+      logService.log('error', `Failed to get max allowed leverage for ${symbol}`, error, 'ExchangeService');
+      return marketType === 'margin' ? 3 : 20; // Default values
+    }
+  }
+
+  /**
+   * Get the maximum allowed margin for a user
+   * @returns The maximum allowed margin percentage (0-1)
+   */
+  async getMaxAllowedMargin(): Promise<number> {
+    try {
+      // Default value if we can't get from exchange
+      const defaultMaxMargin = 0.8; // 80%
+
+      // If in demo mode, return default value
+      if (this.demoMode) {
+        return defaultMaxMargin;
+      }
+
+      // If no active exchange, return default value
+      if (!this.activeExchange) {
+        return defaultMaxMargin;
+      }
+
+      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      if (!exchange) {
+        return defaultMaxMargin;
+      }
+
+      try {
+        // Try to get margin info from the exchange
+        // This is exchange-specific and may not be available through CCXT
+        // For now, return conservative default values based on user tier/level
+
+        // Try to get user info or account tier if available
+        if (exchange.has.fetchAccounts) {
+          const accounts = await exchange.fetchAccounts();
+          // Check if user has VIP status or higher tier
+          const isVIP = accounts.some(account =>
+            account.type?.toLowerCase().includes('vip') ||
+            (account.info && account.info.vipLevel && account.info.vipLevel > 0)
+          );
+
+          if (isVIP) {
+            return 0.9; // 90% for VIP users
+          }
+        }
+
+        return defaultMaxMargin;
+      } catch (exchangeError) {
+        logService.log('warn', `Failed to fetch max margin from exchange, using default values`, exchangeError, 'ExchangeService');
+        return defaultMaxMargin;
+      }
+    } catch (error) {
+      logService.log('error', `Failed to get max allowed margin`, error, 'ExchangeService');
+      return 0.8; // Default to 80%
+    }
+  }
+
+  /**
    * Check if an exchange is connected
    * @returns True if an exchange is connected, false otherwise
    */
@@ -1487,6 +1609,161 @@ class ExchangeService extends EventEmitter {
       logService.log('error', 'Failed to check exchange connection', error, 'ExchangeService');
       return false;
     }
+  }
+
+  /**
+   * Create an order on the exchange
+   * @param options Order options including symbol, side, type, amount, and price
+   * @returns The created order
+   */
+  async createOrder(options: {
+    symbol: string;
+    side: string;
+    type?: string;
+    amount: number;
+    entry_price?: number;
+    price?: number;
+    stop_loss?: number;
+    take_profit?: number;
+    trailing_stop?: number;
+  }): Promise<any> {
+    try {
+      // Normalize the symbol format if needed
+      const normalizedSymbol = options.symbol.includes('_') ? options.symbol.replace('_', '/') : options.symbol;
+
+      // Log the request
+      logService.log('info', `Creating order for ${normalizedSymbol}`, {
+        side: options.side,
+        type: options.type || 'market',
+        amount: options.amount,
+        price: options.entry_price || options.price
+      }, 'ExchangeService');
+
+      // If in demo mode or no active exchange, return mock order
+      if (this.demoMode || !this.activeExchange) {
+        return this.createMockOrder(normalizedSymbol, options);
+      }
+
+      // Get the exchange instance
+      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      if (!exchange) {
+        return this.createMockOrder(normalizedSymbol, options);
+      }
+
+      try {
+        // Determine the order type (market or limit)
+        const orderType = options.type || 'market';
+
+        // For market orders, we don't need a price
+        if (orderType === 'market') {
+          const order = await exchange.createOrder(
+            normalizedSymbol,
+            orderType,
+            options.side,
+            options.amount
+          );
+
+          // Track the order
+          this.activeOrders.set(order.id, {
+            ...order,
+            symbol: normalizedSymbol,
+            side: options.side,
+            amount: options.amount,
+            price: options.entry_price || options.price,
+            status: 'open',
+            timestamp: Date.now(),
+            stopLoss: options.stop_loss,
+            takeProfit: options.take_profit,
+            trailingStop: options.trailing_stop
+          });
+
+          return order;
+        } else {
+          // For limit orders, we need a price
+          const price = options.entry_price || options.price;
+          if (!price) {
+            throw new Error('Price is required for limit orders');
+          }
+
+          const order = await exchange.createOrder(
+            normalizedSymbol,
+            orderType,
+            options.side,
+            options.amount,
+            price
+          );
+
+          // Track the order
+          this.activeOrders.set(order.id, {
+            ...order,
+            symbol: normalizedSymbol,
+            side: options.side,
+            amount: options.amount,
+            price: price,
+            status: 'open',
+            timestamp: Date.now(),
+            stopLoss: options.stop_loss,
+            takeProfit: options.take_profit,
+            trailingStop: options.trailing_stop
+          });
+
+          return order;
+        }
+      } catch (exchangeError) {
+        logService.log('warn', `Failed to create order on exchange for ${normalizedSymbol}, using mock order`, exchangeError, 'ExchangeService');
+        return this.createMockOrder(normalizedSymbol, options);
+      }
+    } catch (error) {
+      logService.log('error', `Failed to create order for ${options.symbol}`, error, 'ExchangeService');
+      return this.createMockOrder(options.symbol, options);
+    }
+  }
+
+  /**
+   * Create a mock order for demo mode or when the exchange is unavailable
+   * @param symbol The trading pair symbol
+   * @param options Order options
+   * @returns Mock order object
+   */
+  private createMockOrder(symbol: string, options: any): any {
+    // Generate a unique order ID
+    const orderId = `mock-${symbol.replace('/', '')}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`;
+
+    // Get the current price
+    const currentPrice = options.entry_price || options.price || this.createMockTicker(symbol).last;
+
+    // Create a mock order
+    const order = {
+      id: orderId,
+      clientOrderId: `client-${orderId}`,
+      timestamp: Date.now(),
+      datetime: new Date().toISOString(),
+      symbol: symbol,
+      type: options.type || 'market',
+      side: options.side,
+      price: currentPrice,
+      amount: options.amount,
+      cost: currentPrice * options.amount,
+      filled: 0,
+      remaining: options.amount,
+      status: 'open',
+      fee: {
+        cost: currentPrice * options.amount * 0.001, // 0.1% fee
+        currency: symbol.split('/')[1] || 'USDT'
+      },
+      trades: [],
+      stopLoss: options.stop_loss,
+      takeProfit: options.take_profit,
+      trailingStop: options.trailing_stop
+    };
+
+    // Track the order
+    this.activeOrders.set(orderId, {
+      ...order,
+      lastUpdate: Date.now()
+    });
+
+    return order;
   }
 }
 

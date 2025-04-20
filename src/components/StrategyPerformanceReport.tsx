@@ -1,13 +1,14 @@
-import React from 'react';
-import { 
-  TrendingUp, 
-  TrendingDown, 
-  Clock, 
+import React, { useState } from 'react';
+import {
+  TrendingUp,
+  TrendingDown,
+  Clock,
   Activity,
   X,
   DollarSign,
   BarChart3,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from 'lucide-react';
 import {
   Area,
@@ -52,14 +53,14 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
   if (!performance || !performance.totalTrades) {
     return (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-        <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-gunmetal-800">
+        <div className="panel-metallic rounded-xl p-6 w-full max-w-md">
           <div className="flex items-center gap-3 mb-6">
             <AlertTriangle className="w-6 h-6 text-neon-orange" />
             <h2 className="text-xl font-bold">Deactivate Strategy</h2>
           </div>
 
           <p className="text-gray-300 mb-6">
-            Are you sure you want to deactivate <span className="text-neon-turquoise font-semibold">{strategyName}</span>? 
+            Are you sure you want to deactivate <span className="text-neon-turquoise font-semibold">{strategyName}</span>?
             This will close all active trades and stop monitoring market conditions.
           </p>
 
@@ -93,7 +94,7 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-      <div className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-2xl border border-gunmetal-800">
+      <div className="panel-metallic rounded-xl p-6 w-full max-w-2xl">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold gradient-text">Strategy Performance Report</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-200">
@@ -103,7 +104,7 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
 
         {/* Performance Metrics */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div className="bg-gunmetal-800/50 rounded-lg p-4">
+          <div className="panel-metallic rounded-lg p-4">
             <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
               <DollarSign className="w-4 h-4" />
               Total P&L
@@ -115,7 +116,7 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
             </p>
           </div>
 
-          <div className="bg-gunmetal-800/50 rounded-lg p-4">
+          <div className="panel-metallic rounded-lg p-4">
             <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
               <Activity className="w-4 h-4" />
               Win Rate
@@ -125,7 +126,7 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
             </p>
           </div>
 
-          <div className="bg-gunmetal-800/50 rounded-lg p-4">
+          <div className="panel-metallic rounded-lg p-4">
             <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
               <BarChart3 className="w-4 h-4" />
               Total Trades
@@ -135,7 +136,7 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
             </p>
           </div>
 
-          <div className="bg-gunmetal-800/50 rounded-lg p-4">
+          <div className="panel-metallic rounded-lg p-4">
             <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
               <Clock className="w-4 h-4" />
               Duration
@@ -148,7 +149,7 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
 
         {/* Equity Curve */}
         {performance.equityCurve?.length > 0 && (
-          <div className="bg-gunmetal-800/30 rounded-lg p-4 mb-6">
+          <div className="panel-metallic rounded-lg p-4 mb-6">
             <h3 className="text-sm font-medium text-gray-300 mb-4">Equity Curve</h3>
             <div className="h-[200px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -160,17 +161,17 @@ export function StrategyPerformanceReport({ performance, onClose, onConfirm, str
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis 
-                    dataKey="date" 
+                  <XAxis
+                    dataKey="date"
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF' }}
                   />
-                  <YAxis 
+                  <YAxis
                     stroke="#6B7280"
                     tick={{ fill: '#9CA3AF' }}
                     domain={['auto', 'auto']}
                   />
-                  <Tooltip 
+                  <Tooltip
                     contentStyle={{
                       backgroundColor: 'rgba(17, 24, 39, 0.8)',
                       border: '1px solid rgba(75, 85, 99, 0.4)',

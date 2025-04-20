@@ -12,8 +12,10 @@ import { ExchangeManager } from './ExchangeManager';
 import { TradeMonitor } from './TradeMonitor';
 import { Backtester } from './Backtester';
 import { Analytics } from './Analytics';
+import { RiskManagerPage } from './RiskManagerPage';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobileDetect } from '../hooks/useMobileDetect';
+import { TradeDebugMonitor } from './TradeDebugMonitor';
 
 
 interface AppContentProps {
@@ -124,6 +126,13 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
                 </PageTransition>
               </AuthGuard>
             } />
+            <Route path="/risk-manager" element={
+              <AuthGuard>
+                <PageTransition>
+                  <RiskManagerPage />
+                </PageTransition>
+              </AuthGuard>
+            } />
 
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
@@ -131,6 +140,9 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
 
         {/* Mobile Bottom Navigation - Always rendered but only visible on mobile */}
         <MobileBottomNav onMenuToggle={handleMenuToggle} />
+
+        {/* Trade Debug Monitor - Always rendered but toggleable */}
+        <TradeDebugMonitor />
       </main>
     </div>
   );

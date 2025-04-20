@@ -133,7 +133,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
   const navigate = useNavigate();
   const [isConnected, setIsConnected] = useState(false);
   const [isExchangeDetailsExpanded, setIsExchangeDetailsExpanded] = useState(false);
-  const [rainbowElements, setRainbowElements] = useState<HTMLElement[]>([]);
+  // Removed rainbow elements state
   const connectionContainerRef = useRef<HTMLDivElement>(null);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(isOpen || false);
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -148,46 +148,10 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
   const [latency, setLatency] = useState<number | null>(null);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  // Function to highlight the active menu item with rainbow shimmer effect
+  // Function to highlight the active menu item (simplified, no rainbow effect)
   const highlightMenuItem = (clickedElement: HTMLElement) => {
-    // Clear any existing highlighted elements
-    rainbowElements.forEach(el => {
-      el.classList.remove('menu-active');
-    });
-    setRainbowElements([]);
-
-    // Apply rainbow shimmer effect to the clicked item
-    clickedElement.classList.add('menu-active');
-    setRainbowElements([clickedElement]);
-
-    // Apply shimmer effect to adjacent menu items (above and below on desktop, left and right on mobile)
-    const allNavItems = document.querySelectorAll('.nav-item');
-    const navItemsArray = Array.from(allNavItems);
-    const clickedIndex = navItemsArray.indexOf(clickedElement);
-
-    // Remove any existing shimmer effects
-    navItemsArray.forEach(item => {
-      item.classList.remove('shimmer-above', 'shimmer-below', 'shimmer-left', 'shimmer-right');
-    });
-
-    // Apply shimmer effects to adjacent items
-    if (isMobile) {
-      // On mobile, apply horizontal shimmer
-      if (clickedIndex > 0) {
-        navItemsArray[clickedIndex - 1].classList.add('shimmer-left');
-      }
-      if (clickedIndex < navItemsArray.length - 1) {
-        navItemsArray[clickedIndex + 1].classList.add('shimmer-right');
-      }
-    } else {
-      // On desktop, apply vertical shimmer
-      if (clickedIndex > 0) {
-        navItemsArray[clickedIndex - 1].classList.add('shimmer-above');
-      }
-      if (clickedIndex < navItemsArray.length - 1) {
-        navItemsArray[clickedIndex + 1].classList.add('shimmer-below');
-      }
-    }
+    // No special highlighting needed anymore
+    // This function is kept for compatibility with existing code
   };
 
   // Retry connection

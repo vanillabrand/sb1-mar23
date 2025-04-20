@@ -466,10 +466,10 @@ class TradeEngine extends EventEmitter {
     try {
       const { error } = await supabase
         .from('strategies')
-        .update({ 
+        .update({
           status,
           updated_at: new Date().toISOString(),
-          ...(status === 'inactive' ? { deactivated_at: new Date().toISOString() } : {})
+          ...(status === 'inactive' ? { deactivated_at: new Date().toISOString() } : { deactivated_at: null })
         })
         .eq('id', strategyId);
 

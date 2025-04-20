@@ -23,6 +23,11 @@ import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { ConfirmDialog } from './ui/ConfirmDialog';
 import { MarketTypeBadge } from './ui/MarketTypeBadge';
 import AvailableBalanceDisplay from './AvailableBalanceDisplay';
+import { BudgetDebugger } from './BudgetDebugger';
+import BudgetHistoryChart from './BudgetHistoryChart';
+import BudgetAlertsList from './BudgetAlertsList';
+import BudgetValidationStatus from './BudgetValidationStatus';
+import TradeExecutionMetrics from './TradeExecutionMetrics';
 import type { RiskLevel, Strategy, StrategyBudget, Trade, MarketType } from '../lib/types';
 import { standardizeAssetPairFormat } from '../lib/format-utils';
 
@@ -1253,6 +1258,35 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                             <span>Allocation</span>
                             <span>{budget.allocationPercentage?.toFixed(1) || 0}%</span>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Budget Validation Status */}
+                      <div className="mt-4 p-3 bg-gunmetal-800 rounded-lg">
+                        <BudgetValidationStatus strategyId={strategy.id} />
+                      </div>
+
+                      {/* Trade Execution Metrics */}
+                      <div className="mt-4">
+                        <TradeExecutionMetrics strategyId={strategy.id} />
+                      </div>
+
+                      {/* Budget History Chart */}
+                      <div className="mt-4">
+                        <div className="text-sm font-medium text-gray-300 mb-2">Budget History</div>
+                        <BudgetHistoryChart strategyId={strategy.id} days={7} height={150} showLegend={false} />
+                      </div>
+
+                      {/* Budget Alerts */}
+                      <div className="mt-4">
+                        <div className="text-sm font-medium text-gray-300 mb-2">Budget Alerts</div>
+                        <BudgetAlertsList strategyId={strategy.id} limit={3} />
+                      </div>
+
+                      {/* Add Budget Debugger in development mode */}
+                      {import.meta.env.DEV && (
+                        <div className="mt-4">
+                          <BudgetDebugger strategyId={strategy.id} />
                         </div>
                       )}
                     </div>

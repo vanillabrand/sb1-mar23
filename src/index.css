@@ -18,15 +18,48 @@
   }
 
   .panel {
-    @apply bg-gunmetal-800 backdrop-blur-xl rounded-xl p-4 sm:p-6;
+    @apply backdrop-blur-xl rounded-xl p-4 sm:p-6;
+    background: linear-gradient(135deg, rgba(18, 18, 20, 0.98) 0%, rgba(28, 28, 32, 0.98) 100%);
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+                inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+    border: none;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 2px
+    );
   }
 
   .panel-dark {
-    @apply bg-gunmetal-900 backdrop-blur-xl rounded-xl p-4 sm:p-6;
+    @apply backdrop-blur-xl rounded-xl p-4 sm:p-6;
+    background: linear-gradient(135deg, rgba(15, 15, 17, 0.98) 0%, rgba(25, 25, 28, 0.98) 100%);
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+                inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+    border: none;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 2px
+    );
   }
 
   .panel-light {
-    @apply bg-gunmetal-700 backdrop-blur-xl rounded-xl p-4 sm:p-6;
+    @apply backdrop-blur-xl rounded-xl p-4 sm:p-6;
+    background: linear-gradient(135deg, rgba(22, 22, 26, 0.98) 0%, rgba(32, 32, 36, 0.98) 100%);
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+                inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+    border: none;
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 2px
+    );
   }
 
   .btn-text-small {
@@ -91,14 +124,23 @@
 
   /* Darker grey metal effect for panels */
   .panel-metallic {
-    @apply relative overflow-hidden shadow-md;
+    @apply relative overflow-hidden shadow-md backdrop-blur-xl;
     background: linear-gradient(
       135deg,
       rgba(18, 18, 20, 0.98) 0%,
       rgba(28, 28, 32, 0.98) 100%
     );
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.03),
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
                 inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+    border: none;
+    /* Add subtle brushed metal texture */
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.02) 1px,
+      transparent 1px,
+      transparent 2px
+    );
   }
 
   /* Dark metal modal style - no borders, dark grey background */
@@ -394,20 +436,63 @@
 }
 
 .bg-gradient-panel {
-  background: linear-gradient(135deg, rgba(42, 43, 48, 0.2) 0%, rgba(31, 31, 35, 0.2) 100%);
+  background: linear-gradient(135deg, rgba(18, 18, 20, 0.98) 0%, rgba(28, 28, 32, 0.98) 100%);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  border: none;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.02),
+    rgba(255, 255, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 2px
+  );
 }
 
-/* Glass effect utilities */
+/* Glass effect utilities - updated to use dark grey brushed metal gradient */
 .glass-effect {
-  @apply backdrop-blur-xl bg-gunmetal-800;
+  @apply backdrop-blur-xl;
+  background: linear-gradient(135deg, rgba(18, 18, 20, 0.98) 0%, rgba(28, 28, 32, 0.98) 100%);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  border: none;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.02),
+    rgba(255, 255, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 2px
+  );
 }
 
 .glass-effect-dark {
-  @apply backdrop-blur-xl bg-gunmetal-900;
+  @apply backdrop-blur-xl;
+  background: linear-gradient(135deg, rgba(15, 15, 17, 0.98) 0%, rgba(25, 25, 28, 0.98) 100%);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  border: none;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.02),
+    rgba(255, 255, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 2px
+  );
 }
 
 .glass-effect-light {
-  @apply backdrop-blur-xl bg-gunmetal-700;
+  @apply backdrop-blur-xl;
+  background: linear-gradient(135deg, rgba(22, 22, 26, 0.98) 0%, rgba(32, 32, 36, 0.98) 100%);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  border: none;
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.02),
+    rgba(255, 255, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 2px
+  );
 }
 
 /* Animation classes */
@@ -459,13 +544,20 @@
   100% { text-shadow: 0 0 0 rgba(255, 56, 100, 0); }
 }
 
-/* Dark metal panel styling */
+/* Dark metal panel styling - no borders, dark grey brushed metal background */
 .panel-metallic {
-  background: linear-gradient(145deg, #1a1d21, #22262d);
-  box-shadow: inset 2px 2px 5px rgba(0, 0, 0, 0.7),
-              inset -2px -2px 5px rgba(255, 255, 255, 0.05),
-              0 2px 10px rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(to bottom right, rgba(18, 18, 20, 0.95) 0%, rgba(28, 28, 32, 0.95) 100%);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  border: none;
+  /* Add subtle brushed metal texture */
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.02),
+    rgba(255, 255, 255, 0.02) 1px,
+    transparent 1px,
+    transparent 2px
+  );
 }
 
 .animate-gradient-shift {

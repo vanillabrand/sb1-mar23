@@ -1,13 +1,13 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Check, 
-  ChevronRight, 
-  Rocket, 
-  Zap, 
-  Crown, 
-  Building2, 
-  Mail 
+import {
+  Check,
+  ChevronRight,
+  Rocket,
+  Zap,
+  Crown,
+  Building2,
+  Mail
 } from 'lucide-react';
 
 interface PricingPanelProps {
@@ -40,7 +40,7 @@ export function PricingPanel({ onSelectPlan }: PricingPanelProps) {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
-                className={`relative bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-800 ${
+                className={`panel-metallic relative rounded-xl p-6 ${
                   tier.popular ? 'ring-2 ring-neon-yellow' : ''
                 }`}
               >
@@ -78,7 +78,7 @@ export function PricingPanel({ onSelectPlan }: PricingPanelProps) {
                   ))}
                 </ul>
 
-                <button 
+                <button
                   onClick={() => handlePlanSelect(tier.name)}
                   className={`w-full flex items-center justify-center gap-2 py-3 px-4 bg-${tier.color}/10 text-${tier.color} rounded-lg hover:bg-${tier.color}/20 transition-all duration-300 group`}
                 >

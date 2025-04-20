@@ -51,7 +51,7 @@ export function StrategyStats({ strategies = [], className = '' }: StrategyStats
   }, [strategies]);
   return (
     <div className={`${className}`}>
-      <div className="bg-gradient-to-br from-gunmetal-900/95 to-gunmetal-800/95 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-700/50 shadow-lg hover:border-gunmetal-600/50 transition-all duration-200">
+      <div className="panel-metallic rounded-xl p-6">
         <h3 className="text-lg font-semibold mb-4 text-gray-200">Strategy Statistics</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="flex flex-col">

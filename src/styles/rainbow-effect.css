@@ -1,21 +1,4 @@
-/* Rainbow Shimmer Effect for Menu Items */
-@keyframes rainbowShimmerVertical {
-  0% {
-    background-position: 0% 0%;
-  }
-  100% {
-    background-position: 0% 200%;
-  }
-}
-
-@keyframes rainbowShimmerHorizontal {
-  0% {
-    background-position: 0% 0%;
-  }
-  100% {
-    background-position: 200% 0%;
-  }
-}
+/* Rainbow effects removed */
 
 /* Menu Item Hover Effect */
 @keyframes menuHover {
@@ -57,56 +40,12 @@
   border: 1px solid rgba(59, 244, 251, 0.2);
 }
 
-/* Rainbow shimmer effect for active menu item */
+/* Active menu item styling (simplified) */
 .menu-active {
   position: relative;
   z-index: 1;
-  background-color: rgba(30, 30, 35, 0.5);
+  background-color: rgba(30, 30, 35, 0.8);
   border-radius: 8px;
-  overflow: hidden;
-}
-
-.menu-active::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(
-    to bottom,
-    rgba(255, 20, 147, 0.4),
-    rgba(255, 105, 180, 0.4),
-    rgba(255, 165, 0, 0.4),
-    rgba(255, 215, 0, 0.4),
-    rgba(0, 255, 255, 0.4),
-    rgba(255, 20, 147, 0.4)
-  );
-  background-size: 100% 200%;
-  animation: rainbowShimmerVertical 3s linear infinite;
-  z-index: -1;
-}
-
-/* Add a subtle glow effect to the active menu item */
-.menu-active {
-  box-shadow: 0 0 10px rgba(255, 105, 180, 0.3);
-}
-
-/* Mobile version of the shimmer effect */
-@media (max-width: 768px) {
-  .menu-active::before {
-    background: linear-gradient(
-      to right,
-      rgba(255, 20, 147, 0.4),
-      rgba(255, 105, 180, 0.4),
-      rgba(255, 165, 0, 0.4),
-      rgba(255, 215, 0, 0.4),
-      rgba(0, 255, 255, 0.4),
-      rgba(255, 20, 147, 0.4)
-    );
-    background-size: 200% 100%;
-    animation: rainbowShimmerHorizontal 3s linear infinite;
-  }
 }
 
 .menu-active span {
@@ -150,79 +89,12 @@
   font-weight: 500;
 }
 
-/* Shimmer effects for adjacent menu items */
+/* Adjacent menu items styling (simplified) */
 .shimmer-above,
 .shimmer-below,
 .shimmer-left,
 .shimmer-right {
   position: relative;
-  overflow: hidden;
-}
-
-/* Vertical shimmer effects (desktop) */
-.shimmer-above::before,
-.shimmer-below::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: -1;
-  background: linear-gradient(
-    to bottom,
-    rgba(255, 20, 147, 0.2),
-    rgba(255, 105, 180, 0.2),
-    rgba(255, 165, 0, 0.2),
-    rgba(255, 215, 0, 0.2),
-    rgba(0, 255, 255, 0.2),
-    rgba(255, 20, 147, 0.2)
-  );
-  background-size: 100% 200%;
-  border-radius: 8px;
-}
-
-.shimmer-above::before {
-  animation: rainbowShimmerVertical 3s linear infinite;
-  opacity: 0.25;
-}
-
-.shimmer-below::before {
-  animation: rainbowShimmerVertical 3s linear infinite reverse;
-  opacity: 0.25;
-}
-
-/* Horizontal shimmer effects (mobile) */
-.shimmer-left::before,
-.shimmer-right::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: -1;
-  background: linear-gradient(
-    to right,
-    rgba(255, 20, 147, 0.2),
-    rgba(255, 105, 180, 0.2),
-    rgba(255, 165, 0, 0.2),
-    rgba(255, 215, 0, 0.2),
-    rgba(0, 255, 255, 0.2),
-    rgba(255, 20, 147, 0.2)
-  );
-  background-size: 200% 100%;
-  border-radius: 8px;
-}
-
-.shimmer-left::before {
-  animation: rainbowShimmerHorizontal 3s linear infinite;
-  opacity: 0.25;
-}
-
-.shimmer-right::before {
-  animation: rainbowShimmerHorizontal 3s linear infinite reverse;
-  opacity: 0.25;
 }
 
 /* Connection Status Indicator */

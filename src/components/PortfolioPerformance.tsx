@@ -423,6 +423,15 @@ export function PortfolioPerformance() {
       // Calculate starting value
       const startingValue = metrics.reduce((sum, metric) => sum + metric.startingValue, 0);
 
+      // Skip update if all values are zero
+      if (totalValue === 0 && startingValue === 0) {
+        // Check if we already have valid data in the portfolio summary
+        if (portfolioSummary && portfolioSummary.currentValue > 0) {
+          logService.log('info', 'Skipping portfolio summary update - all values are zero and we have existing data', null, 'PortfolioPerformance');
+          return;
+        }
+      }
+
       // Calculate total change and percent change
       const totalChange = totalValue - startingValue;
       const percentChange = startingValue > 0 ? (totalChange / startingValue) * 100 : 0;
@@ -491,6 +500,12 @@ export function PortfolioPerformance() {
       const summary = await globalCacheService.getPortfolioSummary();
 
       if (summary) {
+        // Skip update if all values are zero and we already have valid data
+        if (summary.currentValue === 0 && summary.startingValue === 0 && portfolioSummary && portfolioSummary.currentValue > 0) {
+          logService.log('info', 'Skipping portfolio summary update from cache - all values are zero and we have existing data', null, 'PortfolioPerformance');
+          return;
+        }
+
         // Only update state if data has actually changed to prevent unnecessary rerenders
         if (JSON.stringify(summary) !== JSON.stringify(portfolioSummary)) {
           setPortfolioSummary(summary);
@@ -621,18 +636,23 @@ export function PortfolioPerformance() {
           });
         }
 
-        // Update state with calculated summary
-        setPortfolioSummary(calculatedSummary);
+        // Skip update if all values are zero and we already have valid data
+        if (calculatedSummary.currentValue === 0 && calculatedSummary.startingValue === 0 && portfolioSummary && portfolioSummary.currentValue > 0) {
+          logService.log('info', 'Skipping portfolio summary update from database - all values are zero and we have existing data', null, 'PortfolioPerformance');
+        } else {
+          // Update state with calculated summary
+          setPortfolioSummary(calculatedSummary);
 
-        // Update global cache
-        globalCacheService.setPortfolioSummary(calculatedSummary);
+          // Update global cache
+          globalCacheService.setPortfolioSummary(calculatedSummary);
 
-        logService.log('info', 'Updated portfolio summary data from database', {
-          strategies: calculatedSummary.strategies?.length || 0,
-          currentValue: calculatedSummary.currentValue,
-          totalChange: calculatedSummary.totalChange,
-          totalTrades: calculatedSummary.totalTrades
-        }, 'PortfolioPerformance');
+          logService.log('info', 'Updated portfolio summary data from database', {
+            strategies: calculatedSummary.strategies?.length || 0,
+            currentValue: calculatedSummary.currentValue,
+            totalChange: calculatedSummary.totalChange,
+            totalTrades: calculatedSummary.totalTrades
+          }, 'PortfolioPerformance');
+        }
 
         // If we still don't have portfolio summary data, use sample data
         if (!portfolioSummary && (!calculatedSummary.strategies || calculatedSummary.strategies.length === 0)) {
@@ -801,7 +821,7 @@ export function PortfolioPerformance() {
 
 
   return (
-    <div className="bg-gradient-to-br from-gunmetal-950/95 to-gunmetal-900/95 backdrop-blur-xl rounded-xl p-3 sm:p-4 md:p-5 shadow-lg border border-gunmetal-800/50">
+    <div>
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Activity className="w-5 h-5 text-neon-raspberry" />
@@ -860,13 +880,13 @@ export function PortfolioPerformance() {
           {/* Portfolio Summary Stats - Consolidated Panel */}
           <div className="bg-gunmetal-900/50 rounded-lg p-4 mb-6">
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+            <div className="bg-gunmetal-800/50 rounded-lg p-2">
               <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Current Value</p>
               <p className="text-base md:text-lg font-bold text-white truncate" key={`value-${portfolioSummary?.currentValue || 0}`}>
                 ${portfolioSummary?.currentValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '0.00'}
               </p>
             </div>
-            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+            <div className="bg-gunmetal-800/50 rounded-lg p-2">
               <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Profit/Loss</p>
               <div className="flex items-baseline">
                 <p
@@ -881,13 +901,13 @@ export function PortfolioPerformance() {
                 </span>
               </div>
             </div>
-            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+            <div className="bg-gunmetal-800/50 rounded-lg p-2">
               <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Total Trades</p>
               <p className="text-base md:text-lg font-bold text-white" key={`trades-${portfolioSummary?.totalTrades || 0}`}>
                 {portfolioSummary?.totalTrades || 0}
               </p>
             </div>
-            <div className="bg-gunmetal-800/50 rounded-lg p-2 border border-gunmetal-700/50">
+            <div className="bg-gunmetal-800/50 rounded-lg p-2">
               <p className="text-gray-400 text-xs leading-tight mb-0.5 whitespace-normal">Win Rate</p>
               <p className="text-base md:text-lg font-bold text-white" key={`winrate-${portfolioSummary?.winRate || 0}`}>
                 {(portfolioSummary?.winRate || 0).toFixed(1)}%
@@ -1059,7 +1079,7 @@ export function PortfolioPerformance() {
                 </div>
 
                 {/* Additional Strategy Metrics */}
-                <div className="bg-gunmetal-800/30 rounded-lg p-3 border border-gunmetal-700/50">
+                <div className="bg-gunmetal-800/30 rounded-lg p-3">
                   <h4 className="text-xs font-medium text-gray-300 mb-3">Strategy Metrics Summary</h4>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div>
@@ -1114,7 +1134,7 @@ export function PortfolioPerformance() {
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
-            className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-gunmetal-800"
+            className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-md"
           >
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-bold gradient-text">Export Transactions</h3>

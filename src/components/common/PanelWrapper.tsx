@@ -7,7 +7,7 @@ interface PanelWrapperProps {
 
 export function PanelWrapper({ title, icon, children, actions }: PanelWrapperProps) {
   return (
-    <div className="panel-metallic backdrop-blur-sm rounded-2xl p-4 sm:p-6 shadow-xl">
+    <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           {icon && (

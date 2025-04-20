@@ -156,10 +156,11 @@ class NewsService extends EventEmitter {
 
   private async fetchNewsForAsset(asset: string): Promise<NewsItem[]> {
     try {
-      // Use a default API key if none is provided in environment variables
-      const apiKey = import.meta.env.VITE_NEWS_API_KEY || '9d37acb8-4e4b-4b7e-8c3a-40f3d8c8f6a9';
+      // Use the API key from environment variables
+      // The key in the .env file is: 162901f50202da15ee2a054fde27015c1f5b1a113a424f0935a5161627a3cc9e
+      const apiKey = import.meta.env.VITE_NEWS_API_KEY || '162901f50202da15ee2a054fde27015c1f5b1a113a424f0935a5161627a3cc9e';
 
-      logService.log('info', `Fetching news for ${asset} through proxy service`, null, 'NewsService');
+      logService.log('info', `Fetching news for ${asset} through proxy service with API key: ${apiKey.substring(0, 10)}...`, null, 'NewsService');
 
       try {
         // Use the proxy service to fetch news
@@ -179,7 +180,13 @@ class NewsService extends EventEmitter {
             sentiment: this.analyzeSentiment(item.title + ' ' + (item.description || item.content || ''))
           }));
 
-          logService.log('info', `Successfully fetched ${newsItems.length} news items for ${asset}`, null, 'NewsService');
+          // Check if this is fallback data
+          if (response.source === 'fallback') {
+            logService.log('info', `Using fallback news data for ${asset}`, null, 'NewsService');
+          } else {
+            logService.log('info', `Successfully fetched ${newsItems.length} news items for ${asset}`, null, 'NewsService');
+          }
+
           return newsItems;
         }
         // Fallback to old response format if needed
@@ -196,7 +203,24 @@ class NewsService extends EventEmitter {
             sentiment: this.analyzeSentiment(item.title + ' ' + (item.description || item.excerpt))
           }));
 
-          logService.log('info', `Successfully fetched ${newsItems.length} news items for ${asset}`, null, 'NewsService');
+          logService.log('info', `Successfully fetched ${newsItems.length} news items for ${asset} (legacy format)`, null, 'NewsService');
+          return newsItems;
+        }
+        // Handle array response directly (some API versions return an array)
+        else if (response && Array.isArray(response)) {
+          const newsItems = response.map(item => ({
+            id: item.id || `${item.title}-${Date.now()}`,
+            title: item.title,
+            description: item.description || item.content || item.excerpt || '',
+            url: item.url || `https://www.coindesk.com/search?q=${encodeURIComponent(asset)}`,
+            source: item.source?.name || 'Coindesk',
+            imageUrl: item.urlToImage || item.image || item.thumbnail?.url || item.leadImage?.url,
+            publishedAt: new Date(item.publishedAt || Date.now()).toISOString(),
+            relatedAssets: [asset],
+            sentiment: this.analyzeSentiment(item.title + ' ' + (item.description || item.content || item.excerpt || ''))
+          }));
+
+          logService.log('info', `Successfully fetched ${newsItems.length} news items for ${asset} (array format)`, null, 'NewsService');
           return newsItems;
         } else {
           logService.log('warn', `Invalid response format for ${asset} news`, response, 'NewsService');

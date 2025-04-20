@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Brain, X, XCircle } from 'lucide-react';
 import { RiskSlider } from './ui/RiskSlider';
 import { Combobox } from './ui/Combobox';
+import { detectMarketType } from '../lib/market-type-detection';
+import type { MarketType } from '../lib/types';
 
 // Add these trading pair options
 const TRADING_PAIRS = [
@@ -29,6 +31,7 @@ interface CreateStrategyData {
   description: string;
   risk_level: string;
   selected_pairs: string[];
+  marketType: MarketType;
 }
 
 export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategyModalProps) {
@@ -36,8 +39,20 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
     title: '',
     description: '',
     risk_level: 'Medium',
-    selected_pairs: []
+    selected_pairs: [],
+    marketType: 'spot'
   });
+
+  // Detect market type from description when it changes
+  useEffect(() => {
+    if (formData.description) {
+      const detectedMarketType = detectMarketType(formData.description);
+      setFormData(prev => ({
+        ...prev,
+        marketType: detectedMarketType
+      }));
+    }
+  }, [formData.description]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -161,6 +176,48 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
                 onChange={(level) => setFormData({ ...formData, risk_level: level })}
                 className="mt-2"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Market Type
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  className={`px-4 py-2 rounded-lg border ${formData.marketType === 'spot'
+                    ? 'border-neon-turquoise bg-neon-turquoise/10 text-neon-turquoise'
+                    : 'border-gunmetal-700 bg-gunmetal-800 text-gray-300 hover:border-gray-500'}`}
+                  onClick={() => setFormData({ ...formData, marketType: 'spot' })}
+                >
+                  Spot
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2 rounded-lg border ${formData.marketType === 'margin'
+                    ? 'border-neon-yellow bg-neon-yellow/10 text-neon-yellow'
+                    : 'border-gunmetal-700 bg-gunmetal-800 text-gray-300 hover:border-gray-500'}`}
+                  onClick={() => setFormData({ ...formData, marketType: 'margin' })}
+                >
+                  Margin
+                </button>
+                <button
+                  type="button"
+                  className={`px-4 py-2 rounded-lg border ${formData.marketType === 'futures'
+                    ? 'border-neon-raspberry bg-neon-raspberry/10 text-neon-raspberry'
+                    : 'border-gunmetal-700 bg-gunmetal-800 text-gray-300 hover:border-gray-500'}`}
+                  onClick={() => setFormData({ ...formData, marketType: 'futures' })}
+                >
+                  Futures
+                </button>
+              </div>
+              <p className="text-xs text-gray-400 mt-2">
+                {formData.marketType === 'spot'
+                  ? 'Spot trading involves buying and selling assets directly.'
+                  : formData.marketType === 'margin'
+                    ? 'Margin trading allows borrowing funds to increase position size.'
+                    : 'Futures trading uses contracts with leverage for larger positions.'}
+              </p>
             </div>
 
             <div>

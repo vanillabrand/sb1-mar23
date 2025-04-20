@@ -2,6 +2,8 @@ import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { marketMonitor } from './market-monitor';
 import { supabase } from './supabase';
+import { detectMarketType, normalizeMarketType, supportsLeverage, supportsShortPositions } from './market-type-detection';
+import type { MarketType } from './types';
 
 export class AIService extends EventEmitter {
   private static instance: AIService;
@@ -64,8 +66,24 @@ Provide a trade recommendation in JSON format with the following structure:
 
       logService.log('info', 'Sending market analysis prompt to DeepSeek', { prompt }, 'AIService');
 
+      // Extract market type from strategy config or detect from description
+      let marketType: MarketType = 'spot';
+      if (strategyConfig?.marketType) {
+        marketType = normalizeMarketType(strategyConfig.marketType);
+      } else if (strategyConfig?.market_type) {
+        marketType = normalizeMarketType(strategyConfig.market_type);
+      } else if (strategyConfig?.strategyDescription) {
+        marketType = detectMarketType(strategyConfig.strategyDescription);
+      }
+
+      logService.log('info', `Using market type ${marketType} for market analysis`, {
+        symbol,
+        marketType,
+        strategyId: strategyConfig?.strategyId
+      }, 'AIService');
+
       // Simulate DeepSeek API call with detailed analysis
-      const analysis = this.generateMarketAnalysis(riskLevel, symbol, marketData);
+      const analysis = this.generateMarketAnalysis(riskLevel, symbol, marketData, marketType, strategyConfig);
 
       this.emit('progress', { step: 'Market analysis completed successfully!', progress: 100 });
 
@@ -83,7 +101,7 @@ Provide a trade recommendation in JSON format with the following structure:
    * @param marketData Historical market data
    * @returns AI-generated market analysis
    */
-  private generateMarketAnalysis(riskLevel: string, symbol: string, marketData: any[]): any {
+  private generateMarketAnalysis(riskLevel: string, symbol: string, marketData: any[], marketType: MarketType = 'spot', strategyConfig?: any): any {
     // Extract current price and trend
     const currentPrice = marketData[0]?.currentPrice || 0;
     const trend = this.analyzeTrend(marketData[0]?.priceHistory || []);
@@ -91,6 +109,14 @@ Provide a trade recommendation in JSON format with the following structure:
 
     // Determine if we should trade based on market conditions
     let shouldTrade = Math.random() > 0.3; // 70% chance of trading
+
+    // If this is a specific strategy, use the strategy ID to make the decision more deterministic
+    // This ensures different strategies generate different trades
+    if (strategyConfig?.strategyId) {
+      const strategyIdHash = this.hashString(strategyConfig.strategyId);
+      const deterministicRandom = (strategyIdHash % 100) / 100;
+      shouldTrade = deterministicRandom > 0.3;
+    }
 
     // Adjust based on risk level
     if (riskLevel === 'Low') {
@@ -101,13 +127,30 @@ Provide a trade recommendation in JSON format with the following structure:
       shouldTrade = Math.random() > 0.2; // 80% chance of trading
     }
 
-    // Determine direction based on trend
+    // Determine direction based on trend and market type
     let direction = 'Long';
-    if (trend.includes('Downtrend')) {
+
+    // For spot markets, prefer long positions
+    if (marketType === 'spot') {
+      // Spot markets typically only support long positions
+      direction = 'Long';
+    } else if (trend.includes('Downtrend')) {
+      // In downtrends, prefer short positions for margin and futures
       direction = 'Short';
     } else if (trend === 'Sideways') {
       // In sideways markets, direction is more random
-      direction = Math.random() > 0.5 ? 'Long' : 'Short';
+      // But make it deterministic based on strategy ID if available
+      if (strategyConfig?.strategyId) {
+        const strategyIdHash = this.hashString(strategyConfig.strategyId);
+        direction = (strategyIdHash % 2 === 0) ? 'Long' : 'Short';
+      } else {
+        direction = Math.random() > 0.5 ? 'Long' : 'Short';
+      }
+    }
+
+    // If market type is spot and direction is Short, change to Long
+    if (marketType === 'spot' && direction === 'Short') {
+      direction = 'Long';
     }
 
     // Calculate confidence based on trend strength and volatility
@@ -128,8 +171,8 @@ Provide a trade recommendation in JSON format with the following structure:
       confidence = Math.max(0.6, confidence); // Minimum confidence for high risk
     }
 
-    // Calculate stop loss and take profit percentages based on volatility and risk
-    let stopLossPercent, takeProfitPercent, trailingStop;
+    // Calculate stop loss and take profit percentages based on volatility, risk, and market type
+    let stopLossPercent, takeProfitPercent, trailingStop, leverage, marginType;
 
     if (volatility === 'Low') {
       stopLossPercent = direction === 'Long' ? -0.01 : 0.01; // 1%
@@ -154,11 +197,27 @@ Provide a trade recommendation in JSON format with the following structure:
       takeProfitPercent = direction === 'Long' ? Math.max(0.05, takeProfitPercent) : Math.min(-0.05, takeProfitPercent);
     }
 
-    // Generate rationale
-    const rationale = `${direction} signal generated for ${symbol} based on ${trend} trend and ${volatility} volatility. ` +
+    // Set market-specific parameters
+    if (marketType === 'futures') {
+      // Set leverage based on risk level and volatility
+      if (volatility === 'Low') {
+        leverage = riskLevel === 'Low' ? '2x' : riskLevel === 'Medium' ? '5x' : '10x';
+      } else if (volatility === 'Medium') {
+        leverage = riskLevel === 'Low' ? '3x' : riskLevel === 'Medium' ? '7x' : '15x';
+      } else { // High volatility
+        leverage = riskLevel === 'Low' ? '5x' : riskLevel === 'Medium' ? '10x' : '20x';
+      }
+
+      // Set margin type (cross is safer, isolated is riskier)
+      marginType = riskLevel === 'Low' ? 'cross' : riskLevel === 'High' ? 'isolated' : 'cross';
+    }
+
+    // Generate rationale with market type information
+    const rationale = `${direction} ${marketType} signal generated for ${symbol} based on ${trend} trend and ${volatility} volatility. ` +
       `Market conditions indicate a ${confidence.toFixed(2)} confidence level for this trade. ` +
       `Stop loss set at ${(stopLossPercent * 100).toFixed(1)}% and take profit at ${(takeProfitPercent * 100).toFixed(1)}% ` +
-      `with a ${(trailingStop * 100).toFixed(1)}% trailing stop.`;
+      `with a ${(trailingStop * 100).toFixed(1)}% trailing stop.` +
+      (marketType === 'futures' ? ` Using ${leverage} leverage with ${marginType} margin.` : '');
 
     return {
       shouldTrade,
@@ -167,15 +226,91 @@ Provide a trade recommendation in JSON format with the following structure:
       stopLossPercent,
       takeProfitPercent,
       trailingStop,
-      rationale
+      rationale,
+      marketType,
+      leverage,
+      marginType,
+      // Include multiple trades if this is a higher risk level
+      trades: this.generateMultipleTrades(riskLevel, symbol, direction, confidence, stopLossPercent, takeProfitPercent, trailingStop, marketType, leverage, marginType, strategyConfig)
     };
   }
 
   /**
-   * Analyzes trend from price history
-   * @param priceHistory Historical price data
-   * @returns Trend classification
+   * Generate multiple trades for a single analysis
+   * This helps create variety in the trades generated for a strategy
    */
+  private generateMultipleTrades(riskLevel: string, symbol: string, direction: string, confidence: number, stopLossPercent: number, takeProfitPercent: number, trailingStop: number, marketType: MarketType, leverage?: string, marginType?: string, strategyConfig?: any): any[] {
+    // Determine how many trades to generate based on risk level
+    let numTrades = 1; // Default to 1 trade
+
+    if (riskLevel === 'High') {
+      numTrades = 3;
+    } else if (riskLevel === 'Medium') {
+      numTrades = 2;
+    }
+
+    // If we have a strategy ID, use it to make the number of trades more deterministic
+    if (strategyConfig?.strategyId) {
+      const strategyIdHash = this.hashString(strategyConfig.strategyId);
+      // Use the hash to adjust the number of trades (1-3)
+      numTrades = 1 + (strategyIdHash % 3);
+    }
+
+    const trades = [];
+
+    // Generate the primary trade
+    trades.push({
+      symbol,
+      direction,
+      confidence,
+      stopLossPercent,
+      takeProfitPercent,
+      trailingStop,
+      marketType,
+      leverage,
+      marginType,
+      rationale: `Primary ${direction} ${marketType} trade for ${symbol} with ${confidence.toFixed(2)} confidence.`
+    });
+
+    // Generate additional trades with variations
+    for (let i = 1; i < numTrades; i++) {
+      // Vary the parameters slightly for each additional trade
+      const variationFactor = 0.8 + (i * 0.1); // 0.9, 1.0, 1.1, etc.
+
+      // For spot markets, only generate long trades
+      const tradeDirection = marketType === 'spot' ? 'Long' :
+                            direction === 'Long' ? 'Short' : 'Long'; // Opposite of primary trade
+
+      trades.push({
+        symbol,
+        direction: tradeDirection,
+        confidence: Math.max(0.1, Math.min(0.9, confidence * variationFactor)),
+        stopLossPercent: stopLossPercent * variationFactor,
+        takeProfitPercent: takeProfitPercent * variationFactor,
+        trailingStop: trailingStop * variationFactor,
+        marketType,
+        leverage: marketType === 'futures' ? leverage : undefined,
+        marginType: marketType === 'futures' ? marginType : undefined,
+        rationale: `Additional ${tradeDirection} ${marketType} trade for ${symbol} with ${(confidence * variationFactor).toFixed(2)} confidence.`
+      });
+    }
+
+    return trades;
+  }
+
+  /**
+   * Simple string hash function to generate deterministic values from strategy IDs
+   */
+  private hashString(str: string): number {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    return Math.abs(hash);
+  }
+
   /**
    * Generates mock price history for a given asset
    * @param asset Asset symbol
@@ -325,8 +460,7 @@ Provide a trade recommendation in JSON format with the following structure:
       const marketData = await this.getMarketData(assets);
 
       // Detect market type from description
-      const strategyService = (await import('./strategy-service')).strategyService;
-      const marketType = strategyService.detectMarketType(description);
+      const marketType = detectMarketType(description);
 
       logService.log('info', `Detected market type: ${marketType} for strategy generation`, {
         description: description.substring(0, 50) + '...',
@@ -465,8 +599,7 @@ Please provide a complete strategy in JSON format with the following structure:
     const template = templates[riskLevel] || templates['Medium'];
 
     // Detect market type from description
-    const strategyService = (await import('./strategy-service')).strategyService;
-    const marketType = strategyService.detectMarketType(description);
+    const marketType = detectMarketType(description);
 
     logService.log('info', `Detected market type: ${marketType} for rule-based strategy`, {
       description: description.substring(0, 50) + '...',
@@ -655,21 +788,51 @@ Please provide a complete strategy in JSON format with the following structure:
    * Normalizes strategy configuration
    */
   private normalizeStrategyConfig(config: any, riskLevel: string): any {
+    // Detect or normalize market type
+    let marketType: MarketType;
+    if (config.marketType) {
+      marketType = normalizeMarketType(config.marketType);
+    } else if (config.market_type) {
+      marketType = normalizeMarketType(config.market_type);
+    } else {
+      // Default to spot if no market type is specified
+      marketType = 'spot';
+    }
+
+    // Create risk management with market-specific parameters
+    const riskManagement: any = {
+      stopLoss: config.riskManagement?.stopLoss || '5%',
+      takeProfit: config.riskManagement?.takeProfit || '10%',
+      positionSize: config.riskManagement?.positionSize || '10%',
+      maxOpenPositions: config.riskManagement?.maxOpenPositions || 5
+    };
+
+    // Add market-specific parameters if they don't exist
+    if (marketType === 'futures' && !config.riskManagement?.leverage) {
+      riskManagement.leverage = riskLevel === 'Low' ? '2x' :
+                              riskLevel === 'Medium' ? '5x' : '10x';
+    } else if (marketType === 'futures' && config.riskManagement?.leverage) {
+      riskManagement.leverage = config.riskManagement.leverage;
+    }
+
+    if (marketType === 'margin' && !config.riskManagement?.borrowAmount) {
+      riskManagement.borrowAmount = riskLevel === 'Low' ? '20%' :
+                                  riskLevel === 'Medium' ? '50%' : '80%';
+    } else if (marketType === 'margin' && config.riskManagement?.borrowAmount) {
+      riskManagement.borrowAmount = config.riskManagement.borrowAmount;
+    }
+
     // Ensure all required fields are present
     return {
-      name: config.name || `${riskLevel} Risk Strategy`,
-      description: config.description || `A ${riskLevel.toLowerCase()} risk trading strategy.`,
+      name: config.name || `${riskLevel} Risk ${marketType.charAt(0).toUpperCase() + marketType.slice(1)} Strategy`,
+      description: config.description || `A ${riskLevel.toLowerCase()} risk ${marketType} trading strategy.`,
       riskLevel: config.riskLevel || riskLevel,
+      marketType: marketType,
       assets: config.assets || ['BTC/USDT'],
       timeframe: config.timeframe || '1h',
       entryConditions: config.entryConditions || [],
       exitConditions: config.exitConditions || [],
-      riskManagement: {
-        stopLoss: config.riskManagement?.stopLoss || '5%',
-        takeProfit: config.riskManagement?.takeProfit || '10%',
-        positionSize: config.riskManagement?.positionSize || '10%',
-        maxOpenPositions: config.riskManagement?.maxOpenPositions || 5
-      }
+      riskManagement: riskManagement
     };
   }
 

@@ -8,7 +8,8 @@ import { strategyService } from './strategy-service';
 import { strategySync } from './strategy-sync';
 import { eventBus } from './event-bus';
 import { strategyMetricsCalculator } from './strategy-metrics-calculator';
-import type { RiskLevel, Strategy, StrategyTemplate } from './types';
+import { detectMarketType, normalizeMarketType } from './market-type-detection';
+import type { RiskLevel, Strategy, StrategyTemplate, MarketType } from './types';
 
 // Using StrategyTemplate from types.ts
 
@@ -205,6 +206,23 @@ export class TemplateGenerator {
     const { data: { session } } = await supabase.auth.getSession();
     const userId = session?.user?.id;
 
+    // Determine market type based on template name and risk level
+    let marketType: MarketType = 'spot';
+
+    // Higher risk levels use more advanced market types
+    if (riskIndex >= 7) { // Ultra High, Extreme, Maximum
+      marketType = 'futures';
+    } else if (riskIndex >= 3) { // Medium, Medium High, High, Very High
+      marketType = 'margin';
+    }
+
+    // Certain strategy types suggest specific market types
+    const templateName = TEMPLATE_NAMES[nameIndex].toLowerCase();
+    if (templateName.includes('volatility') || templateName.includes('momentum') || templateName.includes('breakout')) {
+      // These strategies often work better with leverage
+      marketType = riskIndex >= 5 ? 'futures' : 'margin';
+    }
+
     // Create a minimal template with only essential fields
     const template: any = {
       id: uuidv4(),
@@ -214,7 +232,8 @@ export class TemplateGenerator {
       type: 'system_template',
       user_id: userId,
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
+      updated_at: new Date().toISOString(),
+      marketType: marketType
     };
 
     return template;
@@ -336,6 +355,17 @@ export class TemplateGenerator {
       // Get the risk level from template
       const riskLevel = template.riskLevel || template.risk_level || 'Medium';
 
+      // Determine market type from template or detect from description
+      let marketType: MarketType;
+      if (template.marketType) {
+        marketType = normalizeMarketType(template.marketType);
+      } else if (template.market_type) {
+        marketType = normalizeMarketType(template.market_type);
+      } else {
+        // Detect from description
+        marketType = detectMarketType(template.description);
+      }
+
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
@@ -345,6 +375,7 @@ export class TemplateGenerator {
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
         selected_pairs: ['BTC/USDT'],
+        marketType: marketType,
         strategy_config: {
           indicatorType: 'momentum',
           entryConditions: {},
@@ -390,6 +421,17 @@ export class TemplateGenerator {
       // Get the risk level from template
       const riskLevel = template.riskLevel || template.risk_level || 'Medium';
 
+      // Determine market type from template or detect from description
+      let marketType: MarketType;
+      if (template.marketType) {
+        marketType = normalizeMarketType(template.marketType);
+      } else if (template.market_type) {
+        marketType = normalizeMarketType(template.market_type);
+      } else {
+        // Detect from description
+        marketType = detectMarketType(template.description);
+      }
+
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
@@ -399,6 +441,7 @@ export class TemplateGenerator {
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
         selected_pairs: ['BTC/USDT'],
+        marketType: marketType,
         strategy_config: {
           indicatorType: 'momentum',
           entryConditions: {},
