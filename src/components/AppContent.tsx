@@ -13,6 +13,7 @@ import { TradeMonitor } from './TradeMonitor';
 import { Backtester } from './Backtester';
 import { Analytics } from './Analytics';
 import { RiskManagerPage } from './RiskManagerPage';
+import PerformancePage from '../pages/PerformancePage';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobileDetect } from '../hooks/useMobileDetect';
 import { TradeDebugMonitor } from './TradeDebugMonitor';
@@ -130,6 +131,13 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
               <AuthGuard>
                 <PageTransition>
                   <RiskManagerPage />
+                </PageTransition>
+              </AuthGuard>
+            } />
+            <Route path="/performance" element={
+              <AuthGuard>
+                <PageTransition>
+                  <PerformancePage />
                 </PageTransition>
               </AuthGuard>
             } />

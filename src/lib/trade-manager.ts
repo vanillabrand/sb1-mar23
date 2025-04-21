@@ -7,6 +7,8 @@ import { eventBus } from './event-bus';
 import { ccxtService } from './ccxt-service';
 import { demoService } from './demo-service';
 import { tradeService } from './trade-service';
+import { enhancedPositionSizing } from './enhanced-position-sizing';
+import { tradeBatchingService } from './trade-batching-service';
 
 class TradeManager extends EventEmitter {
   private readonly EXECUTION_TIMEOUT = 30000;
@@ -18,11 +20,29 @@ class TradeManager extends EventEmitter {
   private activeOrders = new Map<string, TradeStatus>();
   private orderUpdateInterval: NodeJS.Timeout | null = null;
   private circuitBreaker = {
-    failures: 0,
+    // Track different types of failures
+    failures: {
+      network: 0,
+      exchange: 0,
+      validation: 0,
+      unknown: 0
+    },
+    totalFailures: 0,
     lastFailure: 0,
-    threshold: 5,
+    // Different thresholds for different error types
+    thresholds: {
+      network: 3,     // Network errors are common but transient
+      exchange: 5,     // Exchange API errors might require more patience
+      validation: 2,   // Validation errors are likely to persist
+      unknown: 3       // Unknown errors - be cautious
+    },
     resetTimeout: 300000, // 5 minutes
-    isOpen: false
+    halfOpenTimeout: 60000, // 1 minute in half-open state
+    isOpen: false,
+    isHalfOpen: false,
+    lastStateChange: 0,
+    consecutiveSuccesses: 0,
+    requiredSuccesses: 3  // Number of consecutive successes to close circuit
   };
 
   constructor() {
@@ -191,14 +211,39 @@ class TradeManager extends EventEmitter {
         // Get the budget to calculate a reasonable amount
         const budget = tradeService.getBudget(strategyId);
         if (budget && budget.available > 0) {
-          // Use at most 20% of available budget for a single trade
-          const maxBudgetToUse = Math.min(budget.available, budget.available * 0.2);
-          tradeAmount = maxBudgetToUse / tradePrice;
-          // Round to 6 decimal places for crypto
-          tradeAmount = Math.round(tradeAmount * 1000000) / 1000000;
-          options.amount = tradeAmount;
+          try {
+            // Use enhanced position sizing service to calculate optimal position size
+            const positionSize = await this.calculateOptimalPositionSize({
+              strategyId,
+              symbol: options.symbol,
+              currentPrice: tradePrice,
+              availableBudget: budget.available,
+              side: options.side,
+              confidence: options.confidence || 0.7,
+              stopLossPrice: options.stop_loss,
+              riskLevel: options.risk_level || 'Medium'
+            });
 
-          logService.log('info', `Calculated trade amount ${tradeAmount} based on budget ${budget.available} for ${options.symbol}`, null, 'TradeManager');
+            tradeAmount = positionSize;
+            options.amount = tradeAmount;
+
+            logService.log('info', `Calculated optimal position size ${tradeAmount} for ${options.symbol} using enhanced sizing algorithm`, {
+              strategyId,
+              availableBudget: budget.available,
+              currentPrice: tradePrice
+            }, 'TradeManager');
+          } catch (positionSizeError) {
+            logService.log('warn', `Failed to calculate optimal position size, falling back to basic calculation`, positionSizeError, 'TradeManager');
+
+            // Fallback to basic calculation
+            const maxBudgetToUse = Math.min(budget.available, budget.available * 0.2);
+            tradeAmount = maxBudgetToUse / tradePrice;
+            // Round to 6 decimal places for crypto
+            tradeAmount = Math.round(tradeAmount * 1000000) / 1000000;
+            options.amount = tradeAmount;
+
+            logService.log('info', `Calculated trade amount ${tradeAmount} based on budget ${budget.available} for ${options.symbol}`, null, 'TradeManager');
+          }
         } else {
           // Use a small default amount
           tradeAmount = 0.01;
@@ -358,7 +403,7 @@ class TradeManager extends EventEmitter {
 
       return this.createTradeResult(order, 'executed');
     } catch (error) {
-      await this.handleTradeError(tradeId, error);
+      await this.handleTradeError(tradeId, error, options);
       throw error;
     }
   }
@@ -378,12 +423,56 @@ class TradeManager extends EventEmitter {
     }
   }
 
+  /**
+   * Execute a trade with batching support
+   * @param options Trade options
+   * @returns Promise that resolves to the trade result
+   */
   private async executeTradeWithRetry(options: TradeOptions): Promise<any> {
     // Check if circuit breaker is open
     if (this.isCircuitBreakerOpen()) {
+      // Record the operation for later retry
+      await this.recordFailedOperation(
+        new Error('Circuit breaker is open. Trading temporarily disabled.'),
+        options
+      );
       throw new Error('Circuit breaker is open due to multiple failures. Trading temporarily disabled.');
     }
 
+    // Check if this trade is eligible for batching
+    const isBatchable = this.isTradeBatchable(options);
+
+    // If the trade is batchable, use the batching service
+    if (isBatchable) {
+      try {
+        logService.log('info', `Using trade batching for ${options.symbol}`, {
+          symbol: options.symbol,
+          side: options.side,
+          amount: options.amount
+        }, 'TradeManager');
+
+        // Add the trade to the batching service
+        const batchedTradeId = await tradeBatchingService.addTrade(options);
+
+        // Wait for the trade to be processed
+        const result = await tradeBatchingService.waitForTradeResult(batchedTradeId, this.EXECUTION_TIMEOUT);
+
+        // Record success for circuit breaker
+        this.recordSuccess();
+
+        // Log success
+        logService.log('info', `Batched trade execution successful for ${options.symbol}`,
+          { tradeId: batchedTradeId, orderId: result.id }, 'TradeManager');
+
+        return result;
+      } catch (batchError) {
+        logService.log('warn', `Batched trade execution failed for ${options.symbol}, falling back to direct execution`,
+          batchError, 'TradeManager');
+        // Fall back to direct execution
+      }
+    }
+
+    // Direct execution without batching
     let lastError: Error | null = null;
     let backoffTime = this.INITIAL_BACKOFF;
 
@@ -399,8 +488,8 @@ class TradeManager extends EventEmitter {
           this.EXECUTION_TIMEOUT
         );
 
-        // Reset circuit breaker on success
-        this.resetCircuitBreaker();
+        // Record success for circuit breaker
+        this.recordSuccess();
 
         // Log success
         logService.log('info', `Trade execution successful for ${options.symbol} on attempt ${attempt}`,
@@ -410,8 +499,8 @@ class TradeManager extends EventEmitter {
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
 
-        // Record failure for circuit breaker
-        this.recordFailure();
+        // Record failure for circuit breaker with error details
+        this.recordFailure(error);
 
         // Log the error with detailed information
         logService.log('error', `Trade execution failed on attempt ${attempt}/${this.MAX_RETRIES}`,
@@ -420,14 +509,17 @@ class TradeManager extends EventEmitter {
             symbol: options.symbol,
             attempt,
             isRetryable: this.isRetryableError(error),
+            errorType: this.categorizeError(error),
             circuitBreakerStatus: {
               failures: this.circuitBreaker.failures,
-              isOpen: this.circuitBreaker.isOpen
+              totalFailures: this.circuitBreaker.totalFailures,
+              isOpen: this.circuitBreaker.isOpen,
+              isHalfOpen: this.circuitBreaker.isHalfOpen
             }
           },
           'TradeManager');
 
-        // Check if we should retry
+        // Check if we should retry immediately
         if (this.isRetryableError(error) && attempt < this.MAX_RETRIES && !this.isCircuitBreakerOpen()) {
           // Calculate backoff time with jitter
           const jitter = 1 + (Math.random() * this.BACKOFF_JITTER * 2 - this.BACKOFF_JITTER);
@@ -447,6 +539,8 @@ class TradeManager extends EventEmitter {
 
         // If circuit breaker opened during retries, throw specific error
         if (this.isCircuitBreakerOpen()) {
+          // Record the operation for later retry
+          await this.recordFailedOperation(lastError, options);
           throw new Error('Circuit breaker opened during retry attempts. Trading temporarily disabled.');
         }
 
@@ -454,7 +548,64 @@ class TradeManager extends EventEmitter {
       }
     }
 
+    // If we've exhausted all retries, record the operation for later retry
+    await this.recordFailedOperation(lastError, options);
+
     throw new Error(`Trade execution failed after ${this.MAX_RETRIES} attempts: ${lastError?.message}`);
+  }
+
+  /**
+   * Determine if a trade is eligible for batching
+   * @param options Trade options
+   * @returns True if the trade is batchable, false otherwise
+   */
+  private isTradeBatchable(options: TradeOptions): boolean {
+    try {
+      // Only batch market orders
+      if (options.type && options.type !== 'market') {
+        return false;
+      }
+
+      // Don't batch orders with stop loss, take profit, or trailing stop
+      if (options.stop_loss || options.take_profit || options.trailing_stop) {
+        return false;
+      }
+
+      // Don't batch orders with specific entry conditions
+      if (options.entry_conditions && options.entry_conditions.length > 0) {
+        return false;
+      }
+
+      // Don't batch orders with specific exit conditions
+      if (options.exit_conditions && options.exit_conditions.length > 0) {
+        return false;
+      }
+
+      // Don't batch orders with specific metadata
+      if (options.metadata) {
+        return false;
+      }
+
+      // Don't batch orders in demo mode
+      if (options.demo || options.testnet) {
+        return false;
+      }
+
+      // Only batch orders with a reasonable amount
+      const MIN_BATCHABLE_AMOUNT_USD = 10; // $10 minimum
+      const MAX_BATCHABLE_AMOUNT_USD = 1000; // $1000 maximum
+
+      const orderValue = options.amount * (options.entry_price || options.price || 0);
+      if (orderValue < MIN_BATCHABLE_AMOUNT_USD || orderValue > MAX_BATCHABLE_AMOUNT_USD) {
+        return false;
+      }
+
+      // All checks passed, this trade is batchable
+      return true;
+    } catch (error) {
+      logService.log('warn', 'Error determining if trade is batchable', error, 'TradeManager');
+      return false; // Default to not batchable on error
+    }
   }
 
   private startOrderTracking(orderId: string, orderDetails: any = {}): void {
@@ -626,14 +777,40 @@ class TradeManager extends EventEmitter {
             currentPrice
           );
         } else {
-          // Real exchange
-          await exchangeService.createOrder({
+          // Create exit order options
+          const exitOrderOptions = {
             symbol: status.symbol,
             side: exitSide,
             type: 'market',
             amount: status.amount,
-            entry_price: currentPrice
-          });
+            entry_price: currentPrice,
+            strategy_id: status.strategyId || status.strategy_id,
+            trade_id: orderId
+          };
+
+          // Check if this exit order is eligible for batching
+          const isBatchable = this.isTradeBatchable(exitOrderOptions);
+
+          if (isBatchable) {
+            // Use batching service for exit order
+            logService.log('info', `Using trade batching for exit order ${orderId}`, {
+              symbol: status.symbol,
+              side: exitSide,
+              amount: status.amount
+            }, 'TradeManager');
+
+            // Add the exit order to the batching service
+            const batchedTradeId = await tradeBatchingService.addTrade(exitOrderOptions);
+
+            // Wait for the exit order to be processed
+            await tradeBatchingService.waitForTradeResult(batchedTradeId, this.EXECUTION_TIMEOUT);
+
+            logService.log('info', `Batched exit order execution successful for ${orderId}`,
+              { tradeId: batchedTradeId, symbol: status.symbol }, 'TradeManager');
+          } else {
+            // Real exchange direct execution
+            await exchangeService.createOrder(exitOrderOptions);
+          }
         }
 
         // Update order status
@@ -865,18 +1042,24 @@ class TradeManager extends EventEmitter {
    * @returns True if the circuit breaker is open, false otherwise
    */
   private isCircuitBreakerOpen(): boolean {
-    // If the circuit breaker is open, check if it's time to reset
-    if (this.circuitBreaker.isOpen) {
-      const now = Date.now();
-      const timeSinceLastFailure = now - this.circuitBreaker.lastFailure;
+    const now = Date.now();
 
-      // If enough time has passed, reset the circuit breaker
-      if (timeSinceLastFailure >= this.circuitBreaker.resetTimeout) {
-        this.resetCircuitBreaker();
-        return false;
+    // If the circuit breaker is open, check if it's time to transition to half-open
+    if (this.circuitBreaker.isOpen) {
+      const timeSinceLastStateChange = now - this.circuitBreaker.lastStateChange;
+
+      // If enough time has passed, transition to half-open state
+      if (timeSinceLastStateChange >= this.circuitBreaker.resetTimeout) {
+        this.transitionToHalfOpen();
       }
 
       return true;
+    }
+
+    // If the circuit breaker is half-open, allow limited traffic through
+    if (this.circuitBreaker.isHalfOpen) {
+      // In half-open state, we'll allow one request at a time to test the system
+      return false;
     }
 
     return false;
@@ -884,63 +1067,254 @@ class TradeManager extends EventEmitter {
 
   /**
    * Records a failure for the circuit breaker
+   * @param error The error that occurred
    */
-  private recordFailure(): void {
+  private recordFailure(error?: any): void {
     const now = Date.now();
     const timeSinceLastFailure = now - this.circuitBreaker.lastFailure;
+    const errorType = this.categorizeError(error);
 
-    // If it's been a while since the last failure, reset the counter
+    // If it's been a while since the last failure, reset the counters
     if (timeSinceLastFailure >= this.circuitBreaker.resetTimeout) {
-      this.circuitBreaker.failures = 1;
-    } else {
-      this.circuitBreaker.failures++;
+      this.circuitBreaker.failures.network = 0;
+      this.circuitBreaker.failures.exchange = 0;
+      this.circuitBreaker.failures.validation = 0;
+      this.circuitBreaker.failures.unknown = 0;
+      this.circuitBreaker.totalFailures = 0;
     }
 
+    // Increment the appropriate failure counter
+    this.circuitBreaker.failures[errorType]++;
+    this.circuitBreaker.totalFailures++;
     this.circuitBreaker.lastFailure = now;
+    this.circuitBreaker.consecutiveSuccesses = 0; // Reset consecutive successes
 
-    // If we've reached the threshold, open the circuit breaker
-    if (this.circuitBreaker.failures >= this.circuitBreaker.threshold) {
-      this.circuitBreaker.isOpen = true;
-
-      // Log that the circuit breaker has opened
-      logService.log('warn', 'Circuit breaker opened due to multiple failures',
-        {
-          failures: this.circuitBreaker.failures,
-          threshold: this.circuitBreaker.threshold,
-          resetTimeout: this.circuitBreaker.resetTimeout
-        },
-        'TradeManager');
-
-      // Emit circuit breaker event
-      this.emit('circuitBreakerOpened', {
-        failures: this.circuitBreaker.failures,
-        threshold: this.circuitBreaker.threshold,
-        resetTimeout: this.circuitBreaker.resetTimeout
-      });
-
-      eventBus.emit('trade:circuitBreakerOpened', {
-        failures: this.circuitBreaker.failures,
-        threshold: this.circuitBreaker.threshold,
-        resetTimeout: this.circuitBreaker.resetTimeout
-      });
+    // If we're in half-open state, any failure immediately opens the circuit
+    if (this.circuitBreaker.isHalfOpen) {
+      this.openCircuitBreaker();
+      return;
     }
+
+    // Check if we've reached the threshold for this error type
+    if (this.circuitBreaker.failures[errorType] >= this.circuitBreaker.thresholds[errorType]) {
+      this.openCircuitBreaker();
+    }
+
+    // Also check total failures as a fallback
+    const avgThreshold = Object.values(this.circuitBreaker.thresholds).reduce((sum, val) => sum + val, 0) / 4;
+    if (this.circuitBreaker.totalFailures >= avgThreshold * 2) {
+      this.openCircuitBreaker();
+    }
+
+    // Record the failed operation for later retry
+    this.recordFailedOperation(error);
+  }
+
+  /**
+   * Records a successful operation for the circuit breaker
+   */
+  private recordSuccess(): void {
+    // If we're in half-open state, track consecutive successes
+    if (this.circuitBreaker.isHalfOpen) {
+      this.circuitBreaker.consecutiveSuccesses++;
+
+      // If we've had enough consecutive successes, close the circuit
+      if (this.circuitBreaker.consecutiveSuccesses >= this.circuitBreaker.requiredSuccesses) {
+        this.closeCircuitBreaker();
+      }
+    }
+  }
+
+  /**
+   * Opens the circuit breaker
+   */
+  private openCircuitBreaker(): void {
+    const now = Date.now();
+    this.circuitBreaker.isOpen = true;
+    this.circuitBreaker.isHalfOpen = false;
+    this.circuitBreaker.lastStateChange = now;
+
+    // Log that the circuit breaker has opened
+    logService.log('warn', 'Circuit breaker opened due to multiple failures',
+      {
+        failures: this.circuitBreaker.failures,
+        thresholds: this.circuitBreaker.thresholds,
+        totalFailures: this.circuitBreaker.totalFailures,
+        resetTimeout: this.circuitBreaker.resetTimeout
+      },
+      'TradeManager');
+
+    // Emit circuit breaker event
+    this.emit('circuitBreakerOpened', {
+      failures: this.circuitBreaker.failures,
+      thresholds: this.circuitBreaker.thresholds,
+      totalFailures: this.circuitBreaker.totalFailures,
+      resetTimeout: this.circuitBreaker.resetTimeout
+    });
+
+    eventBus.emit('trade:circuitBreakerOpened', {
+      failures: this.circuitBreaker.failures,
+      thresholds: this.circuitBreaker.thresholds,
+      totalFailures: this.circuitBreaker.totalFailures,
+      resetTimeout: this.circuitBreaker.resetTimeout
+    });
+  }
+
+  /**
+   * Transitions the circuit breaker to half-open state
+   */
+  private transitionToHalfOpen(): void {
+    const now = Date.now();
+    this.circuitBreaker.isOpen = false;
+    this.circuitBreaker.isHalfOpen = true;
+    this.circuitBreaker.lastStateChange = now;
+    this.circuitBreaker.consecutiveSuccesses = 0;
+
+    logService.log('info', 'Circuit breaker transitioning to half-open state', null, 'TradeManager');
+
+    // Emit circuit breaker event
+    this.emit('circuitBreakerHalfOpen', {});
+    eventBus.emit('trade:circuitBreakerHalfOpen', {});
+  }
+
+  /**
+   * Closes the circuit breaker
+   */
+  private closeCircuitBreaker(): void {
+    const now = Date.now();
+    this.circuitBreaker.isOpen = false;
+    this.circuitBreaker.isHalfOpen = false;
+    this.circuitBreaker.lastStateChange = now;
+    this.circuitBreaker.failures.network = 0;
+    this.circuitBreaker.failures.exchange = 0;
+    this.circuitBreaker.failures.validation = 0;
+    this.circuitBreaker.failures.unknown = 0;
+    this.circuitBreaker.totalFailures = 0;
+    this.circuitBreaker.consecutiveSuccesses = 0;
+
+    logService.log('info', 'Circuit breaker closed after successful operations', null, 'TradeManager');
+
+    // Emit circuit breaker event
+    this.emit('circuitBreakerClosed', {});
+    eventBus.emit('trade:circuitBreakerClosed', {});
   }
 
   /**
    * Resets the circuit breaker
    */
   private resetCircuitBreaker(): void {
-    // Only log if the circuit breaker was previously open
-    if (this.circuitBreaker.isOpen) {
-      logService.log('info', 'Circuit breaker reset', null, 'TradeManager');
+    // Only log if the circuit breaker was previously open or half-open
+    if (this.circuitBreaker.isOpen || this.circuitBreaker.isHalfOpen) {
+      logService.log('info', 'Circuit breaker manually reset', null, 'TradeManager');
 
       // Emit circuit breaker event
       this.emit('circuitBreakerReset', {});
       eventBus.emit('trade:circuitBreakerReset', {});
     }
 
-    this.circuitBreaker.failures = 0;
+    const now = Date.now();
     this.circuitBreaker.isOpen = false;
+    this.circuitBreaker.isHalfOpen = false;
+    this.circuitBreaker.lastStateChange = now;
+    this.circuitBreaker.failures.network = 0;
+    this.circuitBreaker.failures.exchange = 0;
+    this.circuitBreaker.failures.validation = 0;
+    this.circuitBreaker.failures.unknown = 0;
+    this.circuitBreaker.totalFailures = 0;
+    this.circuitBreaker.consecutiveSuccesses = 0;
+  }
+
+  /**
+   * Categorizes an error into one of the circuit breaker's error types
+   * @param error The error to categorize
+   * @returns The error type
+   */
+  private categorizeError(error: any): 'network' | 'exchange' | 'validation' | 'unknown' {
+    if (!error) return 'unknown';
+
+    const errorMessage = error.message?.toLowerCase() || '';
+
+    // Network errors
+    if (
+      errorMessage.includes('network') ||
+      errorMessage.includes('timeout') ||
+      errorMessage.includes('connection') ||
+      errorMessage.includes('econnrefused') ||
+      errorMessage.includes('econnreset') ||
+      errorMessage.includes('etimedout')
+    ) {
+      return 'network';
+    }
+
+    // Exchange API errors
+    if (
+      errorMessage.includes('rate limit') ||
+      errorMessage.includes('ratelimit') ||
+      errorMessage.includes('too many requests') ||
+      errorMessage.includes('server error') ||
+      errorMessage.includes('service unavailable') ||
+      error?.code === 429 ||
+      error?.code === 500 ||
+      error?.code === 502 ||
+      error?.code === 503 ||
+      error?.code === 504
+    ) {
+      return 'exchange';
+    }
+
+    // Validation errors
+    if (
+      errorMessage.includes('invalid') ||
+      errorMessage.includes('parameter') ||
+      errorMessage.includes('argument') ||
+      errorMessage.includes('insufficient') ||
+      errorMessage.includes('not enough') ||
+      errorMessage.includes('balance') ||
+      errorMessage.includes('validation')
+    ) {
+      return 'validation';
+    }
+
+    // Default to unknown
+    return 'unknown';
+  }
+
+  /**
+   * Records a failed operation for later retry
+   * @param error The error that occurred
+   * @param options The trade options
+   */
+  private async recordFailedOperation(error: any, options?: TradeOptions): Promise<void> {
+    try {
+      // Import retry service dynamically to avoid circular dependencies
+      const { retryService, OperationType } = await import('./retry-service');
+
+      if (!options) return;
+
+      // Determine operation type
+      let operationType: OperationType = 'trade_execution';
+
+      // Create operation data
+      const operationData = { ...options };
+
+      // Record the failed operation
+      await retryService.recordFailedOperation({
+        operation_type: operationType,
+        operation_data: operationData,
+        error_message: error?.message || 'Unknown error',
+        error_details: error,
+        strategy_id: options.strategy_id || options.strategyId,
+        trade_id: options.trade_id
+      });
+
+      logService.log('info', 'Recorded failed operation for later retry', {
+        operationType,
+        strategyId: options.strategy_id || options.strategyId,
+        symbol: options.symbol
+      }, 'TradeManager');
+    } catch (recordError) {
+      logService.log('error', 'Failed to record failed operation', recordError, 'TradeManager');
+    }
   }
 
   /**
@@ -993,10 +1367,158 @@ class TradeManager extends EventEmitter {
     }
   }
 
-  private async handleTradeError(tradeId: string, error: any): Promise<void> {
+  private async handleTradeError(tradeId: string, error: any, options?: TradeOptions): Promise<void> {
     logService.log('error', `Trade execution failed for ${tradeId}`,
       error, 'TradeManager');
+
+    // Emit trade error event
     this.emit('tradeError', { tradeId, error });
+    eventBus.emit('trade:error', { tradeId, error });
+
+    // Record the failed operation for later retry if we have options
+    if (options) {
+      try {
+        await this.recordFailedOperation(error, {
+          ...options,
+          trade_id: tradeId
+        });
+      } catch (recordError) {
+        logService.log('error', `Failed to record failed operation for trade ${tradeId}`, recordError, 'TradeManager');
+      }
+    }
+  }
+
+  /**
+   * Calculate the optimal position size using the enhanced position sizing service
+   * @param options Position sizing options
+   * @returns Promise that resolves to the optimal position size
+   */
+  private async calculateOptimalPositionSize(options: {
+    strategyId: string;
+    symbol: string;
+    currentPrice: number;
+    availableBudget: number;
+    side: string;
+    confidence?: number;
+    stopLossPrice?: number;
+    riskLevel?: string;
+  }): Promise<number> {
+    try {
+      // Get volatility data if available
+      let volatility: number | undefined;
+      try {
+        // This could be fetched from a market data service or calculated
+        // For now, we'll use a placeholder implementation
+        volatility = await this.estimateVolatility(options.symbol);
+      } catch (volatilityError) {
+        logService.log('debug', `Could not estimate volatility for ${options.symbol}`, volatilityError, 'TradeManager');
+        // Continue without volatility data
+      }
+
+      // Convert options to the format expected by the enhanced position sizing service
+      const positionSizingOptions = {
+        strategyId: options.strategyId,
+        symbol: options.symbol,
+        availableBudget: options.availableBudget,
+        currentPrice: options.currentPrice,
+        riskLevel: options.riskLevel as any || 'Medium',
+        marketType: 'spot', // Default to spot market
+        confidence: options.confidence || 0.7,
+        volatility,
+        stopLossPrice: options.stopLossPrice
+      };
+
+      // Use the enhanced position sizing service to calculate the optimal position size
+      const positionSize = await enhancedPositionSizing.calculateOptimalPositionSize(positionSizingOptions);
+
+      // Log the calculation details
+      logService.log('debug', 'Calculated optimal position size', {
+        strategyId: options.strategyId,
+        symbol: options.symbol,
+        currentPrice: options.currentPrice,
+        availableBudget: options.availableBudget,
+        positionSize,
+        positionValue: positionSize * options.currentPrice
+      }, 'TradeManager');
+
+      return positionSize;
+    } catch (error) {
+      logService.log('error', 'Failed to calculate optimal position size', error, 'TradeManager');
+      // Fall back to a simple calculation
+      const riskMultiplier = 0.1; // 10% of available budget
+      return (options.availableBudget * riskMultiplier) / options.currentPrice;
+    }
+  }
+
+  /**
+   * Estimate volatility for a symbol
+   * @param symbol Trading pair symbol
+   * @returns Promise that resolves to the estimated volatility (as a percentage)
+   */
+  private async estimateVolatility(symbol: string): Promise<number> {
+    try {
+      // In a real implementation, this would fetch historical price data
+      // and calculate volatility using standard deviation of returns
+      // For now, we'll use a simple placeholder implementation
+
+      // Get some recent price data
+      const prices = await this.getRecentPrices(symbol);
+
+      if (prices.length < 2) {
+        // Not enough data to calculate volatility
+        return 20; // Default to 20% volatility
+      }
+
+      // Calculate daily returns
+      const returns: number[] = [];
+      for (let i = 1; i < prices.length; i++) {
+        const dailyReturn = (prices[i] - prices[i - 1]) / prices[i - 1];
+        returns.push(dailyReturn);
+      }
+
+      // Calculate standard deviation of returns
+      const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+      const squaredDiffs = returns.map(value => Math.pow(value - mean, 2));
+      const variance = squaredDiffs.reduce((sum, value) => sum + value, 0) / squaredDiffs.length;
+      const stdDev = Math.sqrt(variance);
+
+      // Annualize the volatility (assuming daily returns)
+      const annualizedVolatility = stdDev * Math.sqrt(365) * 100; // Convert to percentage
+
+      return annualizedVolatility;
+    } catch (error) {
+      logService.log('error', 'Failed to estimate volatility', error, 'TradeManager');
+      return 20; // Default to 20% volatility
+    }
+  }
+
+  /**
+   * Get recent prices for a symbol
+   * @param symbol Trading pair symbol
+   * @returns Promise that resolves to an array of prices
+   */
+  private async getRecentPrices(symbol: string): Promise<number[]> {
+    try {
+      // In a real implementation, this would fetch historical price data
+      // For now, we'll use a simple placeholder implementation
+      const currentPrice = await exchangeService.fetchMarketPrice(symbol);
+
+      // Generate some fake historical prices based on the current price
+      const prices: number[] = [];
+      const numDays = 30;
+      const basePrice = currentPrice.price;
+
+      for (let i = 0; i < numDays; i++) {
+        // Add some random variation to simulate price changes
+        const randomFactor = 0.98 + (Math.random() * 0.04); // +/- 2%
+        prices.push(basePrice * randomFactor);
+      }
+
+      return prices;
+    } catch (error) {
+      logService.log('error', 'Failed to get recent prices', error, 'TradeManager');
+      return [];
+    }
   }
 
   private createTradeResult(order: any, status: string): TradeResult {

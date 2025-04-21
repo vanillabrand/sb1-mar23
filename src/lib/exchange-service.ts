@@ -1,9 +1,12 @@
 import { EventEmitter } from './event-emitter';
 import CryptoJS from 'crypto-js';
-import { supabase } from './supabase';
+import { supabase } from './enhanced-supabase';
 import { logService } from './log-service';
 import { networkErrorHandler } from './network-error-handler';
 import { userProfileService } from './user-profile-service';
+import { websocketManager } from './websocket-manager';
+import { cacheService } from './cache-service';
+import { eventBus } from './event-bus';
 import type {
   Exchange,
   ExchangeConfig,
@@ -26,6 +29,13 @@ class ExchangeService extends EventEmitter {
   private demoMode = false;
   private activeOrders: Map<string, any> = new Map();
   private loggedOrderErrors: Set<string> = new Set();
+  private websocketConnections: Map<string, string> = new Map(); // Map of exchange ID to WebSocket connection ID
+  private marketDataSubscriptions: Map<string, Set<string>> = new Map(); // Map of connection ID to set of subscribed symbols
+  private readonly CACHE_NAMESPACE = 'exchange_data';
+  private readonly MARKET_DATA_CACHE_NAMESPACE = 'market_data';
+  private readonly TICKER_CACHE_TTL = 10 * 1000; // 10 seconds
+  private readonly ORDERBOOK_CACHE_TTL = 5 * 1000; // 5 seconds
+  private readonly TRADES_CACHE_TTL = 30 * 1000; // 30 seconds
 
   private constructor() {
     super();
@@ -33,6 +43,89 @@ class ExchangeService extends EventEmitter {
     if (!this.ENCRYPTION_KEY) {
       throw new Error('Missing encryption key in environment variables');
     }
+
+    // Initialize cache namespaces
+    this.initializeCache();
+
+    // Listen for WebSocket events
+    this.setupWebSocketEventListeners();
+  }
+
+  /**
+   * Initialize cache namespaces for exchange data
+   */
+  private initializeCache(): void {
+    // Initialize exchange data cache
+    cacheService.initializeCache({
+      namespace: this.CACHE_NAMESPACE,
+      ttl: 5 * 60 * 1000, // 5 minutes
+      maxSize: 100
+    });
+
+    // Initialize market data cache
+    cacheService.initializeCache({
+      namespace: this.MARKET_DATA_CACHE_NAMESPACE,
+      ttl: 30 * 1000, // 30 seconds
+      maxSize: 500
+    });
+
+    logService.log('info', 'Initialized exchange service caches', null, 'ExchangeService');
+  }
+
+  /**
+   * Set up event listeners for WebSocket events
+   */
+  private setupWebSocketEventListeners(): void {
+    // Listen for WebSocket connection events
+    websocketManager.on('connected', ({ connectionId }) => {
+      const exchangeId = this.getExchangeIdForConnection(connectionId);
+      if (exchangeId) {
+        logService.log('info', `WebSocket connected for exchange ${exchangeId}`, null, 'ExchangeService');
+        this.emit('websocket:connected', { exchangeId, connectionId });
+      }
+    });
+
+    websocketManager.on('disconnected', ({ connectionId }) => {
+      const exchangeId = this.getExchangeIdForConnection(connectionId);
+      if (exchangeId) {
+        logService.log('info', `WebSocket disconnected for exchange ${exchangeId}`, null, 'ExchangeService');
+        this.emit('websocket:disconnected', { exchangeId, connectionId });
+      }
+    });
+
+    websocketManager.on('error', ({ connectionId, error }) => {
+      const exchangeId = this.getExchangeIdForConnection(connectionId);
+      if (exchangeId) {
+        logService.log('error', `WebSocket error for exchange ${exchangeId}`, error, 'ExchangeService');
+        this.emit('websocket:error', { exchangeId, connectionId, error });
+      }
+    });
+
+    websocketManager.on('message', ({ connectionId, message }) => {
+      this.handleWebSocketMessage(connectionId, message);
+    });
+
+    websocketManager.on('resubscribe', ({ connectionId, subscriptions }) => {
+      const exchangeId = this.getExchangeIdForConnection(connectionId);
+      if (exchangeId) {
+        logService.log('info', `Resubscribing to ${subscriptions.length} channels for exchange ${exchangeId}`, null, 'ExchangeService');
+        this.resubscribeToMarketData(connectionId, exchangeId);
+      }
+    });
+  }
+
+  /**
+   * Get the exchange ID for a WebSocket connection ID
+   * @param connectionId WebSocket connection ID
+   * @returns Exchange ID or undefined if not found
+   */
+  private getExchangeIdForConnection(connectionId: string): string | undefined {
+    for (const [exchangeId, connId] of this.websocketConnections.entries()) {
+      if (connId === connectionId) {
+        return exchangeId;
+      }
+    }
+    return undefined;
   }
 
   static getInstance(): ExchangeService {
@@ -54,6 +147,10 @@ class ExchangeService extends EventEmitter {
         try {
           await this.connect(profileExchange);
           this.initialized = true;
+
+          // Initialize WebSocket connections
+          await this.initializeWebSockets();
+
           return;
         } catch (connectError) {
           logService.log('warn', 'Failed to connect to exchange from profile, falling back to local storage', connectError, 'ExchangeService');
@@ -67,6 +164,9 @@ class ExchangeService extends EventEmitter {
         const exchange = JSON.parse(savedExchange);
         try {
           await this.connect(exchange);
+
+          // Initialize WebSocket connections
+          await this.initializeWebSockets();
         } catch (localStorageError) {
           logService.log('error', 'Failed to connect to exchange from local storage', localStorageError, 'ExchangeService');
           // Don't throw here, just log the error and continue
@@ -174,6 +274,9 @@ class ExchangeService extends EventEmitter {
       await userProfileService.updateConnectionStatus('connected');
       await userProfileService.resetConnectionAttempts();
 
+      // Initialize WebSocket connection for this exchange
+      await this.initializeExchangeWebSocket(exchange.id);
+
       this.emit('exchange:connected', exchange);
 
     } catch (error) {
@@ -185,6 +288,266 @@ class ExchangeService extends EventEmitter {
 
       this.emit('exchange:error', error);
       throw new Error('Failed to connect to exchange');
+    }
+  }
+
+  /**
+   * Initialize WebSocket connections for all active exchanges
+   */
+  private async initializeWebSockets(): Promise<void> {
+    try {
+      // Close any existing WebSocket connections
+      this.closeAllWebSockets();
+
+      // If we have an active exchange, initialize its WebSocket
+      if (this.activeExchange) {
+        await this.initializeExchangeWebSocket(this.activeExchange.id);
+      }
+
+      logService.log('info', 'Initialized WebSocket connections', null, 'ExchangeService');
+    } catch (error) {
+      logService.log('error', 'Failed to initialize WebSocket connections', error, 'ExchangeService');
+    }
+  }
+
+  /**
+   * Initialize a WebSocket connection for a specific exchange
+   * @param exchangeId Exchange ID
+   */
+  private async initializeExchangeWebSocket(exchangeId: string): Promise<void> {
+    try {
+      // Import the WebSocket service dynamically to avoid circular dependencies
+      const { exchangeServiceWebSocket } = await import('./exchange-service-websocket');
+
+      // Close any existing WebSocket connection for this exchange
+      this.closeExchangeWebSocket(exchangeId);
+
+      // Get the exchange instance
+      const exchange = this.exchangeInstances.get(exchangeId);
+      if (!exchange) {
+        logService.log('warn', `Cannot initialize WebSocket for exchange ${exchangeId}: Exchange instance not found`, null, 'ExchangeService');
+        return;
+      }
+
+      // Get WebSocket URL for the exchange
+      let wsUrl = '';
+
+      // Different exchanges have different WebSocket URLs
+      switch (exchangeId) {
+        case 'binance':
+          wsUrl = 'wss://stream.binance.com:9443/ws';
+          break;
+        case 'bitmart':
+          wsUrl = 'wss://ws-manager-compress.bitmart.com/api?protocol=1.1';
+          break;
+        case 'kucoin':
+          // KuCoin requires a token from the REST API
+          try {
+            const response = await exchange.publicGetBulletPublic();
+            if (response && response.data) {
+              const token = response.data.token;
+              const endpoint = response.data.instanceServers[0].endpoint;
+              wsUrl = `${endpoint}?token=${token}&[connectId=${Date.now()}]`;
+            }
+          } catch (error) {
+            logService.log('error', `Failed to get WebSocket token for KuCoin`, error, 'ExchangeService');
+            return;
+          }
+          break;
+        default:
+          // Try to get WebSocket URL from CCXT
+          if (exchange.urls && exchange.urls.ws) {
+            wsUrl = exchange.urls.ws;
+          } else {
+            logService.log('warn', `No WebSocket URL found for exchange ${exchangeId}`, null, 'ExchangeService');
+            return;
+          }
+      }
+
+      if (!wsUrl) {
+        logService.log('warn', `Cannot initialize WebSocket for exchange ${exchangeId}: No WebSocket URL`, null, 'ExchangeService');
+        return;
+      }
+
+      // Create WebSocket connection
+      const connectionId = exchangeServiceWebSocket.createWebSocketConnection(exchangeId, {
+        url: wsUrl,
+        reconnectInterval: 5000,
+        maxReconnectAttempts: 10,
+        heartbeatInterval: 30000
+      });
+
+      // Store the connection ID
+      this.websocketConnections.set(exchangeId, connectionId);
+
+      logService.log('info', `Initialized WebSocket connection for exchange ${exchangeId}`, {
+        connectionId,
+        url: wsUrl
+      }, 'ExchangeService');
+
+      // Subscribe to market data for common pairs
+      await this.subscribeToCommonPairs(exchangeId, connectionId);
+    } catch (error) {
+      logService.log('error', `Failed to initialize WebSocket for exchange ${exchangeId}`, error, 'ExchangeService');
+    }
+  }
+
+  /**
+   * Subscribe to market data for common trading pairs
+   * @param exchangeId Exchange ID
+   * @param connectionId WebSocket connection ID
+   */
+  private async subscribeToCommonPairs(exchangeId: string, connectionId: string): Promise<void> {
+    try {
+      // Import the WebSocket service dynamically to avoid circular dependencies
+      const { exchangeServiceWebSocket } = await import('./exchange-service-websocket');
+
+      // Common trading pairs to subscribe to
+      const commonPairs = [
+        'BTC/USDT',
+        'ETH/USDT',
+        'SOL/USDT',
+        'BNB/USDT',
+        'XRP/USDT'
+      ];
+
+      // Initialize subscriptions set if it doesn't exist
+      if (!this.marketDataSubscriptions.has(connectionId)) {
+        this.marketDataSubscriptions.set(connectionId, new Set());
+      }
+
+      // Get the subscriptions set
+      const subscriptions = this.marketDataSubscriptions.get(connectionId)!;
+
+      // Subscribe to ticker data for each pair
+      for (const pair of commonPairs) {
+        try {
+          // Format the subscription message based on the exchange
+          let subscriptionMessage: any;
+
+          switch (exchangeId) {
+            case 'binance':
+              // Binance uses lowercase symbols with no slashes
+              const binanceSymbol = pair.replace('/', '').toLowerCase();
+              subscriptionMessage = {
+                method: 'SUBSCRIBE',
+                params: [`${binanceSymbol}@ticker`],
+                id: Date.now()
+              };
+              break;
+            case 'bitmart':
+              // BitMart uses a different format
+              const bitmartSymbol = pair.replace('/', '-');
+              subscriptionMessage = {
+                op: 'subscribe',
+                args: [`spot/ticker:${bitmartSymbol}`]
+              };
+              break;
+            case 'kucoin':
+              // KuCoin uses a different format
+              const kucoinSymbol = pair.replace('/', '-');
+              subscriptionMessage = {
+                type: 'subscribe',
+                topic: `/market/ticker:${kucoinSymbol}`,
+                privateChannel: false,
+                response: true
+              };
+              break;
+            default:
+              // Generic format
+              subscriptionMessage = {
+                type: 'subscribe',
+                channel: 'ticker',
+                symbol: pair
+              };
+          }
+
+          // Subscribe to the ticker
+          const subscriptionId = exchangeServiceWebSocket.subscribeToMarketData(
+            connectionId,
+            pair,
+            'ticker',
+            subscriptionMessage
+          );
+
+          // Add to subscriptions set
+          subscriptions.add(subscriptionId);
+
+          logService.log('info', `Subscribed to ticker for ${pair} on ${exchangeId}`, {
+            connectionId,
+            subscriptionId
+          }, 'ExchangeService');
+        } catch (error) {
+          logService.log('error', `Failed to subscribe to ticker for ${pair} on ${exchangeId}`, error, 'ExchangeService');
+        }
+      }
+    } catch (error) {
+      logService.log('error', `Failed to subscribe to common pairs for ${exchangeId}`, error, 'ExchangeService');
+    }
+  }
+
+  /**
+   * Close a WebSocket connection for a specific exchange
+   * @param exchangeId Exchange ID
+   */
+  private closeExchangeWebSocket(exchangeId: string): void {
+    const connectionId = this.websocketConnections.get(exchangeId);
+    if (connectionId) {
+      // Close the WebSocket connection
+      websocketManager.close(connectionId);
+
+      // Remove from connections map
+      this.websocketConnections.delete(exchangeId);
+
+      // Remove subscriptions
+      this.marketDataSubscriptions.delete(connectionId);
+
+      logService.log('info', `Closed WebSocket connection for exchange ${exchangeId}`, null, 'ExchangeService');
+    }
+  }
+
+  /**
+   * Close all WebSocket connections
+   */
+  private closeAllWebSockets(): void {
+    for (const [exchangeId, connectionId] of this.websocketConnections.entries()) {
+      websocketManager.close(connectionId);
+      logService.log('info', `Closed WebSocket connection for exchange ${exchangeId}`, null, 'ExchangeService');
+    }
+
+    // Clear connections and subscriptions
+    this.websocketConnections.clear();
+    this.marketDataSubscriptions.clear();
+  }
+
+  /**
+   * Handle a WebSocket message
+   * @param connectionId WebSocket connection ID
+   * @param message Message received
+   */
+  private async handleWebSocketMessage(connectionId: string, message: any): Promise<void> {
+    try {
+      // Import the WebSocket service dynamically to avoid circular dependencies
+      const { exchangeServiceWebSocket } = await import('./exchange-service-websocket');
+
+      // Let the WebSocket service handle the message
+      exchangeServiceWebSocket.handleWebSocketMessage(connectionId, message);
+    } catch (error) {
+      logService.log('error', `Failed to handle WebSocket message`, error, 'ExchangeService');
+    }
+  }
+
+  /**
+   * Resubscribe to market data after a WebSocket reconnection
+   * @param connectionId WebSocket connection ID
+   * @param exchangeId Exchange ID
+   */
+  private async resubscribeToMarketData(connectionId: string, exchangeId: string): Promise<void> {
+    try {
+      // Subscribe to common pairs again
+      await this.subscribeToCommonPairs(exchangeId, connectionId);
+    } catch (error) {
+      logService.log('error', `Failed to resubscribe to market data for ${exchangeId}`, error, 'ExchangeService');
     }
   }
 
@@ -1063,6 +1426,19 @@ class ExchangeService extends EventEmitter {
       // Normalize the symbol format if needed
       const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
 
+      // Try to get from cache first
+      const cacheKey = `ticker:${normalizedSymbol}`;
+      const cachedTicker = cacheService.get<any>(cacheKey, this.MARKET_DATA_CACHE_NAMESPACE);
+
+      if (cachedTicker && cachedTicker.last) {
+        logService.log('debug', `Using cached price data for ${normalizedSymbol}`, null, 'ExchangeService');
+        return {
+          symbol: normalizedSymbol,
+          price: cachedTicker.last,
+          timestamp: cachedTicker.timestamp || Date.now()
+        };
+      }
+
       // Log the request
       logService.log('info', `Fetching market price for ${normalizedSymbol}`, null, 'ExchangeService');
 
@@ -1070,6 +1446,10 @@ class ExchangeService extends EventEmitter {
       if (this.demoMode || !this.activeExchange) {
         logService.log('info', `Using mock price data for ${normalizedSymbol} (demo mode: ${this.demoMode})`, null, 'ExchangeService');
         const mockTicker = this.createMockTicker(normalizedSymbol);
+
+        // Cache the mock ticker
+        cacheService.set(cacheKey, mockTicker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
+
         return {
           symbol: normalizedSymbol,
           price: mockTicker.last,
@@ -1083,8 +1463,30 @@ class ExchangeService extends EventEmitter {
         throw new Error(`Exchange instance not found for ${this.activeExchange.id}`);
       }
 
+      // Check if we have a WebSocket connection for this exchange
+      const connectionId = this.websocketConnections.get(this.activeExchange.id);
+      if (connectionId && websocketManager.isConnected(connectionId)) {
+        // If we have a WebSocket connection but no cached data, wait a short time
+        // for the WebSocket to potentially deliver data
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+        // Check cache again
+        const cachedTickerAfterWait = cacheService.get<any>(cacheKey, this.MARKET_DATA_CACHE_NAMESPACE);
+        if (cachedTickerAfterWait && cachedTickerAfterWait.last) {
+          logService.log('debug', `Using WebSocket data for ${normalizedSymbol}`, null, 'ExchangeService');
+          return {
+            symbol: normalizedSymbol,
+            price: cachedTickerAfterWait.last,
+            timestamp: cachedTickerAfterWait.timestamp || Date.now()
+          };
+        }
+      }
+
       // Fetch the ticker from the exchange
       const ticker = await exchange.fetchTicker(normalizedSymbol);
+
+      // Cache the ticker
+      cacheService.set(cacheKey, ticker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
 
       return {
         symbol: normalizedSymbol,
@@ -1097,6 +1499,10 @@ class ExchangeService extends EventEmitter {
       // Return mock data as fallback
       const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
       const mockTicker = this.createMockTicker(normalizedSymbol);
+
+      // Cache the mock ticker
+      const cacheKey = `ticker:${normalizedSymbol}`;
+      cacheService.set(cacheKey, mockTicker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
 
       return {
         symbol: normalizedSymbol,

@@ -15,7 +15,8 @@ import {
   Shield,
   XCircle,
   Loader2,
-  Circle
+  Circle,
+  BarChart3
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
@@ -533,6 +534,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
           index={6}
           isMobile={isMobile}
         />
+        <NavItem
+          to="/performance"
+          icon={<BarChart3 className="w-5 h-5" />}
+          label="Performance"
+          onMenuClick={highlightMenuItem}
+          onNavClick={contractMenu}
+          index={7}
+          isMobile={isMobile}
+        />
       </nav>
 
       {/* Sign Out Button - Conditionally rendered based on mobile state */}
@@ -548,7 +558,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
           onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           className="text-gray-400 hover:text-gray-200"
-          index={7}
+          index={8}
           isMobile={isMobile}
         />
       </div>
