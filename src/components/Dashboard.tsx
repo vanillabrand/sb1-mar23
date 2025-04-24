@@ -72,7 +72,8 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
   const [localStrategies, setLocalStrategies] = useState<Strategy[]>(initialStrategies);
   const [localMonitoringStatuses, setLocalMonitoringStatuses] = useState<Record<string, MonitoringStatus>>(initialStatuses);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState<boolean>(false);
+  // Loading state is commented out as it's not currently used
+  // const [loading, setLoading] = useState<boolean>(false);
 
   const activeStrategies = useMemo(() =>
     localStrategies.filter(s => s.status === 'active'),
@@ -373,17 +374,18 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
     }
   };
 
-  const loadPerformanceMetrics = async () => {
-    // This function would normally load performance metrics from the backend
-    // For now, we'll just use a placeholder
-    return Promise.resolve();
-  };
+  // These functions are commented out as they're not currently used
+  // const loadPerformanceMetrics = async () => {
+  //   // This function would normally load performance metrics from the backend
+  //   // For now, we'll just use a placeholder
+  //   return Promise.resolve();
+  // };
 
-  const loadActiveTrades = async () => {
-    // This function would normally load active trades from the backend
-    // For now, we'll just use a placeholder
-    return Promise.resolve();
-  };
+  // const loadActiveTrades = async () => {
+  //   // This function would normally load active trades from the backend
+  //   // For now, we'll just use a placeholder
+  //   return Promise.resolve();
+  // };
 
   // Set up polling for dashboard data
   useEffect(() => {
@@ -422,12 +424,22 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         },
         (payload) => {
           // Handle real-time strategy updates
-          if (payload.eventType === 'UPDATE') {
+          // Type guard to check if payload.new has an id property
+          const hasValidNewPayload = (payload: any): payload is { new: { id: string, status?: string } } => {
+            return payload.new && typeof payload.new === 'object' && 'id' in payload.new;
+          };
+
+          // Type guard to check if payload.old has an id property
+          const hasValidOldPayload = (payload: any): payload is { old: { id: string } } => {
+            return payload.old && typeof payload.old === 'object' && 'id' in payload.old;
+          };
+
+          if (payload.eventType === 'UPDATE' && hasValidNewPayload(payload)) {
             logService.log('info', `Strategy ${payload.new.id} updated in database`, { status: payload.new.status }, 'Dashboard');
 
             // Force reload to ensure we have the latest data
             loadStrategies();
-          } else if (payload.eventType === 'INSERT') {
+          } else if (payload.eventType === 'INSERT' && hasValidNewPayload(payload)) {
             logService.log('info', 'New strategy created', payload.new, 'Dashboard');
 
             // Immediately add the new strategy to the local state
@@ -435,15 +447,21 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
               // Only add if not already in the list
               if (!prev.some(s => s.id === payload.new.id)) {
                 console.log('Dashboard: Adding new strategy to local state:', payload.new.id);
-                return [...prev, payload.new];
+                // Cast payload.new to Strategy type to satisfy TypeScript
+                return [...prev, payload.new as unknown as Strategy];
               }
               return prev;
             });
 
             // Also do a full refresh to get complete data
             loadStrategies();
-          } else if (payload.eventType === 'DELETE') {
+          } else if (payload.eventType === 'DELETE' && hasValidOldPayload(payload)) {
             logService.log('info', `Strategy ${payload.old.id} deleted`, null, 'Dashboard');
+            loadStrategies();
+          } else {
+            // Handle case where payload doesn't have expected structure
+            console.warn('Received payload with unexpected structure:', payload);
+            // Still refresh data to be safe
             loadStrategies();
           }
         }
@@ -460,8 +478,9 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           schema: 'public',
           table: 'trades'
         },
-        (payload) => {
-          const tradeId = payload.new?.id || payload.old?.id;
+        (payload: any) => {
+          // Use optional chaining and type assertion for safety
+          const tradeId = (payload.new as any)?.id || (payload.old as any)?.id;
           if (tradeId) {
             logService.log('info', `Trade ${tradeId} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
           } else {
@@ -482,8 +501,9 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           schema: 'public',
           table: 'transactions'
         },
-        (payload) => {
-          logService.log('info', `Transaction ${payload.new?.id || payload.old?.id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
+        (payload: any) => {
+          // Use type assertion for safety
+          logService.log('info', `Transaction ${(payload.new as any)?.id || (payload.old as any)?.id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
           loadStrategies();
         }
       )
@@ -499,8 +519,9 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           schema: 'public',
           table: 'strategy_budgets'
         },
-        (payload) => {
-          logService.log('info', `Budget for strategy ${payload.new?.strategy_id || payload.old?.strategy_id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
+        (payload: any) => {
+          // Use type assertion for safety
+          logService.log('info', `Budget for strategy ${(payload.new as any)?.strategy_id || (payload.old as any)?.strategy_id} ${payload.eventType.toLowerCase()}`, null, 'Dashboard');
           loadStrategies();
         }
       )
@@ -626,18 +647,16 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
     };
   }, [user]);
 
-  const loadDashboardData = async () => {
-    try {
-      setLoading(true);
-      await Promise.all([
-        loadStrategies(),
-        loadPerformanceMetrics(),
-        loadActiveTrades()
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // This function is kept for future use but commented out to avoid TypeScript warnings
+  // const loadDashboardData = async () => {
+  //   try {
+  //     // setLoading(true);
+  //     await loadStrategies();
+  //     // Add other data loading functions here when needed
+  //   } finally {
+  //     // setLoading(false);
+  //   }
+  // };
 
   if (error) {
     return (

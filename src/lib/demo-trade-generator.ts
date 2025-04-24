@@ -518,30 +518,53 @@ class DemoTradeGenerator extends EventEmitter {
           logService.log('error', `Failed to create trade for signal in strategy ${strategy.id}`, tradeError, 'DemoTradeGenerator');
 
           // Try direct trade creation as fallback
+          // Define variables outside the try block so they're accessible in the catch block
+          let tradeSymbol = '';
           try {
-            const uniqueTradeId = `${strategy.id}-${tradeSignal.symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            // Access the variables from the outer scope
+            tradeSymbol = tradeSignal.symbol || '';
+            const tradeDirection = tradeSignal.direction || 'Long';
+            const tradeCurrentPrice = this.lastPrices.get(tradeSymbol) || 0;
+
+            // Calculate position size based on available budget
+            const tradePositionSize = this.calculatePositionSizeFromBudget(
+              remainingBudget,
+              tradeSignal.confidence || 0.7,
+              strategy.riskLevel || 'Medium'
+            );
+
+            // Calculate stop loss and take profit
+            const stopLossPercent = tradeSignal.stopLossPercent || (tradeDirection === 'Long' ? -0.02 : 0.02);
+            const takeProfitPercent = tradeSignal.takeProfitPercent || (tradeDirection === 'Long' ? 0.04 : -0.04);
+            const tradeStopLoss = tradeCurrentPrice * (1 + stopLossPercent);
+            const tradeTakeProfit = tradeCurrentPrice * (1 + takeProfitPercent);
+
+            // Calculate trade cost
+            const tradeTradeCost = tradePositionSize * tradeCurrentPrice;
+
+            const uniqueTradeId = `${strategy.id}-${tradeSymbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
             await this.createTrade(
               strategy,
-              symbol,
-              direction,
-              currentPrice,
-              positionSize,
-              stopLoss,
-              takeProfit,
+              tradeSymbol,
+              tradeDirection,
+              tradeCurrentPrice,
+              tradePositionSize,
+              tradeStopLoss,
+              tradeTakeProfit,
               uniqueTradeId,
               tradeSignal.entryConditions,
               tradeSignal.exitConditions
             );
 
             // Update remaining budget
-            remainingBudget -= tradeCost;
+            remainingBudget -= tradeTradeCost;
 
-            logService.log('info', `Created fallback trade for ${symbol} in strategy ${strategy.id}`, {
+            logService.log('info', `Created fallback trade for ${tradeSymbol} in strategy ${strategy.id}`, {
               strategy: strategy.id,
               tradeId: uniqueTradeId
             }, 'DemoTradeGenerator');
           } catch (fallbackError) {
-            logService.log('error', `Failed to create fallback trade for ${symbol} in strategy ${strategy.id}`, fallbackError, 'DemoTradeGenerator');
+            logService.log('error', `Failed to create fallback trade for ${tradeSymbol} in strategy ${strategy.id}`, fallbackError, 'DemoTradeGenerator');
           }
         }
       }

@@ -39,7 +39,7 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
     title: '',
     description: '',
     risk_level: 'Medium',
-    selected_pairs: [],
+    selected_pairs: ['BTC_USDT'], // Default to BTC_USDT as a starting pair
     marketType: 'spot'
   });
 
@@ -88,7 +88,25 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
     try {
       setIsSubmitting(true);
       setError(null);
-      await onCreated(formData);
+
+      // Log the form data to verify fields
+      console.log('CreateStrategyModal: Submitting form data:', {
+        title: formData.title,
+        description: formData.description,
+        risk_level: formData.risk_level,
+        selected_pairs: formData.selected_pairs,
+        marketType: formData.marketType,
+        pairs_count: formData.selected_pairs.length
+      });
+
+      // Create a copy of the form data with both market_type and marketType fields
+      const enrichedData = {
+        ...formData,
+        // Ensure market_type is set for database field
+        market_type: formData.marketType
+      };
+
+      await onCreated(enrichedData);
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create strategy');

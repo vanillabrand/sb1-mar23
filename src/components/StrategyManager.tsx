@@ -470,53 +470,126 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     try {
       setIsRefreshing(true);
 
+      // Ensure all required fields are properly set
       const enrichedData = {
         ...strategyData,
         type: strategyData.type || 'custom', // Ensure type is set
         user_id: user.id,
         created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        // Ensure selected_pairs is properly set
+        selected_pairs: strategyData.selected_pairs || [],
+        // Ensure market_type is properly set (database field)
+        market_type: strategyData.marketType || 'spot',
+        // Also set marketType for UI components
+        marketType: strategyData.marketType || 'spot'
       };
 
       // Create the strategy
       const newStrategy = await createStrategy(enrichedData);
-      console.log('Strategy created successfully:', newStrategy.id);
+      console.log('StrategyManager: Strategy created successfully:', newStrategy.id);
 
       // Close the modal
       setShowCreateModal(false);
 
-      // Manually add the strategy to the lists for immediate visibility
+      // DIRECT APPROACH: Manually add the strategy to all lists for immediate visibility
       if (newStrategy) {
-        // Update filtered strategies
+        console.log('StrategyManager: Manually adding AI-created strategy to all lists');
+
+        // 1. Add to the main strategies array
+        if (strategies) {
+          console.log('StrategyManager: Current strategies count:', strategies.length);
+
+          // Create a new array with the new strategy
+          const updatedStrategiesArray = [...strategies, newStrategy];
+          console.log('StrategyManager: Updated strategies count:', updatedStrategiesArray.length);
+        }
+
+        // 2. Update filtered strategies
         setFilteredStrategies(prev => {
+          // Only add if not already in the list
           if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('Adding new strategy to filtered list:', newStrategy.id);
+            console.log('StrategyManager: Adding AI-created strategy to filtered list');
             return [...prev, newStrategy];
           }
+          console.log('StrategyManager: AI-created strategy already in filtered list');
           return prev;
         });
 
-        // Update paginated strategies
+        // 3. Update paginated strategies
         setPaginatedStrategies(prev => {
+          // Only add if not already in the list
           if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('Adding new strategy to paginated list:', newStrategy.id);
+            console.log('StrategyManager: Adding AI-created strategy to paginated list');
             return [...prev, newStrategy];
           }
+          console.log('StrategyManager: AI-created strategy already in paginated list');
           return prev;
         });
 
-        // Broadcast the strategy creation event
+        // 4. Force a re-render by updating the current page
+        setCurrentPage(currentPage);
+
+        // 5. Manually add the strategy to the strategy sync cache
+        console.log('StrategyManager: Manually adding AI-created strategy to strategy sync cache');
+        if (!strategySync.hasStrategy(newStrategy.id)) {
+          strategySync.addStrategyToCache(newStrategy);
+        }
+
+        // 6. Manually emit events to update all components
+        console.log('StrategyManager: Manually emitting events for AI-created strategy');
         eventBus.emit('strategy:created', newStrategy);
+        eventBus.emit('strategy:created', { strategy: newStrategy }); // Also emit with object wrapper for compatibility
+
         document.dispatchEvent(new CustomEvent('strategy:created', {
           detail: { strategy: newStrategy }
         }));
 
-        // Force a broadcast of all strategies
+        // 7. Force a broadcast of all strategies
         strategySync.broadcastStrategiesUpdate();
       }
 
-      // Force a refresh to ensure everything is in sync
-      await refreshStrategies();
+      // 8. Force a complete refresh of strategies
+      console.log('StrategyManager: Forcing complete refresh of strategies');
+      try {
+        await refreshStrategies();
+        console.log('StrategyManager: Refresh completed');
+      } catch (refreshError) {
+        console.error('StrategyManager: Error refreshing strategies:', refreshError);
+        // Continue even if refresh fails
+      }
+
+      // 9. Double-check that the strategy is in the lists
+      setTimeout(async () => {
+        console.log('StrategyManager: Performing delayed check for AI-created strategy');
+
+        // Check if the strategy is in the filtered list
+        const isInFiltered = filteredStrategies.some(s => s.id === newStrategy.id);
+        if (!isInFiltered) {
+          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} not in filtered list, adding it`);
+          setFilteredStrategies(prev => [...prev, newStrategy]);
+        } else {
+          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} is in filtered list`);
+        }
+
+        // Check if the strategy is in the paginated list
+        const isInPaginated = paginatedStrategies.some(s => s.id === newStrategy.id);
+        if (!isInPaginated) {
+          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} not in paginated list, adding it`);
+          setPaginatedStrategies(prev => [...prev, newStrategy]);
+        } else {
+          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} is in paginated list`);
+        }
+
+        // Force another refresh
+        try {
+          await refreshStrategies();
+          console.log('StrategyManager: Second refresh completed');
+        } catch (refreshError) {
+          console.error('StrategyManager: Error in second refresh:', refreshError);
+          // Continue even if refresh fails
+        }
+      }, 1000);
     } catch (error) {
       logService.log('error', 'Failed to create strategy', error, 'StrategyManager');
       throw error;
@@ -712,6 +785,76 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       // Create strategy from template
       const newStrategy = await templateGenerator.copyTemplateToStrategy(template.id);
       console.log(`StrategyManager: Strategy created from template: ${newStrategy.id}`);
+
+      // Ensure the strategy has the correct market_type and selected_pairs
+      if (newStrategy) {
+        // Log the strategy data to verify fields
+        console.log('StrategyManager: Template strategy data:', {
+          id: newStrategy.id,
+          market_type: newStrategy.market_type,
+          marketType: newStrategy.marketType,
+          selected_pairs: newStrategy.selected_pairs,
+          pairs: newStrategy.selected_pairs ? newStrategy.selected_pairs.length : 0
+        });
+
+        // If market_type or selected_pairs are missing, update the strategy
+        if (!newStrategy.market_type || !newStrategy.selected_pairs || newStrategy.selected_pairs.length === 0) {
+          console.log('StrategyManager: Updating template strategy with missing fields');
+
+          try {
+            // Get template data to extract missing fields
+            const { data: templateData } = await supabase
+              .from('template_strategies')
+              .select('*')
+              .eq('id', template.id)
+              .single();
+
+            // Prepare update data
+            const updateData: any = {};
+
+            // Set market_type if missing
+            if (!newStrategy.market_type) {
+              updateData.market_type = templateData?.market_type || 'spot';
+            }
+
+            // Set marketType if missing (for UI components)
+            if (!newStrategy.marketType) {
+              updateData.marketType = templateData?.market_type || 'spot';
+            }
+
+            // Set selected_pairs if missing
+            if (!newStrategy.selected_pairs || newStrategy.selected_pairs.length === 0) {
+              // Try to get pairs from template or use defaults
+              updateData.selected_pairs = templateData?.selected_pairs ||
+                                         templateData?.strategy_config?.assets ||
+                                         ['BTC_USDT'];
+            }
+
+            // Only update if we have fields to update
+            if (Object.keys(updateData).length > 0) {
+              console.log('StrategyManager: Updating strategy with fields:', updateData);
+
+              // Update the strategy in the database
+              const { data: updatedStrategy, error } = await supabase
+                .from('strategies')
+                .update(updateData)
+                .eq('id', newStrategy.id)
+                .select()
+                .single();
+
+              if (error) {
+                console.error('StrategyManager: Error updating strategy:', error);
+              } else if (updatedStrategy) {
+                console.log('StrategyManager: Strategy updated successfully');
+                // Use the updated strategy
+                Object.assign(newStrategy, updatedStrategy);
+              }
+            }
+          } catch (updateError) {
+            console.error('StrategyManager: Error updating template strategy:', updateError);
+          }
+        }
+      }
 
       // DIRECT APPROACH: Manually add the strategy to all lists
       console.log('StrategyManager: Manually adding strategy to all lists');
