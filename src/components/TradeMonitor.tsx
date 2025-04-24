@@ -21,7 +21,8 @@ import { logService } from '../lib/log-service';
 import { supabase } from '../lib/supabase';
 import { directDeleteStrategy } from '../lib/direct-delete';
 import { eventBus } from '../lib/event-bus';
-import { standardizeAssetPairFormat, toBinanceWsFormat, getBasePrice } from '../lib/format-utils';
+import { standardizeAssetPairFormat, toBinanceWsFormat } from '../lib/format-utils';
+import { normalizeSymbol, getBasePrice, generateRandomPrice, generateRandomAmount } from '../utils/symbol-utils';
 import { demoService } from '../lib/demo-service';
 import { exchangeService } from '../lib/exchange-service';
 import { ccxtService } from '../lib/ccxt-service';
@@ -429,7 +430,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           if (allStrategies) {
             for (const strategy of allStrategies) {
               // Initialize budget from trade service
-              await tradeService.initializeBudget(strategy.id);
+              await (tradeService as any).initializeBudget(strategy.id);
               const budget = tradeService.getBudget(strategy.id);
 
               if (budget) {
@@ -1153,6 +1154,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
   // Helper functions are now handled by the TradeList component
 
+  // Using normalizeSymbol from symbol-utils
+
   // Fetch trade data from exchange or TestNet
   const fetchTradeData = async () => {
     try {
@@ -1222,7 +1225,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         const currentBudget = budgets[strategy.id];
         if (!currentBudget) {
           // Initialize budget if it doesn't exist
-          await tradeService.initializeBudget(strategy.id);
+          await (tradeService as any).initializeBudget(strategy.id);
           const budget = tradeService.getBudget(strategy.id);
 
           if (budget) {
@@ -1278,11 +1281,22 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   ): Trade[] => {
     const trades = [];
     const now = Date.now();
-    let basePrice = getBasePrice(symbol);
+
+    // Normalize the symbol format
+    const normalizedSymbol = normalizeSymbol(symbol);
+
+    // Extract the base asset for price determination
+    const baseAsset = normalizedSymbol.split('/')[0];
+
+    // Get base price for the symbol
+    let basePrice = getBasePrice(normalizedSymbol);
 
     // Ensure we have a valid base price
     if (!basePrice || basePrice <= 0) {
       basePrice = 100; // Default fallback price
+      logService.log('warn', `Using default price of ${basePrice} for ${normalizedSymbol}`, null, 'TradeMonitor');
+    } else {
+      logService.log('debug', `Using base price of ${basePrice} for ${normalizedSymbol}`, null, 'TradeMonitor');
     }
 
     // Calculate maximum amount based on budget if provided
@@ -1322,41 +1336,29 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       // Create unique ID
       const uniqueId = `mock-${symbol}-${i}-${now + i}-${Math.random().toString(36).substring(2, 8)}`;
 
+      // Extract quote currency (USDT, BTC, etc.)
+      const quoteCurrency = normalizedSymbol.split('/')[1] || 'USDT';
+
+      // Create a realistic trade object
       trades.push({
         id: uniqueId,
         timestamp: now - (i * 60000),
-        symbol,
+        symbol: normalizedSymbol, // Use normalized symbol
         side,
         entryPrice: price,
         amount,
         status: 'completed',
         strategyId: strategyId || 'mock-strategy',
         createdAt: new Date(now - (i * 60000)).toISOString(),
-        fee: { cost: fee, currency: symbol.split('/')[1] },
+        fee: { cost: fee, currency: quoteCurrency },
         cost
       });
     }
 
-    return trades;
+    return trades as Trade[];
   };
 
-  /**
-   * Gets a base price for a given symbol
-   * @param symbol Trading pair symbol
-   * @returns Base price
-   */
-  const getBasePrice = (symbol: string): number => {
-    const baseAsset = symbol.split('/')[0];
-
-    switch (baseAsset) {
-      case 'BTC': return 50000;
-      case 'ETH': return 3000;
-      case 'SOL': return 100;
-      case 'BNB': return 500;
-      case 'XRP': return 0.5;
-      default: return 100;
-    }
-  };
+  // Using getBasePrice, generateRandomPrice, and generateRandomAmount from symbol-utils
 
   // Cache for TestNet trades to avoid excessive API calls
   const tradeCache = new Map<string, {trades: Trade[], timestamp: number}>();
@@ -1406,20 +1408,34 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       // Fetch trades for each symbol
       for (const symbol of Array.from(symbols)) {
         try {
-          const normalizedSymbol = symbol.includes('_')
-            ? symbol.replace('_', '/')
-            : symbol;
+          // Normalize the symbol format
+          const normalizedSymbol = normalizeSymbol(symbol);
 
           logService.log('info', `Fetching trades for symbol ${normalizedSymbol}`, null, 'TradeMonitor');
+
+          // Create a cache key for this specific symbol
+          const symbolCacheKey = `trades:${normalizedSymbol}`;
+          const cachedSymbolData = tradeCache.get(symbolCacheKey);
+
+          // Check if we have cached data for this symbol
+          if (cachedSymbolData && (now - cachedSymbolData.timestamp) < TRADE_CACHE_TTL) {
+            logService.log('info', `Using cached trades for ${normalizedSymbol}`, null, 'TradeMonitor');
+            allTrades.push(...cachedSymbolData.trades);
+            continue; // Skip to next symbol
+          }
 
           let symbolTrades;
           try {
             symbolTrades = await exchange.fetchMyTrades(normalizedSymbol, undefined, 20);
+            logService.log('info', `Successfully fetched ${symbolTrades.length} trades for ${normalizedSymbol}`, null, 'TradeMonitor');
           } catch (fetchError) {
             logService.log('warn', `Failed to fetch trades for ${normalizedSymbol}, using mock data`, fetchError, 'TradeMonitor');
-            symbolTrades = generateTestNetMockTrades(normalizedSymbol, 5);
+            // Generate mock trades for this symbol
+            symbolTrades = generateTestNetMockTrades(normalizedSymbol, 5, activeStrategies[0]?.id);
+            logService.log('info', `Generated ${symbolTrades.length} mock trades for ${normalizedSymbol}`, null, 'TradeMonitor');
           }
 
+          // Format the trades to match our Trade interface
           const formattedTrades = symbolTrades.map(trade => ({
             id: `testnet-${trade.id || Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
             timestamp: trade.timestamp || Date.now(),
@@ -1432,9 +1448,24 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             createdAt: new Date(trade.timestamp || Date.now()).toISOString()
           }));
 
+          // Cache the trades for this symbol
+          tradeCache.set(symbolCacheKey, {
+            trades: formattedTrades,
+            timestamp: Date.now()
+          });
+
+          // Add to the all trades collection
           allTrades.push(...formattedTrades);
         } catch (symbolError) {
           logService.log('warn', `Failed to fetch trades for ${symbol}`, symbolError, 'TradeMonitor');
+          // Generate mock trades as a fallback
+          try {
+            const mockTrades = generateTestNetMockTrades(symbol, 3, activeStrategies[0]?.id);
+            allTrades.push(...mockTrades);
+            logService.log('info', `Generated fallback mock trades for ${symbol} after error`, { count: mockTrades.length }, 'TradeMonitor');
+          } catch (mockError) {
+            logService.log('error', `Failed to generate mock trades for ${symbol}`, mockError, 'TradeMonitor');
+          }
           // Continue with other symbols
         }
       }

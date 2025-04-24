@@ -95,6 +95,7 @@ export class TemplateManager extends EventEmitter {
             ...(template.assets && { assets: template.assets }),
             ...(template.timeframe && { timeframe: template.timeframe }),
             ...(template.entryConditions && { entry_conditions: template.entryConditions }),
+            ...(template.entry_conditions && { entry_conditions: template.entry_conditions }),
             ...(template.exitConditions && { exit_conditions: template.exitConditions }),
             ...(template.riskManagement && { risk_management: template.riskManagement })
           };
@@ -213,7 +214,11 @@ export class TemplateManager extends EventEmitter {
               user_id: null,  // This will be properly handled as SQL NULL
               created_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
-              name: template.title || template.name || 'Strategy Template' // Ensure name field is included
+              name: template.title || template.name || 'Strategy Template', // Ensure name field is included
+              // Convert camelCase to snake_case for database columns
+              ...(template.entryConditions && { entry_conditions: template.entryConditions }),
+              ...(template.exitConditions && { exit_conditions: template.exitConditions }),
+              ...(template.riskManagement && { risk_management: template.riskManagement })
             })));
 
           insertError = error;
@@ -231,7 +236,11 @@ export class TemplateManager extends EventEmitter {
                 type: 'system_template',
                 created_at: new Date().toISOString(),
                 updated_at: new Date().toISOString(),
-                name: template.title || template.name || 'Strategy Template' // Ensure name field is included
+                name: template.title || template.name || 'Strategy Template', // Ensure name field is included
+                // Convert camelCase to snake_case for database columns
+                ...(template.entryConditions && { entry_conditions: template.entryConditions }),
+                ...(template.exitConditions && { exit_conditions: template.exitConditions }),
+                ...(template.riskManagement && { risk_management: template.riskManagement })
               })));
 
             if (retryError) {

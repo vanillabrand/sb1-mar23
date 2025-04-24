@@ -38,33 +38,20 @@ export class AIService extends EventEmitter {
     try {
       this.emit('progress', { step: 'Analyzing market conditions with DeepSeek AI...', progress: 10 });
 
+      // Log the request details
+      logService.log('info', `Analyzing market conditions for ${symbol} with risk level ${riskLevel}`, {
+        symbol,
+        riskLevel,
+        marketDataCount: marketData?.length || 0,
+        strategyId: strategyConfig?.strategyId,
+        strategyName: strategyConfig?.strategyName,
+        attempt: strategyConfig?.attempt || 1
+      }, 'AIService');
+
       // Prepare market data summary for the prompt
       const marketSummary = marketData.map(data => {
-        return `${data.asset}: Price: ${data.currentPrice}, 24h Volume: ${data.volume24h}, Trend: ${this.analyzeTrend(data.priceHistory)}`;
+        return `${data.asset || data.symbol}: Price: ${data.currentPrice}, 24h Volume: ${data.volume24h || 'Unknown'}, Trend: ${this.analyzeTrend(data.priceHistory)}`;
       }).join('\n');
-
-      // Create a detailed prompt for DeepSeek
-      const prompt = `Analyze the current market conditions for ${symbol} and generate a trade signal based on the following data:
-
-Risk Level: ${riskLevel}
-Market Data:
-${marketSummary}
-
-Strategy Configuration:
-${JSON.stringify(strategyConfig || {}, null, 2)}
-
-Provide a trade recommendation in JSON format with the following structure:
-{
-  "shouldTrade": true/false,
-  "direction": "Long"/"Short",
-  "confidence": 0.0-1.0,
-  "stopLossPercent": number,
-  "takeProfitPercent": number,
-  "trailingStop": number,
-  "rationale": "Detailed explanation of the trade recommendation"
-}`;
-
-      logService.log('info', 'Sending market analysis prompt to DeepSeek', { prompt }, 'AIService');
 
       // Extract market type from strategy config or detect from description
       let marketType: MarketType = 'spot';
@@ -76,6 +63,42 @@ Provide a trade recommendation in JSON format with the following structure:
         marketType = detectMarketType(strategyConfig.strategyDescription);
       }
 
+      // Create a detailed prompt for DeepSeek
+      const prompt = `Analyze the current market conditions for ${symbol} and generate trade signals based on the following data:
+
+Risk Level: ${riskLevel}
+Market Type: ${marketType}
+Market Data:
+${marketSummary}
+
+Strategy Configuration:
+${JSON.stringify(strategyConfig || {}, null, 2)}
+
+Provide trade recommendations in JSON format with the following structure:
+{
+  "trades": [
+    {
+      "symbol": "Trading pair symbol",
+      "direction": "Long"/"Short",
+      "confidence": 0.0-1.0,
+      "positionSize": number,
+      "stopLossPercent": number,
+      "takeProfitPercent": number,
+      "trailingStop": number,
+      "rationale": "Detailed explanation of the trade recommendation",
+      "entryConditions": ["Condition 1", "Condition 2"],
+      "exitConditions": ["Condition 1", "Condition 2"]
+    }
+  ],
+  "marketAnalysis": "Detailed market analysis"
+}`;
+
+      logService.log('info', 'Sending market analysis prompt to DeepSeek', {
+        prompt: prompt.substring(0, 200) + '...',
+        strategyId: strategyConfig?.strategyId,
+        attempt: strategyConfig?.attempt || 1
+      }, 'AIService');
+
       logService.log('info', `Using market type ${marketType} for market analysis`, {
         symbol,
         marketType,
@@ -84,6 +107,14 @@ Provide a trade recommendation in JSON format with the following structure:
 
       // Simulate DeepSeek API call with detailed analysis
       const analysis = this.generateMarketAnalysis(riskLevel, symbol, marketData, marketType, strategyConfig);
+
+      // Log the analysis results
+      logService.log('info', `Market analysis completed for ${symbol}`, {
+        strategyId: strategyConfig?.strategyId,
+        hasTradeSignals: analysis.trades && Array.isArray(analysis.trades) ? analysis.trades.length : 0,
+        direction: analysis.direction,
+        confidence: analysis.confidence
+      }, 'AIService');
 
       this.emit('progress', { step: 'Market analysis completed successfully!', progress: 100 });
 

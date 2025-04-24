@@ -478,9 +478,45 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         updated_at: new Date().toISOString()
       };
 
-      await createStrategy(enrichedData);
+      // Create the strategy
+      const newStrategy = await createStrategy(enrichedData);
+      console.log('Strategy created successfully:', newStrategy.id);
+
+      // Close the modal
       setShowCreateModal(false);
-      await refreshStrategies(); // Force refresh after creation
+
+      // Manually add the strategy to the lists for immediate visibility
+      if (newStrategy) {
+        // Update filtered strategies
+        setFilteredStrategies(prev => {
+          if (!prev.some(s => s.id === newStrategy.id)) {
+            console.log('Adding new strategy to filtered list:', newStrategy.id);
+            return [...prev, newStrategy];
+          }
+          return prev;
+        });
+
+        // Update paginated strategies
+        setPaginatedStrategies(prev => {
+          if (!prev.some(s => s.id === newStrategy.id)) {
+            console.log('Adding new strategy to paginated list:', newStrategy.id);
+            return [...prev, newStrategy];
+          }
+          return prev;
+        });
+
+        // Broadcast the strategy creation event
+        eventBus.emit('strategy:created', newStrategy);
+        document.dispatchEvent(new CustomEvent('strategy:created', {
+          detail: { strategy: newStrategy }
+        }));
+
+        // Force a broadcast of all strategies
+        strategySync.broadcastStrategiesUpdate();
+      }
+
+      // Force a refresh to ensure everything is in sync
+      await refreshStrategies();
     } catch (error) {
       logService.log('error', 'Failed to create strategy', error, 'StrategyManager');
       throw error;

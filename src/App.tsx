@@ -267,23 +267,25 @@ function App() {
       console.log(`App: Visibility changed from ${visibilityState} to ${newVisibilityState}`);
       setVisibilityState(newVisibilityState);
 
-      // If the page becomes visible again and was previously hidden
-      if (newVisibilityState === 'visible' && visibilityState === 'hidden') {
+      // If the page becomes visible again
+      if (newVisibilityState === 'visible') {
         console.log('App: Page became visible again');
-        // Don't restart initialization if app is already ready
-        if (!isAppReady && isInitializing) {
-          console.log('App: Resuming initialization after visibility change');
-          // Force app to be ready to prevent getting stuck on preloader
+        // Don't reinitialize if app was already ready
+        if (isAppReady) {
+          console.log('App: Already ready, no need to reinitialize');
+          return;
+        }
+        // If we were initializing, complete it
+        if (isInitializing) {
+          console.log('App: Completing initialization after visibility change');
           setIsInitializing(false);
           setIsAppReady(true);
         }
       }
     };
 
-    // Add event listener for visibility changes
     document.addEventListener('visibilitychange', handleVisibilityChange);
 
-    // Clean up the event listener when component unmounts
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };

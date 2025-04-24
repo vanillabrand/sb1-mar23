@@ -427,7 +427,19 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
             // Force reload to ensure we have the latest data
             loadStrategies();
           } else if (payload.eventType === 'INSERT') {
-            logService.log('info', 'New strategy created', null, 'Dashboard');
+            logService.log('info', 'New strategy created', payload.new, 'Dashboard');
+
+            // Immediately add the new strategy to the local state
+            setLocalStrategies(prev => {
+              // Only add if not already in the list
+              if (!prev.some(s => s.id === payload.new.id)) {
+                console.log('Dashboard: Adding new strategy to local state:', payload.new.id);
+                return [...prev, payload.new];
+              }
+              return prev;
+            });
+
+            // Also do a full refresh to get complete data
             loadStrategies();
           } else if (payload.eventType === 'DELETE') {
             logService.log('info', `Strategy ${payload.old.id} deleted`, null, 'Dashboard');
@@ -530,6 +542,30 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
       }},
 
       // Strategy events
+      { event: 'strategy:created', handler: (data: any) => {
+        // Handle both formats: direct strategy object or {strategy} object
+        const newStrategy = data.strategy || data;
+
+        if (!newStrategy || !newStrategy.id) {
+          console.warn('Received invalid strategy data:', data);
+          return;
+        }
+
+        logService.log('info', `Strategy created event received: ${newStrategy.id}`, newStrategy, 'Dashboard');
+
+        // Immediately add the new strategy to the local state
+        setLocalStrategies(prev => {
+          // Only add if not already in the list
+          if (!prev.some(s => s.id === newStrategy.id)) {
+            console.log('Dashboard: Adding new strategy from event:', newStrategy.id);
+            return [...prev, newStrategy];
+          }
+          return prev;
+        });
+
+        // Also do a full refresh to get complete data
+        loadStrategies();
+      }},
       { event: 'strategy:status', handler: (data: any) => {
         logService.log('info', `Strategy ${data.strategyId} status changed to ${data.status}`, null, 'Dashboard');
         loadStrategies();

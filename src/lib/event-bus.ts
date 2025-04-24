@@ -33,6 +33,16 @@ class EventBus {
     }
   }
 
+  // Alias for subscribe to match common event emitter patterns
+  on(event: string, callback: EventCallback): () => void {
+    return this.subscribe(event, callback);
+  }
+
+  // Alias for unsubscribe to match common event emitter patterns
+  off(event: string, callback: EventCallback): void {
+    this.unsubscribe(event, callback);
+  }
+
   emit(event: string, data?: any): void {
     const callbacks = this.events.get(event);
     if (callbacks) {

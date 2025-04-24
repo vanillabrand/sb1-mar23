@@ -426,7 +426,13 @@ class StrategySync extends EventEmitter {
 
       // Emit events
       this.emit('strategyCreated', strategy);
+
+      // Emit both the strategy object and an object with strategy property for compatibility
       eventBus.emit('strategy:created', strategy);
+      eventBus.emit('strategy:created', { strategy });
+
+      // Broadcast updated strategies list to ensure all components are in sync
+      this.broadcastStrategiesUpdate();
 
       return strategy;
     } catch (error) {
@@ -553,7 +559,41 @@ class StrategySync extends EventEmitter {
       // Also emit through the EventEmitter for direct subscribers
       this.emit('strategiesUpdated', strategies);
 
-      // No delayed broadcasts to avoid infinite loops
+      // Emit individual strategy:updated events for each strategy
+      // This ensures components listening for specific strategy updates receive them
+      strategies.forEach(strategy => {
+        eventBus.emit(`strategy:updated:${strategy.id}`, { strategy });
+        eventBus.emit('strategy:updated', { strategy });
+        document.dispatchEvent(new CustomEvent('strategy:update', {
+          detail: { strategy }
+        }));
+      });
+
+      // Add a delayed broadcast to ensure all components catch the update
+      // This helps with race conditions where components might not be ready yet
+      setTimeout(() => {
+        console.log(`Delayed broadcast of updated strategies list (${strategies.length} strategies)`);
+        eventBus.emit('strategies:updated', strategies);
+        document.dispatchEvent(new CustomEvent('strategies:updated', {
+          detail: { strategies }
+        }));
+
+        // Also emit app:state:updated for global state listeners
+        eventBus.emit('app:state:updated', {
+          component: 'strategy',
+          action: 'updated',
+          strategies: strategies
+        });
+      }, 500);
+
+      // Add another delayed broadcast for components that might be initializing slowly
+      setTimeout(() => {
+        console.log(`Final broadcast of updated strategies list (${strategies.length} strategies)`);
+        eventBus.emit('strategies:updated', strategies);
+        document.dispatchEvent(new CustomEvent('strategies:updated', {
+          detail: { strategies }
+        }));
+      }, 1500);
     } catch (error) {
       console.error('Error broadcasting strategies update:', error);
       logService.log('error', 'Error broadcasting strategies update', error, 'StrategySync');

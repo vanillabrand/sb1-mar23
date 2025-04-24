@@ -102,7 +102,14 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
             <Route path="/exchange-manager" element={
               <AuthGuard>
                 <PageTransition>
-                  <ExchangeManager />
+                  <ExchangeManager
+                    onExchangeConnect={(exchange) => {
+                      console.log('Exchange connected:', exchange);
+                    }}
+                    onExchangeDisconnect={() => {
+                      console.log('Exchange disconnected');
+                    }}
+                  />
                 </PageTransition>
               </AuthGuard>
             } />

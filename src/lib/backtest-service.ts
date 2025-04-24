@@ -15,6 +15,7 @@ export interface BacktestConfig {
   dataSource?: 'synthetic' | 'exchange' | 'file';
   scenario?: 'bull' | 'bear' | 'sideways' | 'volatile';
   data?: any[];
+  tradingPairs?: string[]; // Add this field
 }
 
 export interface BacktestProgress {

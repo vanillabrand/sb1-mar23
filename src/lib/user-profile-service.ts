@@ -290,6 +290,62 @@ class UserProfileService {
       return false;
     }
   }
+
+  /**
+   * Set the default exchange for the user
+   * @param exchangeId The ID of the exchange to set as default
+   * @returns True if successful, false otherwise
+   */
+  async setDefaultExchange(exchangeId: string): Promise<boolean> {
+    if (!this.userId) {
+      logService.log('warn', 'Cannot set default exchange: No user ID', null, 'UserProfileService');
+      return false;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('user_profiles')
+        .upsert({
+          user_id: this.userId,
+          default_exchange_id: exchangeId,
+          updated_at: new Date().toISOString()
+        }, {
+          onConflict: 'user_id'
+        });
+
+      if (error) throw error;
+      logService.log('info', `Set default exchange to ${exchangeId}`, null, 'UserProfileService');
+      return true;
+    } catch (error) {
+      logService.log('error', 'Failed to set default exchange', error, 'UserProfileService');
+      return false;
+    }
+  }
+
+  /**
+   * Get the default exchange ID for the user
+   * @returns The default exchange ID or null if not set
+   */
+  async getDefaultExchange(): Promise<string | null> {
+    if (!this.userId) {
+      logService.log('warn', 'Cannot get default exchange: No user ID', null, 'UserProfileService');
+      return null;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('user_profiles')
+        .select('default_exchange_id')
+        .eq('user_id', this.userId)
+        .single();
+
+      if (error) throw error;
+      return data?.default_exchange_id || null;
+    } catch (error) {
+      logService.log('error', 'Failed to get default exchange', error, 'UserProfileService');
+      return null;
+    }
+  }
 }
 
 export const userProfileService = UserProfileService.getInstance();

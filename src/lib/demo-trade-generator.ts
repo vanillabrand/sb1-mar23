@@ -8,6 +8,7 @@ import { tradeService } from './trade-service';
 import { aiService } from './ai-service';
 import type { Strategy } from './types';
 import { v4 as uuidv4 } from 'uuid';
+import { detectMarketType } from './market-type-detection';
 
 /**
  * Demo Trade Generator
@@ -128,15 +129,22 @@ class DemoTradeGenerator extends EventEmitter {
    */
   private async checkTradeUpdates(symbol: string, currentPrice: number) {
     try {
+      logService.log('debug', `Checking trade updates for ${symbol} at price ${currentPrice}`, null, 'DemoTradeGenerator');
+
       // Get all open trades for this symbol
       const { data: openTrades, error } = await supabase
         .from('trades')
         .select('*')
         .eq('symbol', symbol)
-        .eq('status', 'open');
+        .in('status', ['open', 'pending', 'executed']);
 
       if (error) throw error;
-      if (!openTrades || openTrades.length === 0) return;
+      if (!openTrades || openTrades.length === 0) {
+        logService.log('debug', `No open trades found for ${symbol}`, null, 'DemoTradeGenerator');
+        return;
+      }
+
+      logService.log('info', `Found ${openTrades.length} open trades for ${symbol}`, null, 'DemoTradeGenerator');
 
       // Check each trade for take profit or stop loss triggers
       for (const trade of openTrades) {
@@ -211,6 +219,11 @@ class DemoTradeGenerator extends EventEmitter {
 
           // If a close condition was met, update the trade
           if (closeReason) {
+            // First, release the budget for this trade
+            const tradeCost = trade.quantity * trade.price;
+            await tradeService.releaseBudgetFromTrade(trade.strategy_id, tradeCost, profit, trade.id, 'closed');
+
+            // Then update the trade in the database
             await supabase
               .from('trades')
               .update({
@@ -226,16 +239,41 @@ class DemoTradeGenerator extends EventEmitter {
             logService.log('info', `Closed trade ${trade.id} due to ${closeReason}`, {
               trade,
               currentPrice,
-              profit
+              profit,
+              tradeCost
             }, 'DemoTradeGenerator');
 
-            // Emit trade updated event
+            // Emit trade updated event with more details
             eventBus.emit('trade:update', {
               id: trade.id,
               status: 'closed',
               closeReason,
               exitPrice: currentPrice,
-              profit
+              profit,
+              strategyId: trade.strategy_id,
+              symbol: trade.symbol,
+              side: trade.side,
+              quantity: trade.quantity,
+              entryPrice: trade.price,
+              timestamp: Date.now()
+            });
+
+            // Also emit budget updated event
+            eventBus.emit('budget:updated', {
+              strategyId: trade.strategy_id,
+              tradeId: trade.id,
+              amount: tradeCost,
+              profit: profit,
+              timestamp: Date.now()
+            });
+
+            // Broadcast to all components that need to know about trade changes
+            eventBus.emit('app:state:updated', {
+              component: 'trade',
+              action: 'closed',
+              tradeId: trade.id,
+              strategyId: trade.strategy_id,
+              profit: profit
             });
           }
         } catch (tradeError) {
@@ -266,8 +304,46 @@ class DemoTradeGenerator extends EventEmitter {
     try {
       logService.log('debug', `Checking trade opportunities for strategy ${strategy.id}`, null, 'DemoTradeGenerator');
 
-      // Get the trading pairs from the strategy
-      const tradingPairs = strategy.selected_pairs || ['BTC/USDT'];
+      // Get trading pairs from all possible locations
+      let tradingPairs = [];
+
+      if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+        tradingPairs = strategy.selected_pairs;
+        logService.log('info', `Using selected_pairs for strategy ${strategy.id}`, { pairs: tradingPairs }, 'DemoTradeGenerator');
+      } else if (strategy.strategy_config?.assets && strategy.strategy_config.assets.length > 0) {
+        tradingPairs = strategy.strategy_config.assets;
+        logService.log('info', `Using strategy_config.assets for strategy ${strategy.id}`, { pairs: tradingPairs }, 'DemoTradeGenerator');
+      } else if (strategy.strategy_config?.config?.pairs && strategy.strategy_config.config.pairs.length > 0) {
+        tradingPairs = strategy.strategy_config.config.pairs;
+        logService.log('info', `Using strategy_config.config.pairs for strategy ${strategy.id}`, { pairs: tradingPairs }, 'DemoTradeGenerator');
+      } else {
+        // Default to BTC/USDT if no pairs are found
+        tradingPairs = ['BTC/USDT'];
+        logService.log('warn', `No trading pairs found for strategy ${strategy.id}, defaulting to BTC/USDT`, null, 'DemoTradeGenerator');
+
+        // Update the strategy with the default pair
+        strategy.selected_pairs = tradingPairs;
+        if (!strategy.strategy_config) strategy.strategy_config = {};
+        strategy.strategy_config.assets = tradingPairs;
+        if (!strategy.strategy_config.config) strategy.strategy_config.config = {};
+        strategy.strategy_config.config.pairs = tradingPairs;
+
+        // Save the updated strategy to the database
+        try {
+          await supabase
+            .from('strategies')
+            .update({
+              selected_pairs: tradingPairs,
+              strategy_config: strategy.strategy_config,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', strategy.id);
+
+          logService.log('info', `Updated strategy ${strategy.id} with default trading pair`, null, 'DemoTradeGenerator');
+        } catch (updateError) {
+          logService.log('warn', `Failed to update strategy with default trading pair`, updateError, 'DemoTradeGenerator');
+        }
+      }
 
       // Get budget for this strategy
       const budget = await tradeService.getBudget(strategy.id);
@@ -443,7 +519,7 @@ class DemoTradeGenerator extends EventEmitter {
 
           // Try direct trade creation as fallback
           try {
-            const uniqueTradeId = `${strategy.id}-${symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+            const uniqueTradeId = `${strategy.id}-${tradeSignal.symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
             await this.createTrade(
               strategy,
               symbol,
@@ -518,93 +594,128 @@ class DemoTradeGenerator extends EventEmitter {
         });
       }
 
-      try {
-        // Use DeepSeek AI to analyze market conditions for all pairs
-        // Include market type in the analysis request
-        const aiResult = await aiService.analyzeMarketConditions(
-          Array.from(pairHistories.keys()).join(','),
-          strategy.riskLevel || 'Medium',
-          marketData,
-          {
-            ...strategyConfig,
-            marketType: marketType, // Explicitly pass market type
-            strategyId: strategy.id, // Pass strategy ID for unique trade generation
-            strategyName: strategy.name || strategy.title, // Pass strategy name for context
-            strategyDescription: strategy.description // Pass description for context
+      // Log that we're consulting DeepSeek for trade generation
+      logService.log('info', `Consulting DeepSeek AI for trade generation for strategy ${strategy.id}`, {
+        strategyId: strategy.id,
+        pairs: Array.from(pairHistories.keys()),
+        marketType,
+        riskLevel: strategy.riskLevel || 'Medium'
+      }, 'DemoTradeGenerator');
+
+      // Make multiple attempts to get AI trade signals
+      let aiResult = null;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (!aiResult && attempts < maxAttempts) {
+        attempts++;
+        try {
+          // Use DeepSeek AI to analyze market conditions for all pairs
+          // Include market type in the analysis request
+          aiResult = await aiService.analyzeMarketConditions(
+            Array.from(pairHistories.keys()).join(','),
+            strategy.riskLevel || 'Medium',
+            marketData,
+            {
+              ...strategyConfig,
+              marketType: marketType, // Explicitly pass market type
+              strategyId: strategy.id, // Pass strategy ID for unique trade generation
+              strategyName: strategy.name || strategy.title, // Pass strategy name for context
+              strategyDescription: strategy.description, // Pass description for context
+              attempt: attempts // Pass attempt number for context
+            }
+          );
+
+          if (aiResult) {
+            logService.log('info', `Successfully received DeepSeek AI analysis for strategy ${strategy.id} on attempt ${attempts}`, {
+              strategyId: strategy.id,
+              hasTradeSignals: aiResult.trades && Array.isArray(aiResult.trades) ? aiResult.trades.length > 0 : false
+            }, 'DemoTradeGenerator');
+          } else {
+            logService.log('warn', `DeepSeek AI returned null result for strategy ${strategy.id} on attempt ${attempts}`, {
+              strategyId: strategy.id
+            }, 'DemoTradeGenerator');
           }
-        );
-
-        if (!aiResult) return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId);
-
-        // Check if DeepSeek returned multiple trade signals
-        if (aiResult.trades && Array.isArray(aiResult.trades)) {
-          // DeepSeek returned multiple trades, use them directly
-          return {
-            batchId,
-            trades: aiResult.trades.map((trade: any) => ({
-              symbol: trade.symbol || Array.from(pairHistories.keys())[0],
-              direction: trade.direction || 'Long',
-              confidence: trade.confidence || 0.7,
-              positionSize: trade.positionSize,
-              stopLossPercent: trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02),
-              takeProfitPercent: trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04),
-              trailingStop: trade.trailingStop || 0.01,
-              rationale: trade.rationale || `AI-generated ${marketType} trade for ${trade.symbol} based on ${strategy.name || strategy.title} strategy`,
-              marketType: trade.marketType || marketType, // Ensure market type is included
-              strategyId: strategy.id, // Include strategy ID for tracking
-              leverage: trade.leverage || (marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) : undefined),
-              marginType: trade.marginType || (marketType === 'futures' ? 'cross' : undefined),
-              // Include detailed entry and exit conditions
-              entryConditions: trade.entryConditions || [
-                `Price crosses ${trade.direction === 'Long' ? 'above' : 'below'} ${this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0}`
-              ],
-              exitConditions: trade.exitConditions || [
-                `Take profit at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04)))}`,
-                `Stop loss at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02)))}`
-              ]
-            }))
-          };
-        } else if (aiResult.shouldTrade) {
-          // DeepSeek returned a single trade recommendation, convert to our format
-          const symbol = Array.from(pairHistories.keys())[0];
-          const currentPrice = this.lastPrices.get(symbol) || 0;
-          const direction = aiResult.direction || 'Long';
-          const stopLossPercent = aiResult.stopLossPercent || (direction === 'Long' ? -0.02 : 0.02);
-          const takeProfitPercent = aiResult.takeProfitPercent || (direction === 'Long' ? 0.04 : -0.04);
-
-          return {
-            batchId,
-            trades: [{
-              symbol,
-              direction,
-              confidence: aiResult.confidence || 0.7,
-              positionSize: this.calculatePositionSizeFromBudget(availableBudget, aiResult.confidence || 0.7, strategy.riskLevel || 'Medium'),
-              stopLossPercent,
-              takeProfitPercent,
-              trailingStop: aiResult.trailingStop || 0.01,
-              rationale: aiResult.rationale || `AI-generated trade signal`,
-              // Include detailed entry and exit conditions
-              entryConditions: aiResult.entryConditions || [
-                `Price crosses ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
-              ],
-              exitConditions: aiResult.exitConditions || [
-                `Take profit at ${currentPrice * (1 + takeProfitPercent)}`,
-                `Stop loss at ${currentPrice * (1 + stopLossPercent)}`
-              ]
-            }]
-          };
+        } catch (aiError) {
+          logService.log('warn', `Failed to get AI trade signals on attempt ${attempts}/${maxAttempts}`, aiError, 'DemoTradeGenerator');
+          // Wait a short time before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
         }
+      }
 
-        // If DeepSeek didn't recommend any trades, generate fallback signals
-        return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId);
-      } catch (aiError) {
-        // If AI analysis fails, log the error and return fallback signals
-        logService.log('warn', 'Failed to get AI trade signals, using fallback', aiError, 'DemoTradeGenerator');
+      // If all attempts failed, use fallback
+      if (!aiResult) {
+        logService.log('warn', `All ${maxAttempts} attempts to get AI trade signals failed, using fallback`, null, 'DemoTradeGenerator');
         return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId);
       }
+
+      // Check if DeepSeek returned multiple trade signals
+      if (aiResult.trades && Array.isArray(aiResult.trades)) {
+        // DeepSeek returned multiple trades, use them directly
+        return {
+          batchId,
+          trades: aiResult.trades.map((trade: any) => ({
+            symbol: trade.symbol || Array.from(pairHistories.keys())[0],
+            direction: trade.direction || 'Long',
+            confidence: trade.confidence || 0.7,
+            positionSize: trade.positionSize,
+            stopLossPercent: trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02),
+            takeProfitPercent: trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04),
+            trailingStop: trade.trailingStop || 0.01,
+            rationale: trade.rationale || `AI-generated ${marketType} trade for ${trade.symbol} based on ${strategy.name || strategy.title} strategy`,
+            marketType: trade.marketType || marketType, // Ensure market type is included
+            strategyId: strategy.id, // Include strategy ID for tracking
+            leverage: trade.leverage || (marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) : undefined),
+            marginType: trade.marginType || (marketType === 'futures' ? 'cross' : undefined),
+            // Include detailed entry and exit conditions
+            entryConditions: trade.entryConditions || [
+              `Price crosses ${trade.direction === 'Long' ? 'above' : 'below'} ${this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0}`
+            ],
+            exitConditions: trade.exitConditions || [
+              `Take profit at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04)))}`,
+              `Stop loss at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02)))}`
+            ]
+          }))
+        };
+      } else if (aiResult.shouldTrade) {
+        // DeepSeek returned a single trade recommendation, convert to our format
+        const symbol = Array.from(pairHistories.keys())[0];
+        const currentPrice = this.lastPrices.get(symbol) || 0;
+        const direction = aiResult.direction || 'Long';
+        const stopLossPercent = aiResult.stopLossPercent || (direction === 'Long' ? -0.02 : 0.02);
+        const takeProfitPercent = aiResult.takeProfitPercent || (direction === 'Long' ? 0.04 : -0.04);
+
+        return {
+          batchId,
+          trades: [{
+            symbol,
+            direction,
+            confidence: aiResult.confidence || 0.7,
+            positionSize: this.calculatePositionSizeFromBudget(availableBudget, aiResult.confidence || 0.7, strategy.riskLevel || 'Medium'),
+            stopLossPercent,
+            takeProfitPercent,
+            trailingStop: aiResult.trailingStop || 0.01,
+            rationale: aiResult.rationale || `AI-generated trade signal`,
+            // Include detailed entry and exit conditions
+            entryConditions: aiResult.entryConditions || [
+              `Price crosses ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
+            ],
+            exitConditions: aiResult.exitConditions || [
+              `Take profit at ${currentPrice * (1 + takeProfitPercent)}`,
+              `Stop loss at ${currentPrice * (1 + stopLossPercent)}`
+            ]
+          }]
+        };
+      }
+
+      // If DeepSeek didn't recommend any trades, generate fallback signals
+      return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId);
     } catch (error) {
-      logService.log('error', 'Error generating AI trade signals', error, 'DemoTradeGenerator');
-      return null;
+      // If AI analysis fails, log the error and return fallback signals
+      logService.log('warn', 'Failed to get AI trade signals, using fallback', error, 'DemoTradeGenerator');
+      // Create a new batch ID since the original one might be undefined
+      const fallbackBatchId = Date.now();
+      return this.generateFallbackTradeSignals(pairHistories, availableBudget, fallbackBatchId);
     }
   }
 
@@ -856,6 +967,36 @@ class DemoTradeGenerator extends EventEmitter {
     exitConditions?: string[]
   ) {
     try {
+      // Validate inputs to prevent errors
+      if (!strategy || !strategy.id) {
+        logService.log('error', `Invalid strategy for trade creation`, { symbol }, 'DemoTradeGenerator');
+        return null;
+      }
+
+      if (!symbol) {
+        logService.log('error', `Missing symbol for trade creation`, { strategyId: strategy.id }, 'DemoTradeGenerator');
+        return null;
+      }
+
+      if (!currentPrice || currentPrice <= 0) {
+        logService.log('error', `Invalid price for trade creation: ${currentPrice}`, { symbol, strategyId: strategy.id }, 'DemoTradeGenerator');
+        return null;
+      }
+
+      if (!positionSize || positionSize <= 0) {
+        logService.log('error', `Invalid position size for trade creation: ${positionSize}`, { symbol, strategyId: strategy.id }, 'DemoTradeGenerator');
+        return null;
+      }
+
+      // Reserve budget for this trade
+      const tradeCost = positionSize * currentPrice;
+      const budgetReserved = await tradeService.reserveBudgetForTrade(strategy.id, tradeCost);
+
+      if (!budgetReserved) {
+        logService.log('warn', `Failed to reserve budget for trade: ${tradeCost}`, { symbol, strategyId: strategy.id }, 'DemoTradeGenerator');
+        // Continue anyway in demo mode
+      }
+
       // Create trade directly in the database
       // Store trade details in metadata since some fields aren't in the database schema
       const tradeMetadata = {
@@ -883,11 +1024,14 @@ class DemoTradeGenerator extends EventEmitter {
         riskLevel: strategy.riskLevel
       };
 
+      // Generate a unique ID for this trade
+      const tradeId = uniqueTradeId || `${strategy.id}-${symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${uuidv4().substring(0, 8)}`;
+
       // Create trade in the database with only the fields that exist in the schema
       const { data: trade, error } = await supabase
         .from('trades')
         .insert({
-          id: uniqueTradeId || `${strategy.id}-${symbol}-${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${uuidv4().substring(0, 8)}`,
+          id: tradeId,
           strategy_id: strategy.id,
           symbol,
           side: direction === 'Long' ? 'buy' : 'sell',
@@ -903,7 +1047,31 @@ class DemoTradeGenerator extends EventEmitter {
         .select()
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // Try a simplified insert if the first one fails
+        logService.log('warn', `Failed to create trade with full data, trying simplified insert`, error, 'DemoTradeGenerator');
+
+        const { data: simpleTrade, error: simpleError } = await supabase
+          .from('trades')
+          .insert({
+            id: tradeId,
+            strategy_id: strategy.id,
+            symbol,
+            side: direction === 'Long' ? 'buy' : 'sell',
+            quantity: positionSize,
+            price: currentPrice,
+            status: 'open',
+            created_at: new Date().toISOString()
+          })
+          .select()
+          .single();
+
+        if (simpleError) {
+          throw simpleError;
+        }
+
+        return simpleTrade;
+      }
 
       // Update trade status to executed after a short delay
       setTimeout(async () => {

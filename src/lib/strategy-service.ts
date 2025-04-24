@@ -426,13 +426,72 @@ class StrategyService {
 
   async activateStrategy(id: string): Promise<Strategy> {
     try {
+      // First, get the current strategy to check if it has trading pairs
+      const { data: currentStrategy, error: getError } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('id', id)
+        .single();
+
+      if (getError) {
+        logService.log('error', 'Failed to get strategy for activation', { error: getError, id }, 'StrategyService');
+        throw getError;
+      }
+
+      if (!currentStrategy) {
+        throw new Error(`Strategy with ID ${id} not found`);
+      }
+
+      // Check if the strategy has trading pairs
+      let tradingPairs = [];
+      let updateNeeded = false;
+
+      if (currentStrategy.selected_pairs && currentStrategy.selected_pairs.length > 0) {
+        tradingPairs = currentStrategy.selected_pairs;
+        logService.log('info', `Strategy ${id} has selected_pairs`, { pairs: tradingPairs }, 'StrategyService');
+      } else if (currentStrategy.strategy_config?.assets && currentStrategy.strategy_config.assets.length > 0) {
+        tradingPairs = currentStrategy.strategy_config.assets;
+        logService.log('info', `Strategy ${id} has strategy_config.assets`, { pairs: tradingPairs }, 'StrategyService');
+
+        // Update selected_pairs for consistency
+        currentStrategy.selected_pairs = tradingPairs;
+        updateNeeded = true;
+      } else if (currentStrategy.strategy_config?.config?.pairs && currentStrategy.strategy_config.config.pairs.length > 0) {
+        tradingPairs = currentStrategy.strategy_config.config.pairs;
+        logService.log('info', `Strategy ${id} has strategy_config.config.pairs`, { pairs: tradingPairs }, 'StrategyService');
+
+        // Update selected_pairs for consistency
+        currentStrategy.selected_pairs = tradingPairs;
+        updateNeeded = true;
+      } else {
+        // No trading pairs found, add default
+        tradingPairs = ['BTC/USDT'];
+        logService.log('warn', `Strategy ${id} has no trading pairs, adding default BTC/USDT`, null, 'StrategyService');
+
+        // Update strategy with default trading pair
+        currentStrategy.selected_pairs = tradingPairs;
+        if (!currentStrategy.strategy_config) currentStrategy.strategy_config = {};
+        currentStrategy.strategy_config.assets = tradingPairs;
+        if (!currentStrategy.strategy_config.config) currentStrategy.strategy_config.config = {};
+        currentStrategy.strategy_config.config.pairs = tradingPairs;
+        updateNeeded = true;
+      }
+
+      // Update the strategy with active status and trading pairs if needed
+      const updateData = {
+        status: 'active',
+        updated_at: new Date().toISOString(),
+        deactivated_at: null // Clear deactivated_at when activating
+      };
+
+      if (updateNeeded) {
+        updateData['selected_pairs'] = currentStrategy.selected_pairs;
+        updateData['strategy_config'] = currentStrategy.strategy_config;
+      }
+
       const { data, error } = await supabase
         .from('strategies')
-        .update({
-          status: 'active',
-          updated_at: new Date().toISOString(),
-          deactivated_at: null // Clear deactivated_at when activating
-        })
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();
@@ -446,7 +505,15 @@ class StrategyService {
         throw new Error(`Strategy with ID ${id} not found or activation failed`);
       }
 
-      logService.log('info', `Strategy ${id} activated successfully`, null, 'StrategyService');
+      logService.log('info', `Strategy ${id} activated successfully with trading pairs: ${tradingPairs.join(', ')}`, null, 'StrategyService');
+
+      // Emit event to notify other components
+      eventBus.emit('strategy:activated', {
+        strategyId: id,
+        strategy: data,
+        timestamp: Date.now()
+      });
+
       return data;
     } catch (error) {
       logService.log('error', 'Failed to activate strategy', { error, id }, 'StrategyService');

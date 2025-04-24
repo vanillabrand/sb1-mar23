@@ -3,9 +3,12 @@ import { logService } from './log-service';
 import { cacheService } from './cache-service';
 import { eventBus } from './event-bus';
 
+import { config } from './config';
+
 // Supabase connection details
-const supabaseUrl = process.env.REACT_APP_SUPABASE_URL || '';
-const supabaseKey = process.env.REACT_APP_SUPABASE_KEY || '';
+// Using let instead of const to allow reassignment in demo mode
+let supabaseUrl = config.supabaseUrl || '';
+let supabaseKey = config.supabaseAnonKey || '';
 
 // Cache namespaces
 const CACHE_NAMESPACES = {
@@ -37,13 +40,53 @@ class EnhancedSupabase {
   private readonly CACHE_ENABLED = true;
 
   private constructor() {
-    // Create the main client
-    this.client = createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true
+    // Check if Supabase URL and key are available
+    if (!supabaseUrl) {
+      // Check if we're in demo mode
+      if (config.DEMO_MODE) {
+        // In demo mode, we can use a mock URL and key
+        const mockUrl = 'https://mock.supabase.co';
+        const mockKey = 'mock-key';
+
+        logService.log('warn', 'Supabase URL is missing, but running in demo mode. Using mock Supabase.', {
+          mockUrl,
+          demoMode: config.DEMO_MODE
+        }, 'EnhancedSupabase');
+
+        // Override the variables for demo mode
+        supabaseUrl = mockUrl;
+        supabaseKey = mockKey;
+      } else {
+        // Not in demo mode, so we need the real URL
+        const errorMessage = 'Supabase URL is missing. Please check your environment variables.';
+        logService.log('error', errorMessage, {
+          configKeys: Object.keys(config),
+          demoMode: config.DEMO_MODE
+        }, 'EnhancedSupabase');
+        throw new Error(errorMessage);
       }
-    });
+    }
+
+    if (!supabaseKey && !config.DEMO_MODE) {
+      const errorMessage = 'Supabase key is missing. Please check your environment variables.';
+      logService.log('error', errorMessage, null, 'EnhancedSupabase');
+      throw new Error(errorMessage);
+    }
+
+    // Create the main client
+    if (config.DEMO_MODE && (!supabaseUrl || !supabaseKey || supabaseUrl === 'https://mock.supabase.co')) {
+      // In demo mode with missing credentials, create a mock client
+      this.client = this.createMockClient();
+      logService.log('info', 'Created mock Supabase client for demo mode', null, 'EnhancedSupabase');
+    } else {
+      // Create a real client
+      this.client = createClient(supabaseUrl, supabaseKey, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true
+        }
+      });
+    }
 
     // Initialize connection pool
     this.initializeConnectionPool();
@@ -51,7 +94,9 @@ class EnhancedSupabase {
     // Initialize cache namespaces
     this.initializeCacheNamespaces();
 
-    logService.log('info', 'Enhanced Supabase client initialized', null, 'EnhancedSupabase');
+    logService.log('info', 'Enhanced Supabase client initialized', {
+      url: supabaseUrl.substring(0, 20) + '...' // Log partial URL for debugging
+    }, 'EnhancedSupabase');
   }
 
   static getInstance(): EnhancedSupabase {
@@ -74,6 +119,12 @@ class EnhancedSupabase {
    * @returns Promise that resolves to a Supabase client
    */
   async getConnection(): Promise<SupabaseClient> {
+    // Check if we're in demo mode
+    if (config.DEMO_MODE && (!supabaseUrl || !supabaseKey || supabaseUrl === 'https://mock.supabase.co')) {
+      // In demo mode, always return the main client (which is a mock client)
+      return this.client;
+    }
+
     // If pool is disabled or empty, return the main client
     if (this.connectionPool.length === 0) {
       return this.client;
@@ -88,7 +139,9 @@ class EnhancedSupabase {
     // If no connections are available, wait for one to become available
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
-        reject(new Error('Connection pool checkout timeout'));
+        // On timeout, return the main client as a fallback
+        logService.log('warn', 'Connection pool checkout timeout, using main client as fallback', null, 'EnhancedSupabase');
+        resolve(this.client);
       }, this.POOL_CHECKOUT_TIMEOUT);
 
       const checkInterval = setInterval(() => {
@@ -119,6 +172,13 @@ class EnhancedSupabase {
    * Initialize the connection pool
    */
   private initializeConnectionPool(): void {
+    // Skip connection pool in demo mode with mock client
+    if (config.DEMO_MODE && (!supabaseUrl || !supabaseKey || supabaseUrl === 'https://mock.supabase.co')) {
+      logService.log('info', 'Skipping connection pool initialization in demo mode', null, 'EnhancedSupabase');
+      this.connectionPool = [];
+      return;
+    }
+
     // Create connections for the pool
     for (let i = 0; i < this.MAX_POOL_SIZE; i++) {
       const connection = createClient(supabaseUrl, supabaseKey, {
@@ -131,6 +191,150 @@ class EnhancedSupabase {
     }
 
     logService.log('info', `Initialized Supabase connection pool with ${this.MAX_POOL_SIZE} connections`, null, 'EnhancedSupabase');
+  }
+
+  /**
+   * Create a mock Supabase client for demo mode
+   * @returns Mock Supabase client
+   */
+  private createMockClient(): any {
+    // Create a mock client with the same interface as the real client
+    const mockClient = {
+      // Mock auth methods
+      auth: {
+        getUser: () => Promise.resolve({ data: { user: { id: 'mock-user-id', email: 'demo@example.com' } }, error: null }),
+        signIn: () => Promise.resolve({ data: { user: { id: 'mock-user-id', email: 'demo@example.com' } }, error: null }),
+        signOut: () => Promise.resolve({ error: null }),
+        onAuthStateChange: (callback: any) => {
+          // Immediately call the callback with a signed-in state
+          callback('SIGNED_IN', { user: { id: 'mock-user-id', email: 'demo@example.com' } });
+          return { data: { subscription: { unsubscribe: () => {} } } };
+        }
+      },
+
+      // Mock database methods
+      from: (table: string) => {
+        return {
+          select: (columns: string = '*') => {
+            return {
+              eq: (column: string, value: any) => {
+                return {
+                  single: () => this.getMockData(table, column, value, true),
+                  limit: (limit: number) => this.getMockData(table, column, value, false, limit),
+                  order: () => ({
+                    limit: (limit: number) => this.getMockData(table, column, value, false, limit)
+                  }),
+                  range: () => this.getMockData(table, column, value)
+                };
+              },
+              neq: () => ({
+                limit: (limit: number) => this.getMockData(table, null, null, false, limit)
+              }),
+              limit: (limit: number) => this.getMockData(table, null, null, false, limit),
+              order: () => ({
+                limit: (limit: number) => this.getMockData(table, null, null, false, limit)
+              })
+            };
+          },
+          insert: (data: any) => {
+            return {
+              select: () => {
+                // Generate a mock ID for the inserted data
+                const mockId = `mock-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+                const result = Array.isArray(data)
+                  ? data.map(item => ({ ...item, id: item.id || mockId }))
+                  : [{ ...data, id: data.id || mockId }];
+
+                return Promise.resolve({ data: result, error: null });
+              }
+            };
+          },
+          update: (data: any) => {
+            return {
+              eq: () => ({
+                select: () => Promise.resolve({ data: [{ ...data, id: 'mock-id' }], error: null })
+              })
+            };
+          },
+          delete: () => {
+            return {
+              eq: () => Promise.resolve({ error: null })
+            };
+          }
+        };
+      },
+
+      // Mock storage methods
+      storage: {
+        from: (bucket: string) => ({
+          upload: () => Promise.resolve({ data: { path: 'mock-path' }, error: null }),
+          download: () => Promise.resolve({ data: new Blob(['mock data']), error: null }),
+          list: () => Promise.resolve({ data: [{ name: 'mock-file.txt' }], error: null }),
+          remove: () => Promise.resolve({ error: null })
+        })
+      }
+    };
+
+    return mockClient;
+  }
+
+  /**
+   * Get mock data for a table
+   * @param table Table name
+   * @param column Column name for filtering
+   * @param value Value for filtering
+   * @param single Whether to return a single result
+   * @param limit Maximum number of results
+   * @returns Promise with mock data
+   */
+  private getMockData(table: string, column: string | null, value: any, single: boolean = false, limit: number = 10): Promise<any> {
+    // Generate mock data based on the table name
+    let mockData: any[] = [];
+
+    switch (table) {
+      case 'strategies':
+        mockData = [
+          { id: 'mock-strategy-1', name: 'Mock Strategy 1', description: 'A mock strategy', created_at: new Date().toISOString(), user_id: 'mock-user-id', status: 'active', budget: 1000 },
+          { id: 'mock-strategy-2', name: 'Mock Strategy 2', description: 'Another mock strategy', created_at: new Date().toISOString(), user_id: 'mock-user-id', status: 'inactive', budget: 500 },
+          { id: 'mock-strategy-3', name: 'Mock Strategy 3', description: 'Yet another mock strategy', created_at: new Date().toISOString(), user_id: 'mock-user-id', status: 'active', budget: 2000 }
+        ];
+        break;
+      case 'trades':
+        mockData = [
+          { id: 'mock-trade-1', strategy_id: 'mock-strategy-1', symbol: 'BTC/USDT', side: 'buy', amount: 0.1, entry_price: 50000, status: 'open', created_at: new Date().toISOString() },
+          { id: 'mock-trade-2', strategy_id: 'mock-strategy-1', symbol: 'ETH/USDT', side: 'sell', amount: 1, entry_price: 3000, status: 'closed', created_at: new Date().toISOString(), exit_price: 3100, profit: 100 },
+          { id: 'mock-trade-3', strategy_id: 'mock-strategy-2', symbol: 'SOL/USDT', side: 'buy', amount: 10, entry_price: 100, status: 'open', created_at: new Date().toISOString() }
+        ];
+        break;
+      case 'users':
+        mockData = [
+          { id: 'mock-user-id', email: 'demo@example.com', name: 'Demo User', created_at: new Date().toISOString() }
+        ];
+        break;
+      default:
+        mockData = [
+          { id: 'mock-id-1', name: 'Mock Item 1', created_at: new Date().toISOString() },
+          { id: 'mock-id-2', name: 'Mock Item 2', created_at: new Date().toISOString() },
+          { id: 'mock-id-3', name: 'Mock Item 3', created_at: new Date().toISOString() }
+        ];
+    }
+
+    // Filter data if column and value are provided
+    if (column && value !== undefined && value !== null) {
+      mockData = mockData.filter(item => item[column] === value);
+    }
+
+    // Limit the number of results
+    if (mockData.length > limit) {
+      mockData = mockData.slice(0, limit);
+    }
+
+    // Return a single result if requested
+    if (single) {
+      return Promise.resolve({ data: mockData.length > 0 ? mockData[0] : null, error: null });
+    }
+
+    return Promise.resolve({ data: mockData, error: null });
   }
 
   /**
@@ -449,11 +653,11 @@ class EnhancedSupabase {
    */
   getCacheStats(): Record<string, any> {
     const stats: Record<string, any> = {};
-    
+
     for (const namespace of Object.values(CACHE_NAMESPACES)) {
       stats[namespace] = cacheService.getStats(namespace);
     }
-    
+
     return stats;
   }
 }

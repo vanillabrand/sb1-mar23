@@ -659,6 +659,21 @@ class GlobalCacheService {
   }
 
   /**
+   * Set portfolio summary data in the global cache
+   * @param summary The portfolio summary data to cache
+   */
+  setPortfolioSummary(summary: any): void {
+    try {
+      const cacheKey = 'portfolio_summary';
+      this.portfolioCache.set(cacheKey, summary);
+      this.portfolioLastUpdate = Date.now();
+      logService.log('info', 'Updated portfolio summary in global cache', null, 'GlobalCacheService');
+    } catch (error) {
+      logService.log('error', 'Failed to set portfolio summary in cache', error, 'GlobalCacheService');
+    }
+  }
+
+  /**
    * Get portfolio summary data from the global cache
    * @returns Portfolio summary data
    */

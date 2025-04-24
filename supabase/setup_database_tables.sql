@@ -1,8 +1,29 @@
 -- This SQL script sets up the necessary tables for the trading application
 -- Run this in the Supabase SQL editor
 
--- Create extension for UUID generation if not already created
+-- Enable UUID extension if not already enabled
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+-- Wrap in transaction for atomicity
+BEGIN;
+
+-- Function to verify if auth schema exists
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'auth') THEN
+        RAISE EXCEPTION 'auth schema does not exist. Please ensure Supabase Auth is properly set up.';
+    END IF;
+END
+$$;
+
+-- Verify required tables exist
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'strategies') THEN
+        RAISE EXCEPTION 'strategies table does not exist. Please create it first.';
+    END IF;
+END
+$$;
 
 -- Create strategies table if it doesn't exist
 CREATE TABLE IF NOT EXISTS strategies (
@@ -103,19 +124,103 @@ CREATE TABLE IF NOT EXISTS trade_signals (
     metadata JSONB DEFAULT '{}'::JSONB
 );
 
--- Create strategy_templates table if it doesn't exist (alias for template_strategies)
-CREATE TABLE IF NOT EXISTS strategy_templates (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    name TEXT NOT NULL,
-    description TEXT,
-    type TEXT DEFAULT 'template',
-    status TEXT DEFAULT 'active',
-    selected_pairs JSONB DEFAULT '[]'::JSONB,
-    strategy_config JSONB DEFAULT '{}'::JSONB,
-    performance NUMERIC DEFAULT 0
-);
+-- Create strategy_templates table if it doesn't exist
+DO $$ 
+BEGIN
+    CREATE TABLE IF NOT EXISTS strategy_templates (
+        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+        name TEXT NOT NULL,
+        title TEXT,
+        description TEXT,
+        type TEXT DEFAULT 'template',
+        status TEXT DEFAULT 'active',
+        risk_level TEXT DEFAULT 'Medium',
+        selected_pairs JSONB DEFAULT '["BTC/USDT"]'::JSONB,
+        strategy_config JSONB DEFAULT '{
+            "indicatorType": "momentum",
+            "entryConditions": {},
+            "exitConditions": {},
+            "tradeParameters": {
+                "positionSize": 0.1,
+                "maxOpenPositions": 1,
+                "stopLoss": 2,
+                "takeProfit": 4
+            }
+        }'::JSONB,
+        performance NUMERIC DEFAULT 0,
+        CONSTRAINT valid_risk_level CHECK (
+            risk_level IN (
+                'Ultra Low',
+                'Low',
+                'Medium',
+                'High',
+                'Ultra High',
+                'Extreme',
+                'God Mode'
+            )
+        )
+    );
+
+    -- Create indexes for better performance
+    CREATE INDEX IF NOT EXISTS idx_strategy_templates_risk_level ON strategy_templates(risk_level);
+    CREATE INDEX IF NOT EXISTS idx_strategy_templates_status ON strategy_templates(status);
+
+EXCEPTION
+    WHEN duplicate_table THEN 
+        -- Table already exists, update the constraints if needed
+        ALTER TABLE strategy_templates 
+            DROP CONSTRAINT IF EXISTS valid_risk_level;
+        
+        ALTER TABLE strategy_templates 
+            ADD CONSTRAINT valid_risk_level 
+            CHECK (
+                risk_level IN (
+                    'Ultra Low',
+                    'Low',
+                    'Medium',
+                    'High',
+                    'Ultra High',
+                    'Extreme',
+                    'God Mode'
+                )
+            );
+END $$;
+
+-- Enable RLS
+ALTER TABLE strategy_templates ENABLE ROW LEVEL SECURITY;
+
+-- Drop existing policies
+DROP POLICY IF EXISTS "Anyone can view templates" ON strategy_templates;
+DROP POLICY IF EXISTS "Anyone can create templates" ON strategy_templates;
+DROP POLICY IF EXISTS "Anyone can update templates" ON strategy_templates;
+DROP POLICY IF EXISTS "Anyone can delete templates" ON strategy_templates;
+
+-- Create new policies
+CREATE POLICY "Anyone can view templates"
+    ON strategy_templates
+    FOR SELECT
+    USING (true);
+
+CREATE POLICY "Anyone can create templates"
+    ON strategy_templates
+    FOR INSERT
+    WITH CHECK (auth.role() = 'authenticated');
+
+CREATE POLICY "Anyone can update templates"
+    ON strategy_templates
+    FOR UPDATE
+    USING (auth.role() = 'authenticated');
+
+CREATE POLICY "Anyone can delete templates"
+    ON strategy_templates
+    FOR DELETE
+    USING (auth.role() = 'authenticated');
+
+-- Grant necessary permissions
+GRANT ALL ON strategy_templates TO authenticated;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO authenticated;
 
 -- Create transaction_history table if it doesn't exist
 CREATE TABLE IF NOT EXISTS transaction_history (
@@ -168,8 +273,14 @@ USING (auth.uid() = user_id);
 -- Create RLS policies for trades table to ensure user isolation
 ALTER TABLE trades ENABLE ROW LEVEL SECURITY;
 
--- Users can only see trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see trades for their own strategies"
+-- Drop existing policies first
+DROP POLICY IF EXISTS "Users can only see trades for their own strategies" ON trades;
+DROP POLICY IF EXISTS "Users can only insert trades for their own strategies" ON trades;
+DROP POLICY IF EXISTS "Users can only update trades for their own strategies" ON trades;
+DROP POLICY IF EXISTS "Users can only delete trades for their own strategies" ON trades;
+
+-- Create policies
+CREATE POLICY "Users can only see trades for their own strategies"
 ON trades
 FOR SELECT
 USING (
@@ -178,8 +289,7 @@ USING (
     )
 );
 
--- Users can only insert trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert trades for their own strategies"
+CREATE POLICY "Users can only insert trades for their own strategies"
 ON trades
 FOR INSERT
 WITH CHECK (
@@ -188,8 +298,7 @@ WITH CHECK (
     )
 );
 
--- Users can only update trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update trades for their own strategies"
+CREATE POLICY "Users can only update trades for their own strategies"
 ON trades
 FOR UPDATE
 USING (
@@ -198,8 +307,7 @@ USING (
     )
 );
 
--- Users can only delete trades for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete trades for their own strategies"
+CREATE POLICY "Users can only delete trades for their own strategies"
 ON trades
 FOR DELETE
 USING (
@@ -211,33 +319,52 @@ USING (
 -- Create RLS policies for template_strategies
 ALTER TABLE template_strategies ENABLE ROW LEVEL SECURITY;
 
--- Allow all authenticated users to read template strategies
-CREATE POLICY IF NOT EXISTS "Template strategies are readable by all authenticated users"
-ON template_strategies
-FOR SELECT
-USING (auth.role() = 'authenticated');
+-- Drop existing policies first (with error handling)
+DO $$
+BEGIN
+    DROP POLICY IF EXISTS "Template strategies are readable by all authenticated users" ON template_strategies;
+    DROP POLICY IF EXISTS "Only admins can insert template strategies" ON template_strategies;
+    DROP POLICY IF EXISTS "Only admins can update template strategies" ON template_strategies;
+    DROP POLICY IF EXISTS "Only admins can delete template strategies" ON template_strategies;
+EXCEPTION
+    WHEN undefined_table THEN
+        RAISE NOTICE 'template_strategies table does not exist yet';
+END $$;
 
--- Only allow admins to insert, update, or delete template strategies
-CREATE POLICY IF NOT EXISTS "Only admins can insert template strategies"
-ON template_strategies
-FOR INSERT
-WITH CHECK (auth.role() = 'service_role');
+-- Create policies with proper error handling
+DO $$
+BEGIN
+    CREATE POLICY "Template strategies are readable by all authenticated users"
+    ON template_strategies FOR SELECT
+    USING (auth.role() = 'authenticated');
 
-CREATE POLICY IF NOT EXISTS "Only admins can update template strategies"
-ON template_strategies
-FOR UPDATE
-USING (auth.role() = 'service_role');
+    CREATE POLICY "Only admins can insert template strategies"
+    ON template_strategies FOR INSERT
+    WITH CHECK (auth.role() = 'service_role');
 
-CREATE POLICY IF NOT EXISTS "Only admins can delete template strategies"
-ON template_strategies
-FOR DELETE
-USING (auth.role() = 'service_role');
+    CREATE POLICY "Only admins can update template strategies"
+    ON template_strategies FOR UPDATE
+    USING (auth.role() = 'service_role');
+
+    CREATE POLICY "Only admins can delete template strategies"
+    ON template_strategies FOR DELETE
+    USING (auth.role() = 'service_role');
+EXCEPTION
+    WHEN duplicate_object THEN
+        RAISE NOTICE 'policies already exist for template_strategies';
+END $$;
 
 -- Create RLS policies for monitoring_status
 ALTER TABLE monitoring_status ENABLE ROW LEVEL SECURITY;
 
--- Users can only see monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see monitoring status for their own strategies"
+-- Drop existing policies first
+DROP POLICY IF EXISTS "Users can only see monitoring status for their own strategies" ON monitoring_status;
+DROP POLICY IF EXISTS "Users can only insert monitoring status for their own strategies" ON monitoring_status;
+DROP POLICY IF EXISTS "Users can only update monitoring status for their own strategies" ON monitoring_status;
+DROP POLICY IF EXISTS "Users can only delete monitoring status for their own strategies" ON monitoring_status;
+
+-- Create policies (without IF NOT EXISTS)
+CREATE POLICY "Users can only see monitoring status for their own strategies"
 ON monitoring_status
 FOR SELECT
 USING (
@@ -246,8 +373,7 @@ USING (
     )
 );
 
--- Users can only insert monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert monitoring status for their own strategies"
+CREATE POLICY "Users can only insert monitoring status for their own strategies"
 ON monitoring_status
 FOR INSERT
 WITH CHECK (
@@ -256,8 +382,7 @@ WITH CHECK (
     )
 );
 
--- Users can only update monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update monitoring status for their own strategies"
+CREATE POLICY "Users can only update monitoring status for their own strategies"
 ON monitoring_status
 FOR UPDATE
 USING (
@@ -266,8 +391,7 @@ USING (
     )
 );
 
--- Users can only delete monitoring status for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete monitoring status for their own strategies"
+CREATE POLICY "Users can only delete monitoring status for their own strategies"
 ON monitoring_status
 FOR DELETE
 USING (
@@ -279,8 +403,14 @@ USING (
 -- Create RLS policies for strategy_performance
 ALTER TABLE strategy_performance ENABLE ROW LEVEL SECURITY;
 
--- Users can only see performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see performance for their own strategies"
+-- Drop existing policies first
+DROP POLICY IF EXISTS "Users can only see performance for their own strategies" ON strategy_performance;
+DROP POLICY IF EXISTS "Users can only insert performance for their own strategies" ON strategy_performance;
+DROP POLICY IF EXISTS "Users can only update performance for their own strategies" ON strategy_performance;
+DROP POLICY IF EXISTS "Users can only delete performance for their own strategies" ON strategy_performance;
+
+-- Create policies (without IF NOT EXISTS)
+CREATE POLICY "Users can only see performance for their own strategies"
 ON strategy_performance
 FOR SELECT
 USING (
@@ -289,8 +419,7 @@ USING (
     )
 );
 
--- Users can only insert performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert performance for their own strategies"
+CREATE POLICY "Users can only insert performance for their own strategies"
 ON strategy_performance
 FOR INSERT
 WITH CHECK (
@@ -299,8 +428,7 @@ WITH CHECK (
     )
 );
 
--- Users can only update performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update performance for their own strategies"
+CREATE POLICY "Users can only update performance for their own strategies"
 ON strategy_performance
 FOR UPDATE
 USING (
@@ -309,8 +437,7 @@ USING (
     )
 );
 
--- Users can only delete performance for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete performance for their own strategies"
+CREATE POLICY "Users can only delete performance for their own strategies"
 ON strategy_performance
 FOR DELETE
 USING (
@@ -327,8 +454,14 @@ CREATE INDEX IF NOT EXISTS idx_trade_signals_strategy ON trade_signals(strategy_
 CREATE INDEX IF NOT EXISTS idx_trade_signals_status ON trade_signals(status);
 CREATE INDEX IF NOT EXISTS idx_trade_signals_expires ON trade_signals(expires_at);
 
--- Users can only see trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only see trade signals for their own strategies"
+-- Drop existing policies first
+DROP POLICY IF EXISTS "Users can only see trade signals for their own strategies" ON trade_signals;
+DROP POLICY IF EXISTS "Users can only insert trade signals for their own strategies" ON trade_signals;
+DROP POLICY IF EXISTS "Users can only update trade signals for their own strategies" ON trade_signals;
+DROP POLICY IF EXISTS "Users can only delete trade signals for their own strategies" ON trade_signals;
+
+-- Create policies (without IF NOT EXISTS)
+CREATE POLICY "Users can only see trade signals for their own strategies"
 ON trade_signals
 FOR SELECT
 USING (
@@ -337,8 +470,7 @@ USING (
     )
 );
 
--- Users can only insert trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only insert trade signals for their own strategies"
+CREATE POLICY "Users can only insert trade signals for their own strategies"
 ON trade_signals
 FOR INSERT
 WITH CHECK (
@@ -347,8 +479,7 @@ WITH CHECK (
     )
 );
 
--- Users can only update trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only update trade signals for their own strategies"
+CREATE POLICY "Users can only update trade signals for their own strategies"
 ON trade_signals
 FOR UPDATE
 USING (
@@ -357,8 +488,7 @@ USING (
     )
 );
 
--- Users can only delete trade signals for their own strategies
-CREATE POLICY IF NOT EXISTS "Users can only delete trade signals for their own strategies"
+CREATE POLICY "Users can only delete trade signals for their own strategies"
 ON trade_signals
 FOR DELETE
 USING (
@@ -542,3 +672,10 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION delete_strategy(UUID) TO authenticated;
 GRANT EXECUTE ON FUNCTION execute_sql(TEXT) TO authenticated;
 GRANT EXECUTE ON FUNCTION copy_template_strategy(UUID) TO authenticated;
+
+-- Grant necessary permissions
+GRANT USAGE ON SCHEMA public TO authenticated;
+GRANT ALL ON ALL TABLES IN SCHEMA public TO authenticated;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO authenticated;
+
+COMMIT;

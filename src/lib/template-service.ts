@@ -130,46 +130,62 @@ export class TemplateService {
 
   async createTemplate(template: Partial<StrategyTemplate>): Promise<StrategyTemplate> {
     try {
-      // Create a minimal template object with only the fields we know exist in the database
-      // Based on the error messages, we know these fields exist
-      const minimalTemplate: any = {
-        id: template.id || uuidv4(),
-        title: template.title,
+      // Ensure required fields and defaults
+      const templateData = {
+        name: template.name,
+        title: template.title || template.name,
         description: template.description,
-        type: template.type || 'system_template',
-        user_id: template.user_id,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        name: template.title || 'Strategy Template' // Add name field which is required
+        type: template.type || 'template',
+        risk_level: template.riskLevel || 'Medium',
+        selected_pairs: template.selected_pairs || ['BTC/USDT'],
+        strategy_config: template.strategy_config || {
+          indicatorType: 'momentum',
+          entryConditions: {},
+          exitConditions: {},
+          trade_parameters: {
+            position_size: 0.1
+          }
+        },
+        status: 'active'
       };
-
-      // Add risk_level if it exists in the template
-      if (template.riskLevel || template.risk_level) {
-        minimalTemplate.risk_level = template.riskLevel || template.risk_level;
-      }
-
-      // Add assets if they exist in the template
-      if (template.assets || (template.selected_pairs && template.selected_pairs.length > 0)) {
-        minimalTemplate.assets = template.assets || template.selected_pairs;
-      }
-
-      // Log the template we're trying to create
-      logService.log('info', 'Creating template with minimal data', minimalTemplate, 'TemplateService');
 
       const { data, error } = await supabase
         .from('strategy_templates')
-        .insert([minimalTemplate])
+        .insert(templateData)
         .select()
         .single();
 
       if (error) throw error;
-      if (!data) throw new Error('No data returned from template creation');
+      if (!data) throw new Error('Failed to create template');
 
-      return data;
+      return this.convertDatabaseToFrontendFormat(data);
     } catch (error) {
       logService.log('error', 'Failed to create template', error, 'TemplateService');
       throw error;
     }
+  }
+
+  private convertDatabaseToFrontendFormat(dbTemplate: any): StrategyTemplate {
+    return {
+      id: dbTemplate.id,
+      name: dbTemplate.name,
+      title: dbTemplate.title || dbTemplate.name,
+      description: dbTemplate.description,
+      type: dbTemplate.type,
+      riskLevel: dbTemplate.risk_level,
+      selected_pairs: dbTemplate.selected_pairs || ['BTC/USDT'],
+      strategy_config: dbTemplate.strategy_config || {
+        indicatorType: 'momentum',
+        entryConditions: {},
+        exitConditions: {},
+        trade_parameters: {
+          position_size: 0.1
+        }
+      },
+      status: dbTemplate.status,
+      created_at: dbTemplate.created_at,
+      updated_at: dbTemplate.updated_at
+    };
   }
 
   async updateTemplate(id: string, updates: Partial<StrategyTemplate>): Promise<StrategyTemplate> {

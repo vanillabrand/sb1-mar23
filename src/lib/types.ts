@@ -31,6 +31,7 @@ export interface MarketAnalysis {
 export interface Strategy {
   id: string;
   title: string;
+  name?: string; // Added name field
   description: string;
   riskLevel: RiskLevel;
   status: 'active' | 'inactive' | 'paused';
@@ -42,6 +43,7 @@ export interface Strategy {
   selected_pairs: string[];
   strategy_config: any;
   marketType?: MarketType; // Added market type field
+  market_type?: MarketType; // Added snake_case version for database compatibility
 }
 
 export interface Trade {
@@ -185,7 +187,16 @@ export interface ExchangeConfig {
 // Exchange interface for compatibility with ccxt
 export interface Exchange {
   id: string;
-  credentials: ExchangeCredentials;
+  name: string;
+  credentials?: ExchangeCredentials;
+  encrypted_credentials?: string;
+  memo?: string;
+  testnet?: boolean;
+  is_default?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  user_id?: string;
+  use_usdx?: boolean;
   spotSupported?: boolean;
   marginSupported?: boolean;
   futuresSupported?: boolean;
@@ -367,4 +378,24 @@ export interface RiskManagementConfig {
   // Kelly criterion
   useKellyCriterion: boolean; // Whether to use Kelly criterion for position sizing
   kellyFraction?: number; // Fraction of Kelly to use (0.5 = half Kelly)
+}
+
+// Trade Service interface
+export interface TradeService {
+  setBudget(strategyId: string, budget: StrategyBudget | null): Promise<void>;
+  getBudget(strategyId: string): StrategyBudget | null;
+  getAllBudgets(): Map<string, StrategyBudget>;
+  calculateAvailableBudget(): number;
+  setDemoMode(isDemo: boolean): void;
+  isDemoMode(): boolean;
+  reserveBudgetForTrade(strategyId: string, amount: number, tradeId?: string): boolean;
+  releaseBudgetFromTrade(strategyId: string, amount: number, profit?: number, tradeId?: string): void;
+  releaseBudget(strategyId: string, amount: number): void;
+  clearAllBudgets(): void;
+  isInitialized(): boolean;
+  createDefaultBudget(): StrategyBudget;
+  connectStrategyToTradingEngine(strategyId: string): Promise<boolean>;
+  removeTradesByStrategy(strategyId: string): Promise<boolean>;
+  updateBudgetAfterTrade(strategyId: string, amount: number, profit?: number, tradeId?: string): Promise<void>;
+  resetActiveStrategies(): Promise<boolean>;
 }

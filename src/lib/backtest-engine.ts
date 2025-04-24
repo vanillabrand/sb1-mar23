@@ -3,6 +3,7 @@ import { logService } from './log-service';
 import type { Strategy } from './supabase-types';
 import type { BacktestResult } from './types';
 import { strategyMetricsCalculator } from './strategy-metrics-calculator';
+import * as bt from 'backtrader';
 
 // Replace Python-style imports with TypeScript types
 type Dictionary<T> = Record<string, T>;

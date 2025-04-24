@@ -1,7 +1,22 @@
 import { logService } from './log-service';
+import { eventBus } from './event-bus';
 
 // Event bus for network error events
 type ErrorListener = (error: Error) => void;
+
+/**
+ * Network error handler options
+ */
+export interface NetworkErrorHandlerOptions {
+  /** Whether to show error UI */
+  showErrorUI?: boolean;
+  /** Whether to log errors */
+  logErrors?: boolean;
+  /** Whether to emit events */
+  emitEvents?: boolean;
+  /** Default error message */
+  defaultErrorMessage?: string;
+}
 
 class NetworkErrorHandler {
   private static instance: NetworkErrorHandler;
@@ -18,19 +33,62 @@ class NetworkErrorHandler {
     return NetworkErrorHandler.instance;
   }
 
+  // Default options
+  private readonly DEFAULT_OPTIONS: NetworkErrorHandlerOptions = {
+    showErrorUI: true,
+    logErrors: true,
+    emitEvents: true,
+    defaultErrorMessage: 'Network connection failed. Please check your internet connection or try using a VPN.'
+  };
+
   /**
    * Handle a network error
    * @param error The error to handle
    * @param context The context where the error occurred
+   * @param options Error handler options
    */
-  handleError(error: Error, context: string): void {
-    logService.log('error', `Network error in ${context}`, error, 'NetworkErrorHandler');
+  handleError(error: Error, context: string = 'unknown', options: NetworkErrorHandlerOptions = {}): void {
+    // Merge options with defaults
+    const mergedOptions: NetworkErrorHandlerOptions = {
+      ...this.DEFAULT_OPTIONS,
+      ...options
+    };
+
+    // Get user-friendly error message
+    const errorMessage = this.formatNetworkErrorMessage(error);
+
+    // Log the error if enabled
+    if (mergedOptions.logErrors) {
+      logService.log('error', `Network error in ${context}`, {
+        error: error.message,
+        stack: error.stack,
+        context,
+        userMessage: errorMessage
+      }, 'NetworkErrorHandler');
+    }
 
     this.lastError = error;
 
-    // Only notify listeners if modal is not already open
-    if (!this.isModalOpen) {
+    // Emit event if enabled
+    if (mergedOptions.emitEvents) {
+      eventBus.emit('networkError', {
+        error,
+        context,
+        message: errorMessage
+      });
+    }
+
+    // Show error UI if enabled and modal is not already open
+    if (mergedOptions.showErrorUI && !this.isModalOpen) {
       this.notifyListeners(error);
+
+      // Also emit event for UI components that listen to the event bus
+      eventBus.emit('showErrorUI', {
+        message: errorMessage,
+        context,
+        type: 'network',
+        timestamp: Date.now()
+      });
     }
   }
 

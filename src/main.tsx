@@ -40,145 +40,35 @@ const initApp = async () => {
       document.body.appendChild(rootElement);
     }
 
-    // Initialize log service first
-    try {
-      await logService.initialize();
-      console.log('Main: Log service initialized');
-
-      // Log configuration
-      config.logConfig();
-    } catch (logError) {
-      console.warn('Main: Log service initialization failed:', logError);
-    }
-
-    // Initialize global cache service
-    try {
-      await globalCacheService.initialize();
-      console.log('Main: Global cache service initialized');
-    } catch (cacheError) {
-      console.warn('Main: Cache service initialization failed:', cacheError);
-    }
-
-    // Create root and render loading state
+    // Only initialize if not already done
     if (!root) {
       root = createRoot(rootElement);
-    }
+      
+      // Initialize log service first
+      try {
+        await logService.initialize();
+        console.log('Main: Log service initialized');
+        config.logConfig();
+      } catch (logError) {
+        console.warn('Main: Log service initialization failed:', logError);
+      }
 
-    console.log('Main: Rendering initial loading state...');
-    root.render(
-      <div style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#0a0a0c',
-        color: 'white'
-      }}>
-        <div style={{ textAlign: 'center', padding: '24px' }}>
-          <div style={{
-            width: '48px',
-            height: '48px',
-            borderRadius: '50%',
-            border: '3px solid transparent',
-            borderTopColor: '#FF1493',
-            borderBottomColor: '#FF1493',
-            margin: '0 auto',
-            animation: 'spin 1s linear infinite'
-          }}></div>
-          <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#FF1493', marginTop: '16px' }}>Initializing...</h2>
-          <p style={{ color: '#9ca3af', marginTop: '8px' }}>Please wait while the application loads...</p>
-        </div>
-      </div>
-    );
-
-    // Small delay to ensure loading state is visible
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    console.log('Main: Rendering main application...');
-    root.render(
-      <StrictMode>
-        <ErrorBoundary
-          fallback={
-            <div style={{
-              minHeight: '100vh',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: '#0a0a0c'
-            }}>
-              <div style={{
-                textAlign: 'center',
-                padding: '24px',
-                backgroundColor: '#1f1f23',
-                borderRadius: '12px',
-                border: '1px solid #2a2b30'
-              }}>
-                <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#FF1493' }}>Application Error</h2>
-                <p style={{ color: '#9ca3af', marginTop: '8px' }}>Failed to initialize application</p>
-                <button
-                  onClick={() => window.location.reload()}
-                  style={{
-                    marginTop: '16px',
-                    padding: '8px 16px',
-                    backgroundColor: '#FF1493',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
-            </div>
-          }
-        >
-          <BrowserRouter>
-            <AuthProvider>
-              <App />
-            </AuthProvider>
-          </BrowserRouter>
-        </ErrorBoundary>
-      </StrictMode>
-    );
-  } catch (error) {
-    console.error('Main: Fatal initialization error:', error);
-    if (root) {
+      // Render the actual application
       root.render(
-        <div style={{
-          minHeight: '100vh',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          backgroundColor: '#0a0a0c'
-        }}>
-          <div style={{
-            textAlign: 'center',
-            padding: '24px',
-            backgroundColor: '#1f1f23',
-            borderRadius: '12px',
-            border: '1px solid #2a2b30'
-          }}>
-            <h2 style={{ fontSize: '24px', fontWeight: 'bold', color: '#FF1493' }}>Critical Error</h2>
-            <p style={{ color: '#9ca3af', marginTop: '8px' }}>{error instanceof Error ? error.message : 'Failed to initialize application'}</p>
-            <button
-              onClick={() => window.location.reload()}
-              style={{
-                marginTop: '16px',
-                padding: '8px 16px',
-                backgroundColor: '#FF1493',
-                color: 'white',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer'
-              }}
-            >
-              Retry
-            </button>
-          </div>
-        </div>
+        <StrictMode>
+          <ErrorBoundary>
+            <BrowserRouter>
+              <AuthProvider>
+                <App />
+              </AuthProvider>
+            </BrowserRouter>
+          </ErrorBoundary>
+        </StrictMode>
       );
     }
+  } catch (error) {
+    console.error('Main: Failed to initialize application:', error);
+    // Handle initialization error
   }
 };
 

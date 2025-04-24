@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
   CircleDollarSign,
   Wallet,
@@ -9,8 +9,8 @@ import {
   RefreshCw,
   Check,
   Edit,
-  ExternalLink,
-  Settings
+  Power,
+  PowerOff
 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { AddExchangeModal } from './AddExchangeModal';
@@ -18,15 +18,24 @@ import { EditExchangeModal } from './EditExchangeModal';
 import { ExchangeConnectionSettings } from './ExchangeConnectionSettings';
 import { exchangeService } from '../lib/exchange-service';
 import { logService } from '../lib/log-service';
-import { supabase } from '../lib/supabase';
+import { tradeService } from '../lib/trade-service';
+import { eventBus } from '../lib/event-bus';
+
 import type { Exchange, ExchangeConfig } from '../lib/types';
 
 interface ExchangeManagerProps {
   onExchangeAdd?: (exchange: ExchangeConfig) => void;
   onExchangeRemove?: (exchangeId: string) => void;
+  onExchangeConnect?: (exchange: Exchange) => void;
+  onExchangeDisconnect?: () => void;
 }
 
-export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeManagerProps) {
+export function ExchangeManager({
+  onExchangeAdd,
+  onExchangeRemove,
+  onExchangeConnect,
+  onExchangeDisconnect
+}: ExchangeManagerProps) {
   const [exchanges, setExchanges] = useState<Exchange[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,6 +45,10 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
   const [editingExchange, setEditingExchange] = useState<Exchange | null>(null);
   const [testingConnection, setTestingConnection] = useState(false);
   const [activeExchange, setActiveExchange] = useState<Exchange | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [supportedExchanges, setSupportedExchanges] = useState<string[]>([]);
 
   const loadExchanges = async () => {
     try {
@@ -43,20 +56,16 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
       setError(null); // Clear any previous errors
       setSuccess(null); // Clear any previous success messages
 
-      // Load exchanges from Supabase
-      const { data, error } = await supabase
-        .from('user_exchanges')
-        .select('*');
-
-      if (error) throw error;
-      setExchanges(data || []);
+      // Load exchanges from the exchange service
+      const userExchanges = await exchangeService.getUserExchanges();
+      setExchanges(userExchanges || []);
 
       // Get the active exchange from the exchange service
       const active = await exchangeService.getActiveExchange();
       setActiveExchange(active);
 
       logService.log('info', 'Loaded exchanges', {
-        count: data?.length || 0,
+        count: userExchanges?.length || 0,
         activeExchange: active?.id || 'none'
       }, 'ExchangeManager');
     } catch (err) {
@@ -68,14 +77,83 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
     }
   };
 
+  // Handle exchange connected event
+  const handleExchangeConnected = (exchange: Exchange) => {
+    setActiveExchange(exchange);
+    setIsConnecting(false);
+    setSuccess(`Successfully connected to ${exchange.name}`);
+    if (onExchangeConnect) {
+      onExchangeConnect(exchange);
+    }
+  };
+
+  // Handle exchange disconnected event
+  const handleExchangeDisconnected = () => {
+    setActiveExchange(null);
+    setIsDisconnecting(false);
+    setSuccess('Successfully disconnected from exchange');
+    if (onExchangeDisconnect) {
+      onExchangeDisconnect();
+    }
+  };
+
+  // Load supported exchanges
+  const loadSupportedExchanges = async () => {
+    try {
+      const supported = await exchangeService.getSupportedExchanges();
+      setSupportedExchanges(supported.map(ex => ex.toLowerCase()));
+    } catch (err) {
+      logService.log('error', 'Failed to load supported exchanges', err, 'ExchangeManager');
+    }
+  };
+
   useEffect(() => {
     loadExchanges();
+    loadSupportedExchanges();
+
+    // Subscribe to exchange events
+    const subscriptions = [
+      eventBus.on('exchange:connected', handleExchangeConnected),
+      eventBus.on('exchange:disconnected', handleExchangeDisconnected),
+      eventBus.on('exchange:added', () => loadExchanges()),
+      eventBus.on('exchange:updated', () => loadExchanges()),
+      eventBus.on('exchange:removed', () => loadExchanges())
+    ];
+
+    return () => {
+      // Unsubscribe from events
+      subscriptions.forEach(unsubscribe => unsubscribe());
+    };
   }, []);
 
   const handleRemoveExchange = async (exchangeId: string) => {
+    if (!window.confirm('Are you sure you want to delete this exchange?')) {
+      return;
+    }
+
     try {
+      setIsDeleting(exchangeId);
+      setError(null);
+
+      // Check if this is the active exchange
+      const exchangeToRemove = exchanges.find(e => e.id === exchangeId);
+      const isActive = activeExchange?.id === exchangeId;
+
+      // If this is the active exchange, disconnect first
+      if (isActive) {
+        await handleDisconnectExchange();
+      }
+
+      // Remove the exchange
       await exchangeService.removeExchange(exchangeId);
+
+      // Show success message
+      setSuccess(`Successfully removed ${exchangeToRemove?.name || 'exchange'}`);
+
+      // Reload exchanges
       await loadExchanges();
+
+      // Notify parent component
       if (onExchangeRemove) {
         onExchangeRemove(exchangeId);
       }
@@ -83,6 +161,8 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
       const errorMessage = err instanceof Error ? err.message : 'Failed to remove exchange';
       setError(errorMessage);
       logService.log('error', 'Failed to remove exchange:', err, 'ExchangeManager');
+    } finally {
+      setIsDeleting(null);
     }
   };
 
@@ -133,6 +213,62 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
       setTestingConnection(false);
     }
   };
+
+  // Connect to an exchange
+  const handleConnectExchange = async (exchange: Exchange) => {
+    try {
+      setIsConnecting(true);
+      setError(null);
+      setSuccess(null);
+
+      // Disconnect from current exchange if connected
+      if (activeExchange) {
+        await exchangeService.disconnect();
+      }
+
+      // Reset any active strategies
+      // @ts-ignore - The resetActiveStrategies method exists but TypeScript doesn't recognize it
+      await tradeService.resetActiveStrategies();
+
+      // Connect to the new exchange
+      await exchangeService.connect(exchange);
+
+      // Set as default exchange
+      await exchangeService.setDefaultExchange(exchange.id);
+
+      // Success will be set by the event handler
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to connect to exchange';
+      setError(errorMessage);
+      setIsConnecting(false);
+      logService.log('error', 'Failed to connect to exchange', err, 'ExchangeManager');
+    }
+  };
+
+  // Disconnect from the active exchange
+  const handleDisconnectExchange = async () => {
+    try {
+      setIsDisconnecting(true);
+      setError(null);
+      setSuccess(null);
+
+      // Reset any active strategies
+      // @ts-ignore - The resetActiveStrategies method exists but TypeScript doesn't recognize it
+      await tradeService.resetActiveStrategies();
+
+      // Disconnect from the exchange
+      await exchangeService.disconnect();
+
+      // Success will be set by the event handler
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to disconnect from exchange';
+      setError(errorMessage);
+      setIsDisconnecting(false);
+      logService.log('error', 'Failed to disconnect from exchange', err, 'ExchangeManager');
+    }
+  };
+
+
 
   const handleEditExchange = async (config: ExchangeConfig, exchangeId: string) => {
     setTestingConnection(true);
@@ -285,29 +421,35 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {!isActive && (
+                  {isActive ? (
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        // Set this exchange as active
-                        exchangeService.initializeExchange({
-                          name: exchange.name,
-                          apiKey: exchange.credentials?.apiKey || '',
-                          secret: exchange.credentials?.secret || '',
-                          memo: exchange.memo || '',
-                          testnet: exchange.testnet || false,
-                          useUSDX: false
-                        }).then(() => {
-                          setSuccess(`${exchange.name} is now the active exchange`);
-                          loadExchanges(); // Reload to update active status
-                        }).catch(err => {
-                          setError(`Failed to activate ${exchange.name}: ${err.message}`);
-                        });
-                      }}
-                      className="mr-2"
+                      onClick={() => handleDisconnectExchange()}
+                      disabled={isDisconnecting}
+                      className="text-red-400 border-red-400/30 hover:bg-red-400/10 mr-2"
                     >
-                      Activate
+                      {isDisconnecting ? (
+                        <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <PowerOff className="w-4 h-4 mr-1" />
+                      )}
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleConnectExchange(exchange)}
+                      disabled={isConnecting}
+                      className="text-neon-turquoise border-neon-turquoise/30 hover:bg-neon-turquoise/10 mr-2"
+                    >
+                      {isConnecting ? (
+                        <RefreshCw className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Power className="w-4 h-4 mr-1" />
+                      )}
+                      Connect
                     </Button>
                   )}
                   <Button
@@ -327,10 +469,14 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
                     size="sm"
                     onClick={() => handleRemoveExchange(exchange.id)}
                     className="hover:bg-red-500/10 hover:text-red-400"
-                    disabled={isActive} // Can't remove the active exchange
+                    disabled={isActive || isDeleting === exchange.id} // Can't remove the active exchange
                     title="Remove Exchange"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {isDeleting === exchange.id ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
                   </Button>
                 </div>
               </div>
@@ -353,7 +499,7 @@ export function ExchangeManager({ onExchangeAdd, onExchangeRemove }: ExchangeMan
         onClose={() => setShowAddModal(false)}
         onAdd={handleAddExchange}
         isTesting={testingConnection}
-        supportedExchanges={['binance', 'bybit', 'okx', 'bitmart', 'bitget', 'coinbase', 'kraken']}
+        supportedExchanges={supportedExchanges}
       />
 
       {/* Edit Exchange Modal */}

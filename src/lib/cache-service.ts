@@ -56,7 +56,7 @@ class CacheService extends EventEmitter {
    */
   initializeCache(options: CacheOptions = {}): string {
     const namespace = options.namespace || this.DEFAULT_NAMESPACE;
-    
+
     // Create the cache if it doesn't exist
     if (!this.caches.has(namespace)) {
       this.caches.set(namespace, new Map());
@@ -66,15 +66,15 @@ class CacheService extends EventEmitter {
         maxSize: options.maxSize || this.DEFAULT_MAX_SIZE,
         namespace
       });
-      
+
       logService.log('info', `Initialized cache namespace: ${namespace}`, {
         ttl: options.ttl || this.DEFAULT_TTL,
         maxSize: options.maxSize || this.DEFAULT_MAX_SIZE
       }, 'CacheService');
-      
+
       this.emit('cacheInitialized', { namespace, options });
     }
-    
+
     return namespace;
   }
 
@@ -89,15 +89,15 @@ class CacheService extends EventEmitter {
     if (!this.caches.has(namespace)) {
       this.initializeCache({ namespace });
     }
-    
+
     const cache = this.caches.get(namespace)!;
     const stats = this.stats.get(namespace)!;
     const now = Date.now();
-    
+
     // Check if the item exists and is not expired
     if (cache.has(key)) {
       const item = cache.get(key)!;
-      
+
       // Check if the item is expired
       if (item.expires < now) {
         // Remove the expired item
@@ -106,17 +106,17 @@ class CacheService extends EventEmitter {
         this.emit('cacheMiss', { key, namespace, reason: 'expired' });
         return undefined;
       }
-      
+
       // Update access time and hit count
       item.lastAccessed = now;
       item.hitCount++;
       stats.hits++;
-      
+
       this.emit('cacheHit', { key, namespace, hitCount: item.hitCount });
-      
+
       return item.value;
     }
-    
+
     // Item not found
     stats.misses++;
     this.emit('cacheMiss', { key, namespace, reason: 'not_found' });
@@ -136,20 +136,20 @@ class CacheService extends EventEmitter {
     if (!this.caches.has(namespace)) {
       this.initializeCache({ namespace });
     }
-    
+
     const cache = this.caches.get(namespace)!;
     const options = this.options.get(namespace)!;
     const now = Date.now();
-    
+
     // Check if we need to evict items due to size limit
     if (cache.size >= (options.maxSize || this.DEFAULT_MAX_SIZE)) {
       this.evictLRU(namespace);
     }
-    
+
     // Calculate expiration time
     const itemTtl = ttl || options.ttl || this.DEFAULT_TTL;
     const expires = now + itemTtl;
-    
+
     // Store the item
     cache.set(key, {
       value,
@@ -157,9 +157,9 @@ class CacheService extends EventEmitter {
       lastAccessed: now,
       hitCount: 0
     });
-    
+
     this.emit('cacheSet', { key, namespace, ttl: itemTtl });
-    
+
     return value;
   }
 
@@ -173,14 +173,14 @@ class CacheService extends EventEmitter {
     if (!this.caches.has(namespace)) {
       return false;
     }
-    
+
     const cache = this.caches.get(namespace)!;
     const deleted = cache.delete(key);
-    
+
     if (deleted) {
       this.emit('cacheDelete', { key, namespace });
     }
-    
+
     return deleted;
   }
 
@@ -193,16 +193,16 @@ class CacheService extends EventEmitter {
     if (!this.caches.has(namespace)) {
       return false;
     }
-    
+
     const cache = this.caches.get(namespace)!;
     const size = cache.size;
     cache.clear();
-    
+
     // Reset stats
     this.stats.set(namespace, { hits: 0, misses: 0 });
-    
+
     this.emit('cacheClear', { namespace, itemsCleared: size });
-    
+
     return true;
   }
 
@@ -215,11 +215,11 @@ class CacheService extends EventEmitter {
     if (!this.caches.has(namespace)) {
       return undefined;
     }
-    
+
     const cache = this.caches.get(namespace)!;
     const stats = this.stats.get(namespace)!;
     const options = this.options.get(namespace)!;
-    
+
     return {
       hits: stats.hits,
       misses: stats.misses,
@@ -236,6 +236,41 @@ class CacheService extends EventEmitter {
    */
   getNamespaces(): string[] {
     return Array.from(this.caches.keys());
+  }
+
+  /**
+   * Get all keys in a cache namespace
+   * @param namespace The cache namespace
+   * @returns Array of cache keys
+   */
+  getKeys(namespace: string = this.DEFAULT_NAMESPACE): string[] {
+    if (!this.caches.has(namespace)) {
+      return [];
+    }
+
+    const cache = this.caches.get(namespace)!;
+    return Array.from(cache.keys());
+  }
+
+  /**
+   * Create a cache with the specified options
+   * @param namespace The cache namespace
+   * @param options Cache options
+   * @returns The namespace
+   */
+  createCache(namespace: string, options: CacheOptions = {}): string {
+    return this.initializeCache({
+      ...options,
+      namespace
+    });
+  }
+
+  /**
+   * Get all cache names
+   * @returns Array of cache names
+   */
+  getCacheNames(): string[] {
+    return this.getNamespaces();
   }
 
   /**
@@ -257,14 +292,14 @@ class CacheService extends EventEmitter {
     if (cachedValue !== undefined) {
       return cachedValue;
     }
-    
+
     try {
       // Get the value from the source
       const value = await getter();
-      
+
       // Cache the value
       this.set(key, value, namespace, ttl);
-      
+
       return value;
     } catch (error) {
       logService.log('error', `Failed to get value for cache key ${key}`, error, 'CacheService');
@@ -282,10 +317,10 @@ class CacheService extends EventEmitter {
     if (!cache || cache.size === 0) {
       return false;
     }
-    
+
     let lruKey: string | null = null;
     let lruTime = Infinity;
-    
+
     // Find the least recently used item
     for (const [key, item] of cache.entries()) {
       if (item.lastAccessed < lruTime) {
@@ -293,13 +328,13 @@ class CacheService extends EventEmitter {
         lruTime = item.lastAccessed;
       }
     }
-    
+
     if (lruKey) {
       cache.delete(lruKey);
       this.emit('cacheEvict', { key: lruKey, namespace, reason: 'lru' });
       return true;
     }
-    
+
     return false;
   }
 
@@ -310,11 +345,11 @@ class CacheService extends EventEmitter {
     if (this.cleanupInterval) {
       clearInterval(this.cleanupInterval);
     }
-    
+
     this.cleanupInterval = setInterval(() => {
       this.cleanupExpiredItems();
     }, this.CLEANUP_INTERVAL);
-    
+
     logService.log('info', `Started cache cleanup interval: ${this.CLEANUP_INTERVAL}ms`, null, 'CacheService');
   }
 
@@ -324,10 +359,10 @@ class CacheService extends EventEmitter {
   private cleanupExpiredItems(): void {
     const now = Date.now();
     let totalRemoved = 0;
-    
+
     for (const [namespace, cache] of this.caches.entries()) {
       let namespaceRemoved = 0;
-      
+
       // Find and remove expired items
       for (const [key, item] of cache.entries()) {
         if (item.expires < now) {
@@ -336,12 +371,12 @@ class CacheService extends EventEmitter {
           totalRemoved++;
         }
       }
-      
+
       if (namespaceRemoved > 0) {
         this.emit('cacheCleanup', { namespace, itemsRemoved: namespaceRemoved });
       }
     }
-    
+
     if (totalRemoved > 0) {
       logService.log('debug', `Cleaned up ${totalRemoved} expired cache items`, null, 'CacheService');
     }

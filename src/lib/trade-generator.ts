@@ -124,8 +124,29 @@ class TradeGenerator extends EventEmitter {
     try {
       logService.log('debug', `Checking trade opportunities for strategy ${strategy.id}`, null, 'TradeGenerator');
 
-      if (!strategy.strategy_config?.assets) {
-        throw new Error('Strategy has no configured trading pairs');
+      // Get trading pairs from all possible locations
+      let tradingPairs = [];
+
+      if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+        tradingPairs = strategy.selected_pairs;
+        logService.log('info', `Using selected_pairs for strategy ${strategy.id}`, { pairs: tradingPairs }, 'TradeGenerator');
+      } else if (strategy.strategy_config?.assets && strategy.strategy_config.assets.length > 0) {
+        tradingPairs = strategy.strategy_config.assets;
+        logService.log('info', `Using strategy_config.assets for strategy ${strategy.id}`, { pairs: tradingPairs }, 'TradeGenerator');
+      } else if (strategy.strategy_config?.config?.pairs && strategy.strategy_config.config.pairs.length > 0) {
+        tradingPairs = strategy.strategy_config.config.pairs;
+        logService.log('info', `Using strategy_config.config.pairs for strategy ${strategy.id}`, { pairs: tradingPairs }, 'TradeGenerator');
+      } else {
+        // Default to BTC/USDT if no pairs are found
+        tradingPairs = ['BTC/USDT'];
+        logService.log('warn', `No trading pairs found for strategy ${strategy.id}, defaulting to BTC/USDT`, null, 'TradeGenerator');
+
+        // Update the strategy with the default pair
+        strategy.selected_pairs = tradingPairs;
+        if (!strategy.strategy_config) strategy.strategy_config = {};
+        strategy.strategy_config.assets = tradingPairs;
+        if (!strategy.strategy_config.config) strategy.strategy_config.config = {};
+        strategy.strategy_config.config.pairs = tradingPairs;
       }
 
       // Check if the strategy has available budget before proceeding

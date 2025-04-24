@@ -89,13 +89,20 @@ const AvailableBalanceDisplay: React.FC<AvailableBalanceDisplayProps> = ({
         setBalance(generalBalance);
       }
 
-      logService.log('info', `Fetched ${marketType} balance`, marketBalance || generalBalance, 'AvailableBalanceDisplay');
+      const balanceToLog = marketBalance || (generalBalance || {});
+      logService.log('info', `Fetched ${marketType} balance`, balanceToLog, 'AvailableBalanceDisplay');
     } catch (error) {
       logService.log('error', 'Failed to fetch market balance', error, 'AvailableBalanceDisplay');
       // Fallback to general available balance
-      const generalBalance = walletBalanceService.getBalance();
-      setPrevBalance(balance);
-      setBalance(generalBalance);
+      try {
+        const generalBalance = walletBalanceService.getBalance();
+        setPrevBalance(balance);
+        setBalance(generalBalance);
+      } catch (balanceError) {
+        logService.log('error', 'Failed to get general balance', balanceError, 'AvailableBalanceDisplay');
+        // Set a default balance object if all else fails
+        setBalance({ free: 0, used: 0, total: 0, currency: 'USDT' });
+      }
     } finally {
       if (showLoading) setIsRefreshing(false);
     }

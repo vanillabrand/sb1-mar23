@@ -183,15 +183,28 @@ class ExchangeService extends EventEmitter {
 
   async getUserExchanges(): Promise<Exchange[]> {
     try {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        throw new Error('User not authenticated');
+      }
+
       const { data: userExchanges, error } = await supabase
         .from('user_exchanges')
-        .select('*');
+        .select('*')
+        .eq('user_id', user.user.id)
+        .order('is_default', { ascending: false }) // Default exchanges first
+        .order('created_at', { ascending: true }); // Then oldest first
 
       if (error) throw error;
 
+      if (!userExchanges || userExchanges.length === 0) {
+        return [];
+      }
+
       return userExchanges.map(exchange => ({
         ...exchange,
-        credentials: this.decryptCredentials(exchange.encrypted_credentials)
+        credentials: exchange.encrypted_credentials ?
+          this.decryptCredentials(exchange.encrypted_credentials) : undefined
       }));
     } catch (error) {
       logService.log('error', 'Failed to fetch user exchanges', error, 'ExchangeService');
@@ -205,16 +218,26 @@ class ExchangeService extends EventEmitter {
    */
   async getActiveExchange(): Promise<Exchange | null> {
     try {
-      // If we have an active exchange in memory, return it
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        return null;
+      }
+
+      // If we have an active exchange in memory, verify it still exists
       if (this.activeExchange) {
         const { data, error } = await supabase
           .from('user_exchanges')
           .select('*')
+          .eq('user_id', user.user.id)
           .eq('name', this.activeExchange.id)
           .single();
 
         if (!error && data) {
-          return data;
+          return {
+            ...data,
+            credentials: data.encrypted_credentials ?
+              this.decryptCredentials(data.encrypted_credentials) : undefined
+          };
         }
       }
 
@@ -227,11 +250,16 @@ class ExchangeService extends EventEmitter {
             const { data, error } = await supabase
               .from('user_exchanges')
               .select('*')
+              .eq('user_id', user.user.id)
               .eq('name', activeExchangeInfo.id)
               .single();
 
             if (!error && data) {
-              return data;
+              return {
+                ...data,
+                credentials: data.encrypted_credentials ?
+                  this.decryptCredentials(data.encrypted_credentials) : undefined
+              };
             }
           }
         } catch (e) {
@@ -239,7 +267,40 @@ class ExchangeService extends EventEmitter {
         }
       }
 
-      // If no active exchange, return null
+      // If no active exchange found, try to get the default exchange
+      const { data: defaultExchange, error: defaultError } = await supabase
+        .from('user_exchanges')
+        .select('*')
+        .eq('user_id', user.user.id)
+        .eq('is_default', true)
+        .single();
+
+      if (!defaultError && defaultExchange) {
+        return {
+          ...defaultExchange,
+          credentials: defaultExchange.encrypted_credentials ?
+            this.decryptCredentials(defaultExchange.encrypted_credentials) : undefined
+        };
+      }
+
+      // If no default exchange, try to get the first exchange
+      const { data: firstExchange, error: firstError } = await supabase
+        .from('user_exchanges')
+        .select('*')
+        .eq('user_id', user.user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .single();
+
+      if (!firstError && firstExchange) {
+        return {
+          ...firstExchange,
+          credentials: firstExchange.encrypted_credentials ?
+            this.decryptCredentials(firstExchange.encrypted_credentials) : undefined
+        };
+      }
+
+      // If no exchange found, return null
       return null;
     } catch (error) {
       logService.log('error', 'Failed to get active exchange', error, 'ExchangeService');
@@ -559,7 +620,35 @@ class ExchangeService extends EventEmitter {
     await userProfileService.saveActiveExchange(null);
     await userProfileService.updateConnectionStatus('disconnected');
 
+    // Close any WebSocket connections
+    this.closeAllWebSockets();
+
+    // Emit event for UI updates
     this.emit('exchange:disconnected');
+    eventBus.emit('exchange:disconnected');
+  }
+
+  /**
+   * Set an exchange as the default exchange
+   * @param exchangeId Exchange ID to set as default
+   */
+  async setDefaultExchange(exchangeId: string): Promise<void> {
+    try {
+      // Update user profile to set this as the default exchange
+      await userProfileService.setDefaultExchange(exchangeId);
+
+      // Store in localStorage for persistence
+      localStorage.setItem('defaultExchange', exchangeId);
+
+      logService.log('info', `Set ${exchangeId} as default exchange`, null, 'ExchangeService');
+
+      // Emit event for UI updates
+      this.emit('exchange:defaultSet', exchangeId);
+      eventBus.emit('exchange:defaultSet', { exchangeId });
+    } catch (error) {
+      logService.log('error', 'Failed to set default exchange', error, 'ExchangeService');
+      throw new Error('Failed to set default exchange');
+    }
   }
 
   async testConnection(config: ExchangeConfig): Promise<void> {
@@ -660,39 +749,85 @@ class ExchangeService extends EventEmitter {
 
   async addExchange(config: ExchangeConfig): Promise<void> {
     try {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        throw new Error('User not authenticated');
+      }
+
+      // Check if exchange already exists
+      const { data: existingExchanges, error: fetchError } = await supabase
+        .from('user_exchanges')
+        .select('*')
+        .eq('user_id', user.user.id)
+        .eq('name', config.name.toLowerCase());
+
+      if (fetchError) {
+        throw new Error(`Failed to check for existing exchange: ${fetchError.message}`);
+      }
+
+      if (existingExchanges && existingExchanges.length > 0) {
+        throw new Error(`Exchange ${config.name} already exists`);
+      }
+
+      // Check if this is the first exchange for the user
+      const { data: allExchanges, error: countError } = await supabase
+        .from('user_exchanges')
+        .select('id')
+        .eq('user_id', user.user.id);
+
+      if (countError) {
+        throw new Error(`Failed to count user exchanges: ${countError.message}`);
+      }
+
+      // If this is the first exchange, set it as default
+      const isDefault = !allExchanges || allExchanges.length === 0;
+
+      // Encrypt credentials
       const encryptedCredentials = this.encryptCredentials({
         apiKey: config.apiKey,
         secret: config.secret,
         memo: config.memo
       });
 
+      // Add new exchange
       const { error } = await supabase
         .from('user_exchanges')
         .insert({
-          name: config.name,
+          user_id: user.user.id,
+          name: config.name.toLowerCase(),
           encrypted_credentials: encryptedCredentials,
-          testnet: config.testnet,
-          use_usdx: config.useUSDX
+          memo: config.memo || '',
+          testnet: config.testnet || false,
+          use_usdx: config.useUSDX || false,
+          is_default: isDefault,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
         });
 
-      if (error) throw error;
+      if (error) {
+        throw new Error(`Failed to add exchange: ${error.message}`);
+      }
 
       // Initialize exchange instance
       const ccxtInstance = await ccxtService.createExchange(
-        config.name as ExchangeId,
+        config.name.toLowerCase() as ExchangeId,
         {
           apiKey: config.apiKey,
           secret: config.secret,
           memo: config.memo
-        }
+        },
+        config.testnet
       );
 
-      this.exchangeInstances.set(config.name, ccxtInstance);
-      this.emit('exchange:added', config.name);
+      this.exchangeInstances.set(config.name.toLowerCase(), ccxtInstance);
+
+      logService.log('info', `Added exchange ${config.name}`, { isDefault }, 'ExchangeService');
+      this.emit('exchange:added', config.name.toLowerCase());
+      eventBus.emit('exchange:added', { name: config.name.toLowerCase(), isDefault });
 
     } catch (error) {
       logService.log('error', 'Failed to add exchange', error, 'ExchangeService');
-      throw new Error('Failed to add exchange');
+      throw error;
     }
   }
 
@@ -719,64 +854,128 @@ class ExchangeService extends EventEmitter {
 
   async updateExchange(exchangeId: string, config: ExchangeConfig): Promise<void> {
     try {
-      const encryptedCredentials = this.encryptCredentials({
-        apiKey: config.apiKey,
-        secret: config.secret,
-        memo: config.memo
-      });
+      // Get the current exchange data
+      const { data: exchange, error: fetchError } = await supabase
+        .from('user_exchanges')
+        .select('*')
+        .eq('id', exchangeId)
+        .single();
 
+      if (fetchError) {
+        throw new Error(`Failed to fetch exchange: ${fetchError.message}`);
+      }
+
+      if (!exchange) {
+        throw new Error(`Exchange not found`);
+      }
+
+      // Prepare update data
+      const updateData: any = {
+        updated_at: new Date().toISOString()
+      };
+
+      // Only update credentials if provided
+      if (config.apiKey && config.secret) {
+        const encryptedCredentials = this.encryptCredentials({
+          apiKey: config.apiKey,
+          secret: config.secret,
+          memo: config.memo
+        });
+        updateData.encrypted_credentials = encryptedCredentials;
+      }
+
+      // Update other fields if provided
+      if (config.testnet !== undefined) {
+        updateData.testnet = config.testnet;
+      }
+
+      if (config.useUSDX !== undefined) {
+        updateData.use_usdx = config.useUSDX;
+      }
+
+      if (config.memo !== undefined) {
+        updateData.memo = config.memo;
+      }
+
+      // Update the exchange in the database
       const { error } = await supabase
         .from('user_exchanges')
-        .update({
-          encrypted_credentials: encryptedCredentials,
-          testnet: config.testnet,
-          use_usdx: config.useUSDX,
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', exchangeId);
 
       if (error) throw error;
 
-      // Update the exchange instance if it exists
-      if (this.exchangeInstances.has(config.name)) {
+      // Get the exchange name from the database or config
+      const exchangeName = exchange.name || config.name.toLowerCase();
+
+      // Update the exchange instance if it exists and credentials were updated
+      if (config.apiKey && config.secret && this.exchangeInstances.has(exchangeName)) {
         // Create a new instance with updated credentials
         const ccxtInstance = await ccxtService.createExchange(
-          config.name as ExchangeId,
+          exchangeName as ExchangeId,
           {
             apiKey: config.apiKey,
             secret: config.secret,
             memo: config.memo
           },
-          config.testnet
+          config.testnet !== undefined ? config.testnet : exchange.testnet
         );
 
-        this.exchangeInstances.set(config.name, ccxtInstance);
+        this.exchangeInstances.set(exchangeName, ccxtInstance);
       }
 
       // If this is the active exchange, update it
-      if (this.activeExchange && this.activeExchange.id === config.name) {
-        this.activeExchange = {
-          ...this.activeExchange,
-          credentials: {
+      if (this.activeExchange && this.activeExchange.id === exchangeName) {
+        // Only update the fields that were provided
+        const updatedExchange = { ...this.activeExchange };
+
+        if (config.apiKey && config.secret) {
+          updatedExchange.credentials = {
             apiKey: config.apiKey,
             secret: config.secret,
-            memo: config.memo
-          },
-          testnet: config.testnet
-        };
-        localStorage.setItem('activeExchange', JSON.stringify(this.activeExchange));
+            memo: config.memo || updatedExchange.credentials?.memo || ''
+          };
+        }
+
+        if (config.testnet !== undefined) {
+          updatedExchange.testnet = config.testnet;
+        }
+
+        this.activeExchange = updatedExchange;
+        localStorage.setItem('activeExchange', JSON.stringify(updatedExchange));
       }
 
-      this.emit('exchange:updated', config.name);
+      logService.log('info', `Updated exchange ${exchangeName}`, null, 'ExchangeService');
+      this.emit('exchange:updated', exchangeName);
+      eventBus.emit('exchange:updated', { name: exchangeName, id: exchangeId });
 
     } catch (error) {
       logService.log('error', 'Failed to update exchange', error, 'ExchangeService');
-      throw new Error('Failed to update exchange');
+      throw error;
     }
   }
 
   async removeExchange(exchangeId: string): Promise<void> {
     try {
+      // Get the exchange data before removing it
+      const { data: exchange, error: fetchError } = await supabase
+        .from('user_exchanges')
+        .select('*')
+        .eq('id', exchangeId)
+        .single();
+
+      if (fetchError) {
+        throw new Error(`Failed to fetch exchange: ${fetchError.message}`);
+      }
+
+      if (!exchange) {
+        throw new Error(`Exchange not found`);
+      }
+
+      // Check if this is the default exchange
+      const isDefault = exchange.is_default;
+
+      // Remove the exchange
       const { error } = await supabase
         .from('user_exchanges')
         .delete()
@@ -784,15 +983,40 @@ class ExchangeService extends EventEmitter {
 
       if (error) throw error;
 
-      if (this.activeExchange?.id === exchangeId) {
+      // If this is the active exchange, disconnect
+      if (this.activeExchange?.id === exchange.name) {
         await this.disconnect();
       }
 
-      this.exchangeInstances.delete(exchangeId);
+      // Remove the exchange instance
+      this.exchangeInstances.delete(exchange.name);
+
+      // If this was the default exchange, set a new default
+      if (isDefault) {
+        // Get all remaining exchanges
+        const { data: remainingExchanges, error: listError } = await supabase
+          .from('user_exchanges')
+          .select('id')
+          .order('created_at', { ascending: true });
+
+        if (!listError && remainingExchanges && remainingExchanges.length > 0) {
+          // Set the oldest exchange as the new default
+          const newDefaultId = remainingExchanges[0].id;
+          await supabase
+            .from('user_exchanges')
+            .update({ is_default: true, updated_at: new Date().toISOString() })
+            .eq('id', newDefaultId);
+
+          logService.log('info', `Set new default exchange: ${newDefaultId}`, null, 'ExchangeService');
+        }
+      }
+
+      logService.log('info', `Removed exchange ${exchange.name}`, { id: exchangeId }, 'ExchangeService');
       this.emit('exchange:removed', exchangeId);
+      eventBus.emit('exchange:removed', { id: exchangeId, name: exchange.name });
     } catch (error) {
       logService.log('error', 'Failed to remove exchange', error, 'ExchangeService');
-      throw new Error('Failed to remove exchange');
+      throw error;
     }
   }
 
@@ -871,6 +1095,28 @@ class ExchangeService extends EventEmitter {
 
   isInitialized(): boolean {
     return this.initialized;
+  }
+
+  /**
+   * Get the list of supported exchanges
+   * @returns Array of supported exchange names
+   */
+  async getSupportedExchanges(): Promise<string[]> {
+    try {
+      // Return a list of supported exchanges
+      return [
+        'Binance',
+        'Bybit',
+        'OKX',
+        'BitMart',
+        'Bitget',
+        'Coinbase',
+        'Kraken'
+      ];
+    } catch (error) {
+      logService.log('error', 'Failed to get supported exchanges', error, 'ExchangeService');
+      return [];
+    }
   }
 
   async waitForReady(): Promise<void> {

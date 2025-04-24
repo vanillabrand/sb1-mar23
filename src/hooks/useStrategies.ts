@@ -70,15 +70,34 @@ export function useStrategies() {
       setStrategies(updatedStrategies);
     };
 
-    const handleStrategyCreated = (newStrategy: Strategy) => {
+    const handleStrategyCreated = (data: any) => {
+      // Handle both formats: direct strategy object or {strategy} object
+      const newStrategy = data.strategy || data;
+
+      if (!newStrategy || !newStrategy.id) {
+        console.warn('Received invalid strategy data:', data);
+        return;
+      }
+
+      console.log('Strategy created event received in useStrategies:', newStrategy.id);
+
       // Immediately add the new strategy to the list
       setStrategies(prevStrategies => {
         // Only add if not already in the list
         if (!prevStrategies.some(s => s.id === newStrategy.id)) {
+          console.log('Adding new strategy to list:', newStrategy.id);
           return [...prevStrategies, newStrategy];
         }
+        console.log('Strategy already in list:', newStrategy.id);
         return prevStrategies;
       });
+
+      // Force a refresh to ensure we have the latest data
+      setTimeout(() => {
+        refreshStrategies().catch(error => {
+          console.error('Error refreshing strategies after creation:', error);
+        });
+      }, 500);
     };
 
     // Subscribe to events

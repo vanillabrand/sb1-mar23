@@ -237,24 +237,32 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
     const profitLoss = trade.profit || 0;
 
     logService.log('info', `Updating budget after trade closure for strategy ${strategyId}`,
-      { tradeId: trade.id, tradeValue, profitLoss }, 'TradeMonitor');
+      { tradeId: trade.id, tradeValue, profitLoss, tradeStatus: trade.status }, 'TradeMonitor');
 
-    // Update budget
-    const updatedBudget: StrategyBudget = {
-      ...currentBudget,
-      available: currentBudget.available + tradeValue + profitLoss,
-      allocated: Math.max(0, currentBudget.allocated - tradeValue),
-      lastUpdated: Date.now()
-    };
+    // Use the trade service's enhanced budget update method
+    tradeService.updateBudgetAfterTrade(strategyId, tradeValue, profitLoss, trade.id, trade.status)
+      .then(() => {
+        // Get the updated budget from trade service
+        const updatedBudget = tradeService.getBudget(strategyId);
+        if (updatedBudget) {
+          // Update local state
+          setBudgets(prev => ({
+            ...prev,
+            [strategyId]: updatedBudget
+          }));
+        }
+      })
+      .catch(error => {
+        logService.log('error', `Failed to update budget for strategy ${strategyId}`, error, 'TradeMonitor');
+      });
 
-    // Update budgets state
-    setBudgets(prev => ({
-      ...prev,
-      [strategyId]: updatedBudget
-    }));
-
-    // Update trade service budget
-    tradeService.setBudget(strategyId, updatedBudget);
+    // Broadcast budget update to all components
+    eventBus.emit('app:state:updated', {
+      component: 'budget',
+      action: 'updated',
+      strategyId,
+      trade
+    });
   };
 
   // Load initial data
