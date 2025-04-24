@@ -838,6 +838,29 @@ Please provide a complete strategy in JSON format with the following structure:
       maxOpenPositions: config.riskManagement?.maxOpenPositions || 5
     };
 
+    // Calculate metrics using the strategy metrics calculator
+    const tempStrategy = {
+      riskLevel: riskLevel,
+      risk_level: riskLevel,
+      market_type: marketType,
+      marketType: marketType,
+      strategy_config: {
+        ...config,
+        riskManagement
+      }
+    };
+
+    // Calculate win rate and potential profit
+    const winRate = strategyMetricsCalculator.calculateWinRate(tempStrategy as any);
+    const potentialProfit = strategyMetricsCalculator.calculatePotentialProfit(tempStrategy as any);
+
+    // Create metrics object
+    const metrics = {
+      winRate: parseFloat(winRate.toFixed(1)),
+      potentialProfit: parseFloat(potentialProfit.toFixed(1)),
+      averageProfit: parseFloat(potentialProfit.toFixed(1))
+    };
+
     // Add market-specific parameters if they don't exist
     if (marketType === 'futures' && !config.riskManagement?.leverage) {
       riskManagement.leverage = riskLevel === 'Low' ? '2x' :
@@ -863,7 +886,13 @@ Please provide a complete strategy in JSON format with the following structure:
       timeframe: config.timeframe || '1h',
       entryConditions: config.entryConditions || [],
       exitConditions: config.exitConditions || [],
-      riskManagement: riskManagement
+      riskManagement: riskManagement,
+      metrics: metrics, // Add metrics to the strategy
+      strategy_config: {
+        ...(config.strategy_config || {}),
+        metrics: metrics, // Also add metrics to strategy_config for compatibility
+        takeProfit: parseFloat(riskManagement.takeProfit) || potentialProfit // Ensure takeProfit is available for UI display
+      }
     };
   }
 

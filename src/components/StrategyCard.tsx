@@ -980,7 +980,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 )}
                 {strategy.status !== 'active' && (
                   <span className="text-xs text-gray-400 ml-auto">
-                    Potential profit: <span className="text-neon-yellow">+{((strategy as any).strategy_config?.takeProfit || 0.05) * 100}%</span>
+                    Potential profit: <span className="text-neon-yellow">
+                      +{getPotentialProfit(strategy)}%
+                    </span>
                   </span>
                 )}
               </div>
@@ -1174,9 +1176,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Max Open Trades</p>
-                  <p className="text-sm text-white">{(strategy as any).strategy_config?.trade_parameters?.maxOpenTrades ||
-                                                    (strategy as any).strategy_config?.tradingParams?.maxOpenTrades ||
-                                                    (strategy as any).strategy_config?.maxOpenTrades || 3}</p>
+                  <p className="text-sm text-white">Unlimited</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Trade Frequency</p>
@@ -1512,4 +1512,36 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       )}
     </>
   );
+}
+
+// Helper function to get the potential profit from a strategy
+function getPotentialProfit(strategy: any): number {
+  // Check all possible locations for potential profit
+  const potentialProfit =
+    // Check in metrics
+    (strategy.metrics?.potentialProfit) ||
+    (strategy.metrics?.averageProfit) ||
+    // Check in strategy_config
+    (strategy.strategy_config?.metrics?.potentialProfit) ||
+    (strategy.strategy_config?.metrics?.averageProfit) ||
+    // Check in takeProfit fields
+    (strategy.strategy_config?.takeProfit) ||
+    (strategy.strategy_config?.riskManagement?.takeProfit) ||
+    // Parse from string if needed
+    (typeof strategy.strategy_config?.riskManagement?.takeProfit === 'string' ?
+      parseFloat(strategy.strategy_config.riskManagement.takeProfit) : 0) ||
+    // Default value
+    5;
+
+  // If it's a string with a percentage sign, parse it
+  if (typeof potentialProfit === 'string' && potentialProfit.includes('%')) {
+    return parseFloat(potentialProfit.replace('%', ''));
+  }
+
+  // If it's a decimal (e.g., 0.05 for 5%), multiply by 100
+  if (typeof potentialProfit === 'number' && potentialProfit < 1) {
+    return potentialProfit * 100;
+  }
+
+  return potentialProfit;
 }

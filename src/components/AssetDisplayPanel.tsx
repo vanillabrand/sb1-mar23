@@ -51,8 +51,11 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
   const [totalPages, setTotalPages] = useState(1);
   const [screenSize, setScreenSize] = useState<'sm' | 'md' | 'lg'>('md');
   const [itemsPerPage, setItemsPerPage] = useState(6); // Default to 6 assets per page
+  const [gridColumns, setGridColumns] = useState(3); // Default number of columns
+  const containerRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const autoRotateRef = useRef<NodeJS.Timeout | null>(null);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const [autoRotate, setAutoRotate] = useState(true);
   const [exchange, setExchange] = useState<any>(null);
 
@@ -104,30 +107,76 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
     }
   }, [autoRotate]);
 
-  // Handle screen size changes
+  // Handle container size changes with ResizeObserver
   useLayoutEffect(() => {
-    const updateScreenSize = () => {
-      const width = window.innerWidth;
-      if (width < 640) {
-        setScreenSize('sm');
-        setItemsPerPage(1); // 1 item for small screens (1 row of 1)
-      } else if (width < 1024) {
-        setScreenSize('md');
-        setItemsPerPage(2); // 2 items for medium screens (1 row of 2)
-      } else {
-        setScreenSize('lg');
-        setItemsPerPage(3); // 3 items for large screens (1 row of 3)
+    // Function to calculate optimal number of columns based on container width
+    const calculateOptimalColumns = (containerWidth: number) => {
+      // Card minimum width (including gap)
+      const minCardWidth = 180; // Minimum width for a card to look good
+      const gapWidth = 16; // Approximate gap width
+
+      // Calculate how many cards can fit, accounting for gaps
+      const availableWidth = containerWidth - gapWidth; // Account for container padding
+      let columns = Math.floor(availableWidth / (minCardWidth + gapWidth));
+
+      // Ensure at least 1 column and at most 4 columns
+      columns = Math.max(1, Math.min(4, columns));
+
+      return columns;
+    };
+
+    // Function to update columns and items per page
+    const updateLayout = () => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.clientWidth;
+        const optimalColumns = calculateOptimalColumns(containerWidth);
+
+        // Update grid columns
+        setGridColumns(optimalColumns);
+
+        // Update items per page (rows × columns)
+        // We'll show 2 rows of cards for a better viewing experience
+        const rowsToShow = 2;
+        setItemsPerPage(optimalColumns * rowsToShow);
+
+        // Update screen size for other components that might depend on it
+        if (containerWidth < 640) {
+          setScreenSize('sm');
+        } else if (containerWidth < 1024) {
+          setScreenSize('md');
+        } else {
+          setScreenSize('lg');
+        }
       }
     };
 
-    // Initial call
-    updateScreenSize();
+    // Set up ResizeObserver
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserverRef.current = new ResizeObserver((entries) => {
+        // We're only observing one element, so we can just use the first entry
+        updateLayout();
+      });
 
-    // Add event listener
-    window.addEventListener('resize', updateScreenSize);
+      if (containerRef.current) {
+        resizeObserverRef.current.observe(containerRef.current);
+      }
+    } else {
+      // Fallback for browsers that don't support ResizeObserver
+      const handleResize = () => updateLayout();
+      window.addEventListener('resize', handleResize);
+      // Initial call
+      updateLayout();
 
-    // Cleanup
-    return () => window.removeEventListener('resize', updateScreenSize);
+      // Return cleanup function
+      return () => window.removeEventListener('resize', handleResize);
+    }
+
+    // Cleanup ResizeObserver
+    return () => {
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+      }
+    };
   }, []);
 
   // Update total pages when asset data changes
@@ -343,25 +392,32 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
         </div>
       </div>
 
-      {loading && assetData.length === 0 ? (
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
-        </div>
-      ) : (
-        <div className="relative overflow-hidden">
-          {/* Dark metal panel with circular disks behind lozenge cutouts */}
-          <div className="relative panel-metallic rounded-lg p-3 sm:p-4 shadow-inner">
-            {/* Rotating disk display */}
-            <div className="relative">
-              <AnimatePresence mode="wait">
-                <motion.div
-                  key={`page-${currentPage}`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.5 }}
-                >
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3 md:gap-4 auto-rows-fr w-full mx-auto" style={{ maxWidth: '100%' }}>
+      <div ref={containerRef} className="relative overflow-hidden">
+        {loading && assetData.length === 0 ? (
+          <div className="flex justify-center items-center py-12">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
+          </div>
+        ) : (
+          <div className="relative overflow-hidden">
+            {/* Dark metal panel with circular disks behind lozenge cutouts */}
+            <div className="relative panel-metallic rounded-lg p-3 sm:p-4 shadow-inner">
+              {/* Rotating disk display */}
+              <div className="relative">
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={`page-${currentPage}`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.5 }}
+                  >
+                    <div
+                      className="grid gap-2 sm:gap-3 md:gap-4 auto-rows-fr w-full mx-auto"
+                      style={{
+                        maxWidth: '100%',
+                        gridTemplateColumns: `repeat(${gridColumns}, minmax(0, 1fr))`
+                      }}
+                    >
                     {getCurrentPageItems().map((asset, index) => {
                       // Generate random data for missing fields
                       const enrichedAsset = generateRandomData(asset);
@@ -461,7 +517,8 @@ export function AssetDisplayPanel({ className = '' }: AssetDisplayPanelProps) {
             </div>
           )}
         </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -155,12 +155,33 @@ Return an array of strategy objects with this exact structure:
 
       // Ensure template has metrics object
       if (!template.metrics) {
-        template.metrics = { winRate: 0, avgReturn: 0 };
+        template.metrics = {
+          winRate: 0,
+          avgReturn: 0,
+          potentialProfit: 0,
+          averageProfit: 0
+        };
       }
 
       // Update metrics with calculated values
       template.metrics.winRate = parseFloat(winRate.toFixed(1));
       template.metrics.avgReturn = parseFloat(avgReturn.toFixed(1));
+      template.metrics.potentialProfit = parseFloat(avgReturn.toFixed(1));
+      template.metrics.averageProfit = parseFloat(avgReturn.toFixed(1));
+
+      // Also add to strategy_config for compatibility
+      if (!template.strategy_config) {
+        template.strategy_config = {};
+      }
+
+      if (!template.strategy_config.metrics) {
+        template.strategy_config.metrics = {};
+      }
+
+      template.strategy_config.metrics.winRate = parseFloat(winRate.toFixed(1));
+      template.strategy_config.metrics.potentialProfit = parseFloat(avgReturn.toFixed(1));
+      template.strategy_config.metrics.averageProfit = parseFloat(avgReturn.toFixed(1));
+      template.strategy_config.takeProfit = parseFloat(avgReturn.toFixed(1));
 
       logService.log('info', `Optimized template metrics: ${template.title}`, {
         winRate: template.metrics.winRate,

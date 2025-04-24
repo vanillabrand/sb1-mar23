@@ -199,7 +199,9 @@ export class TemplateGenerator {
       winRate,
       profitFactor,
       averageProfit,
-      maxDrawdown
+      potentialProfit: averageProfit, // Add potentialProfit as an alias for averageProfit
+      maxDrawdown,
+      takeProfit: averageProfit // Ensure takeProfit is available for UI display
     };
 
     // Get current user ID
@@ -233,7 +235,15 @@ export class TemplateGenerator {
       user_id: userId,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
-      marketType: marketType
+      marketType: marketType,
+      metrics: {
+        winRate: winRate,
+        potentialProfit: averageProfit,
+        averageProfit: averageProfit,
+        profitFactor: profitFactor,
+        maxDrawdown: maxDrawdown
+      },
+      strategy_config: strategyConfig
     };
 
     return template;

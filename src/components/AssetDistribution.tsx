@@ -31,7 +31,11 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
   ];
 
   const updateAssetDistribution = async () => {
-    setLoading(true);
+    // Only show loading indicator on first load, not on refreshes
+    if (distributionData.length === 0) {
+      setLoading(true);
+    }
+
     try {
       const assetList = Array.from(assets);
       if (assetList.length === 0) {
@@ -106,9 +110,14 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
   useEffect(() => {
     updateAssetDistribution();
 
-    // No periodic refresh - data is updated in real-time via websockets
+    // Set up a refresh interval of once per minute
+    const refreshInterval = setInterval(() => {
+      updateAssetDistribution();
+    }, 60000); // 60000ms = 1 minute
 
-    return () => {};
+    return () => {
+      clearInterval(refreshInterval);
+    };
   }, [assets]);
 
   const handleRefresh = () => {
@@ -229,19 +238,21 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
           </button>
         </div>
 
-        {loading && distributionData.length === 0 ? (
-          <div className="h-[220px] flex items-center justify-center">
-            <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
-          </div>
-        ) : (
-          <div
-            className="h-[220px] relative overflow-hidden"
-            ref={chartRef}
-            style={{
-              boxShadow: 'inset 0 0 15px 5px rgba(0, 0, 0, 0.2)',
-              borderRadius: '12px'
-            }}
-          >
+        {/* Fixed height container to prevent flickering */}
+        <div className="h-[220px] relative overflow-hidden" style={{ borderRadius: '12px' }}>
+          {loading && distributionData.length === 0 ? (
+            <div className="h-full w-full flex items-center justify-center">
+              <Loader2 className="w-10 h-10 text-cyan-400 animate-spin" />
+            </div>
+          ) : (
+            <div
+              className="h-full w-full relative overflow-hidden"
+              ref={chartRef}
+              style={{
+                boxShadow: 'inset 0 0 15px 5px rgba(0, 0, 0, 0.2)',
+                borderRadius: '12px'
+              }}
+            >
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <defs>
@@ -348,12 +359,13 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
               borderRadius: '12px',
               zIndex: 10
             }} />
-          </div>
-        )}
+            </div>
+          )}
+        </div>
 
-        {/* Fixed position legend */}
-        {!loading && distributionData.length > 0 && (
-          <div className="h-24 mt-4"> {/* Fixed height container to prevent jumping */}
+        {/* Fixed position legend - always present to prevent layout shifts */}
+        <div className="h-24 mt-4"> {/* Fixed height container to prevent jumping */}
+          {!loading && distributionData.length > 0 ? (
             <div
               className="flex flex-wrap justify-center gap-x-4 gap-y-2"
               style={{ minHeight: '4rem' }} /* Ensure minimum height */
@@ -379,8 +391,12 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
                 </div>
               ))}
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="h-full w-full flex items-center justify-center">
+              {/* Empty placeholder to maintain height */}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
