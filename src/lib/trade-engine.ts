@@ -237,12 +237,26 @@ class TradeEngine extends EventEmitter {
 
   private async updateMonitoringStatus(
     strategyId: string,
-    status: 'monitoring' | 'generating' | 'executing' | 'idle',
-    message: string,
+    statusData: { status: string; message: string } | string,
+    messageParam?: string,
     indicators?: Record<string, number>,
     market_conditions?: any
   ): Promise<void> {
     try {
+      // Handle both object and separate parameters
+      let status: string;
+      let message: string;
+
+      if (typeof statusData === 'object') {
+        // If first parameter is an object with status and message
+        status = statusData.status;
+        message = statusData.message;
+      } else {
+        // If parameters are passed separately
+        status = statusData;
+        message = messageParam || '';
+      }
+
       const { error } = await supabase
         .from('monitoring_status')
         .upsert({
@@ -254,7 +268,15 @@ class TradeEngine extends EventEmitter {
           updated_at: new Date().toISOString()
         });
 
-      if (error) throw error;
+      if (error) {
+        if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+          logService.log('warn', 'Monitoring status table does not exist yet. This is normal if you haven\'t created it.', null, 'TradeEngine');
+        } else if (error.status === 406) { // Not Acceptable - likely auth issue
+          logService.log('warn', `Authentication issue when updating monitoring status for ${strategyId}`, error, 'TradeEngine');
+        } else {
+          throw error;
+        }
+      }
 
       // Emit event for UI updates
       eventBus.emit('monitoring:status:changed', {
@@ -267,27 +289,47 @@ class TradeEngine extends EventEmitter {
       });
     } catch (error) {
       logService.log('error', `Failed to update monitoring status for ${strategyId}`, error, 'TradeEngine');
-      throw error;
+      // Don't throw the error, just log it to prevent cascading failures
     }
   }
 
   async addStrategy(strategyOrId: Strategy | string): Promise<void> {
     try {
       let strategy: Strategy;
+      const strategyId = typeof strategyOrId === 'string' ? strategyOrId : strategyOrId.id;
+
+      // Initialize the trade engine if not already initialized
+      if (!this.initialized) {
+        await this.initialize();
+      }
 
       // If a string ID was passed, fetch the strategy from the database
       if (typeof strategyOrId === 'string') {
-        const { data, error } = await supabase
-          .from('strategies')
-          .select('*')
-          .eq('id', strategyOrId)
-          .single();
+        try {
+          const { data, error } = await supabase
+            .from('strategies')
+            .select('*')
+            .eq('id', strategyOrId)
+            .single();
 
-        if (error || !data) {
-          throw new Error(`Strategy ${strategyOrId} not found: ${error?.message || 'No data returned'}`);
+          if (error) {
+            if (error.status === 406) {
+              logService.log('warn', `Authentication issue when fetching strategy ${strategyId}`, error, 'TradeEngine');
+              throw new Error(`Authentication issue when fetching strategy: ${error.message}`);
+            } else {
+              throw error;
+            }
+          }
+
+          if (!data) {
+            throw new Error(`Strategy ${strategyId} not found: No data returned`);
+          }
+
+          strategy = data;
+        } catch (fetchError) {
+          logService.log('error', `Failed to fetch strategy ${strategyId}`, fetchError, 'TradeEngine');
+          throw fetchError;
         }
-
-        strategy = data;
       } else {
         strategy = strategyOrId;
       }
@@ -296,30 +338,49 @@ class TradeEngine extends EventEmitter {
       if (strategy.status !== 'active') {
         logService.log('warn', `Strategy ${strategy.id} is not active, updating status`, { currentStatus: strategy.status }, 'TradeEngine');
 
-        // Update the strategy status to active
-        const { data: updatedStrategy, error: updateError } = await supabase
-          .from('strategies')
-          .update({ status: 'active', updated_at: new Date().toISOString() })
-          .eq('id', strategy.id)
-          .select()
-          .single();
+        try {
+          // Update the strategy status to active
+          const { data: updatedStrategy, error: updateError } = await supabase
+            .from('strategies')
+            .update({ status: 'active', updated_at: new Date().toISOString() })
+            .eq('id', strategy.id)
+            .select()
+            .single();
 
-        if (updateError || !updatedStrategy) {
-          throw new Error(`Failed to update strategy status: ${updateError?.message || 'No data returned'}`);
+          if (updateError) {
+            if (updateError.status === 406) {
+              logService.log('warn', `Authentication issue when updating strategy status for ${strategy.id}`, updateError, 'TradeEngine');
+              throw new Error(`Authentication issue when updating strategy status: ${updateError.message}`);
+            } else {
+              throw updateError;
+            }
+          }
+
+          if (!updatedStrategy) {
+            throw new Error(`Failed to update strategy status: No data returned`);
+          }
+
+          // Use the updated strategy
+          strategy = updatedStrategy;
+        } catch (updateError) {
+          logService.log('error', `Failed to update strategy status for ${strategy.id}`, updateError, 'TradeEngine');
+          throw updateError;
         }
-
-        // Use the updated strategy
-        strategy = updatedStrategy;
       }
 
       // Add to active strategies
       this.activeStrategies.set(strategy.id, strategy);
 
       // Initialize monitoring status
-      await this.updateMonitoringStatus(strategy.id, {
-        status: 'monitoring',
-        message: 'Strategy activated, monitoring market conditions'
-      });
+      try {
+        await this.updateMonitoringStatus(strategy.id, {
+          status: 'monitoring',
+          message: 'Strategy activated, monitoring market conditions'
+        });
+      } catch (monitoringError) {
+        // Log but continue even if monitoring status update fails
+        logService.log('warn', `Failed to update monitoring status for ${strategy.id}, continuing anyway`, monitoringError, 'TradeEngine');
+      }
 
       logService.log('info', `Added strategy ${strategy.id} to trade engine`, null, 'TradeEngine');
     } catch (error) {

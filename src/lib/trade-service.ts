@@ -336,8 +336,28 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
         .eq('strategy_id', strategyId)
         .single();
 
-      if (fetchError && fetchError.code !== 'PGRST116') { // Not a 'no rows returned' error
-        throw fetchError;
+      if (fetchError) {
+        if (fetchError.code === 'PGRST116') {
+          // No rows returned - this is fine, we'll create a new budget
+          logService.log('info', `No existing budget found for strategy ${strategyId}`, null, 'TradeService');
+        } else if (fetchError.status === 406) {
+          // Not Acceptable - likely auth issue
+          logService.log('warn', `Authentication issue when fetching budget for strategy ${strategyId}`, fetchError, 'TradeService');
+          // Check auth status to help debug
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            logService.log('warn', 'No active session found when fetching budget', null, 'TradeService');
+          } else {
+            logService.log('info', 'Session exists but still got 406 error', {
+              userId: session.user.id,
+              expires: new Date(session.expires_at * 1000).toISOString()
+            }, 'TradeService');
+          }
+          // Continue with default behavior - try to insert/update anyway
+        } else {
+          // Other error
+          throw fetchError;
+        }
       }
 
       if (data) {
@@ -388,49 +408,90 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
   // Connect a strategy to the trading engine to start generating trades
   async connectStrategyToTradingEngine(strategyId: string): Promise<boolean> {
     try {
+      // Initialize budget for this strategy first
+      await this.initializeBudget(strategyId);
+
       // Import dynamically to avoid circular dependencies
       const { tradeEngine } = await import('./trade-engine');
       const { tradeGenerator } = await import('./trade-generator');
 
       // Get the strategy from the database first
-      const { data: strategy, error: fetchError } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('id', strategyId)
-        .single();
-
-      if (fetchError || !strategy) {
-        throw new Error(`Strategy ${strategyId} not found: ${fetchError?.message || 'No data returned'}`);
-      }
-
-      // Ensure the strategy is active
-      if (strategy.status !== 'active') {
-        logService.log('warn', `Strategy ${strategyId} is not active, updating status`, { currentStatus: strategy.status }, 'TradeService');
-
-        // Update the strategy status to active
-        const { data: updatedStrategy, error: updateError } = await supabase
+      try {
+        const { data: strategy, error: fetchError } = await supabase
           .from('strategies')
-          .update({ status: 'active', updated_at: new Date().toISOString() })
+          .select('*')
           .eq('id', strategyId)
-          .select()
           .single();
 
-        if (updateError || !updatedStrategy) {
-          throw new Error(`Failed to update strategy status: ${updateError?.message || 'No data returned'}`);
+        if (fetchError) {
+          if (fetchError.status === 406) {
+            logService.log('warn', `Authentication issue when fetching strategy ${strategyId}`, fetchError, 'TradeService');
+            throw new Error(`Authentication issue when fetching strategy: ${fetchError.message}`);
+          } else {
+            throw fetchError;
+          }
         }
 
-        // Use the updated strategy
-        Object.assign(strategy, updatedStrategy);
+        if (!strategy) {
+          throw new Error(`Strategy ${strategyId} not found: No data returned`);
+        }
+
+        // Ensure the strategy is active
+        if (strategy.status !== 'active') {
+          logService.log('warn', `Strategy ${strategyId} is not active, updating status`, { currentStatus: strategy.status }, 'TradeService');
+
+          try {
+            // Update the strategy status to active
+            const { data: updatedStrategy, error: updateError } = await supabase
+              .from('strategies')
+              .update({ status: 'active', updated_at: new Date().toISOString() })
+              .eq('id', strategyId)
+              .select()
+              .single();
+
+            if (updateError) {
+              if (updateError.status === 406) {
+                logService.log('warn', `Authentication issue when updating strategy status for ${strategyId}`, updateError, 'TradeService');
+                throw new Error(`Authentication issue when updating strategy status: ${updateError.message}`);
+              } else {
+                throw updateError;
+              }
+            }
+
+            if (!updatedStrategy) {
+              throw new Error(`Failed to update strategy status: No data returned`);
+            }
+
+            // Use the updated strategy
+            Object.assign(strategy, updatedStrategy);
+          } catch (updateError) {
+            logService.log('error', `Failed to update strategy status for ${strategyId}`, updateError, 'TradeService');
+            throw updateError;
+          }
+        }
+
+        // Add strategy to trade engine
+        try {
+          await tradeEngine.addStrategy(strategy);
+        } catch (engineError) {
+          logService.log('error', `Failed to add strategy ${strategyId} to trade engine`, engineError, 'TradeService');
+          // Continue to try adding to trade generator even if trade engine fails
+        }
+
+        // Add strategy to trade generator
+        try {
+          await tradeGenerator.addStrategy(strategy);
+        } catch (generatorError) {
+          logService.log('error', `Failed to add strategy ${strategyId} to trade generator`, generatorError, 'TradeService');
+          // Continue even if trade generator fails
+        }
+
+        logService.log('info', `Strategy ${strategyId} connected to trading engine`, null, 'TradeService');
+        return true;
+      } catch (dbError) {
+        logService.log('error', `Database error when connecting strategy ${strategyId} to trading engine`, dbError, 'TradeService');
+        throw dbError;
       }
-
-      // Add strategy to trade engine
-      await tradeEngine.addStrategy(strategy);
-
-      // Add strategy to trade generator
-      await tradeGenerator.addStrategy(strategy);
-
-      logService.log('info', `Strategy ${strategyId} connected to trading engine`, null, 'TradeService');
-      return true;
     } catch (error) {
       logService.log('error', `Failed to connect strategy ${strategyId} to trading engine`, error, 'TradeService');
       return false;
@@ -662,6 +723,74 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     }
   }
 
+  /**
+   * Create a trade directly in the database
+   * @param tradeData The trade data to create
+   * @returns The created trade
+   */
+  async createTrade(tradeData: any): Promise<any> {
+    try {
+      // Generate a UUID for the trade if not provided
+      const tradeId = tradeData.id || uuidv4();
+
+      // Prepare the trade data
+      const trade = {
+        id: tradeId,
+        strategy_id: tradeData.strategy_id || tradeData.strategyId,
+        symbol: tradeData.symbol,
+        side: tradeData.side,
+        quantity: tradeData.amount || tradeData.quantity,
+        price: tradeData.price || tradeData.entry_price || tradeData.entryPrice,
+        status: tradeData.status || 'open',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: {
+          demo: this.isDemo,
+          source: tradeData.source || 'trade-service',
+          entry_price: tradeData.entry_price || tradeData.entryPrice || tradeData.price,
+          stop_loss: tradeData.stop_loss || tradeData.stopLoss,
+          take_profit: tradeData.take_profit || tradeData.takeProfit,
+          trailing_stop: tradeData.trailing_stop || tradeData.trailingStop,
+          entry_conditions: tradeData.entry_conditions || tradeData.entryConditions || [],
+          exit_conditions: tradeData.exit_conditions || tradeData.exitConditions || [],
+          rationale: tradeData.rationale || 'Trade created by trade service'
+        }
+      };
+
+      // Insert the trade into the database
+      const { data, error } = await supabase
+        .from('trades')
+        .insert(trade)
+        .select()
+        .single();
+
+      if (error) {
+        throw error;
+      }
+
+      // Reserve budget for this trade
+      const tradeCost = trade.quantity * trade.price;
+      this.reserveBudgetForTrade(trade.strategy_id, tradeCost, tradeId);
+
+      // Emit trade created event
+      eventBus.emit('trade:created', {
+        trade: data
+      });
+
+      // Also emit to strategy-specific event
+      eventBus.emit(`trade:created:${trade.strategy_id}`, {
+        strategyId: trade.strategy_id,
+        trade: data
+      });
+
+      logService.log('info', `Created trade for ${trade.symbol}`, { trade: data }, 'TradeService');
+      return data;
+    } catch (error) {
+      logService.log('error', `Failed to create trade`, error, 'TradeService');
+      throw error;
+    }
+  }
+
   async initializeBudget(strategyId: string): Promise<void> {
     try {
       // Check if we already have a budget for this strategy in memory
@@ -683,6 +812,20 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
           if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
             logService.log('warn', 'Strategy budgets table does not exist yet. This is normal if you haven\'t created it.', null, 'TradeService');
             throw new Error('Strategy budgets table does not exist');
+          } else if (error.status === 406) { // Not Acceptable - likely auth issue
+            logService.log('warn', `Authentication issue when fetching budget for strategy ${strategyId}`, error, 'TradeService');
+            // Check auth status to help debug
+            const { data: { session } } = await supabase.auth.getSession();
+            if (!session) {
+              logService.log('warn', 'No active session found when fetching budget', null, 'TradeService');
+            } else {
+              logService.log('info', 'Session exists but still got 406 error', {
+                userId: session.user.id,
+                expires: new Date(session.expires_at * 1000).toISOString()
+              }, 'TradeService');
+            }
+            // Continue with default budget
+            throw new Error('Authentication issue when accessing strategy_budgets table');
           } else if (error.code !== 'PGRST116') { // Not a 'no rows returned' error
             throw error;
           }

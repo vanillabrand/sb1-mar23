@@ -1070,6 +1070,30 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         throw error;
       }
 
+      // If no strategies found, create a default one for demo purposes
+      if (!fetchedStrategies || fetchedStrategies.length === 0) {
+        logService.log('info', 'No strategies found, creating demo strategy', null, 'TradeMonitor');
+
+        // Create a demo strategy if in demo mode
+        if (demoService.isInDemoMode()) {
+          const demoStrategy = {
+            id: 'demo-strategy-1',
+            title: 'Demo BTC Strategy',
+            description: 'Automatically created demo strategy',
+            status: 'active',
+            user_id: (await supabase.auth.getUser()).data.user?.id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            selected_pairs: ['BTC/USDT'],
+            risk_level: 'Medium',
+            market_type: 'spot'
+          };
+
+          // Return the demo strategy
+          return [demoStrategy];
+        }
+      }
+
       // Filter out any strategies that were deleted in this session
       const filteredStrategies = fetchedStrategies.filter(strategy => {
         const isDeleted = deletedStrategyIds.has(strategy.id);

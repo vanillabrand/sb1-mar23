@@ -707,27 +707,31 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const handleUseTemplate = async (template: StrategyTemplate) => {
     try {
       setIsRefreshing(true);
-      console.log(`Creating strategy from template: ${template.id}`);
+      console.log(`StrategyManager: Creating strategy from template: ${template.id}`);
 
       // Create strategy from template
       const newStrategy = await templateGenerator.copyTemplateToStrategy(template.id);
-      console.log(`Strategy created from template: ${newStrategy.id}`);
+      console.log(`StrategyManager: Strategy created from template: ${newStrategy.id}`);
 
       // DIRECT APPROACH: Manually add the strategy to all lists
-      console.log('DIRECT: Manually adding strategy to all lists');
+      console.log('StrategyManager: Manually adding strategy to all lists');
 
       // 1. Add to the main strategies array
       if (strategies) {
+        console.log('StrategyManager: Current strategies count:', strategies.length);
+
         // Create a new array with the new strategy
         const updatedStrategiesArray = [...strategies, newStrategy];
+        console.log('StrategyManager: Updated strategies count:', updatedStrategiesArray.length);
 
         // 2. Update filtered strategies
         setFilteredStrategies(prev => {
           // Only add if not already in the list
           if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('DIRECT: Adding strategy to filtered list');
+            console.log('StrategyManager: Adding strategy to filtered list');
             return [...prev, newStrategy];
           }
+          console.log('StrategyManager: Strategy already in filtered list');
           return prev;
         });
 
@@ -735,59 +739,91 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         setPaginatedStrategies(prev => {
           // Only add if not already in the list
           if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('DIRECT: Adding strategy to paginated list');
+            console.log('StrategyManager: Adding strategy to paginated list');
             return [...prev, newStrategy];
           }
+          console.log('StrategyManager: Strategy already in paginated list');
           return prev;
         });
 
         // 4. Force a re-render by updating the current page
         setCurrentPage(currentPage);
+      } else {
+        console.log('StrategyManager: No strategies array available');
       }
 
       // 5. Manually add the strategy to the strategy sync cache
-      console.log('DIRECT: Manually adding strategy to strategy sync cache');
+      console.log('StrategyManager: Manually adding strategy to strategy sync cache');
       if (!strategySync.hasStrategy(newStrategy.id)) {
         strategySync.addStrategyToCache(newStrategy);
       }
 
       // 6. Manually emit events to update all components
-      console.log('DIRECT: Manually emitting events');
+      console.log('StrategyManager: Manually emitting events');
       eventBus.emit('strategy:created', newStrategy);
+      eventBus.emit('strategy:created', { strategy: newStrategy }); // Also emit with object wrapper for compatibility
+
       document.dispatchEvent(new CustomEvent('strategy:created', {
         detail: { strategy: newStrategy }
       }));
 
-      // 6. Force a complete refresh of strategies
-      console.log('DIRECT: Forcing complete refresh of strategies');
-      await refreshStrategies();
+      // 7. Force a complete refresh of strategies
+      console.log('StrategyManager: Forcing complete refresh of strategies');
+      try {
+        await refreshStrategies();
+        console.log('StrategyManager: Refresh completed');
+      } catch (refreshError) {
+        console.error('StrategyManager: Error refreshing strategies:', refreshError);
+        // Continue even if refresh fails
+      }
 
-      // 7. Double-check that the strategy is in the lists
+      // 8. Double-check that the strategy is in the lists
       setTimeout(async () => {
-        console.log('DIRECT: Performing delayed check');
+        console.log('StrategyManager: Performing delayed check');
 
         // Check if the strategy is in the filtered list
         const isInFiltered = filteredStrategies.some(s => s.id === newStrategy.id);
         if (!isInFiltered) {
-          console.log(`DIRECT: Strategy ${newStrategy.id} not in filtered list, adding it`);
+          console.log(`StrategyManager: Strategy ${newStrategy.id} not in filtered list, adding it`);
           setFilteredStrategies(prev => [...prev, newStrategy]);
+        } else {
+          console.log(`StrategyManager: Strategy ${newStrategy.id} is in filtered list`);
         }
 
         // Check if the strategy is in the paginated list
         const isInPaginated = paginatedStrategies.some(s => s.id === newStrategy.id);
         if (!isInPaginated) {
-          console.log(`DIRECT: Strategy ${newStrategy.id} not in paginated list, adding it`);
+          console.log(`StrategyManager: Strategy ${newStrategy.id} not in paginated list, adding it`);
           setPaginatedStrategies(prev => [...prev, newStrategy]);
+        } else {
+          console.log(`StrategyManager: Strategy ${newStrategy.id} is in paginated list`);
         }
 
         // Force another refresh
-        await refreshStrategies();
+        try {
+          await refreshStrategies();
+          console.log('StrategyManager: Second refresh completed');
+        } catch (refreshError) {
+          console.error('StrategyManager: Error in second refresh:', refreshError);
+          // Continue even if refresh fails
+        }
+
+        // Force a third refresh after a longer delay
+        setTimeout(async () => {
+          console.log('StrategyManager: Performing final delayed refresh');
+          try {
+            await refreshStrategies();
+            console.log('StrategyManager: Final refresh completed');
+          } catch (refreshError) {
+            console.error('StrategyManager: Error in final refresh:', refreshError);
+          }
+        }, 2000);
       }, 1000);
 
       // Log success
       logService.log('info', `Strategy created from template ${template.id}`, { strategyId: newStrategy.id }, 'StrategyManager');
     } catch (err) {
-      console.error('Failed to create strategy from template:', err);
+      console.error('StrategyManager: Failed to create strategy from template:', err);
       logService.log('error', 'Failed to create strategy from template:', err, 'StrategyManager');
       setError('Failed to create strategy from template. Please try again.');
     } finally {

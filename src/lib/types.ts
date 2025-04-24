@@ -394,6 +394,7 @@ export interface TradeService {
   clearAllBudgets(): void;
   isInitialized(): boolean;
   createDefaultBudget(): StrategyBudget;
+  createTrade(tradeData: any): Promise<any>;
   connectStrategyToTradingEngine(strategyId: string): Promise<boolean>;
   removeTradesByStrategy(strategyId: string): Promise<boolean>;
   updateBudgetAfterTrade(strategyId: string, amount: number, profit?: number, tradeId?: string): Promise<void>;

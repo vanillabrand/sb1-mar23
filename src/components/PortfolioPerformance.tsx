@@ -354,7 +354,8 @@ export function PortfolioPerformance() {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         // Handle unauthenticated state gracefully
-        setPerformanceData([]);
+        const sampleData = generateSamplePerformanceData(timeframe);
+        setPerformanceData(sampleData);
         setLoading(false);
         return;
       }

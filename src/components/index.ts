@@ -28,3 +28,4 @@ export { AssetDisplayPanel } from './AssetDisplayPanel';
 export { FlipDisplay } from './FlipDisplay';
 export { FlipTile } from './FlipTile';
 export { Dashboard } from './Dashboard';
+export { AuthDebugger } from './AuthDebugger';

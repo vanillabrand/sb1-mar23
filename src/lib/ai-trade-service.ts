@@ -91,7 +91,6 @@ interface StrategyConfig {
     position_size: number;
     confidence_factor: number;
     maxOpenTrades: number;
-    maxDailyTrades: number;
     minProfitPct: number;
     maxLossPct: number;
     trailingStop?: {

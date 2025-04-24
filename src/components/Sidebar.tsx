@@ -367,7 +367,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
           </div>
           <div className="ml-3">
             <div className={`${isMobile ? 'text-xl' : 'text-2xl'} gradient-text`}>GIGAntic</div>
-            <div className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'}`}>AI Trading Platform</div>
+            <div className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'} whitespace-nowrap`} style={{ marginTop: "-2px" }}>AI Trading Platform</div>
           </div>
         </div>
 

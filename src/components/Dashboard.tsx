@@ -28,6 +28,7 @@ import {
   VestaboardDisplay,
   AssetDisplayPanel
 } from './index';
+import { AuthDebugger } from './AuthDebugger';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type {
   Strategy
@@ -668,10 +669,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
         <NetworkStatus />
       </div>
 
-      {/* Mobile Header - Simplified */}
-      <div className="sm:hidden mb-4">
-        <h1 className="text-xl font-bold gradient-text text-center">Your Strategies</h1>
-      </div>
+      {/* Removed mobile header completely */}
 
       <div className={`grid grid-cols-12 gap-2 sm:gap-3 md:gap-5 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
         {/* DEFCON Monitor removed from mobile */}
@@ -755,6 +753,16 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           <AnimatedPanel index={10} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
             <AssetDistribution assets={new Set(allAssets)} />
           </AnimatedPanel>
+
+          {/* Auth Debugger - Only visible in development mode */}
+          {process.env.NODE_ENV === 'development' && (
+            <AnimatedPanel index={11} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+              <h3 className="text-lg font-semibold bg-clip-text text-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry mb-4">
+                Authentication Debugger
+              </h3>
+              <AuthDebugger />
+            </AnimatedPanel>
+          )}
         </div>
       </div>
     </div>

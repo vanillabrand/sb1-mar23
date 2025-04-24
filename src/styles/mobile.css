@@ -85,8 +85,8 @@ html, body {
 
   /* Mobile logo styling */
   .topnav-metallic {
-    padding: 5px 0 !important; /* Changed to 5px top padding */
-    height: 60px !important; /* Fixed height */
+    padding: 10px 0 !important;
+    height: 60px !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -96,11 +96,25 @@ html, body {
 
   /* Specific fix for logo centering */
   .mobile-logo {
-    transform: scale(1.1) !important;
+    transform: scale(1) !important; /* Restored to original size */
     position: absolute !important;
     left: 50% !important;
     transform: translateX(-50%) !important;
-    top: 5px !important; /* Consistent with top padding */
+    top: 10px !important;
+  }
+
+  /* Remove the scaled transforms */
+  .mobile-logo .rounded-xl {
+    transform: none !important;
+  }
+
+  /* Reset text sizes to original */
+  .mobile-logo .gradient-text {
+    font-size: inherit !important;
+  }
+
+  .mobile-logo .text-gray-400 {
+    font-size: inherit !important;
   }
 
   /* Ensure the mobile menu toggle button is visible and clickable */

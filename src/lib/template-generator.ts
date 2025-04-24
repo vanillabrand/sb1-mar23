@@ -402,24 +402,34 @@ export class TemplateGenerator {
 
   public async copyTemplateToStrategy(templateId: string): Promise<Strategy> {
     try {
+      console.log(`TemplateGenerator: Starting to copy template ${templateId} to strategy`);
+
       // Get the template
-      const template = await templateService.getTemplates().then(
-        templates => templates.find(t => t.id === templateId)
-      );
+      const templates = await templateService.getTemplates();
+      console.log(`TemplateGenerator: Found ${templates.length} templates`);
+
+      const template = templates.find(t => t.id === templateId);
 
       if (!template) {
+        console.error(`TemplateGenerator: Template with ID ${templateId} not found`);
         throw new Error(`Template with ID ${templateId} not found`);
       }
+
+      console.log(`TemplateGenerator: Found template: ${template.title}`);
 
       // Get current user
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError || !session?.user?.id) {
+        console.error('TemplateGenerator: No authenticated session found');
         throw new Error('No authenticated session found');
       }
 
+      console.log(`TemplateGenerator: User authenticated: ${session.user.id}`);
+
       // Get the risk level from template
       const riskLevel = template.riskLevel || template.risk_level || 'Medium';
+      console.log(`TemplateGenerator: Using risk level: ${riskLevel}`);
 
       // Determine market type from template or detect from description
       let marketType: MarketType;
@@ -431,23 +441,65 @@ export class TemplateGenerator {
         // Detect from description
         marketType = detectMarketType(template.description);
       }
+      console.log(`TemplateGenerator: Using market type: ${marketType}`);
+
+      // Get selected pairs from template or use default
+      const selectedPairs = template.selected_pairs || ['BTC/USDT'];
+      console.log(`TemplateGenerator: Using selected pairs: ${selectedPairs.join(', ')}`);
+
+      // Get strategy config from template or use default
+      const strategyConfig = template.strategy_config || {
+        indicatorType: 'momentum',
+        entryConditions: {},
+        exitConditions: {}
+      };
+      console.log(`TemplateGenerator: Using strategy config with indicator type: ${strategyConfig.indicatorType || 'default'}`);
 
       // Create a new strategy based on the template
-      const strategy = await strategyService.createStrategy({
+      console.log('TemplateGenerator: Creating strategy with data:', {
+        title: template.title,
+        name: template.title,
+        description: template.description,
+        riskLevel,
+        marketType,
+        selectedPairs
+      });
+
+      // Create strategy directly with supabase to avoid any potential issues
+      const newStrategy = {
+        id: uuidv4(),
+        user_id: session.user.id,
         title: template.title,
         name: template.title, // Explicitly set name field to match title
         description: template.description,
-        riskLevel: riskLevel as any,
+        risk_level: riskLevel,
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
-        selected_pairs: ['BTC/USDT'],
-        marketType: marketType,
-        strategy_config: {
-          indicatorType: 'momentum',
-          entryConditions: {},
-          exitConditions: {}
-        }
-      });
+        selected_pairs: selectedPairs,
+        market_type: marketType,
+        strategy_config: strategyConfig,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      console.log('TemplateGenerator: Inserting strategy into database');
+      const { data: strategy, error: insertError } = await supabase
+        .from('strategies')
+        .insert(newStrategy)
+        .select()
+        .single();
+
+      if (insertError) {
+        console.error('TemplateGenerator: Error inserting strategy:', insertError);
+        throw insertError;
+      }
+
+      if (!strategy) {
+        console.error('TemplateGenerator: No strategy returned after insert');
+        throw new Error('Failed to create strategy - no data returned');
+      }
+
+      console.log(`TemplateGenerator: Strategy created with ID: ${strategy.id}`);
 
       // Log the strategy creation for debugging
       logService.log('debug', 'Created strategy from template in copyTemplateToStrategy', {
@@ -458,29 +510,54 @@ export class TemplateGenerator {
       }, 'TemplateGenerator');
 
       // Emit events to update UI immediately
-      console.log('Emitting strategy:created event with strategy:', strategy.id);
+      console.log('TemplateGenerator: Emitting strategy:created event with strategy:', strategy.id);
       eventBus.emit('strategy:created', strategy);
+      eventBus.emit('strategy:created', { strategy }); // Also emit with object wrapper for compatibility
+
       document.dispatchEvent(new CustomEvent('strategy:created', {
         detail: { strategy }
       }));
 
       // Force a refresh of all strategies
-      console.log('Forcing refresh of all strategies');
-      await strategySync.initialize();
+      console.log('TemplateGenerator: Forcing refresh of all strategies');
+      try {
+        await strategySync.initialize();
+      } catch (syncError) {
+        console.error('TemplateGenerator: Error initializing strategy sync:', syncError);
+        // Continue even if sync fails
+      }
 
       // Get the latest strategies and broadcast them
       const allStrategies = strategySync.getAllStrategies();
-      console.log('Broadcasting updated strategies list:', allStrategies.length, 'strategies');
+      console.log('TemplateGenerator: Broadcasting updated strategies list:', allStrategies.length, 'strategies');
+
+      // Add the new strategy to the sync cache if it's not already there
+      if (!strategySync.hasStrategy(strategy.id)) {
+        console.log(`TemplateGenerator: Adding strategy ${strategy.id} to sync cache`);
+        strategySync['strategies'].set(strategy.id, strategy);
+      }
+
+      // Broadcast updates
       eventBus.emit('strategies:updated', allStrategies);
       document.dispatchEvent(new CustomEvent('strategies:updated', {
         detail: { strategies: allStrategies }
       }));
+
+      // Add a delayed broadcast to ensure all components catch the update
+      setTimeout(() => {
+        console.log('TemplateGenerator: Delayed broadcast of updated strategies');
+        eventBus.emit('strategies:updated', strategySync.getAllStrategies());
+        document.dispatchEvent(new CustomEvent('strategies:updated', {
+          detail: { strategies: strategySync.getAllStrategies() }
+        }));
+      }, 500);
 
       logService.log('info', `Created strategy from template ${templateId}`,
         { strategyId: strategy.id, userId: session.user.id }, 'TemplateGenerator');
 
       return strategy;
     } catch (error) {
+      console.error('TemplateGenerator: Failed to create strategy from template:', error);
       logService.log('error', `Failed to create strategy from template`, error, 'TemplateGenerator');
       throw error;
     }

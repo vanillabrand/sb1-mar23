@@ -148,14 +148,23 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
     try {
       // Validate strategy configuration
       if (!strategy.strategy_config) {
-        throw new Error('Strategy configuration is missing');
+        strategy.strategy_config = {}; // Create empty config if missing
       }
 
       // Check for trading pairs in selected_pairs (primary) or strategy_config.assets (fallback)
-      const tradingPairs = strategy.selected_pairs || (strategy.strategy_config?.assets as string[] || []);
+      let tradingPairs = strategy.selected_pairs || (strategy.strategy_config?.assets as string[] || []);
 
+      // If no trading pairs found, add a default one
       if (!Array.isArray(tradingPairs) || tradingPairs.length === 0) {
-        throw new Error('No trading pairs configured for this strategy');
+        tradingPairs = ['BTC/USDT'];
+
+        // Update the strategy with the default pair
+        strategy.selected_pairs = tradingPairs;
+        if (!strategy.strategy_config.assets) {
+          strategy.strategy_config.assets = tradingPairs;
+        }
+
+        console.log('Added default trading pair BTC/USDT to strategy for backtesting');
       }
 
       // Validate dates

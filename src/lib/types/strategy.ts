@@ -10,7 +10,6 @@ export interface StrategyConfig {
   };
   tradingParams: {
     maxOpenTrades: number;
-    maxDailyTrades: number;
     minProfitPct: number;
     maxLossPct: number;
     trailingStop?: {

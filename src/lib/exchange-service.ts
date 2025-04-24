@@ -17,6 +17,7 @@ import type {
 import { ccxtService } from './ccxt-service';
 import * as ccxt from 'ccxt';
 import { config } from './config';
+import { demoService } from './demo-service';
 
 class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
@@ -310,6 +311,36 @@ class ExchangeService extends EventEmitter {
 
   async connect(exchange: Exchange): Promise<void> {
     try {
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
+      // If in demo mode, use the demo exchange
+      if (isDemo) {
+        logService.log('info', 'Connecting to demo exchange', { exchangeId: exchange.id }, 'ExchangeService');
+
+        // Create a demo exchange instance
+        const demoExchange = {
+          id: 'demo-exchange',
+          name: 'Demo Exchange',
+          credentials: {
+            apiKey: 'demo-api-key',
+            secret: 'demo-secret'
+          },
+          testnet: true
+        };
+
+        this.activeExchange = demoExchange as Exchange;
+        localStorage.setItem('activeExchange', JSON.stringify(demoExchange));
+
+        // Initialize demo WebSocket
+        await this.initializeWebSockets();
+
+        // Emit connected event
+        this.emit('exchange:connected', demoExchange);
+        return;
+      }
+
+      // For real exchanges, proceed with normal connection
       // Initialize CCXT exchange instance if not already created
       if (!this.exchangeInstances.has(exchange.id)) {
         const credentials = exchange.credentials;
@@ -318,14 +349,32 @@ class ExchangeService extends EventEmitter {
         }
 
         const ccxtInstance = await ccxtService.createExchange(
-          exchange.id as ExchangeId,
-          credentials
+          exchange.name.toLowerCase() as ExchangeId,
+          credentials,
+          exchange.testnet
         );
         this.exchangeInstances.set(exchange.id, ccxtInstance);
       }
 
       const ccxtInstance = this.exchangeInstances.get(exchange.id);
-      await ccxtInstance.loadMarkets();
+
+      // Try to load markets with retry logic
+      let retries = 3;
+      let success = false;
+
+      while (retries > 0 && !success) {
+        try {
+          await ccxtInstance.loadMarkets();
+          success = true;
+        } catch (error) {
+          retries--;
+          if (retries === 0) {
+            throw error;
+          }
+          logService.log('warn', `Failed to load markets, retrying (${retries} attempts left)`, error, 'ExchangeService');
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+        }
+      }
 
       this.activeExchange = exchange;
       localStorage.setItem('activeExchange', JSON.stringify(exchange));
@@ -653,6 +702,12 @@ class ExchangeService extends EventEmitter {
 
   async testConnection(config: ExchangeConfig): Promise<void> {
     try {
+      // If in demo mode, always return success
+      if (demoService.isInDemoMode()) {
+        logService.log('info', 'Demo mode active, skipping real connection test', null, 'ExchangeService');
+        return;
+      }
+
       // Create exchange instance with proper configuration
       const testInstance = await ccxtService.createExchange(
         config.name as ExchangeId,
@@ -670,22 +725,45 @@ class ExchangeService extends EventEmitter {
       // Increase timeout for API calls
       testInstance.timeout = 30000; // 30 seconds
 
-      // Test basic API functionality with better error handling
-      try {
-        await testInstance.loadMarkets();
-        logService.log('info', 'Successfully loaded markets', null, 'ExchangeService');
-      } catch (marketError) {
-        logService.log('error', 'Failed to load markets', marketError, 'ExchangeService');
-        throw new Error(`Failed to load markets: ${marketError instanceof Error ? marketError.message : 'Unknown error'}`);
+      // Test basic API functionality with better error handling and retry logic
+      let retries = 3;
+      let marketsLoaded = false;
+
+      while (retries > 0 && !marketsLoaded) {
+        try {
+          await testInstance.loadMarkets();
+          marketsLoaded = true;
+          logService.log('info', 'Successfully loaded markets', null, 'ExchangeService');
+        } catch (marketError) {
+          retries--;
+          if (retries === 0) {
+            logService.log('error', 'Failed to load markets after multiple attempts', marketError, 'ExchangeService');
+            throw new Error(`Failed to load markets: ${marketError instanceof Error ? marketError.message : 'Unknown error'}`);
+          }
+          logService.log('warn', `Failed to load markets, retrying (${retries} attempts left)`, marketError, 'ExchangeService');
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+        }
       }
 
-      try {
-        await testInstance.fetchBalance();
-        logService.log('info', 'Successfully fetched balance', null, 'ExchangeService');
-      } catch (balanceError) {
-        // If balance fetch fails, it might be due to API permissions
-        logService.log('error', 'Failed to fetch balance', balanceError, 'ExchangeService');
-        throw new Error(`Failed to fetch balance. Please ensure your API key has 'Read' permissions: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
+      // Try to fetch balance with retry logic
+      retries = 3;
+      let balanceLoaded = false;
+
+      while (retries > 0 && !balanceLoaded) {
+        try {
+          await testInstance.fetchBalance();
+          balanceLoaded = true;
+          logService.log('info', 'Successfully fetched balance', null, 'ExchangeService');
+        } catch (balanceError) {
+          retries--;
+          if (retries === 0) {
+            // If balance fetch fails, it might be due to API permissions
+            logService.log('error', 'Failed to fetch balance after multiple attempts', balanceError, 'ExchangeService');
+            throw new Error(`Failed to fetch balance. Please ensure your API key has 'Read' permissions: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
+          }
+          logService.log('warn', `Failed to fetch balance, retrying (${retries} attempts left)`, balanceError, 'ExchangeService');
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+        }
       }
 
       // Skip additional checks if we've made it this far
@@ -1445,6 +1523,93 @@ class ExchangeService extends EventEmitter {
     return this.demoMode;
   }
 
+  /**
+   * Check if the service is in live mode (opposite of demo mode)
+   */
+  isLive(): boolean {
+    return !this.demoMode;
+  }
+
+  /**
+   * Switch between demo and live mode
+   * @param isLive Whether to switch to live mode (true) or demo mode (false)
+   */
+  async switchMode(isLive: boolean): Promise<void> {
+    try {
+      // If we're already in the requested mode, do nothing
+      if (isLive === !this.demoMode) {
+        logService.log('info', `Already in ${isLive ? 'live' : 'demo'} mode`, null, 'ExchangeService');
+        return;
+      }
+
+      logService.log('info', `Switching to ${isLive ? 'live' : 'demo'} mode`, null, 'ExchangeService');
+
+      // Update the demo mode flag
+      this.demoMode = !isLive;
+
+      // Update other services that need to know about the mode
+      const { tradeService } = await import('./trade-service');
+      tradeService.setDemoMode(!isLive);
+
+      const { budgetValidationService } = await import('./budget-validation-service');
+      budgetValidationService.setDemoMode(!isLive);
+
+      const { budgetHistoryService } = await import('./budget-history-service');
+      budgetHistoryService.setDemoMode(!isLive);
+
+      // If switching to demo mode, initialize the demo exchange
+      if (!isLive) {
+        // Create a demo exchange config
+        const demoConfig = {
+          name: 'binance',
+          apiKey: 'demo-api-key',
+          secret: 'demo-secret',
+          testnet: true
+        };
+
+        // Initialize the demo exchange
+        await this.initializeDemoExchange(demoConfig);
+
+        // Create a demo exchange instance
+        const demoExchange = {
+          id: 'demo-exchange',
+          name: 'Demo Exchange',
+          credentials: {
+            apiKey: 'demo-api-key',
+            secret: 'demo-secret'
+          },
+          testnet: true
+        };
+
+        // Set as active exchange
+        this.activeExchange = demoExchange as Exchange;
+        localStorage.setItem('activeExchange', JSON.stringify(demoExchange));
+      } else {
+        // If switching to live mode, try to connect to the user's exchange
+        const userExchanges = await this.getUserExchanges();
+
+        if (userExchanges.length === 0) {
+          throw new Error('No exchanges configured. Please add an exchange in the Wallet Manager.');
+        }
+
+        // Find the default exchange or use the first one
+        const defaultExchange = userExchanges.find(e => e.is_default) || userExchanges[0];
+
+        // Connect to the exchange
+        await this.connect(defaultExchange);
+      }
+
+      // Emit event for UI updates
+      this.emit('exchange:modeChanged', { isLive });
+      eventBus.emit('exchange:modeChanged', { isLive });
+
+      logService.log('info', `Successfully switched to ${isLive ? 'live' : 'demo'} mode`, null, 'ExchangeService');
+    } catch (error) {
+      logService.log('error', `Failed to switch to ${isLive ? 'live' : 'demo'} mode`, error, 'ExchangeService');
+      throw error;
+    }
+  }
+
   async getCandles(
     symbol: string,
     timeframe: string,
@@ -2108,6 +2273,31 @@ class ExchangeService extends EventEmitter {
    */
   isDemoMode(): boolean {
     return this.demoMode;
+  }
+
+  /**
+   * Check if the user has configured exchange credentials
+   * @returns True if the user has configured exchange credentials, false otherwise
+   */
+  hasCredentials(): boolean {
+    try {
+      // If we're in demo mode, check if there are any user exchanges configured
+      if (this.demoMode) {
+        // We'll need to check asynchronously, but for now return true if we have an active exchange
+        return !!this.activeExchange;
+      }
+
+      // If we have an active exchange with credentials, return true
+      if (this.activeExchange && this.activeExchange.credentials) {
+        return !!this.activeExchange.credentials.apiKey && !!this.activeExchange.credentials.secret;
+      }
+
+      // Otherwise, return false
+      return false;
+    } catch (error) {
+      logService.log('error', 'Failed to check if user has credentials', error, 'ExchangeService');
+      return false;
+    }
   }
 
   /**

@@ -1047,19 +1047,25 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Leverage</p>
-                    <p className="text-sm text-white">{((strategy as any).strategy_config?.leverage || 1)}x</p>
+                    <p className="text-sm text-white">{((strategy as any).strategy_config?.trade_parameters?.leverage ||
+                                                       (strategy as any).strategy_config?.leverage || 1)}x</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Position Size</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.positionSize || 0.1) * 100).toFixed(0)}%</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.trade_parameters?.position_size ||
+                                                       (strategy as any).strategy_config?.riskManagement?.maxPositionSize ||
+                                                       (strategy as any).strategy_config?.positionSize || 0.1) * 100).toFixed(0)}%</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Confidence Threshold</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.confidenceThreshold || 0.7) * 100).toFixed(0)}%</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.trade_parameters?.confidence_factor ||
+                                                       (strategy as any).strategy_config?.validation?.minConfidence ||
+                                                       (strategy as any).strategy_config?.confidenceThreshold || 0.7) * 100).toFixed(0)}%</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Timeframe</p>
-                    <p className="text-sm text-white">{(strategy as any).strategy_config?.timeframe || '1h'}</p>
+                    <p className="text-sm text-white">{(strategy as any).strategy_config?.timeframes?.execution ||
+                                                      (strategy as any).strategy_config?.timeframe || '1h'}</p>
                   </div>
                 </div>
             </div>
@@ -1074,15 +1080,18 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Stop Loss</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.stopLoss || 0.03) * 100).toFixed(1)}%</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.stop_loss ||
+                                                       (strategy as any).strategy_config?.stopLoss || 0.03) * 100).toFixed(1)}%</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Take Profit</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.takeProfit || 0.09) * 100).toFixed(1)}%</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.take_profit ||
+                                                       (strategy as any).strategy_config?.takeProfit || 0.09) * 100).toFixed(1)}%</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Trailing Stop</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.trailingStop || 0.02) * 100).toFixed(1)}%</p>
+                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.trailing_stop_loss ||
+                                                       (strategy as any).strategy_config?.trailingStop || 0.02) * 100).toFixed(1)}%</p>
                   </div>
                 </div>
             </div>
@@ -1101,39 +1110,47 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Current Value</p>
-                    <p className="text-sm text-white">${metrics.currentValue.toFixed(2)}</p>
+                    <p className="text-sm text-white">${metrics?.currentValue?.toFixed(2) || (strategy as any).metrics?.equity?.toFixed(2) || '0.00'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Profit/Loss</p>
-                    <p className={`text-sm ${metrics.totalChange >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {metrics.totalChange >= 0 ? '+' : ''}{metrics.totalChange.toFixed(2)} ({metrics.percentChange.toFixed(2)}%)
+                    <p className={`text-sm ${(metrics?.totalChange >= 0 || (strategy as any).metrics?.pnl >= 0) ? 'text-green-400' : 'text-red-400'}`}>
+                      {metrics?.totalChange !== undefined ? (metrics.totalChange >= 0 ? '+' : '') + metrics.totalChange.toFixed(2) :
+                       (strategy as any).metrics?.pnl !== undefined ? ((strategy as any).metrics.pnl >= 0 ? '+' : '') + (strategy as any).metrics.pnl.toFixed(2) : '+0.00'}
+                      ({metrics?.percentChange !== undefined ? metrics.percentChange.toFixed(2) :
+                        (strategy as any).performance !== undefined ? (strategy as any).performance.toFixed(2) : '0.00'}%)
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Win Rate</p>
-                    <p className="text-sm text-white">{metrics.winRate.toFixed(1)}%</p>
+                    <p className="text-sm text-white">{metrics?.winRate !== undefined ? metrics.winRate.toFixed(1) :
+                      (strategy as any).metrics?.winRate !== undefined ? ((strategy as any).metrics.winRate * 100).toFixed(1) : '0.0'}%</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Total Trades</p>
-                    <p className="text-sm text-white">{metrics.totalTrades}</p>
+                    <p className="text-sm text-white">{metrics?.totalTrades || (strategy as any).trades?.total || 0}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Active Trades</p>
-                    <p className="text-sm text-white">{metrics.activeTrades}</p>
+                    <p className="text-sm text-white">{metrics?.activeTrades || (strategy as any).trades?.active || 0}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Avg Trade Profit</p>
-                    <p className={`text-sm ${metrics.avgTradeProfit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {metrics.avgTradeProfit >= 0 ? '+' : ''}{metrics.avgTradeProfit.toFixed(2)}
+                    <p className={`text-sm ${(metrics?.avgTradeProfit >= 0 || (strategy as any).metrics?.averageProfit >= 0) ? 'text-green-400' : 'text-red-400'}`}>
+                      {metrics?.avgTradeProfit !== undefined ? (metrics.avgTradeProfit >= 0 ? '+' : '') + metrics.avgTradeProfit.toFixed(2) :
+                       (strategy as any).metrics?.averageProfit !== undefined ? ((strategy as any).metrics.averageProfit >= 0 ? '+' : '') + (strategy as any).metrics.averageProfit.toFixed(2) : '+0.00'}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Avg Duration</p>
-                    <p className="text-sm text-white">{metrics.avgTradeDuration > 60 ? (metrics.avgTradeDuration / 60).toFixed(1) + 'h' : metrics.avgTradeDuration.toFixed(0) + 'm'}</p>
+                    <p className="text-sm text-white">{metrics?.avgTradeDuration ?
+                      (metrics.avgTradeDuration > 60 ? (metrics.avgTradeDuration / 60).toFixed(1) + 'h' : metrics.avgTradeDuration.toFixed(0) + 'm') :
+                      (strategy as any).trades?.avgDuration ?
+                      ((strategy as any).trades.avgDuration > 60 ? ((strategy as any).trades.avgDuration / 60).toFixed(1) + 'h' : (strategy as any).trades.avgDuration.toFixed(0) + 'm') : '0m'}</p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Portfolio Contribution</p>
-                    <p className="text-sm text-white">{metrics.contribution.toFixed(1)}%</p>
+                    <p className="text-sm text-white">{metrics?.contribution?.toFixed(1) || (strategy as any).metrics?.contribution?.toFixed(1) || '0.0'}%</p>
                   </div>
                 </div>
               ) : (
@@ -1152,19 +1169,23 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                 <div>
                   <p className="text-xs text-gray-500">Max Drawdown</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
+                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.max_drawdown ||
+                                                     (strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Max Open Trades</p>
-                  <p className="text-sm text-white">{(strategy as any).strategy_config?.maxOpenTrades || 3}</p>
+                  <p className="text-sm text-white">{(strategy as any).strategy_config?.trade_parameters?.maxOpenTrades ||
+                                                    (strategy as any).strategy_config?.tradingParams?.maxOpenTrades ||
+                                                    (strategy as any).strategy_config?.maxOpenTrades || 3}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Max Daily Trades</p>
-                  <p className="text-sm text-white">{(strategy as any).strategy_config?.maxDailyTrades || 10}</p>
+                  <p className="text-xs text-gray-500">Trade Frequency</p>
+                  <p className="text-sm text-white">Unlimited</p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Budget Allocation</p>
-                  <p className="text-sm text-white">${metrics?.budget?.allocated.toFixed(2) || '0.00'}</p>
+                  <p className="text-sm text-white">${metrics?.budget?.allocated?.toFixed(2) ||
+                                                     (strategy as any).metrics?.equity?.toFixed(2) || '0.00'}</p>
                 </div>
               </div>
             </div>

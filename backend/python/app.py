@@ -137,8 +137,8 @@ class MarketData(BaseModel):
 class EngineConfig(BaseModel):
     demo_mode: bool = True
     check_interval: int = 60  # seconds
-    max_trades_per_strategy: int = 5
-    max_open_trades_total: int = 20
+    max_trades_per_strategy: int = 999999  # Effectively unlimited trades per strategy
+    max_open_trades_total: int = 999999  # Effectively unlimited total trades
     risk_per_trade: float = 0.02  # 2% of account per trade
     default_stop_loss: float = 0.01  # 1% stop loss
     default_take_profit: float = 0.02  # 2% take profit
@@ -727,14 +727,13 @@ class TradingEngine:
             logger.info(f"Strategy {strategy_id} has insufficient budget: ${budget.available:.2f}")
             return
 
-        # Check if we already have too many active trades for this strategy
+        # Get active trades for this strategy (for logging purposes only)
         try:
             response = supabase.table("trades").select("*").eq("strategy_id", strategy_id).in_("status", ["pending", "executed"]).execute()
             active_trades = response.data
 
-            if len(active_trades) >= self.config.max_trades_per_strategy:
-                logger.info(f"Strategy {strategy_id} already has {len(active_trades)} active trades (max: {self.config.max_trades_per_strategy})")
-                return
+            # Log the number of active trades but don't limit it
+            logger.info(f"Strategy {strategy_id} has {len(active_trades)} active trades (no limit)")
 
             # Generate trades with Deepseek
             generated_trades = await self.generate_trades_with_deepseek(strategy, budget)
@@ -1326,8 +1325,8 @@ async def startup_event():
     config = EngineConfig(
         demo_mode=True,  # Start in demo mode by default
         check_interval=60,
-        max_trades_per_strategy=5,
-        max_open_trades_total=20,
+        max_trades_per_strategy=999999,  # Effectively unlimited trades per strategy
+        max_open_trades_total=999999,  # Effectively unlimited total trades
         risk_per_trade=0.02,
         default_stop_loss=0.01,
         default_take_profit=0.02,

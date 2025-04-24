@@ -11,8 +11,8 @@ import { indicatorService } from './indicators'; // Updated to use indicatorServ
 import { marketAnalysisService } from './market-analysis-service';
 import { riskManagementService } from './risk-management-service';
 import { walletBalanceService } from './wallet-balance-service';
-import type { Strategy } from './supabase-types';
-import type { MarketAnalysis } from './types';
+import { supabase } from './supabase';
+import type { Strategy, MarketAnalysis, RiskLevel, MarketRegime, MarketType, TradeOptions } from './types';
 import { config } from './config';
 
 interface IndicatorData {
@@ -368,12 +368,54 @@ class TradeGenerator extends EventEmitter {
                     // We'll still create the trade in demo mode, but log the warning
                   }
 
-                  // Execute the trade
-                  const tradeResult = await tradeManager.executeTrade(tradeOptions);
-                  tradeResults.push(tradeResult);
+                  try {
+                    // Use the trade service to create the trade directly in the database
+                    const tradeData = {
+                      strategy_id: strategy.id,
+                      symbol: symbol,
+                      side: tradeSide,
+                      quantity: adjustedSize,
+                      price: entryPrice,
+                      status: 'open',
+                      metadata: {
+                        demo: true,
+                        source: 'trade-generator-demo',
+                        entry_price: entryPrice,
+                        stop_loss: stopLoss,
+                        take_profit: takeProfit,
+                        trailing_stop: trailingStop,
+                        entry_conditions: [],
+                        exit_conditions: [],
+                        rationale: signal.rationale || 'Demo trade created by trade generator'
+                      }
+                    };
 
-                  // Emit events for each trade
-                  this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, adjustedSize);
+                    const tradeResult = await tradeService.createTrade(tradeData);
+                    tradeResults.push(tradeResult);
+
+                    // Emit events for each trade
+                    this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, adjustedSize);
+                  } catch (dbError) {
+                    logService.log('error', `Failed to create trade in database for ${symbol}`, dbError, 'TradeGenerator');
+
+                    // Fall back to using the trade manager
+                    const tradeResult = await tradeManager.executeTrade({
+                      symbol: symbol,
+                      side: tradeSide,
+                      type: 'market',
+                      amount: adjustedSize,
+                      strategy_id: strategy.id,
+                      entry_price: entryPrice,
+                      stop_loss: stopLoss,
+                      take_profit: takeProfit,
+                      trailing_stop: trailingStop,
+                      testnet: true
+                    });
+                    tradeResults.push(tradeResult);
+
+                    // Emit events for each trade
+                    this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, adjustedSize);
+                  }
 
                   // Add a small delay between trades to avoid overwhelming the UI
                   if (i < numTrades - 1) {
@@ -464,11 +506,52 @@ class TradeGenerator extends EventEmitter {
                   return; // Don't proceed with the trade
                 }
 
-                // Execute the trade
-                var tradeResult = await tradeManager.executeTrade(tradeOptions);
+                // Execute the trade using the trade service
+                try {
+                  // Use the trade service to create the trade directly in the database
+                  const tradeData = {
+                    strategy_id: strategy.id,
+                    symbol: symbol,
+                    side: tradeSide,
+                    quantity: positionSize,
+                    price: currentPrice,
+                    status: 'open',
+                    metadata: {
+                      demo: false,
+                      source: 'trade-generator-live',
+                      entry_price: currentPrice,
+                      stop_loss: stopLoss,
+                      take_profit: takeProfit,
+                      trailing_stop: trailingStop,
+                      entry_conditions: [],
+                      exit_conditions: [],
+                      rationale: signal.rationale || 'Live trade created by trade generator'
+                    }
+                  };
 
-                // Emit events for the trade
-                this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, positionSize);
+                  var tradeResult = await tradeService.createTrade(tradeData);
+
+                  // Emit events for the trade
+                  this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, positionSize);
+                } catch (dbError) {
+                  logService.log('error', `Failed to create live trade in database for ${symbol}`, dbError, 'TradeGenerator');
+
+                  // Fall back to using the trade manager
+                  var tradeResult = await tradeManager.executeTrade({
+                    symbol: symbol,
+                    side: tradeSide,
+                    type: 'market',
+                    amount: positionSize,
+                    strategyId: strategy.id,
+                    entry_price: currentPrice,
+                    stop_loss: stopLoss,
+                    take_profit: takeProfit,
+                    trailing_stop: trailingStop
+                  });
+
+                  // Emit events for the trade
+                  this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, positionSize);
+                }
               }
 
               // For backward compatibility, emit events for the first/only trade
@@ -536,11 +619,14 @@ class TradeGenerator extends EventEmitter {
                 try {
                   logService.log('info', `Attempting to create fallback trade for ${symbol} in demo mode`, null, 'TradeGenerator');
 
+                  // Create a unique trade ID
+                  const tradeId = `${strategy.id}-${symbol}-${Date.now()}-fallback-${Math.random().toString(36).substring(2, 15)}`;
+
                   // Create a simplified trade directly in the database
                   const { data: fallbackTrade, error: fallbackError } = await supabase
                     .from('trades')
                     .insert({
-                      id: `${strategy.id}-${symbol}-${Date.now()}-fallback-${Math.random().toString(36).substring(2, 15)}`,
+                      id: tradeId,
                       strategy_id: strategy.id,
                       symbol,
                       side: signal.direction === 'Long' ? 'buy' : 'sell',
@@ -568,6 +654,10 @@ class TradeGenerator extends EventEmitter {
                     throw fallbackError;
                   }
 
+                  // Reserve budget for this trade
+                  const tradeCost = positionSize * currentPrice;
+                  await tradeService.reserveBudgetForTrade(strategy.id, tradeCost, tradeId);
+
                   // Update trade status to executed after a short delay
                   setTimeout(async () => {
                     try {
@@ -594,6 +684,12 @@ class TradeGenerator extends EventEmitter {
                     strategy,
                     trade: fallbackTrade,
                     fallback: true
+                  });
+
+                  // Also emit to strategy-specific event
+                  eventBus.emit(`trade:created:${strategy.id}`, {
+                    strategyId: strategy.id,
+                    trade: fallbackTrade
                   });
                 } catch (fallbackError) {
                   logService.log('error', `Failed to create fallback trade for ${symbol}`, fallbackError, 'TradeGenerator');
