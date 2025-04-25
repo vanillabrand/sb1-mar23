@@ -904,6 +904,16 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           [data.strategyId]: updatedBudget
         }));
 
+        // Also update the budget in the trade service to ensure consistency across all components
+        tradeService.updateBudgetCache(data.strategyId, updatedBudget);
+
+        // Emit a global event to ensure all components are updated
+        eventBus.emit('budget:global:updated', {
+          strategyId: data.strategyId,
+          budget: updatedBudget,
+          timestamp: Date.now()
+        });
+
         logService.log('info', `Budget updated for strategy ${data.strategyId}`, {
           budget: updatedBudget,
           available: updatedBudget.available,
@@ -1357,8 +1367,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       const cost = price * amount;
       const fee = cost * 0.001; // 0.1% fee
 
-      // Create unique ID
-      const uniqueId = `mock-${symbol}-${i}-${now + i}-${Math.random().toString(36).substring(2, 8)}`;
+      // Create stable unique ID that won't change on re-renders
+      const normalizedSymbolForId = normalizedSymbol.replace('/', '');
+      const uniqueId = `mock-${normalizedSymbolForId}-${i}-${now + i}`;
 
       // Extract quote currency (USDT, BTC, etc.)
       const quoteCurrency = normalizedSymbol.split('/')[1] || 'USDT';
@@ -1460,17 +1471,22 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           }
 
           // Format the trades to match our Trade interface
-          const formattedTrades = symbolTrades.map(trade => ({
-            id: `testnet-${trade.id || Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            timestamp: trade.timestamp || Date.now(),
-            symbol: normalizedSymbol,
-            side: trade.side || (Math.random() > 0.5 ? 'buy' : 'sell'),
-            entryPrice: trade.price || generateRandomPrice(normalizedSymbol),
-            amount: trade.amount || generateRandomAmount(),
-            status: 'completed',
-            strategyId: activeStrategies[0].id,
-            createdAt: new Date(trade.timestamp || Date.now()).toISOString()
-          }));
+          const formattedTrades = symbolTrades.map((trade, index) => {
+            // Create a stable ID that won't change on re-renders
+            const stableId = `testnet-${normalizedSymbol.replace('/', '')}-${index}-${trade.id || Date.now()}`;
+
+            return {
+              id: stableId,
+              timestamp: trade.timestamp || Date.now(),
+              symbol: normalizedSymbol,
+              side: trade.side || (Math.random() > 0.5 ? 'buy' : 'sell'),
+              entryPrice: trade.price || generateRandomPrice(normalizedSymbol),
+              amount: trade.amount || generateRandomAmount(),
+              status: 'completed',
+              strategyId: activeStrategies[0].id,
+              createdAt: new Date(trade.timestamp || Date.now()).toISOString()
+            };
+          });
 
           // Cache the trades for this symbol
           tradeCache.set(symbolCacheKey, {

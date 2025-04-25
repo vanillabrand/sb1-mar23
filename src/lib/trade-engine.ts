@@ -443,6 +443,8 @@ class TradeEngine extends EventEmitter {
 
         // Calculate profit/loss if possible
         let profit = 0;
+        let exitPrice = trade.exit_price || trade.price; // Use entry price if no exit price
+
         if (trade.exit_price && trade.price && trade.quantity) {
           const entryValue = trade.price * trade.quantity;
           const exitValue = trade.exit_price * trade.quantity;
@@ -467,14 +469,43 @@ class TradeEngine extends EventEmitter {
           logService.log('warn', `Error closing position for trade ${tradeId} through trade manager, marking as closed anyway`, closeError, 'TradeEngine');
         }
 
-        // 3. Update the trade status in the database
+        // 3. Try to use the unified trade service to close the trade
+        try {
+          // Import the unified trade service
+          const { unifiedTradeService } = await import('./unified-trade-service');
+
+          // Prepare close data
+          const closeData = {
+            exitPrice,
+            profit,
+            status: 'closed',
+            reason
+          };
+
+          // Close the trade using the unified trade service
+          const closedTrade = await unifiedTradeService.closeTrade(tradeId, closeData);
+
+          logService.log('info', `Closed trade ${tradeId} using unified trade service`, {
+            profit,
+            exitPrice,
+            reason
+          }, 'TradeEngine');
+
+          // Return early since the unified service handles everything else
+          return;
+        } catch (unifiedError) {
+          // Log the error but continue with the fallback method
+          logService.log('warn', `Error closing trade ${tradeId} with unified trade service, falling back to direct method`, unifiedError, 'TradeEngine');
+        }
+
+        // Fallback: Update the trade status in the database directly
         const { error: updateError } = await supabase
           .from('trades')
           .update({
             status: 'closed',
             close_reason: reason,
             closed_at: new Date().toISOString(),
-            exit_price: trade.exit_price || trade.price, // Use entry price if no exit price
+            exit_price: exitPrice,
             profit: profit,
             updated_at: new Date().toISOString()
           })
@@ -484,38 +515,36 @@ class TradeEngine extends EventEmitter {
 
         // 4. Release the budget allocation
         try {
-          // First try using allocated_budget if available
-          if (trade.allocated_budget && trade.allocated_budget > 0) {
-            await tradeService.releaseBudgetFromTrade(trade.strategy_id, trade.allocated_budget, profit, tradeId, 'closed');
-            logService.log('info', `Released allocated budget ${trade.allocated_budget} for trade ${tradeId}`, null, 'TradeEngine');
-          }
-          // Fall back to calculating from price and quantity
-          else if (trade.price && trade.quantity) {
-            const tradeCost = trade.price * trade.quantity;
-            await tradeService.releaseBudgetFromTrade(trade.strategy_id, tradeCost, profit, tradeId, 'closed');
-            logService.log('info', `Released calculated budget ${tradeCost} for trade ${tradeId}`, null, 'TradeEngine');
-          } else {
-            // Last resort: try to get the budget from the trade metadata
-            if (trade.metadata && trade.metadata.tradeCost) {
-              await tradeService.releaseBudgetFromTrade(trade.strategy_id, trade.metadata.tradeCost, profit, tradeId, 'closed');
-              logService.log('info', `Released metadata budget ${trade.metadata.tradeCost} for trade ${tradeId}`, null, 'TradeEngine');
-            } else {
-              logService.log('warn', `Could not determine budget amount for trade ${tradeId}`, null, 'TradeEngine');
+          // Try to use the updateBudgetWithProfit method first
+          try {
+            await tradeService.updateBudgetWithProfit(
+              trade.strategy_id,
+              profit,
+              tradeId,
+              'closed'
+            );
+            logService.log('info', `Updated budget with profit ${profit} for trade ${tradeId}`, null, 'TradeEngine');
+          } catch (profitError) {
+            logService.log('warn', `Failed to update budget with profit, falling back to legacy method`, profitError, 'TradeEngine');
 
-              // Try to update the strategy budget directly as a last resort
-              try {
-                const budget = await tradeService.getBudget(trade.strategy_id);
-                if (budget) {
-                  // Force a budget refresh event to ensure UI is updated
-                  eventBus.emit('budget:updated', {
-                    strategyId: trade.strategy_id,
-                    tradeId,
-                    profit,
-                    timestamp: Date.now()
-                  });
-                }
-              } catch (budgetRefreshError) {
-                logService.log('warn', `Failed to refresh budget for strategy ${trade.strategy_id}`, budgetRefreshError, 'TradeEngine');
+            // Fall back to legacy methods
+            // First try using allocated_budget if available
+            if (trade.allocated_budget && trade.allocated_budget > 0) {
+              await tradeService.releaseBudgetFromTrade(trade.strategy_id, trade.allocated_budget, profit, tradeId, 'closed');
+              logService.log('info', `Released allocated budget ${trade.allocated_budget} for trade ${tradeId}`, null, 'TradeEngine');
+            }
+            // Fall back to calculating from price and quantity
+            else if (trade.price && trade.quantity) {
+              const tradeCost = trade.price * trade.quantity;
+              await tradeService.releaseBudgetFromTrade(trade.strategy_id, tradeCost, profit, tradeId, 'closed');
+              logService.log('info', `Released calculated budget ${tradeCost} for trade ${tradeId}`, null, 'TradeEngine');
+            } else {
+              // Last resort: try to get the budget from the trade metadata
+              if (trade.metadata && trade.metadata.tradeCost) {
+                await tradeService.releaseBudgetFromTrade(trade.strategy_id, trade.metadata.tradeCost, profit, tradeId, 'closed');
+                logService.log('info', `Released metadata budget ${trade.metadata.tradeCost} for trade ${tradeId}`, null, 'TradeEngine');
+              } else {
+                logService.log('warn', `Could not determine budget amount for trade ${tradeId}`, null, 'TradeEngine');
               }
             }
           }
@@ -547,11 +576,18 @@ class TradeEngine extends EventEmitter {
             strategyId: trade.strategy_id
           });
 
-          // Also emit budget updated event
+          // Emit budget updated events
           eventBus.emit('budget:updated', {
             strategyId: trade.strategy_id,
             tradeId,
             profit,
+            timestamp: Date.now()
+          });
+
+          // Emit global budget update event
+          eventBus.emit('budget:global:updated', {
+            strategyId: trade.strategy_id,
+            budget: tradeService.getBudget(trade.strategy_id),
             timestamp: Date.now()
           });
         } catch (eventError) {

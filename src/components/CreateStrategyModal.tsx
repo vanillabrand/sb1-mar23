@@ -99,12 +99,28 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
         pairs_count: formData.selected_pairs.length
       });
 
+      // Format selected pairs to ensure they use the correct format (BTC/USDT instead of BTC_USDT)
+      const formattedPairs = formData.selected_pairs.map(pair =>
+        pair.includes('_') ? pair.replace('_', '/') : pair
+      );
+
       // Create a copy of the form data with both market_type and marketType fields
       const enrichedData = {
         ...formData,
         // Ensure market_type is set for database field
-        market_type: formData.marketType
+        market_type: formData.marketType,
+        // Ensure selected_pairs is properly formatted
+        selected_pairs: formattedPairs
       };
+
+      console.log('CreateStrategyModal: Submitting enriched data:', {
+        title: enrichedData.title,
+        description: enrichedData.description,
+        risk_level: enrichedData.risk_level,
+        selected_pairs: enrichedData.selected_pairs,
+        marketType: enrichedData.marketType,
+        market_type: enrichedData.market_type
+      });
 
       await onCreated(enrichedData);
       onClose();

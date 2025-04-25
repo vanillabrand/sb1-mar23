@@ -354,6 +354,46 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     return this.initialized;
   }
 
+  /**
+   * Update the budget cache for a strategy
+   * This method is used to ensure consistency across all components
+   * @param strategyId The strategy ID
+   * @param budget The updated budget
+   */
+  updateBudgetCache(strategyId: string, budget: StrategyBudget): void {
+    if (!strategyId || !budget) {
+      logService.log('warn', 'Invalid parameters for updateBudgetCache', { strategyId, budget }, 'TradeService');
+      return;
+    }
+
+    try {
+      // Update the budget in memory
+      this.budgets.set(strategyId, budget);
+
+      // Save to localStorage
+      this.saveBudgets();
+
+      // Log the update
+      logService.log('info', `Budget cache updated for strategy ${strategyId}`, {
+        budget,
+        available: budget.available,
+        allocated: budget.allocated,
+        total: budget.total,
+        profit: budget.profit || 0
+      }, 'TradeService');
+
+      // Update the budget in the database if not in demo mode
+      if (!this.isDemo) {
+        this.saveBudgetToDatabase(strategyId, budget)
+          .catch(error => {
+            logService.log('warn', `Failed to save updated budget to database for strategy ${strategyId}`, error, 'TradeService');
+          });
+      }
+    } catch (error) {
+      logService.log('error', `Error updating budget cache for strategy ${strategyId}`, error, 'TradeService');
+    }
+  }
+
   // Create and return a default budget for a new strategy.
   createDefaultBudget(): StrategyBudget {
     // In demo mode, use a larger budget to allow for multiple trades
@@ -799,6 +839,115 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
         { budget: this.budgets.get(strategyId), amount, profit, tradeStatus }, 'TradeService');
     } catch (error) {
       logService.log('error', `Failed to update budget after trade for strategy ${strategyId}`, error, 'TradeService');
+    }
+  }
+
+  /**
+   * Update budget with profit/loss from a trade
+   * This is a specialized method for handling profit/loss updates
+   * @param strategyId The strategy ID
+   * @param profit The profit/loss amount (positive for profit, negative for loss)
+   * @param tradeId Optional trade ID for logging
+   * @param tradeStatus Optional trade status
+   */
+  async updateBudgetWithProfit(strategyId: string, profit: number, tradeId?: string, tradeStatus?: string): Promise<void> {
+    try {
+      const budget = this.budgets.get(strategyId);
+      if (!budget) {
+        throw new Error(`Budget not found for strategy ${strategyId}`);
+      }
+
+      // Format the profit to 2 decimal places to avoid floating point issues
+      const formattedProfit = Number(profit.toFixed(2));
+
+      logService.log('info', `Updating budget with ${formattedProfit >= 0 ? 'profit' : 'loss'} for strategy ${strategyId}`, {
+        profit: formattedProfit,
+        tradeId,
+        tradeStatus
+      }, 'TradeService');
+
+      // Create a copy of the budget to avoid direct mutation
+      const updatedBudget = { ...budget };
+
+      // Add profit to the budget
+      updatedBudget.profit = (updatedBudget.profit || 0) + formattedProfit;
+
+      // If the trade is closed or completed, also update the total and available budget
+      if (tradeStatus === 'closed' || tradeStatus === 'completed') {
+        // For closed trades, we add the profit to the total and available budget
+        updatedBudget.total = Number((updatedBudget.total + formattedProfit).toFixed(2));
+        updatedBudget.available = Number((updatedBudget.available + formattedProfit).toFixed(2));
+
+        logService.log('info', `Updated total and available budget for closed trade`, {
+          strategyId,
+          tradeId,
+          oldTotal: budget.total,
+          newTotal: updatedBudget.total,
+          oldAvailable: budget.available,
+          newAvailable: updatedBudget.available,
+          profit: formattedProfit
+        }, 'TradeService');
+      }
+
+      // Update the budget in memory
+      this.budgets.set(strategyId, updatedBudget);
+
+      // Save to localStorage
+      this.saveBudgets();
+
+      // Emit budget updated event
+      this.emit('budgetUpdated', {
+        strategyId,
+        budget: updatedBudget
+      });
+
+      // Also emit to the event bus for UI components
+      eventBus.emit('budgetUpdated', {
+        budgets: { [strategyId]: updatedBudget },
+        availableBalance: this.calculateAvailableBudget()
+      });
+
+      // Emit global budget update event
+      eventBus.emit('budget:global:updated', {
+        strategyId,
+        budget: updatedBudget,
+        timestamp: Date.now()
+      });
+
+      // Update database if not in demo mode
+      if (!this.isDemo) {
+        try {
+          const { error } = await supabase
+            .from('strategy_budgets')
+            .update({
+              total: updatedBudget.total,
+              allocated: updatedBudget.allocated,
+              available: updatedBudget.available,
+              profit: updatedBudget.profit || 0,
+              last_updated: new Date().toISOString()
+            })
+            .eq('strategy_id', strategyId);
+
+          if (error) {
+            if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+              logService.log('warn', 'Strategy budgets table does not exist yet', null, 'TradeService');
+            } else {
+              throw error;
+            }
+          }
+        } catch (dbError) {
+          logService.log('warn', `Error updating strategy_budgets table with profit`, dbError, 'TradeService');
+        }
+      }
+
+      logService.log('info', `Successfully updated budget with ${formattedProfit >= 0 ? 'profit' : 'loss'} for strategy ${strategyId}`, {
+        strategyId,
+        tradeId,
+        profit: formattedProfit,
+        updatedBudget
+      }, 'TradeService');
+    } catch (error) {
+      logService.log('error', `Failed to update budget with profit for strategy ${strategyId}`, error, 'TradeService');
     }
   }
 

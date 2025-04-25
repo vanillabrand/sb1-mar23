@@ -376,6 +376,20 @@ export class TemplateGenerator {
         marketType = detectMarketType(template.description);
       }
 
+      // Get selected pairs from template or use default
+      const selectedPairs = template.selected_pairs && template.selected_pairs.length > 0
+        ? template.selected_pairs
+        : ['BTC/USDT'];
+
+      // Get strategy config from template or use default
+      const strategyConfig = template.strategy_config && Object.keys(template.strategy_config).length > 0
+        ? template.strategy_config
+        : {
+            indicatorType: 'momentum',
+            entryConditions: {},
+            exitConditions: {}
+          };
+
       // Create a new strategy based on the template
       const strategy = await strategyService.createStrategy({
         title: template.title,
@@ -384,13 +398,10 @@ export class TemplateGenerator {
         riskLevel: riskLevel as any,
         type: 'custom', // Mark as custom since it's now owned by the user
         status: 'inactive', // Start as inactive
-        selected_pairs: ['BTC/USDT'],
+        selected_pairs: selectedPairs,
         marketType: marketType,
-        strategy_config: {
-          indicatorType: 'momentum',
-          entryConditions: {},
-          exitConditions: {}
-        }
+        market_type: marketType, // Also set market_type for database
+        strategy_config: strategyConfig
       });
 
       // Log the strategy creation for debugging
@@ -398,7 +409,10 @@ export class TemplateGenerator {
         templateId,
         strategyId: strategy.id,
         title: template.title,
-        name: strategy.name
+        name: strategy.name,
+        marketType: strategy.marketType || strategy.market_type,
+        selectedPairs: strategy.selected_pairs,
+        pairsCount: strategy.selected_pairs ? strategy.selected_pairs.length : 0
       }, 'TemplateGenerator');
 
       logService.log('info', `Created strategy from template ${templateId}`, { strategyId: strategy.id, userId }, 'TemplateGenerator');

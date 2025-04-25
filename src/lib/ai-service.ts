@@ -138,6 +138,14 @@ Provide trade recommendations in JSON format with the following structure:
     const trend = this.analyzeTrend(marketData[0]?.priceHistory || []);
     const volatility = this.calculateVolatility(marketData[0]?.priceHistory || []);
 
+    // Log the market type being used
+    logService.log('info', `Using market type ${marketType} for market analysis in generateMarketAnalysis`, {
+      symbol,
+      marketType,
+      strategyId: strategyConfig?.strategyId,
+      riskLevel
+    }, 'AIService');
+
     // Determine if we should trade based on market conditions
     let shouldTrade = Math.random() > 0.3; // 70% chance of trading
 
@@ -899,7 +907,7 @@ Please provide a complete strategy in JSON format with the following structure:
   /**
    * Generates a strategy based on the provided description, risk level, and assets
    */
-  async generateStrategy(description: string, riskLevel: string, assets: string[] | any): Promise<any> {
+  async generateStrategy(description: string, riskLevel: string, assets: string[] | any, marketType?: MarketType): Promise<any> {
     try {
       this.emit('progress', { step: 'Initializing strategy generation...', progress: 10 });
 
@@ -921,15 +929,40 @@ Please provide a complete strategy in JSON format with the following structure:
         assets = ['BTC/USDT'];
       }
 
+      // Determine market type - use provided marketType, or detect from description
+      const detectedMarketType = marketType || detectMarketType(description);
+
+      logService.log('info', `Generating strategy with market type: ${detectedMarketType}`, {
+        marketType: detectedMarketType,
+        providedMarketType: marketType,
+        detectedFromDescription: !marketType,
+        assets: assets.join(', '),
+        riskLevel
+      }, 'AIService');
+
       // Try to generate strategy with DeepSeek
       try {
         const strategy = await this.generateWithDeepSeek(description, riskLevel, assets);
+
+        // Ensure the market type is set correctly
+        if (detectedMarketType) {
+          strategy.marketType = detectedMarketType;
+          strategy.market_type = detectedMarketType;
+        }
+
         return this.normalizeStrategyConfig(strategy, riskLevel);
       } catch (error) {
         logService.log('warn', 'Failed to generate strategy with DeepSeek, falling back to rule-based', error, 'AIService');
 
         // Fallback to rule-based strategy
         const strategy = await this.generateRuleBasedStrategy(description, riskLevel, assets);
+
+        // Ensure the market type is set correctly
+        if (detectedMarketType) {
+          strategy.marketType = detectedMarketType;
+          strategy.market_type = detectedMarketType;
+        }
+
         return this.normalizeStrategyConfig(strategy, riskLevel);
       }
     } catch (error) {

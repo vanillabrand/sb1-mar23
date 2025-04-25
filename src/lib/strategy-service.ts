@@ -95,6 +95,26 @@ class StrategyService {
 
       // Ensure we have a name field (required by the database schema)
       // Map title to name if name is not provided
+
+      // Ensure selected_pairs is properly formatted and not empty
+      let selectedPairs = data.selected_pairs || [];
+
+      // If selected_pairs is empty, try to extract from strategy_config
+      if (selectedPairs.length === 0 && data.strategy_config?.assets) {
+        selectedPairs = data.strategy_config.assets;
+      }
+
+      // If still empty, add a default pair
+      if (selectedPairs.length === 0) {
+        selectedPairs = ['BTC/USDT'];
+      }
+
+      // Ensure pairs are in the correct format (BTC/USDT instead of BTC_USDT)
+      selectedPairs = selectedPairs.map(pair =>
+        pair.includes('_') ? pair.replace('_', '/') : pair
+      );
+
+      // Create the strategy object with all required fields
       const strategy = {
         id: uuidv4(),
         ...data,
@@ -105,9 +125,13 @@ class StrategyService {
         updated_at: new Date().toISOString(),
         status: data.status || 'inactive',
         performance: 0,
-        selected_pairs: data.selected_pairs || [],
-        strategy_config: data.strategy_config || {},
-        market_type: marketType
+        selected_pairs: selectedPairs,
+        strategy_config: {
+          ...(data.strategy_config || {}),
+          assets: selectedPairs // Ensure assets are also set in strategy_config
+        },
+        market_type: marketType,
+        marketType: marketType // Also set marketType for UI components
       };
 
       // Log the strategy data for debugging
@@ -256,6 +280,36 @@ class StrategyService {
 
       // Add updated timestamp
       safeUpdates.updated_at = new Date().toISOString();
+
+      // Ensure selected_pairs is properly formatted if it's being updated
+      if (safeUpdates.selected_pairs) {
+        // Ensure pairs are in the correct format (BTC/USDT instead of BTC_USDT)
+        safeUpdates.selected_pairs = safeUpdates.selected_pairs.map((pair: string) =>
+          pair.includes('_') ? pair.replace('_', '/') : pair
+        );
+
+        // If strategy_config exists, also update assets in it
+        if (safeUpdates.strategy_config) {
+          safeUpdates.strategy_config = {
+            ...safeUpdates.strategy_config,
+            assets: safeUpdates.selected_pairs
+          };
+        } else {
+          // If strategy_config doesn't exist in updates, get it from current strategy
+          const currentConfig = currentStrategy.strategy_config || {};
+          safeUpdates.strategy_config = {
+            ...currentConfig,
+            assets: safeUpdates.selected_pairs
+          };
+        }
+      }
+
+      // Ensure market_type and marketType are both set if either is being updated
+      if (safeUpdates.market_type || safeUpdates.marketType) {
+        const updatedMarketType = safeUpdates.market_type || safeUpdates.marketType;
+        safeUpdates.market_type = updatedMarketType;
+        safeUpdates.marketType = updatedMarketType;
+      }
 
       const { data, error } = await supabase
         .from('strategies')
@@ -446,48 +500,55 @@ class StrategyService {
       let tradingPairs = [];
       let updateNeeded = false;
 
+      // Determine the trading pairs from various possible sources
       if (currentStrategy.selected_pairs && currentStrategy.selected_pairs.length > 0) {
         tradingPairs = currentStrategy.selected_pairs;
         logService.log('info', `Strategy ${id} has selected_pairs`, { pairs: tradingPairs }, 'StrategyService');
       } else if (currentStrategy.strategy_config?.assets && currentStrategy.strategy_config.assets.length > 0) {
         tradingPairs = currentStrategy.strategy_config.assets;
         logService.log('info', `Strategy ${id} has strategy_config.assets`, { pairs: tradingPairs }, 'StrategyService');
-
-        // Update selected_pairs for consistency
-        currentStrategy.selected_pairs = tradingPairs;
         updateNeeded = true;
       } else if (currentStrategy.strategy_config?.config?.pairs && currentStrategy.strategy_config.config.pairs.length > 0) {
         tradingPairs = currentStrategy.strategy_config.config.pairs;
         logService.log('info', `Strategy ${id} has strategy_config.config.pairs`, { pairs: tradingPairs }, 'StrategyService');
-
-        // Update selected_pairs for consistency
-        currentStrategy.selected_pairs = tradingPairs;
         updateNeeded = true;
       } else {
         // No trading pairs found, add default
         tradingPairs = ['BTC/USDT'];
         logService.log('warn', `Strategy ${id} has no trading pairs, adding default BTC/USDT`, null, 'StrategyService');
-
-        // Update strategy with default trading pair
-        currentStrategy.selected_pairs = tradingPairs;
-        if (!currentStrategy.strategy_config) currentStrategy.strategy_config = {};
-        currentStrategy.strategy_config.assets = tradingPairs;
-        if (!currentStrategy.strategy_config.config) currentStrategy.strategy_config.config = {};
-        currentStrategy.strategy_config.config.pairs = tradingPairs;
         updateNeeded = true;
       }
 
-      // Update the strategy with active status and trading pairs if needed
+      // Ensure pairs are in the correct format (BTC/USDT instead of BTC_USDT)
+      tradingPairs = tradingPairs.map(pair =>
+        pair.includes('_') ? pair.replace('_', '/') : pair
+      );
+
+      // Ensure market type is set
+      let marketType = currentStrategy.market_type || currentStrategy.marketType || 'spot';
+
+      // Update all trading pair and market type fields for consistency
+      if (!currentStrategy.strategy_config) currentStrategy.strategy_config = {};
+      if (!currentStrategy.strategy_config.config) currentStrategy.strategy_config.config = {};
+
+      currentStrategy.selected_pairs = tradingPairs;
+      currentStrategy.strategy_config.assets = tradingPairs;
+      currentStrategy.strategy_config.config.pairs = tradingPairs;
+      currentStrategy.market_type = marketType;
+      currentStrategy.marketType = marketType;
+
+      updateNeeded = true; // Always update to ensure consistency
+
+      // Update the strategy with active status, trading pairs, and market type
       const updateData = {
         status: 'active',
         updated_at: new Date().toISOString(),
-        deactivated_at: null // Clear deactivated_at when activating
+        deactivated_at: null, // Clear deactivated_at when activating
+        selected_pairs: currentStrategy.selected_pairs,
+        strategy_config: currentStrategy.strategy_config,
+        market_type: currentStrategy.market_type,
+        marketType: currentStrategy.marketType
       };
-
-      if (updateNeeded) {
-        updateData['selected_pairs'] = currentStrategy.selected_pairs;
-        updateData['strategy_config'] = currentStrategy.strategy_config;
-      }
 
       const { data, error } = await supabase
         .from('strategies')

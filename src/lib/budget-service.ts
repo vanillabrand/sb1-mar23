@@ -68,11 +68,11 @@ class BudgetService extends EventEmitter {
         .from('strategy_budgets')
         .select('count(*)')
         .limit(1);
-        
+
       if (tableCheckError) {
         if (tableCheckError.code === '42P01') { // PostgreSQL code for 'relation does not exist'
           logService.log('warn', 'Strategy budgets table does not exist, creating it now', null, 'BudgetService');
-          
+
           // Try to create the table
           try {
             // Use RPC to create the table if it doesn't exist
@@ -83,7 +83,7 @@ class BudgetService extends EventEmitter {
           }
         } else if (tableCheckError.status === 406) {
           logService.log('warn', 'Authentication issue when checking strategy_budgets table', tableCheckError, 'BudgetService');
-          
+
           // Try to refresh the session
           try {
             const { error: refreshError } = await supabase.auth.refreshSession();
@@ -188,7 +188,7 @@ class BudgetService extends EventEmitter {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         logService.log('warn', 'No active session found when refreshing budget', { strategyId }, 'BudgetService');
-        
+
         // Try to refresh the session
         try {
           const { error: refreshError } = await supabase.auth.refreshSession();
@@ -205,21 +205,73 @@ class BudgetService extends EventEmitter {
       // Get budget for this strategy
       let budgetData = null;
       try {
-        const { data, error } = await supabase
+        // First check if multiple budget records exist for this strategy
+        const { data: countData, error: countError } = await supabase
           .from('strategy_budgets')
-          .select('*')
-          .eq('strategy_id', strategyId)
-          .maybeSingle(); // Use maybeSingle instead of single to avoid 406 errors
+          .select('id', { count: 'exact' })
+          .eq('strategy_id', strategyId);
 
-        if (error) {
-          // Handle other errors that might still occur
-          logService.log('error', `Error fetching budget for strategy ${strategyId}`, error, 'BudgetService');
+        if (countError) {
+          logService.log('error', `Error counting budgets for strategy ${strategyId}`, countError, 'BudgetService');
           return null;
-        } else if (data) {
-          // We have budget data
-          budgetData = data;
+        }
+
+        // If multiple records exist, clean them up
+        if (countData && countData.length > 1) {
+          logService.log('warn', `Found ${countData.length} budget records for strategy ${strategyId}, cleaning up duplicates`, null, 'BudgetService');
+
+          // Get all budget records for this strategy
+          const { data: allBudgets, error: fetchError } = await supabase
+            .from('strategy_budgets')
+            .select('*')
+            .eq('strategy_id', strategyId)
+            .order('last_updated', { ascending: false });
+
+          if (fetchError) {
+            logService.log('error', `Error fetching all budgets for strategy ${strategyId}`, fetchError, 'BudgetService');
+            return null;
+          }
+
+          if (allBudgets && allBudgets.length > 0) {
+            // Keep the most recently updated budget
+            const mostRecentBudget = allBudgets[0];
+            budgetData = mostRecentBudget;
+
+            // Delete all other budgets
+            const budgetIdsToDelete = allBudgets.slice(1).map(b => b.id);
+            if (budgetIdsToDelete.length > 0) {
+              const { error: deleteError } = await supabase
+                .from('strategy_budgets')
+                .delete()
+                .in('id', budgetIdsToDelete);
+
+              if (deleteError) {
+                logService.log('error', `Error deleting duplicate budgets for strategy ${strategyId}`, deleteError, 'BudgetService');
+              } else {
+                logService.log('info', `Deleted ${budgetIdsToDelete.length} duplicate budget records for strategy ${strategyId}`, null, 'BudgetService');
+              }
+            }
+          }
         } else {
-          // No budget found, create a default one
+          // Normal case - fetch the single budget
+          const { data, error } = await supabase
+            .from('strategy_budgets')
+            .select('*')
+            .eq('strategy_id', strategyId)
+            .maybeSingle(); // Use maybeSingle instead of single to avoid 406 errors
+
+          if (error) {
+            // Handle other errors that might still occur
+            logService.log('error', `Error fetching budget for strategy ${strategyId}`, error, 'BudgetService');
+            return null;
+          } else if (data) {
+            // We have budget data
+            budgetData = data;
+          }
+        }
+
+        // If no budget found, create a default one
+        if (!budgetData) {
           const defaultBudget: StrategyBudget = {
             strategy_id: strategyId,
             total: 1000, // Default total budget
@@ -327,36 +379,86 @@ class BudgetService extends EventEmitter {
         last_updated: new Date().toISOString()
       };
 
-      // Update in database
-      const { data, error } = await supabase
+      // Check if multiple budget records exist for this strategy
+      const { data: countData, error: countError } = await supabase
         .from('strategy_budgets')
-        .update(updatedBudget)
-        .eq('strategy_id', strategyId)
-        .select()
-        .single();
+        .select('id', { count: 'exact' })
+        .eq('strategy_id', strategyId);
 
-      if (error) {
-        logService.log('error', `Error updating budget for strategy ${strategyId}`, error, 'BudgetService');
+      if (countError) {
+        logService.log('error', `Error counting budgets for strategy ${strategyId} before update`, countError, 'BudgetService');
+        return null;
+      }
+
+      let updatedData: StrategyBudget | null = null;
+
+      // If multiple records exist, clean them up before updating
+      if (countData && countData.length > 1) {
+        logService.log('warn', `Found ${countData.length} budget records for strategy ${strategyId} before update, cleaning up duplicates`, null, 'BudgetService');
+
+        // Delete all budget records for this strategy
+        const { error: deleteError } = await supabase
+          .from('strategy_budgets')
+          .delete()
+          .eq('strategy_id', strategyId);
+
+        if (deleteError) {
+          logService.log('error', `Error deleting duplicate budgets for strategy ${strategyId} before update`, deleteError, 'BudgetService');
+          return null;
+        }
+
+        // Insert the updated budget as a new record
+        const { data: insertedData, error: insertError } = await supabase
+          .from('strategy_budgets')
+          .insert(updatedBudget)
+          .select()
+          .single();
+
+        if (insertError) {
+          logService.log('error', `Error inserting new budget for strategy ${strategyId} after cleanup`, insertError, 'BudgetService');
+          return null;
+        }
+
+        updatedData = insertedData;
+      } else {
+        // Normal case - update the single budget
+        const { data, error } = await supabase
+          .from('strategy_budgets')
+          .update(updatedBudget)
+          .eq('strategy_id', strategyId)
+          .select()
+          .single();
+
+        if (error) {
+          logService.log('error', `Error updating budget for strategy ${strategyId}`, error, 'BudgetService');
+          return null;
+        }
+
+        updatedData = data;
+      }
+
+      if (!updatedData) {
+        logService.log('error', `Failed to update budget for strategy ${strategyId}, no data returned`, null, 'BudgetService');
         return null;
       }
 
       // Update cache
-      this.budgetCache.set(strategyId, data);
+      this.budgetCache.set(strategyId, updatedData);
 
       // Emit event for this strategy
-      this.emit('budgetUpdated', strategyId, data);
+      this.emit('budgetUpdated', strategyId, updatedData);
       eventBus.emit('budget:updated', {
         strategyId,
-        budget: data,
+        budget: updatedData,
         timestamp: Date.now()
       });
       eventBus.emit(`budget:updated:${strategyId}`, {
         strategyId,
-        budget: data,
+        budget: updatedData,
         timestamp: Date.now()
       });
 
-      return data;
+      return updatedData;
     } catch (error) {
       logService.log('error', `Failed to update budget for strategy ${strategyId}`, error, 'BudgetService');
       return null;
@@ -380,10 +482,10 @@ class BudgetService extends EventEmitter {
 
       // Check if we have enough available budget
       if (budget.available < amount) {
-        logService.log('warn', `Not enough available budget for strategy ${strategyId}`, { 
-          available: budget.available, 
+        logService.log('warn', `Not enough available budget for strategy ${strategyId}`, {
+          available: budget.available,
           requested: amount,
-          tradeId 
+          tradeId
         }, 'BudgetService');
         return false;
       }
@@ -484,11 +586,19 @@ class BudgetService extends EventEmitter {
         last_updated: new Date().toISOString()
       };
 
-      // Delete existing budget if any
-      await supabase
+      // Log the reset operation
+      logService.log('info', `Resetting budget for strategy ${strategyId} to ${initialAmount}`, null, 'BudgetService');
+
+      // Delete existing budget records if any (handles multiple records case)
+      const { error: deleteError } = await supabase
         .from('strategy_budgets')
         .delete()
         .eq('strategy_id', strategyId);
+
+      if (deleteError) {
+        logService.log('error', `Error deleting existing budget records for strategy ${strategyId}`, deleteError, 'BudgetService');
+        // Continue anyway, as we'll try to insert a new record
+      }
 
       // Insert new budget
       const { data, error } = await supabase

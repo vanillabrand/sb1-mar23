@@ -112,17 +112,7 @@ export function MobileBottomNav({ onMenuToggle }: MobileBottomNavProps) {
           <span className="text-xs mt-1">Trades</span>
         </NavLink>
 
-        <NavLink
-          to="/analytics"
-          className={({ isActive }) =>
-            `flex flex-col items-center justify-center px-2 py-1 rounded-lg ${
-              isActive ? 'text-neon-yellow' : 'text-gray-400'
-            }`
-          }
-        >
-          <BarChart3 className="w-5 h-5" />
-          <span className="text-xs mt-1">Analytics</span>
-        </NavLink>
+        {/* Analytics removed from mobile version as requested */}
 
         <button
           onClick={() => setIsMenuOpen(true)}

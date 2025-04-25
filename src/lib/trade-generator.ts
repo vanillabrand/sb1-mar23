@@ -12,6 +12,7 @@ import { marketAnalysisService } from './market-analysis-service';
 import { riskManagementService } from './risk-management-service';
 import { walletBalanceService } from './wallet-balance-service';
 import { supabase } from './supabase';
+import { unifiedTradeService } from './unified-trade-service';
 import type { Strategy, MarketAnalysis, RiskLevel, MarketRegime, MarketType, TradeOptions } from './types';
 import { config } from './config';
 
@@ -369,52 +370,84 @@ class TradeGenerator extends EventEmitter {
                   }
 
                   try {
-                    // Use the trade service to create the trade directly in the database
-                    const tradeData = {
+                    // Create a unique ID for the trade that won't change on re-renders
+                    const tradeId = `trade-${strategy.id}-${symbol.replace('/', '')}-${i}-${Date.now()}`;
+
+                    // Prepare trade options
+                    const tradeOptions = {
+                      id: tradeId,
                       strategy_id: strategy.id,
                       symbol: symbol,
                       side: tradeSide,
                       quantity: adjustedSize,
                       price: entryPrice,
-                      status: 'open',
-                      metadata: {
-                        demo: true,
-                        source: 'trade-generator-demo',
-                        entry_price: entryPrice,
-                        stop_loss: stopLoss,
-                        take_profit: takeProfit,
-                        trailing_stop: trailingStop,
-                        entry_conditions: [],
-                        exit_conditions: [],
-                        rationale: signal.rationale || 'Demo trade created by trade generator'
-                      }
-                    };
-
-                    const tradeResult = await tradeService.createTrade(tradeData);
-                    tradeResults.push(tradeResult);
-
-                    // Emit events for each trade
-                    this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, adjustedSize);
-                  } catch (dbError) {
-                    logService.log('error', `Failed to create trade in database for ${symbol}`, dbError, 'TradeGenerator');
-
-                    // Fall back to using the trade manager
-                    const tradeResult = await tradeManager.executeTrade({
-                      symbol: symbol,
-                      side: tradeSide,
-                      type: 'market',
-                      amount: adjustedSize,
-                      strategy_id: strategy.id,
                       entry_price: entryPrice,
                       stop_loss: stopLoss,
                       take_profit: takeProfit,
                       trailing_stop: trailingStop,
-                      testnet: true
-                    });
-                    tradeResults.push(tradeResult);
+                      marketType: strategy.marketType || 'spot',
+                      marginType: strategy.marketType === 'futures' ?
+                        (signal.marginType || (Math.random() > 0.5 ? 'cross' : 'isolated')) : undefined,
+                      leverage: strategy.marketType === 'futures' ?
+                        (signal.leverage || Math.floor(Math.random() * 5) + 1) : undefined,
+                      rationale: signal.rationale || `Generated trade for ${symbol} based on market analysis`,
+                      entry_conditions: signal.entryConditions || [],
+                      exit_conditions: signal.exitConditions || [],
+                      riskLevel: strategy.riskLevel || 'medium'
+                    };
 
-                    // Emit events for each trade
-                    this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, adjustedSize);
+                    // Log detailed information about the trade being created
+                    logService.log('debug', `Creating trade for ${symbol} in demo mode using unified trade service`, {
+                      tradeId,
+                      strategyId: strategy.id,
+                      symbol,
+                      side: tradeSide,
+                      amount: adjustedSize,
+                      entryPrice,
+                      stopLoss,
+                      takeProfit
+                    }, 'TradeGenerator');
+
+                    // Use the unified trade service for consistent trade creation
+                    const tradeResult = await unifiedTradeService.createTrade(tradeOptions);
+
+                    if (tradeResult) {
+                      tradeResults.push(tradeResult);
+
+                      // Log successful trade creation
+                      logService.log('info', `Successfully created trade for ${symbol} in demo mode`, {
+                        tradeId: tradeResult.id,
+                        strategyId: strategy.id,
+                        symbol,
+                        side: tradeSide,
+                        amount: adjustedSize
+                      }, 'TradeGenerator');
+
+                      // Emit events for each trade
+                      this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, adjustedSize);
+                    } else {
+                      logService.log('warn', `Unified trade service returned null for ${symbol}`, {
+                        tradeOptions
+                      }, 'TradeGenerator');
+
+                      // Create a fallback trade directly as a last resort
+                      const fallbackTrade = await this.createFallbackTrade(strategy, symbol, tradeSide, entryPrice, adjustedSize, stopLoss, takeProfit, trailingStop, signal);
+
+                      if (fallbackTrade) {
+                        tradeResults.push(fallbackTrade);
+                        this.emitTradeEvents(strategy, fallbackTrade, signal, currentPrice, adjustedSize);
+                      }
+                    }
+                  } catch (error) {
+                    logService.log('error', `Failed to create trade for ${symbol} using unified trade service`, error, 'TradeGenerator');
+
+                    // Create a fallback trade directly as a last resort
+                    const fallbackTrade = await this.createFallbackTrade(strategy, symbol, tradeSide, entryPrice, adjustedSize, stopLoss, takeProfit, trailingStop, signal);
+
+                    if (fallbackTrade) {
+                      tradeResults.push(fallbackTrade);
+                      this.emitTradeEvents(strategy, fallbackTrade, signal, currentPrice, adjustedSize);
+                    }
                   }
 
                   // Add a small delay between trades to avoid overwhelming the UI
@@ -506,51 +539,67 @@ class TradeGenerator extends EventEmitter {
                   return; // Don't proceed with the trade
                 }
 
-                // Execute the trade using the trade service
+                // Execute the trade using the unified trade service
                 try {
-                  // Use the trade service to create the trade directly in the database
-                  const tradeData = {
+                  // Create a unique ID for the trade
+                  const tradeId = `live-${strategy.id}-${symbol.replace('/', '')}-${Date.now()}`;
+
+                  // Prepare trade options
+                  const tradeOptions = {
+                    id: tradeId,
                     strategy_id: strategy.id,
                     symbol: symbol,
                     side: tradeSide,
                     quantity: positionSize,
                     price: currentPrice,
-                    status: 'open',
-                    metadata: {
-                      demo: false,
-                      source: 'trade-generator-live',
-                      entry_price: currentPrice,
-                      stop_loss: stopLoss,
-                      take_profit: takeProfit,
-                      trailing_stop: trailingStop,
-                      entry_conditions: [],
-                      exit_conditions: [],
-                      rationale: signal.rationale || 'Live trade created by trade generator'
-                    }
-                  };
-
-                  var tradeResult = await tradeService.createTrade(tradeData);
-
-                  // Emit events for the trade
-                  this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, positionSize);
-                } catch (dbError) {
-                  logService.log('error', `Failed to create live trade in database for ${symbol}`, dbError, 'TradeGenerator');
-
-                  // Fall back to using the trade manager
-                  var tradeResult = await tradeManager.executeTrade({
-                    symbol: symbol,
-                    side: tradeSide,
-                    type: 'market',
-                    amount: positionSize,
-                    strategyId: strategy.id,
                     entry_price: currentPrice,
                     stop_loss: stopLoss,
                     take_profit: takeProfit,
-                    trailing_stop: trailingStop
-                  });
+                    trailing_stop: trailingStop,
+                    marketType: strategy.marketType || 'spot',
+                    marginType: marginType,
+                    leverage: leverage,
+                    rationale: signal.rationale || 'Live trade created by trade generator',
+                    entry_conditions: signal.entryConditions || [],
+                    exit_conditions: signal.exitConditions || [],
+                    riskLevel: strategy.riskLevel || 'medium'
+                  };
+
+                  // Log detailed information about the trade being created
+                  logService.log('debug', `Creating live trade for ${symbol} using unified trade service`, {
+                    tradeId,
+                    strategyId: strategy.id,
+                    symbol,
+                    side: tradeSide,
+                    amount: positionSize,
+                    currentPrice,
+                    stopLoss,
+                    takeProfit
+                  }, 'TradeGenerator');
+
+                  // Use the unified trade service for consistent trade creation
+                  var tradeResult = await unifiedTradeService.createTrade(tradeOptions);
 
                   // Emit events for the trade
                   this.emitTradeEvents(strategy, tradeResult, signal, currentPrice, positionSize);
+
+                  logService.log('info', `Successfully created live trade for ${symbol}`, {
+                    tradeId: tradeResult.id,
+                    strategyId: strategy.id,
+                    symbol,
+                    side: tradeSide,
+                    amount: positionSize
+                  }, 'TradeGenerator');
+                } catch (error) {
+                  logService.log('error', `Failed to create live trade for ${symbol} using unified trade service`, error, 'TradeGenerator');
+
+                  // We don't use fallback trades in live mode for safety reasons
+                  // Instead, we'll emit an error event
+                  eventBus.emit(`trade:error:${strategy.id}`, {
+                    strategyId: strategy.id,
+                    symbol,
+                    error: new Error(`Failed to create live trade: ${error.message}`)
+                  });
                 }
               }
 
@@ -619,78 +668,56 @@ class TradeGenerator extends EventEmitter {
                 try {
                   logService.log('info', `Attempting to create fallback trade for ${symbol} in demo mode`, null, 'TradeGenerator');
 
-                  // Create a unique trade ID
-                  const tradeId = `${strategy.id}-${symbol}-${Date.now()}-fallback-${Math.random().toString(36).substring(2, 15)}`;
+                  // Use the new createFallbackTrade method for more reliable trade creation
+                  const tradeSide = signal.direction === 'Long' ? 'buy' : 'sell';
+                  const stopLoss = signal.stopLoss || riskManagementService.calculateStopLoss(
+                    currentPrice,
+                    tradeSide,
+                    strategy.riskLevel
+                  );
+                  const takeProfit = signal.takeProfit || riskManagementService.calculateTakeProfit(
+                    currentPrice,
+                    stopLoss,
+                    tradeSide,
+                    strategy.riskLevel
+                  );
 
-                  // Create a simplified trade directly in the database
-                  const { data: fallbackTrade, error: fallbackError } = await supabase
-                    .from('trades')
-                    .insert({
-                      id: tradeId,
-                      strategy_id: strategy.id,
-                      symbol,
-                      side: signal.direction === 'Long' ? 'buy' : 'sell',
-                      quantity: positionSize,
-                      price: currentPrice,
-                      status: 'open',
-                      created_at: new Date().toISOString(),
-                      updated_at: new Date().toISOString(),
-                      metadata: {
-                        demo: true,
-                        source: 'trade-generator-fallback',
-                        entry_price: currentPrice,
-                        stop_loss: signal.stopLoss,
-                        take_profit: signal.takeProfit,
-                        entry_condition: `Price crossed ${signal.direction === 'Long' ? 'above' : 'below'} ${currentPrice}`,
-                        exit_condition: `Take profit or stop loss`,
-                        fallback: true,
-                        original_error: tradeError.message
-                      }
-                    })
-                    .select()
-                    .single();
-
-                  if (fallbackError) {
-                    throw fallbackError;
-                  }
-
-                  // Reserve budget for this trade
-                  const tradeCost = positionSize * currentPrice;
-                  await tradeService.reserveBudgetForTrade(strategy.id, tradeCost, tradeId);
-
-                  // Update trade status to executed after a short delay
-                  setTimeout(async () => {
-                    try {
-                      const { error: updateError } = await supabase
-                        .from('trades')
-                        .update({
-                          status: 'executed',
-                          executed_at: new Date().toISOString()
-                        })
-                        .eq('id', fallbackTrade.id);
-
-                      if (!updateError) {
-                        logService.log('info', `Updated fallback trade status to executed for ${symbol}`, null, 'TradeGenerator');
-                      }
-                    } catch (updateError) {
-                      logService.log('error', `Failed to update fallback trade status for ${symbol}`, updateError, 'TradeGenerator');
-                    }
-                  }, 2000);
-
-                  logService.log('info', `Created fallback trade for ${symbol}`, { trade: fallbackTrade }, 'TradeGenerator');
-
-                  // Emit trade created event for the fallback trade
-                  eventBus.emit('trade:created', {
+                  const fallbackTrade = await this.createFallbackTrade(
                     strategy,
-                    trade: fallbackTrade,
-                    fallback: true
-                  });
+                    symbol,
+                    tradeSide,
+                    currentPrice,
+                    positionSize,
+                    stopLoss,
+                    takeProfit,
+                    signal.trailingStop,
+                    signal
+                  );
 
-                  // Also emit to strategy-specific event
-                  eventBus.emit(`trade:created:${strategy.id}`, {
-                    strategyId: strategy.id,
-                    trade: fallbackTrade
-                  });
+                  if (fallbackTrade) {
+                    logService.log('info', `Created fallback trade for ${symbol}`, {
+                      tradeId: fallbackTrade.id,
+                      strategyId: strategy.id,
+                      symbol,
+                      side: tradeSide,
+                      amount: positionSize
+                    }, 'TradeGenerator');
+
+                    // Emit trade created event for the fallback trade
+                    eventBus.emit('trade:created', {
+                      strategy,
+                      trade: fallbackTrade,
+                      fallback: true
+                    });
+
+                    // Also emit to strategy-specific event
+                    eventBus.emit(`trade:created:${strategy.id}`, {
+                      strategyId: strategy.id,
+                      trade: fallbackTrade
+                    });
+                  } else {
+                    logService.log('error', `Failed to create fallback trade for ${symbol} - createFallbackTrade returned null`, null, 'TradeGenerator');
+                  }
                 } catch (fallbackError) {
                   logService.log('error', `Failed to create fallback trade for ${symbol}`, fallbackError, 'TradeGenerator');
                 }
@@ -1879,6 +1906,156 @@ Return ONLY a JSON object with the updated strategy configuration:
   getLastGeneratedTime(strategyId: string): number | null {
     const state = this.monitorState.get(strategyId);
     return state ? state.lastGeneratedTime : null;
+  }
+
+  /**
+   * Create a fallback trade when normal trade creation fails
+   * This is a last resort method to ensure trades are created in demo mode
+   */
+  private async createFallbackTrade(
+    strategy: Strategy,
+    symbol: string,
+    side: string,
+    entryPrice: number,
+    amount: number,
+    stopLoss: number,
+    takeProfit: number,
+    trailingStop: number | undefined,
+    signal: any
+  ): Promise<any> {
+    try {
+      logService.log('info', `Creating fallback trade for ${symbol} in demo mode`, {
+        strategyId: strategy.id,
+        symbol,
+        side,
+        amount,
+        entryPrice
+      }, 'TradeGenerator');
+
+      // Create a unique stable ID for the trade
+      const tradeId = `fallback-${strategy.id}-${symbol.replace('/', '')}-${Date.now()}`;
+
+      // Create a simplified trade object
+      const fallbackTrade = {
+        id: tradeId,
+        strategy_id: strategy.id,
+        symbol: symbol,
+        side: side,
+        type: 'market',
+        amount: amount,
+        price: entryPrice,
+        entry_price: entryPrice,
+        stop_loss: stopLoss,
+        take_profit: takeProfit,
+        trailing_stop: trailingStop,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        metadata: {
+          demo: true,
+          fallback: true,
+          source: 'trade-generator-fallback',
+          entry_price: entryPrice,
+          stop_loss: stopLoss,
+          take_profit: takeProfit,
+          trailing_stop: trailingStop,
+          rationale: signal.rationale || `Fallback trade for ${symbol}`
+        }
+      };
+
+      // Try to insert the trade directly into the database
+      try {
+        const { data, error } = await supabase
+          .from('trades')
+          .insert([{
+            id: tradeId,
+            strategy_id: strategy.id,
+            symbol: symbol,
+            side: side,
+            quantity: amount,
+            price: entryPrice,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            metadata: {
+              demo: true,
+              fallback: true,
+              source: 'trade-generator-fallback',
+              entry_price: entryPrice,
+              stop_loss: stopLoss,
+              take_profit: takeProfit,
+              trailing_stop: trailingStop,
+              rationale: signal.rationale || `Fallback trade for ${symbol}`
+            }
+          }])
+          .select()
+          .single();
+
+        if (error) {
+          throw error;
+        }
+
+        if (data) {
+          // Reserve budget for this trade
+          const tradeCost = amount * entryPrice;
+          await tradeService.reserveBudgetForTrade(strategy.id, tradeCost, tradeId);
+
+          // Update trade status to executed after a short delay
+          setTimeout(async () => {
+            try {
+              const { error: updateError } = await supabase
+                .from('trades')
+                .update({
+                  status: 'executed',
+                  executed_at: new Date().toISOString()
+                })
+                .eq('id', tradeId);
+
+              if (!updateError) {
+                logService.log('info', `Updated fallback trade status to executed for ${symbol}`, {
+                  tradeId
+                }, 'TradeGenerator');
+              } else {
+                logService.log('warn', `Failed to update fallback trade status for ${symbol}`, updateError, 'TradeGenerator');
+              }
+            } catch (updateError) {
+              logService.log('error', `Failed to update fallback trade status for ${symbol}`, updateError, 'TradeGenerator');
+            }
+          }, 2000);
+
+          logService.log('info', `Successfully created fallback trade for ${symbol} in database`, {
+            tradeId,
+            strategyId: strategy.id,
+            symbol,
+            side,
+            amount
+          }, 'TradeGenerator');
+
+          return data;
+        }
+      } catch (dbError) {
+        logService.log('error', `Failed to insert fallback trade into database for ${symbol}`, dbError, 'TradeGenerator');
+      }
+
+      // If database insertion fails, return the fallback trade object
+      // This ensures we always have a trade object to work with
+      logService.log('info', `Returning in-memory fallback trade for ${symbol}`, {
+        tradeId,
+        strategyId: strategy.id
+      }, 'TradeGenerator');
+
+      // Emit an event to notify that a fallback trade was created
+      eventBus.emit('trade:fallback:created', {
+        strategyId: strategy.id,
+        symbol,
+        trade: fallbackTrade
+      });
+
+      return fallbackTrade;
+    } catch (error) {
+      logService.log('error', `Failed to create fallback trade for ${symbol}`, error, 'TradeGenerator');
+      return null;
+    }
   }
 
   /**

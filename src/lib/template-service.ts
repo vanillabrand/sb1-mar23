@@ -321,7 +321,8 @@ export class TemplateService {
         status: 'inactive', // Start as inactive
         selected_pairs: selectedPairs,
         strategy_config: strategyConfig,
-        marketType: template.marketType || 'spot' // Pass the market type from the template
+        marketType: template.marketType || 'spot', // Pass the market type from the template
+        market_type: template.marketType || template.market_type || 'spot' // Also set market_type for database
       });
 
       // Log the strategy creation for debugging
@@ -329,7 +330,10 @@ export class TemplateService {
         templateId,
         strategyId: strategy.id,
         title: template.title,
-        name: strategy.name
+        name: strategy.name,
+        marketType: strategy.marketType || strategy.market_type,
+        selectedPairs: strategy.selected_pairs,
+        pairsCount: strategy.selected_pairs ? strategy.selected_pairs.length : 0
       }, 'TemplateService');
 
       // Force a refresh of the strategy sync to ensure it's in the local cache

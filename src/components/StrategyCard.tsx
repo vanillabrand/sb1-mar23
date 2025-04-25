@@ -310,6 +310,14 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       }
     };
 
+    // Subscribe to global budget updates
+    const handleGlobalBudgetUpdate = (event: any) => {
+      if (event.strategyId === strategy.id && event.budget) {
+        setStrategyBudget(event.budget.total);
+        logService.log('info', `Budget updated via global event for strategy ${strategy.id}`, { budget: event.budget }, 'StrategyCard');
+      }
+    };
+
     // Subscribe to trade updates - no longer needed as trades come from props
     const handleTradeUpdate = () => {
       // Trades are now provided via props
@@ -318,6 +326,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
     walletBalanceService.on('balancesUpdated', handleBalanceUpdate);
     tradeService.on('budgetUpdated', handleBudgetUpdate);
     eventBus.subscribe('budgetUpdated', handleBudgetUpdate);
+    eventBus.subscribe('budget:global:updated', handleGlobalBudgetUpdate);
     tradeManager.on('tradesUpdated', handleTradeUpdate);
 
     // No need for interval to refresh trades as they come from props
@@ -340,6 +349,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       walletBalanceService.off('balancesUpdated', handleBalanceUpdate);
       tradeService.off('budgetUpdated', handleBudgetUpdate);
       eventBus.unsubscribe('budgetUpdated', handleBudgetUpdate);
+      eventBus.unsubscribe('budget:global:updated', handleGlobalBudgetUpdate);
       tradeManager.off('tradesUpdated', handleTradeUpdate);
 
       // Unsubscribe from event bus
@@ -390,12 +400,17 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           setStrategyTrades(tradesWithTimestamps);
         } else if (strategy.status === 'active') {
           // If strategy is active but no trades yet, create a pending trade to show activity
+          // Create a stable ID that won't change on re-renders
+          // Use a hash of the strategy ID to ensure uniqueness
+          const strategyHash = strategy.id.split('-')[0] || 'unknown';
+          const stableId = `placeholder-${strategyHash}-${Date.now()}`;
+
           const pendingTrade: ExtendedTrade = {
-            id: `pending-${strategy.id}`, // Remove Date.now() to avoid constant changes
+            id: stableId,
             symbol: (strategy as any).selected_pairs?.[0] || 'BTC/USDT',
             side: 'buy',
             status: 'pending',
-            entryPrice: 50000, // Remove random value to avoid constant changes
+            entryPrice: 50000, // Fixed value to avoid constant changes
             timestamp: Date.now(),
             createdAt: new Date().toISOString(),
             executedAt: null,
@@ -425,25 +440,42 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
     // Only process trades from props if we have them and the component is mounted
     if (trades && trades.length > 0 && strategy.id) {
       // Format the trades with proper normalization of all fields
-      const formattedTrades = trades.map(trade => ({
-        ...trade,
-        id: trade.id || `trade-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-        createdAt: trade.created_at || trade.datetime || trade.createdAt || new Date(trade.timestamp).toISOString(),
-        executedAt: trade.executed_at || trade.executedAt || (trade.status === 'executed' ? new Date().toISOString() : null),
-        entryPrice: trade.entry_price || trade.entryPrice || trade.price || 0,
-        exitPrice: trade.exit_price || trade.exitPrice || 0,
-        stopLoss: trade.stop_loss || trade.stopLoss,
-        takeProfit: trade.take_profit || trade.takeProfit,
-        strategyId: strategy.id,
-        // Ensure amount is properly set
-        amount: trade.amount || trade.entry_amount || trade.quantity || trade.size || 0.1,
-        // Ensure symbol is set
-        symbol: trade.symbol || trade.pair || 'BTC/USDT',
-        // Ensure side is set
-        side: trade.side || 'buy',
-        // Ensure status is set
-        status: trade.status || 'pending'
-      }));
+      const formattedTrades = trades.map((trade, index) => {
+        // Create a stable ID if one doesn't exist
+        let tradeId = trade.id;
+        if (!tradeId) {
+          // Use a combination of strategy ID, symbol, and index to create a stable ID
+          const symbol = trade.symbol || trade.pair || 'BTC/USDT';
+          const symbolKey = symbol.replace(/[^a-zA-Z0-9]/g, '');
+          const strategyHash = strategy.id.split('-')[0] || 'unknown';
+
+          // Include timestamp in the ID to ensure uniqueness
+          const timestamp = trade.timestamp || Date.now();
+
+          // Create a stable ID that includes enough unique information
+          tradeId = `${trade.status || 'unknown'}-${symbolKey}-${index}-${strategyHash}-${timestamp}`;
+        }
+
+        return {
+          ...trade,
+          id: tradeId,
+          createdAt: trade.created_at || trade.datetime || trade.createdAt || new Date(trade.timestamp).toISOString(),
+          executedAt: trade.executed_at || trade.executedAt || (trade.status === 'executed' ? new Date().toISOString() : null),
+          entryPrice: trade.entry_price || trade.entryPrice || trade.price || 0,
+          exitPrice: trade.exit_price || trade.exitPrice || 0,
+          stopLoss: trade.stop_loss || trade.stopLoss,
+          takeProfit: trade.take_profit || trade.takeProfit,
+          strategyId: strategy.id,
+          // Ensure amount is properly set
+          amount: trade.amount || trade.entry_amount || trade.quantity || trade.size || 0.1,
+          // Ensure symbol is set
+          symbol: trade.symbol || trade.pair || 'BTC/USDT',
+          // Ensure side is set
+          side: trade.side || 'buy',
+          // Ensure status is set
+          status: trade.status || 'pending'
+        };
+      });
 
       // Remove duplicates by ID
       const uniqueTrades = [];
@@ -827,23 +859,43 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         enhancedStrategy.strategy_config = {};
       }
 
-      // Ensure assets are configured
-      if (!enhancedStrategy.strategy_config.assets) {
-        enhancedStrategy.strategy_config.assets = ['BTC/USDT'];
+      // Determine the selected pairs
+      let selectedPairs = enhancedStrategy.selected_pairs || [];
+
+      // If selected_pairs is empty, try to get from strategy_config.assets
+      if (selectedPairs.length === 0 && enhancedStrategy.strategy_config.assets) {
+        selectedPairs = enhancedStrategy.strategy_config.assets;
       }
 
-      // Ensure selected_pairs exists
-      if (!enhancedStrategy.selected_pairs || enhancedStrategy.selected_pairs.length === 0) {
-        enhancedStrategy.selected_pairs = ['BTC/USDT'];
+      // If still empty, use default
+      if (selectedPairs.length === 0) {
+        selectedPairs = ['BTC/USDT'];
       }
+
+      // Ensure pairs are in the correct format (BTC/USDT instead of BTC_USDT)
+      selectedPairs = selectedPairs.map(pair =>
+        pair.includes('_') ? pair.replace('_', '/') : pair
+      );
+
+      // Set all pair-related fields
+      enhancedStrategy.selected_pairs = selectedPairs;
+      enhancedStrategy.strategy_config.assets = selectedPairs;
 
       // Ensure config.pairs exists for strategy-monitor
       if (!enhancedStrategy.strategy_config.config) {
         enhancedStrategy.strategy_config.config = {};
       }
 
-      if (!enhancedStrategy.strategy_config.config.pairs || enhancedStrategy.strategy_config.config.pairs.length === 0) {
-        enhancedStrategy.strategy_config.config.pairs = enhancedStrategy.selected_pairs;
+      enhancedStrategy.strategy_config.config.pairs = selectedPairs;
+
+      // Ensure market_type and marketType are both set
+      if (enhancedStrategy.market_type && !enhancedStrategy.marketType) {
+        enhancedStrategy.marketType = enhancedStrategy.market_type;
+      } else if (enhancedStrategy.marketType && !enhancedStrategy.market_type) {
+        enhancedStrategy.market_type = enhancedStrategy.marketType;
+      } else if (!enhancedStrategy.market_type && !enhancedStrategy.marketType) {
+        enhancedStrategy.market_type = 'spot';
+        enhancedStrategy.marketType = 'spot';
       }
 
       // Update the strategy in the database with the enhanced configuration
@@ -1038,17 +1090,25 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                   />
                 )}
                 {/* Trading pairs as lozenges with price indicators */}
-                {(strategy.selected_pairs || []).slice(0, 3).map((pair, index) => (
-                  <div key={index} className="flex items-center text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap mobile-truncate min-w-[110px] md:min-w-[110px] justify-between">
-                    <span className="mr-2">{pair}</span>
-                    <div className="border-l border-gunmetal-700 pl-2">
-                      <AssetPriceIndicator symbol={pair} compact={true} />
-                    </div>
-                  </div>
-                ))}
-                {(strategy.selected_pairs || []).length > 3 && (
-                  <span className="text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap min-w-[90px] text-center">
-                    +{(strategy.selected_pairs || []).length - 3} more
+                {(strategy.selected_pairs && strategy.selected_pairs.length > 0) ? (
+                  <>
+                    {strategy.selected_pairs.slice(0, 3).map((pair, index) => (
+                      <div key={index} className="flex items-center text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap mobile-truncate min-w-[110px] md:min-w-[110px] justify-between">
+                        <span className="mr-2">{standardizeAssetPairFormat(pair)}</span>
+                        <div className="border-l border-gunmetal-700 pl-2">
+                          <AssetPriceIndicator symbol={pair} compact={true} />
+                        </div>
+                      </div>
+                    ))}
+                    {strategy.selected_pairs.length > 3 && (
+                      <span className="text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap min-w-[90px] text-center">
+                        +{strategy.selected_pairs.length - 3} more
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-xs px-3 py-0.5 bg-gunmetal-800 text-gray-300 rounded-full whitespace-nowrap">
+                    No trading pairs
                   </span>
                 )}
                 {strategy.status !== 'active' && (
@@ -1271,17 +1331,19 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               </h4>
               {/* Always show trading pairs */}
                 <div className="flex flex-wrap gap-2 animate-fadeIn">
-                  {(strategy as any).selected_pairs?.map((pair: string) => (
-                    <div
-                      key={pair}
-                      className="flex items-center px-3 py-1 bg-gunmetal-800 rounded-md text-xs border border-gunmetal-700/50 min-w-[130px] md:min-w-[130px] mobile-truncate justify-between"
-                    >
-                      <span className="text-neon-turquoise mr-2">{standardizeAssetPairFormat(pair)}</span>
-                      <div className="border-l border-gunmetal-700 pl-2">
-                        <AssetPriceIndicator symbol={pair} compact={true} />
+                  {(strategy.selected_pairs && strategy.selected_pairs.length > 0) ? (
+                    strategy.selected_pairs.map((pair: string) => (
+                      <div
+                        key={pair}
+                        className="flex items-center px-3 py-1 bg-gunmetal-800 rounded-md text-xs border border-gunmetal-700/50 min-w-[130px] md:min-w-[130px] mobile-truncate justify-between"
+                      >
+                        <span className="text-neon-turquoise mr-2">{standardizeAssetPairFormat(pair)}</span>
+                        <div className="border-l border-gunmetal-700 pl-2">
+                          <AssetPriceIndicator symbol={pair} compact={true} />
+                        </div>
                       </div>
-                    </div>
-                  )) || (
+                    ))
+                  ) : (
                     <span className="text-sm text-gray-500">No trading pairs selected</span>
                   )}
                 </div>
