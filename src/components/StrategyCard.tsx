@@ -592,19 +592,81 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         await onDeactivate(strategy);
       } else {
         // Fallback to the original implementation
-        // 1. Get active trades for this strategy
-        const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
-        logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategy.id}`, null, 'StrategyCard');
+        // 1. Get all trades for this strategy (not just active ones)
+        const isDemo = demoService.isInDemoMode();
 
-        // 2. Close any active trades
-        if (activeTrades.length > 0) {
+        // First get active trades from trade manager
+        const activeTrades = tradeManager.getActiveTradesForStrategy(strategy.id);
+
+        // Then get all trades from database to ensure we don't miss any
+        const { data: dbTrades, error: fetchError } = await supabase
+          .from('trades')
+          .select('*')
+          .eq('strategy_id', strategy.id)
+          .in('status', ['pending', 'open', 'executed']);
+
+        if (fetchError) {
+          logService.log('warn', `Error fetching trades from database: ${fetchError.message}`, null, 'StrategyCard');
+        }
+
+        // Combine trades from both sources, removing duplicates
+        const allTradeIds = new Set();
+        const allTrades = [];
+
+        // Add trades from trade manager
+        for (const trade of activeTrades) {
+          if (!allTradeIds.has(trade.id)) {
+            allTradeIds.add(trade.id);
+            allTrades.push(trade);
+          }
+        }
+
+        // Add trades from database
+        if (dbTrades) {
+          for (const trade of dbTrades) {
+            if (!allTradeIds.has(trade.id)) {
+              allTradeIds.add(trade.id);
+              allTrades.push(trade);
+            }
+          }
+        }
+
+        logService.log('info', `Found ${allTrades.length} trades to close for strategy ${strategy.id} in ${isDemo ? 'demo' : 'live'} mode`, null, 'StrategyCard');
+
+        // 2. Close all trades
+        if (allTrades.length > 0) {
           try {
-            // Close each active trade
-            for (const trade of activeTrades) {
+            // Close each trade
+            for (const trade of allTrades) {
               try {
-                // Close the trade and release the budget
-                await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
-                logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id}`, null, 'StrategyCard');
+                // First try to close the trade through the trade engine
+                try {
+                  await tradeEngine.closeTrade(trade.id, 'Strategy deactivated');
+                  logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id} through trade engine`, null, 'StrategyCard');
+                } catch (engineError) {
+                  logService.log('warn', `Failed to close trade ${trade.id} through trade engine, trying direct database update`, engineError, 'StrategyCard');
+
+                  // If trade engine fails, update the trade directly in the database
+                  const { error: updateError } = await supabase
+                    .from('trades')
+                    .update({
+                      status: 'closed',
+                      close_reason: 'Strategy deactivated',
+                      closed_at: new Date().toISOString(),
+                      updated_at: new Date().toISOString()
+                    })
+                    .eq('id', trade.id);
+
+                  if (updateError) {
+                    throw new Error(`Failed to update trade in database: ${updateError.message}`);
+                  }
+
+                  // Release budget for this trade
+                  const tradeCost = trade.quantity * trade.price;
+                  await tradeService.releaseBudgetFromTrade(strategy.id, tradeCost, 0, trade.id, 'closed');
+
+                  logService.log('info', `Closed trade ${trade.id} for strategy ${strategy.id} through direct database update`, null, 'StrategyCard');
+                }
               } catch (tradeError) {
                 logService.log('warn', `Failed to close trade ${trade.id}, continuing with deactivation`, tradeError, 'StrategyCard');
               }
@@ -624,8 +686,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           logService.log('warn', 'Error stopping market monitoring, continuing with deactivation', marketError, 'StrategyCard');
         }
 
+        // 5. Remove from appropriate trade generator based on mode
         try {
-          if (demoService.isInDemoMode()) {
+          if (isDemo) {
             // Remove from demo trade generator in demo mode
             demoTradeGenerator.removeStrategy(strategy.id);
             logService.log('info', `Removed strategy ${strategy.id} from demo trade generator`, null, 'StrategyCard');
@@ -638,23 +701,33 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           logService.log('warn', 'Error removing from trade generator, continuing with deactivation', generatorError, 'StrategyCard');
         }
 
+        // 6. Remove from strategy monitor
         try {
           strategyMonitor.removeStrategy(strategy.id);
         } catch (monitorError) {
           logService.log('warn', 'Error removing from strategy monitor, continuing with deactivation', monitorError, 'StrategyCard');
         }
 
+        // 7. Remove from trade engine
         try {
           await tradeEngine.removeStrategy(strategy.id);
         } catch (engineError) {
           logService.log('warn', 'Error removing from trade engine, continuing with deactivation', engineError, 'StrategyCard');
         }
 
-        // Don't manually update the strategy status - wait for the refresh
-        // to get the updated status from the database
+        // 8. In demo mode, ensure all trades are removed from the database
+        if (isDemo) {
+          try {
+            // Remove all trades for this strategy
+            await tradeService.removeTradesByStrategy(strategy.id);
+            logService.log('info', `Removed all trades for strategy ${strategy.id} in demo mode`, null, 'StrategyCard');
+          } catch (removeError) {
+            logService.log('warn', `Error removing trades for strategy ${strategy.id} in demo mode`, removeError, 'StrategyCard');
+          }
+        }
       }
 
-      // 6. Refresh data
+      // 9. Refresh data
       if (onRefresh) {
         await onRefresh();
       } else {

@@ -219,62 +219,92 @@ class DemoTradeGenerator extends EventEmitter {
 
           // If a close condition was met, update the trade
           if (closeReason) {
-            // First, release the budget for this trade
-            const tradeCost = trade.quantity * trade.price;
-            await tradeService.releaseBudgetFromTrade(trade.strategy_id, tradeCost, profit, trade.id, 'closed');
+            try {
+              // First, update the trade in the database
+              const { error: updateError } = await supabase
+                .from('trades')
+                .update({
+                  status: 'closed',
+                  close_reason: closeReason,
+                  closed_at: new Date().toISOString(),
+                  exit_price: currentPrice,
+                  profit: profit,
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', trade.id);
 
-            // Then update the trade in the database
-            await supabase
-              .from('trades')
-              .update({
+              if (updateError) {
+                logService.log('error', `Failed to update trade ${trade.id} status to closed: ${updateError.message}`, null, 'DemoTradeGenerator');
+                continue; // Skip to next trade
+              }
+
+              // Then, release the budget for this trade
+              const tradeCost = trade.quantity * trade.price;
+
+              try {
+                // Try to use the trade engine to close the trade properly
+                const { tradeEngine } = await import('./trade-engine');
+                await tradeEngine.closeTrade(trade.id, closeReason);
+                logService.log('info', `Closed trade ${trade.id} through trade engine due to ${closeReason}`, null, 'DemoTradeGenerator');
+              } catch (engineError) {
+                logService.log('warn', `Failed to close trade ${trade.id} through trade engine, releasing budget directly`, engineError, 'DemoTradeGenerator');
+
+                // Fall back to direct budget release
+                await tradeService.releaseBudgetFromTrade(trade.strategy_id, tradeCost, profit, trade.id, 'closed');
+              }
+
+              logService.log('info', `Closed trade ${trade.id} due to ${closeReason}`, {
+                trade,
+                currentPrice,
+                profit,
+                tradeCost
+              }, 'DemoTradeGenerator');
+
+              // Emit trade updated event with more details
+              eventBus.emit('trade:update', {
+                id: trade.id,
                 status: 'closed',
-                close_reason: closeReason,
-                closed_at: new Date().toISOString(),
-                exit_price: currentPrice,
+                closeReason,
+                exitPrice: currentPrice,
+                profit,
+                strategyId: trade.strategy_id,
+                symbol: trade.symbol,
+                side: trade.side,
+                quantity: trade.quantity,
+                entryPrice: trade.price,
+                timestamp: Date.now()
+              });
+
+              // Also emit trade closed event
+              eventBus.emit('trade:closed', {
+                tradeId: trade.id,
+                strategyId: trade.strategy_id,
+                status: 'closed',
+                reason: closeReason,
+                profit
+              });
+
+              // Also emit budget updated event
+              eventBus.emit('budget:updated', {
+                strategyId: trade.strategy_id,
+                tradeId: trade.id,
+                amount: tradeCost,
                 profit: profit,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', trade.id);
+                timestamp: Date.now()
+              });
 
-            logService.log('info', `Closed trade ${trade.id} due to ${closeReason}`, {
-              trade,
-              currentPrice,
-              profit,
-              tradeCost
-            }, 'DemoTradeGenerator');
-
-            // Emit trade updated event with more details
-            eventBus.emit('trade:update', {
-              id: trade.id,
-              status: 'closed',
-              closeReason,
-              exitPrice: currentPrice,
-              profit,
-              strategyId: trade.strategy_id,
-              symbol: trade.symbol,
-              side: trade.side,
-              quantity: trade.quantity,
-              entryPrice: trade.price,
-              timestamp: Date.now()
-            });
-
-            // Also emit budget updated event
-            eventBus.emit('budget:updated', {
-              strategyId: trade.strategy_id,
-              tradeId: trade.id,
-              amount: tradeCost,
-              profit: profit,
-              timestamp: Date.now()
-            });
-
-            // Broadcast to all components that need to know about trade changes
-            eventBus.emit('app:state:updated', {
-              component: 'trade',
-              action: 'closed',
-              tradeId: trade.id,
-              strategyId: trade.strategy_id,
-              profit: profit
-            });
+              // Broadcast to all components that need to know about trade changes
+              eventBus.emit('app:state:updated', {
+                component: 'trade',
+                action: 'closed',
+                tradeId: trade.id,
+                strategyId: trade.strategy_id,
+                profit: profit
+              });
+            } catch (closeError) {
+              const errorMessage = closeError instanceof Error ? closeError.message : String(closeError);
+              logService.log('error', `Failed to close trade ${trade.id}: ${errorMessage}`, closeError, 'DemoTradeGenerator');
+            }
           }
         } catch (tradeError) {
           logService.log('error', `Error updating trade ${trade.id}`, tradeError, 'DemoTradeGenerator');
@@ -589,8 +619,11 @@ class DemoTradeGenerator extends EventEmitter {
       const strategyConfig = strategy.strategy_config || {};
 
       // Get market type from strategy or detect from description
+      // Ensure we use the correct market type from the strategy or template
       const marketType = strategy.marketType ||
                         strategy.market_type ||
+                        (strategy.strategy_config?.marketType) ||
+                        (strategy.strategy_config?.market_type) ||
                         (strategy.description ? detectMarketType(strategy.description) : 'spot');
 
       logService.log('info', `Using market type ${marketType} for strategy ${strategy.id}`, {
@@ -669,7 +702,7 @@ class DemoTradeGenerator extends EventEmitter {
       // If all attempts failed, use fallback
       if (!aiResult) {
         logService.log('warn', `All ${maxAttempts} attempts to get AI trade signals failed, using fallback`, null, 'DemoTradeGenerator');
-        return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId);
+        return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId, marketType);
       }
 
       // Check if DeepSeek returned multiple trade signals
@@ -677,28 +710,36 @@ class DemoTradeGenerator extends EventEmitter {
         // DeepSeek returned multiple trades, use them directly
         return {
           batchId,
-          trades: aiResult.trades.map((trade: any) => ({
-            symbol: trade.symbol || Array.from(pairHistories.keys())[0],
-            direction: trade.direction || 'Long',
-            confidence: trade.confidence || 0.7,
-            positionSize: trade.positionSize,
-            stopLossPercent: trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02),
-            takeProfitPercent: trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04),
-            trailingStop: trade.trailingStop || 0.01,
-            rationale: trade.rationale || `AI-generated ${marketType} trade for ${trade.symbol} based on ${strategy.name || strategy.title} strategy`,
-            marketType: trade.marketType || marketType, // Ensure market type is included
-            strategyId: strategy.id, // Include strategy ID for tracking
-            leverage: trade.leverage || (marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) : undefined),
-            marginType: trade.marginType || (marketType === 'futures' ? 'cross' : undefined),
-            // Include detailed entry and exit conditions
-            entryConditions: trade.entryConditions || [
-              `Price crosses ${trade.direction === 'Long' ? 'above' : 'below'} ${this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0}`
-            ],
-            exitConditions: trade.exitConditions || [
-              `Take profit at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04)))}`,
-              `Stop loss at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02)))}`
-            ]
-          }))
+          trades: aiResult.trades.map((trade: any) => {
+            // Determine the market type for this specific trade
+            // Use trade's market type if provided, otherwise use the strategy's market type
+            const tradeMarketType = trade.marketType || marketType;
+
+            return {
+              symbol: trade.symbol || Array.from(pairHistories.keys())[0],
+              direction: trade.direction || 'Long',
+              confidence: trade.confidence || 0.7,
+              positionSize: trade.positionSize,
+              stopLossPercent: trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02),
+              takeProfitPercent: trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04),
+              trailingStop: trade.trailingStop || 0.01,
+              rationale: trade.rationale || `AI-generated ${tradeMarketType} trade for ${trade.symbol} based on ${strategy.name || strategy.title} strategy`,
+              marketType: tradeMarketType, // Ensure market type is included
+              strategyId: strategy.id, // Include strategy ID for tracking
+              // Set leverage and margin type based on the market type
+              leverage: trade.leverage || (tradeMarketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) :
+                                         tradeMarketType === 'margin' ? '3x' : undefined),
+              marginType: trade.marginType || (tradeMarketType === 'futures' || tradeMarketType === 'margin' ? 'cross' : undefined),
+              // Include detailed entry and exit conditions
+              entryConditions: trade.entryConditions || [
+                `Price crosses ${trade.direction === 'Long' ? 'above' : 'below'} ${this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0}`
+              ],
+              exitConditions: trade.exitConditions || [
+                `Take profit at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.takeProfitPercent || (trade.direction === 'Long' ? 0.04 : -0.04)))}`,
+                `Stop loss at ${(this.lastPrices.get(trade.symbol || Array.from(pairHistories.keys())[0]) || 0) * (1 + (trade.stopLossPercent || (trade.direction === 'Long' ? -0.02 : 0.02)))}`
+              ]
+            };
+          })
         };
       } else if (aiResult.shouldTrade) {
         // DeepSeek returned a single trade recommendation, convert to our format
@@ -718,7 +759,13 @@ class DemoTradeGenerator extends EventEmitter {
             stopLossPercent,
             takeProfitPercent,
             trailingStop: aiResult.trailingStop || 0.01,
-            rationale: aiResult.rationale || `AI-generated trade signal`,
+            rationale: aiResult.rationale || `AI-generated ${marketType} trade signal`,
+            // Explicitly include market type
+            marketType: aiResult.marketType || marketType,
+            // Set leverage and margin type based on the market type
+            leverage: aiResult.leverage || (marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) :
+                                         marketType === 'margin' ? '3x' : undefined),
+            marginType: aiResult.marginType || (marketType === 'futures' || marketType === 'margin' ? 'cross' : undefined),
             // Include detailed entry and exit conditions
             entryConditions: aiResult.entryConditions || [
               `Price crosses ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
@@ -732,13 +779,13 @@ class DemoTradeGenerator extends EventEmitter {
       }
 
       // If DeepSeek didn't recommend any trades, generate fallback signals
-      return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId);
+      return this.generateFallbackTradeSignals(pairHistories, availableBudget, batchId, marketType);
     } catch (error) {
       // If AI analysis fails, log the error and return fallback signals
       logService.log('warn', 'Failed to get AI trade signals, using fallback', error, 'DemoTradeGenerator');
       // Create a new batch ID since the original one might be undefined
       const fallbackBatchId = Date.now();
-      return this.generateFallbackTradeSignals(pairHistories, availableBudget, fallbackBatchId);
+      return this.generateFallbackTradeSignals(pairHistories, availableBudget, fallbackBatchId, marketType);
     }
   }
 
@@ -749,7 +796,7 @@ class DemoTradeGenerator extends EventEmitter {
    * @param batchId Batch ID for grouping trades
    * @returns Fallback trade signals
    */
-  private generateFallbackTradeSignals(pairHistories: Map<string, any[]>, availableBudget: number, batchId: number): any {
+  private generateFallbackTradeSignals(pairHistories: Map<string, any[]>, availableBudget: number, batchId: number, marketType: MarketType = 'spot'): any {
     // Decide how many trades to generate (1-3)
     const numTrades = Math.floor(Math.random() * 3) + 1;
 
@@ -786,6 +833,11 @@ class DemoTradeGenerator extends EventEmitter {
       const stopLossPercent = direction === 'Long' ? -0.02 : 0.02;
       const takeProfitPercent = direction === 'Long' ? 0.04 : -0.04;
 
+      // Set leverage and margin type based on the market type
+      const leverage = marketType === 'futures' ? this.getLeverageForRiskLevel('Medium') :
+                      marketType === 'margin' ? '3x' : undefined;
+      const marginType = marketType === 'futures' || marketType === 'margin' ? 'cross' : undefined;
+
       trades.push({
         symbol,
         direction,
@@ -794,7 +846,12 @@ class DemoTradeGenerator extends EventEmitter {
         stopLossPercent,
         takeProfitPercent,
         trailingStop: 0.01,
-        rationale: `Fallback trade signal for ${symbol} due to AI analysis failure`,
+        rationale: `Fallback ${marketType} trade signal for ${symbol} due to AI analysis failure`,
+        // Explicitly include market type
+        marketType: marketType,
+        // Include leverage and margin type based on market type
+        leverage: leverage,
+        marginType: marginType,
         // Include detailed entry and exit conditions
         entryConditions: [
           `Price crosses ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
@@ -1021,13 +1078,20 @@ class DemoTradeGenerator extends EventEmitter {
       }
 
       // Create trade directly in the database
+      // Get the market type from the strategy
+      const marketType = strategy.marketType ||
+                        strategy.market_type ||
+                        (strategy.strategy_config?.marketType) ||
+                        (strategy.strategy_config?.market_type) ||
+                        'spot';
+
       // Store trade details in metadata since some fields aren't in the database schema
       const tradeMetadata = {
         demo: true,
         source: 'demo-generator',
         uniqueToStrategy: strategy.id, // Mark this trade as unique to this strategy
         strategyName: strategy.name || strategy.title, // Include strategy name
-        marketType: strategy.marketType || strategy.market_type || 'spot', // Include market type
+        marketType: marketType, // Include market type
         entry_price: currentPrice,
         stop_loss: stopLoss,
         take_profit: takeProfit,
@@ -1041,8 +1105,10 @@ class DemoTradeGenerator extends EventEmitter {
           `Take profit at ${takeProfit}`,
           `Stop loss at ${stopLoss}`
         ],
-        leverage: strategy.marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) : undefined,
-        marginType: strategy.marketType === 'futures' ? 'cross' : undefined,
+        // Set leverage and margin type based on the market type
+        leverage: marketType === 'futures' ? this.getLeverageForRiskLevel(strategy.riskLevel) :
+                 marketType === 'margin' ? '3x' : undefined,
+        marginType: marketType === 'futures' || marketType === 'margin' ? 'cross' : undefined,
         tradeGeneratedAt: new Date().toISOString(),
         riskLevel: strategy.riskLevel
       };

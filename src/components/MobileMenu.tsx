@@ -73,8 +73,12 @@ export function MobileMenu({ isOpen, onClose, onSignOut }: MobileMenuProps) {
 
         <button
           onClick={() => {
-            onSignOut();
+            // First close the menu
             onClose();
+            // Then sign out with a small delay to allow the menu to close
+            setTimeout(() => {
+              onSignOut();
+            }, 50);
           }}
           className="flex flex-col items-center justify-center p-4 rounded-xl bg-gunmetal-900/70"
         >

@@ -204,82 +204,132 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
   }
 
   // Release reserved budget from a trade, applying any profit gained.
-  releaseBudgetFromTrade(strategyId: string, amount: number, profit: number = 0, tradeId?: string, tradeStatus?: string): void {
-    const budget = this.budgets.get(strategyId);
-    if (!budget) {
-      logService.log('warn', `No budget found for strategy ${strategyId}`, { tradeId }, 'TradeService');
-      return;
+  async releaseBudgetFromTrade(strategyId: string, amount: number, profit: number = 0, tradeId?: string, tradeStatus?: string): Promise<void> {
+    try {
+      const budget = this.budgets.get(strategyId);
+      if (!budget) {
+        // If budget doesn't exist in memory, try to load it from database
+        try {
+          await this.initializeBudget(strategyId);
+          const reloadedBudget = this.budgets.get(strategyId);
+          if (!reloadedBudget) {
+            logService.log('warn', `No budget found for strategy ${strategyId} even after initialization`, { tradeId }, 'TradeService');
+            return;
+          }
+        } catch (initError) {
+          logService.log('error', `Failed to initialize budget for strategy ${strategyId}`, initError, 'TradeService');
+          return;
+        }
+      }
+
+      // Get the budget again after potential initialization
+      const updatedBudget = this.budgets.get(strategyId);
+      if (!updatedBudget) {
+        logService.log('warn', `Still no budget found for strategy ${strategyId} after initialization attempt`, { tradeId }, 'TradeService');
+        return;
+      }
+
+      // Validate the amount is positive and reasonable
+      if (!amount || amount <= 0) {
+        logService.log('warn', `Invalid amount for budget release: ${amount}`, { tradeId, strategyId }, 'TradeService');
+        return;
+      }
+
+      // Format the values to 2 decimal places to avoid floating point issues
+      const formattedAmount = Number(amount.toFixed(2));
+      const formattedProfit = Number(profit.toFixed(2));
+
+      // If tradeId is provided but tradeStatus is not, try to get the status from the database
+      if (tradeId && !tradeStatus) {
+        try {
+          const { data: trade, error } = await supabase
+            .from('trades')
+            .select('status')
+            .eq('id', tradeId)
+            .single();
+
+          if (!error && trade) {
+            tradeStatus = trade.status;
+            logService.log('info', `Retrieved trade status for ${tradeId}: ${tradeStatus}`, null, 'TradeService');
+          }
+        } catch (fetchError) {
+          logService.log('warn', `Failed to fetch trade status: ${fetchError.message}`, { tradeId }, 'TradeService');
+          // Continue with default behavior
+        }
+      }
+
+      // Update budget based on trade status
+      if (tradeStatus === 'cancelled' || tradeStatus === 'rejected') {
+        // For cancelled/rejected trades, just return the allocated amount to available
+        updatedBudget.allocated = Number((updatedBudget.allocated - formattedAmount).toFixed(2));
+        updatedBudget.available = Number((updatedBudget.available + formattedAmount).toFixed(2));
+        // No change to total budget
+      } else if (tradeStatus === 'closed') {
+        // For closed trades, return allocated amount plus profit
+        updatedBudget.allocated = Number((updatedBudget.allocated - formattedAmount).toFixed(2));
+        updatedBudget.available = Number((updatedBudget.available + formattedAmount + formattedProfit).toFixed(2));
+        updatedBudget.total = Number((updatedBudget.total + formattedProfit).toFixed(2));
+      } else {
+        // Default behavior for other statuses
+        updatedBudget.allocated = Number((updatedBudget.allocated - formattedAmount).toFixed(2));
+        updatedBudget.available = Number((updatedBudget.available + formattedAmount + formattedProfit).toFixed(2));
+        updatedBudget.total = Number((updatedBudget.total + formattedProfit).toFixed(2));
+      }
+
+      // Ensure we don't have negative values due to rounding or calculation errors
+      if (updatedBudget.allocated < 0) updatedBudget.allocated = 0;
+      if (updatedBudget.available < 0) updatedBudget.available = 0;
+
+      // Ensure total is at least the sum of allocated and available
+      const minTotal = updatedBudget.allocated + updatedBudget.available;
+      if (updatedBudget.total < minTotal) {
+        updatedBudget.total = Number(minTotal.toFixed(2));
+      }
+
+      // Update the last updated timestamp
+      updatedBudget.lastUpdated = Date.now();
+
+      this.budgets.set(strategyId, updatedBudget);
+      this.saveBudgets();
+
+      // Update the budget in the database if not in demo mode
+      if (!this.isDemo) {
+        try {
+          await this.saveBudgetToDatabase(strategyId, updatedBudget);
+        } catch (dbError) {
+          logService.log('warn', `Failed to save budget to database for strategy ${strategyId}`, dbError, 'TradeService');
+          // Continue even if database update fails
+        }
+      }
+
+      // Emit budget updated event with more details
+      const eventData = {
+        strategyId,
+        budget: updatedBudget,
+        tradeId,
+        tradeStatus,
+        amount: formattedAmount,
+        profit: formattedProfit,
+        timestamp: Date.now()
+      };
+
+      this.emit('budgetUpdated', eventData);
+      eventBus.emit('budget:updated', eventData);
+      eventBus.emit(`budget:updated:${strategyId}`, eventData);
+
+      // Broadcast to all components that need to know about budget changes
+      eventBus.emit('app:state:updated', {
+        component: 'budget',
+        action: 'updated',
+        strategyId,
+        budget: updatedBudget
+      });
+
+      logService.log('info', `Released ${formattedAmount} (profit: ${formattedProfit}) for strategy ${strategyId}${tradeId ? ` (trade: ${tradeId})` : ''} with status ${tradeStatus || 'unknown'}`,
+        { budget: updatedBudget, tradeId, tradeStatus }, 'TradeService');
+    } catch (error) {
+      logService.log('error', `Error in releaseBudgetFromTrade for strategy ${strategyId}`, error, 'TradeService');
     }
-
-    // Validate the amount is positive and reasonable
-    if (!amount || amount <= 0) {
-      logService.log('warn', `Invalid amount for budget release: ${amount}`, { tradeId, strategyId }, 'TradeService');
-      return;
-    }
-
-    // Format the values to 2 decimal places to avoid floating point issues
-    const formattedAmount = Number(amount.toFixed(2));
-    const formattedProfit = Number(profit.toFixed(2));
-
-    // Update budget based on trade status
-    if (tradeStatus === 'cancelled' || tradeStatus === 'rejected') {
-      // For cancelled/rejected trades, just return the allocated amount to available
-      budget.allocated = Number((budget.allocated - formattedAmount).toFixed(2));
-      budget.available = Number((budget.available + formattedAmount).toFixed(2));
-      // No change to total budget
-    } else if (tradeStatus === 'closed') {
-      // For closed trades, return allocated amount plus profit
-      budget.allocated = Number((budget.allocated - formattedAmount).toFixed(2));
-      budget.available = Number((budget.available + formattedAmount + formattedProfit).toFixed(2));
-      budget.total = Number((budget.total + formattedProfit).toFixed(2));
-    } else {
-      // Default behavior for other statuses
-      budget.allocated = Number((budget.allocated - formattedAmount).toFixed(2));
-      budget.available = Number((budget.available + formattedAmount + formattedProfit).toFixed(2));
-      budget.total = Number((budget.total + formattedProfit).toFixed(2));
-    }
-
-    // Ensure we don't have negative values due to rounding or calculation errors
-    if (budget.allocated < 0) budget.allocated = 0;
-    if (budget.available < 0) budget.available = 0;
-
-    // Ensure total is at least the sum of allocated and available
-    const minTotal = budget.allocated + budget.available;
-    if (budget.total < minTotal) {
-      budget.total = Number(minTotal.toFixed(2));
-    }
-
-    // Update the last updated timestamp
-    budget.lastUpdated = Date.now();
-
-    this.budgets.set(strategyId, budget);
-    this.saveBudgets();
-
-    // Emit budget updated event with more details
-    const eventData = {
-      strategyId,
-      budget,
-      tradeId,
-      tradeStatus,
-      amount: formattedAmount,
-      profit: formattedProfit,
-      timestamp: Date.now()
-    };
-
-    this.emit('budgetUpdated', eventData);
-    eventBus.emit('budget:updated', eventData);
-    eventBus.emit(`budget:updated:${strategyId}`, eventData);
-
-    // Broadcast to all components that need to know about budget changes
-    eventBus.emit('app:state:updated', {
-      component: 'budget',
-      action: 'updated',
-      strategyId,
-      budget
-    });
-
-    logService.log('info', `Released ${formattedAmount} (profit: ${formattedProfit}) for strategy ${strategyId}${tradeId ? ` (trade: ${tradeId})` : ''} with status ${tradeStatus || 'unknown'}`,
-      { budget, tradeId, tradeStatus }, 'TradeService');
   }
 
   /**
@@ -289,9 +339,9 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
    * @param tradeId Optional trade ID
    * @param tradeStatus Optional trade status
    */
-  releaseBudget(strategyId: string, amount: number, tradeId?: string, tradeStatus?: string): void {
+  async releaseBudget(strategyId: string, amount: number, tradeId?: string, tradeStatus?: string): Promise<void> {
     // Call releaseBudgetFromTrade with 0 profit and pass along trade status
-    this.releaseBudgetFromTrade(strategyId, amount, 0, tradeId, tradeStatus);
+    await this.releaseBudgetFromTrade(strategyId, amount, 0, tradeId, tradeStatus);
   }
 
   clearAllBudgets(): void {
@@ -329,12 +379,65 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
    */
   private async saveBudgetToDatabase(strategyId: string, budget: StrategyBudget): Promise<void> {
     try {
+      // First, check if we have an active session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        logService.log('warn', 'No active session found when saving budget to database', { strategyId }, 'TradeService');
+
+        // Try to refresh the session
+        try {
+          const { error: refreshError } = await supabase.auth.refreshSession();
+          if (refreshError) {
+            logService.log('error', 'Failed to refresh session', refreshError, 'TradeService');
+            // Continue anyway - we'll try to save the budget in memory
+            return;
+          }
+        } catch (refreshError) {
+          logService.log('error', 'Exception when refreshing session', refreshError, 'TradeService');
+          return;
+        }
+      }
+
+      // Check if the strategy_budgets table exists
+      try {
+        // Try a simple query to check if the table exists
+        const { error: tableCheckError } = await supabase
+          .from('strategy_budgets')
+          .select('count(*)')
+          .limit(1);
+
+        if (tableCheckError) {
+          if (tableCheckError.code === '42P01') { // PostgreSQL code for 'relation does not exist'
+            logService.log('warn', 'Strategy budgets table does not exist, creating it now', null, 'TradeService');
+
+            // Try to create the table
+            try {
+              // Use RPC to create the table if it doesn't exist
+              await supabase.rpc('create_strategy_budgets_table_if_not_exists');
+              logService.log('info', 'Created strategy_budgets table', null, 'TradeService');
+            } catch (createError) {
+              logService.log('error', 'Failed to create strategy_budgets table', createError, 'TradeService');
+              return; // Exit early, we can't save to the database
+            }
+          } else if (tableCheckError.status === 406) {
+            logService.log('warn', 'Authentication issue when checking strategy_budgets table', tableCheckError, 'TradeService');
+            return; // Exit early, we can't save to the database
+          } else {
+            logService.log('error', 'Error checking strategy_budgets table', tableCheckError, 'TradeService');
+            return; // Exit early, we can't save to the database
+          }
+        }
+      } catch (tableCheckError) {
+        logService.log('error', 'Exception when checking strategy_budgets table', tableCheckError, 'TradeService');
+        return; // Exit early, we can't save to the database
+      }
+
       // Check if the budget already exists in the database
       const { data, error: fetchError } = await supabase
         .from('strategy_budgets')
         .select('*')
         .eq('strategy_id', strategyId)
-        .single();
+        .maybeSingle(); // Use maybeSingle instead of single to avoid 406 errors
 
       if (fetchError) {
         if (fetchError.code === 'PGRST116') {
@@ -343,20 +446,11 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
         } else if (fetchError.status === 406) {
           // Not Acceptable - likely auth issue
           logService.log('warn', `Authentication issue when fetching budget for strategy ${strategyId}`, fetchError, 'TradeService');
-          // Check auth status to help debug
-          const { data: { session } } = await supabase.auth.getSession();
-          if (!session) {
-            logService.log('warn', 'No active session found when fetching budget', null, 'TradeService');
-          } else {
-            logService.log('info', 'Session exists but still got 406 error', {
-              userId: session.user.id,
-              expires: new Date(session.expires_at * 1000).toISOString()
-            }, 'TradeService');
-          }
-          // Continue with default behavior - try to insert/update anyway
+          return; // Exit early, we can't save to the database
         } else {
           // Other error
-          throw fetchError;
+          logService.log('error', `Error fetching budget for strategy ${strategyId}`, fetchError, 'TradeService');
+          return; // Exit early, we can't save to the database
         }
       }
 
@@ -374,7 +468,15 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
           })
           .eq('strategy_id', strategyId);
 
-        if (updateError) throw updateError;
+        if (updateError) {
+          if (updateError.status === 406) {
+            logService.log('warn', `Authentication issue when updating budget for strategy ${strategyId}`, updateError, 'TradeService');
+            return; // Exit early, we can't save to the database
+          } else {
+            logService.log('error', `Error updating budget for strategy ${strategyId}`, updateError, 'TradeService');
+            return; // Exit early, we can't save to the database
+          }
+        }
 
         logService.log('info', `Updated budget in database for strategy ${strategyId}`, budget, 'TradeService');
       } else {
@@ -391,17 +493,22 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
             last_updated: new Date().toISOString()
           });
 
-        if (insertError) throw insertError;
+        if (insertError) {
+          if (insertError.status === 406) {
+            logService.log('warn', `Authentication issue when inserting budget for strategy ${strategyId}`, insertError, 'TradeService');
+            return; // Exit early, we can't save to the database
+          } else {
+            logService.log('error', `Error inserting budget for strategy ${strategyId}`, insertError, 'TradeService');
+            return; // Exit early, we can't save to the database
+          }
+        }
 
         logService.log('info', `Inserted new budget in database for strategy ${strategyId}`, budget, 'TradeService');
       }
     } catch (error) {
-      // Check if the error is because the table doesn't exist
-      if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
-        logService.log('warn', 'Strategy budgets table does not exist yet. This is normal if you haven\'t created it.', null, 'TradeService');
-      } else {
-        throw error;
-      }
+      // Handle any unexpected errors
+      logService.log('error', `Unexpected error saving budget to database for strategy ${strategyId}`, error, 'TradeService');
+      // Don't throw the error, just log it and continue
     }
   }
 
@@ -504,51 +611,123 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
    */
   async removeTradesByStrategy(strategyId: string): Promise<boolean> {
     try {
-      console.log(`TradeService: Removing trades for strategy ${strategyId}`);
+      logService.log('info', `Removing trades for strategy ${strategyId}`, null, 'TradeService');
 
       // First let's cleanup any active trades
       const { data: activeTrades, error: fetchError } = await supabase
         .from('trades')
         .select('*')
         .eq('strategy_id', strategyId)
-        .in('status', ['pending', 'open']);
+        .in('status', ['pending', 'open', 'executed']);
 
       if (fetchError) {
         throw new Error(`Error fetching active trades: ${fetchError.message}`);
       }
 
-      // Close any active trades first
+      // Close any active trades first and release budget
       if (activeTrades?.length > 0) {
+        logService.log('info', `Found ${activeTrades.length} active trades to close for strategy ${strategyId}`, null, 'TradeService');
+
         for (const trade of activeTrades) {
           try {
             // Update trade status to closed
-            await supabase
+            const { error: updateError } = await supabase
               .from('trades')
               .update({
                 status: 'closed',
-                close_reason: 'Strategy deleted',
-                closed_at: new Date().toISOString()
+                close_reason: 'Strategy deactivated',
+                closed_at: new Date().toISOString(),
+                updated_at: new Date().toISOString()
               })
               .eq('id', trade.id);
+
+            if (updateError) {
+              logService.log('warn', `Error updating trade ${trade.id}: ${updateError.message}`, null, 'TradeService');
+              continue;
+            }
+
+            // Release budget for this trade
+            if (trade.quantity && trade.price) {
+              const tradeCost = trade.quantity * trade.price;
+              this.releaseBudgetFromTrade(strategyId, tradeCost, 0, trade.id, 'closed');
+              logService.log('info', `Released budget for trade ${trade.id}`, { tradeCost }, 'TradeService');
+            }
+
+            logService.log('info', `Closed trade ${trade.id} for strategy ${strategyId}`, null, 'TradeService');
           } catch (error) {
-            console.error(`Error closing trade ${trade.id}:`, error);
+            logService.log('error', `Error closing trade ${trade.id}:`, error, 'TradeService');
           }
         }
       }
 
-      // Call the database function to handle deletion
-      const { data, error } = await supabase
-        .rpc('delete_strategy', { strategy_id: strategyId });
+      // Now delete all trades for this strategy
+      try {
+        // First try using the database function if it exists
+        const { error } = await supabase
+          .rpc('delete_strategy_trades', { strategy_id: strategyId });
 
-      if (error) {
-        throw error;
+        if (error) {
+          // If the function doesn't exist, fall back to direct deletion
+          if (error.message && error.message.includes('does not exist')) {
+            logService.log('info', 'delete_strategy_trades function not found, using direct deletion', null, 'TradeService');
+
+            // Delete trades directly
+            const { error: deleteError } = await supabase
+              .from('trades')
+              .delete()
+              .eq('strategy_id', strategyId);
+
+            if (deleteError) {
+              throw new Error(`Error deleting trades: ${deleteError.message}`);
+            }
+          } else {
+            throw error;
+          }
+        }
+
+        logService.log('info', `Successfully deleted all trades for strategy ${strategyId}`, null, 'TradeService');
+      } catch (deleteError) {
+        logService.log('error', `Failed to delete trades for strategy ${strategyId}`, deleteError, 'TradeService');
+
+        // Try one more time with a direct SQL query as a last resort
+        try {
+          const { error: sqlError } = await supabase.rpc('execute_sql', {
+            query: `DELETE FROM trades WHERE strategy_id = '${strategyId}';`
+          });
+
+          if (sqlError) {
+            throw sqlError;
+          }
+
+          logService.log('info', `Successfully deleted trades using SQL query for strategy ${strategyId}`, null, 'TradeService');
+        } catch (sqlError) {
+          logService.log('error', `Failed to delete trades using SQL query for strategy ${strategyId}`, sqlError, 'TradeService');
+          // Continue even if this fails
+        }
       }
 
-      logService.log('info', `Successfully removed strategy ${strategyId} and all related data`, null, 'TradeService');
+      // Reset budget for this strategy
+      try {
+        // Clear the budget in memory
+        this.budgets.delete(strategyId);
+        this.saveBudgets();
+
+        // Also try to delete from database if it exists
+        await supabase
+          .from('strategy_budgets')
+          .delete()
+          .eq('strategy_id', strategyId);
+
+        logService.log('info', `Reset budget for strategy ${strategyId}`, null, 'TradeService');
+      } catch (budgetError) {
+        logService.log('warn', `Failed to reset budget for strategy ${strategyId}`, budgetError, 'TradeService');
+        // Continue even if this fails
+      }
+
+      logService.log('info', `Successfully removed all trades for strategy ${strategyId}`, null, 'TradeService');
       return true;
     } catch (error) {
-      console.error(`Failed to remove strategy ${strategyId}:`, error);
-      logService.log('error', `Failed to remove strategy ${strategyId}`, error, 'TradeService');
+      logService.log('error', `Failed to remove trades for strategy ${strategyId}`, error, 'TradeService');
       return false;
     }
   }

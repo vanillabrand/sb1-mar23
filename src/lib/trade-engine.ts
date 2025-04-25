@@ -435,12 +435,36 @@ class TradeEngine extends EventEmitter {
         if (tradeError) throw tradeError;
         if (!trade) throw new Error(`Trade ${tradeId} not found`);
 
+        // Check if trade is already closed
+        if (trade.status === 'closed') {
+          logService.log('info', `Trade ${tradeId} is already closed`, null, 'TradeEngine');
+          return;
+        }
+
+        // Calculate profit/loss if possible
+        let profit = 0;
+        if (trade.exit_price && trade.price && trade.quantity) {
+          const entryValue = trade.price * trade.quantity;
+          const exitValue = trade.exit_price * trade.quantity;
+          profit = trade.side === 'buy' ?
+            exitValue - entryValue :
+            entryValue - exitValue;
+
+          // Apply fees if available
+          if (trade.fee) {
+            profit -= typeof trade.fee === 'object' ?
+              (trade.fee.cost || 0) :
+              (typeof trade.fee === 'number' ? trade.fee : 0);
+          }
+        }
+
         // 2. Close the trade through the exchange
         try {
           // Close the position through the trade manager
           await tradeManager.closePosition(tradeId);
+          logService.log('info', `Closed position for trade ${tradeId} through trade manager`, null, 'TradeEngine');
         } catch (closeError) {
-          logService.log('warn', `Error closing position for trade ${tradeId}, marking as closed anyway`, closeError, 'TradeEngine');
+          logService.log('warn', `Error closing position for trade ${tradeId} through trade manager, marking as closed anyway`, closeError, 'TradeEngine');
         }
 
         // 3. Update the trade status in the database
@@ -449,16 +473,92 @@ class TradeEngine extends EventEmitter {
           .update({
             status: 'closed',
             close_reason: reason,
-            closed_at: new Date().toISOString()
+            closed_at: new Date().toISOString(),
+            exit_price: trade.exit_price || trade.price, // Use entry price if no exit price
+            profit: profit,
+            updated_at: new Date().toISOString()
           })
           .eq('id', tradeId);
 
         if (updateError) throw updateError;
 
         // 4. Release the budget allocation
-        await tradeService.releaseBudget(trade.strategy_id, trade.allocated_budget);
+        try {
+          // First try using allocated_budget if available
+          if (trade.allocated_budget && trade.allocated_budget > 0) {
+            await tradeService.releaseBudgetFromTrade(trade.strategy_id, trade.allocated_budget, profit, tradeId, 'closed');
+            logService.log('info', `Released allocated budget ${trade.allocated_budget} for trade ${tradeId}`, null, 'TradeEngine');
+          }
+          // Fall back to calculating from price and quantity
+          else if (trade.price && trade.quantity) {
+            const tradeCost = trade.price * trade.quantity;
+            await tradeService.releaseBudgetFromTrade(trade.strategy_id, tradeCost, profit, tradeId, 'closed');
+            logService.log('info', `Released calculated budget ${tradeCost} for trade ${tradeId}`, null, 'TradeEngine');
+          } else {
+            // Last resort: try to get the budget from the trade metadata
+            if (trade.metadata && trade.metadata.tradeCost) {
+              await tradeService.releaseBudgetFromTrade(trade.strategy_id, trade.metadata.tradeCost, profit, tradeId, 'closed');
+              logService.log('info', `Released metadata budget ${trade.metadata.tradeCost} for trade ${tradeId}`, null, 'TradeEngine');
+            } else {
+              logService.log('warn', `Could not determine budget amount for trade ${tradeId}`, null, 'TradeEngine');
 
-        logService.log('info', `Closed trade ${tradeId} for reason: ${reason}`, null, 'TradeEngine');
+              // Try to update the strategy budget directly as a last resort
+              try {
+                const budget = await tradeService.getBudget(trade.strategy_id);
+                if (budget) {
+                  // Force a budget refresh event to ensure UI is updated
+                  eventBus.emit('budget:updated', {
+                    strategyId: trade.strategy_id,
+                    tradeId,
+                    profit,
+                    timestamp: Date.now()
+                  });
+                }
+              } catch (budgetRefreshError) {
+                logService.log('warn', `Failed to refresh budget for strategy ${trade.strategy_id}`, budgetRefreshError, 'TradeEngine');
+              }
+            }
+          }
+        } catch (budgetError) {
+          logService.log('error', `Failed to release budget for trade ${tradeId}`, budgetError, 'TradeEngine');
+          // Continue even if budget release fails
+        }
+
+        // 5. Emit events to notify other components
+        try {
+          this.emit('tradeClosed', {
+            tradeId,
+            reason,
+            strategyId: trade.strategy_id,
+            profit
+          });
+
+          eventBus.emit('trade:closed', {
+            tradeId,
+            strategyId: trade.strategy_id,
+            status: 'closed',
+            reason,
+            profit
+          });
+
+          eventBus.emit('trade:update', {
+            tradeId,
+            status: 'closed',
+            strategyId: trade.strategy_id
+          });
+
+          // Also emit budget updated event
+          eventBus.emit('budget:updated', {
+            strategyId: trade.strategy_id,
+            tradeId,
+            profit,
+            timestamp: Date.now()
+          });
+        } catch (eventError) {
+          logService.log('warn', `Error emitting trade closed events for ${tradeId}`, eventError, 'TradeEngine');
+        }
+
+        logService.log('info', `Closed trade ${tradeId} for reason: ${reason}`, { profit }, 'TradeEngine');
       }, `close trade ${tradeId}`);
     } catch (error) {
       logService.log('error', `Failed to close trade ${tradeId}`, error, 'TradeEngine');

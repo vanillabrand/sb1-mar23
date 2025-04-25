@@ -46,10 +46,11 @@ export const supabase = createClient<Database>(
     },
     global: {
       headers: {
-        'Accept': 'application/json',
+        'Accept': '*/*',  // Accept any content type to avoid 406 errors
         'Content-Type': 'application/json',
         'apikey': supabaseAnonKey,
-        'X-Client-Info': 'supabase-js/2.x'
+        'X-Client-Info': 'supabase-js/2.x',
+        'Prefer': 'return=representation'  // Always return representation
       }
     },
     db: {

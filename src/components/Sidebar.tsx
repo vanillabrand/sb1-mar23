@@ -312,19 +312,33 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
 
   const handleSignOut = async () => {
     try {
+      logService.log('info', 'Signing out user', null, 'Sidebar');
+
       // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
 
-      // Navigate to home page
-      navigate('/');
+      // Force clear any cached user data
+      localStorage.removeItem('supabase.auth.token');
 
-      logService.log('info', 'User signed out', null, 'Sidebar');
+      // Navigate to home page with replace to prevent back navigation
+      navigate('/', { replace: true });
+
+      // Force a page reload to ensure all state is cleared
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+
+      logService.log('info', 'User signed out successfully', null, 'Sidebar');
     } catch (error) {
       logService.log('error', 'Error during sign out:', error, 'Sidebar');
       // Still try to sign out and redirect even if there's an error
       await supabase.auth.signOut();
-      navigate('/');
+      localStorage.removeItem('supabase.auth.token');
+      navigate('/', { replace: true });
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
     }
   };
 

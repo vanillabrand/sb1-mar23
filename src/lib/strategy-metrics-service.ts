@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { logService } from './log-service';
 import { EventEmitter } from './event-emitter';
 import { walletBalanceService } from './wallet-balance-service';
+import { budgetService } from './budget-service';
 
 export interface StrategyMetrics {
   id: string;
@@ -59,6 +60,11 @@ class StrategyMetricsService extends EventEmitter {
 
     try {
       logService.log('info', 'Initializing strategy metrics service', null, 'StrategyMetricsService');
+
+      // Initialize budget service first
+      if (!budgetService.initialized) {
+        await budgetService.initialize();
+      }
 
       // Set up real-time subscriptions
       this.setupSubscriptions();
@@ -224,35 +230,20 @@ class StrategyMetricsService extends EventEmitter {
         throw tradesError;
       }
 
-      // Get budget for this strategy
+      // Get budget for this strategy using the budget service
       let budgetData = null;
       try {
-        const { data, error } = await supabase
-          .from('strategy_budgets')
-          .select('*')
-          .eq('strategy_id', strategyId)
-          .single();
+        // Initialize budget service if needed
+        if (!budgetService.initialized) {
+          await budgetService.initialize();
+        }
 
-        if (error) {
-          if (error.code === 'PGRST116') { // "no rows returned" - this is fine
-            logService.log('info', `No budget found for strategy ${strategyId}`, null, 'StrategyMetricsService');
-          } else if (error.status === 406) { // Not Acceptable - likely auth issue
-            logService.log('warn', `Authentication issue when fetching budget for strategy ${strategyId}`, error, 'StrategyMetricsService');
-            // Check auth status to help debug
-            const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
-              logService.log('warn', 'No active session found when fetching budget', null, 'StrategyMetricsService');
-            } else {
-              logService.log('info', 'Session exists but still got 406 error', {
-                userId: session.user.id,
-                expires: new Date(session.expires_at * 1000).toISOString()
-              }, 'StrategyMetricsService');
-            }
-          } else {
-            logService.log('error', `Error fetching budget for strategy ${strategyId}`, error, 'StrategyMetricsService');
-          }
-        } else {
-          budgetData = data;
+        // Get budget from the budget service
+        budgetData = await budgetService.getBudget(strategyId);
+
+        if (!budgetData) {
+          // No budget found, but that's okay
+          logService.log('info', `No budget found for strategy ${strategyId}`, null, 'StrategyMetricsService');
         }
       } catch (budgetError) {
         logService.log('error', `Exception fetching budget for strategy ${strategyId}`, budgetError, 'StrategyMetricsService');

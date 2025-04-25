@@ -1605,6 +1605,39 @@ Return ONLY a JSON object with the updated strategy configuration:
   "rationale": string
 }`;
 
+      // Call the separate method to adapt the strategy with DeepSeek
+      const updatedStrategy = await this.adaptStrategyWithDeepseek(strategy, strategyId, prompt);
+
+      if (updatedStrategy) {
+        // Update local cache
+        this.activeStrategies.set(strategyId, updatedStrategy);
+
+        // Emit events
+        this.emit('strategyAdapted', updatedStrategy);
+        eventBus.emit('strategy:updated', { strategy: updatedStrategy });
+        eventBus.emit(`strategy:updated:${strategyId}`, { strategyId, strategy: updatedStrategy });
+
+        logService.log('info', `Successfully adapted strategy ${strategyId}`, {
+          oldConfig: strategy.strategy_config,
+          newConfig: updatedStrategy.strategy_config
+        }, 'TradeGenerator');
+      } else {
+        logService.log('warn', `Strategy adaptation returned no result for ${strategyId}`, null, 'TradeGenerator');
+      }
+    } catch (error) {
+      logService.log('error', `Failed to adapt strategy ${strategy.id}`, error, 'TradeGenerator');
+    }
+  }
+
+  /**
+   * Adapt a strategy using DeepSeek API
+   * @param strategy The strategy to adapt
+   * @param strategyId The ID of the strategy
+   * @param prompt The prompt to send to DeepSeek
+   * @returns The updated strategy or the original strategy if adaptation fails
+   */
+  private async adaptStrategyWithDeepseek(strategy: Strategy, strategyId: string, prompt: string): Promise<Strategy> {
+    try {
       // Call DeepSeek API
       const response = await fetch(`/api/deepseek/v1/chat/completions`, {
         method: 'POST',
@@ -1621,7 +1654,7 @@ Return ONLY a JSON object with the updated strategy configuration:
       });
 
       if (!response.ok) {
-        throw new Error(`DeepSeek API error: ${response.status}`);
+        throw new Error(`DeepSeek API error: ${response.status} - ${response.statusText}`);
       }
 
       const data = await response.json();
@@ -1639,42 +1672,55 @@ Return ONLY a JSON object with the updated strategy configuration:
         throw new Error('No valid JSON found in response');
       }
 
-      const updatedConfig = JSON.parse(content.substring(jsonStart, jsonEnd + 1));
+      try {
+        const jsonContent = content.substring(jsonStart, jsonEnd + 1);
+        const updatedConfig = JSON.parse(jsonContent);
 
-      // Validate updated config
-      if (!updatedConfig.name || !updatedConfig.type || !updatedConfig.selected_pairs) {
-        throw new Error('Invalid updated strategy configuration');
+        // Validate updated config
+        if (!updatedConfig.name) {
+          logService.log('warn', `Missing name in updated config for strategy ${strategyId}, using existing name`, null, 'TradeGenerator');
+          updatedConfig.name = strategy.name || 'Unnamed Strategy';
+        }
+
+        if (!updatedConfig.type) {
+          logService.log('warn', `Missing type in updated config for strategy ${strategyId}, using existing type`, null, 'TradeGenerator');
+          updatedConfig.type = strategy.strategy_config?.type || 'custom';
+        }
+
+        if (!updatedConfig.selected_pairs || !Array.isArray(updatedConfig.selected_pairs) || updatedConfig.selected_pairs.length === 0) {
+          logService.log('warn', `Missing or invalid selected_pairs in updated config for strategy ${strategyId}, using existing pairs`, null, 'TradeGenerator');
+          updatedConfig.selected_pairs = strategy.selected_pairs || strategy.strategy_config?.assets || ['BTC/USDT'];
+        }
+
+        // Update strategy with new configuration
+        const updatedStrategy = {
+          ...strategy,
+          name: updatedConfig.name,
+          description: updatedConfig.description || strategy.description,
+          strategy_config: {
+            ...strategy.strategy_config,
+            ...updatedConfig
+          },
+          updated_at: new Date().toISOString()
+        };
+
+        // Save updated strategy to database
+        await strategyService.updateStrategy(strategyId, updatedStrategy);
+
+        return updatedStrategy;
+      } catch (jsonError) {
+        logService.log('error', `Error parsing JSON from DeepSeek response for strategy ${strategyId}`, {
+          error: jsonError,
+          content: content.substring(0, 100) + '...'
+        }, 'TradeGenerator');
+        throw new Error(`Failed to parse JSON from DeepSeek response: ${jsonError.message}`);
       }
+    } catch (apiError) {
+      logService.log('error', `DeepSeek API error for strategy ${strategyId}`, apiError, 'TradeGenerator');
 
-      // Update strategy with new configuration
-      const updatedStrategy = {
-        ...strategy,
-        name: updatedConfig.name,
-        description: updatedConfig.description,
-        strategy_config: {
-          ...strategy.strategy_config,
-          ...updatedConfig
-        },
-        updated_at: new Date().toISOString()
-      };
-
-      // Save updated strategy to database
-      await strategyService.updateStrategy(strategyId, updatedStrategy);
-
-      // Update local cache
-      this.activeStrategies.set(strategyId, updatedStrategy);
-
-      // Emit events
-      this.emit('strategyAdapted', updatedStrategy);
-      eventBus.emit('strategy:updated', { strategy: updatedStrategy });
-      eventBus.emit(`strategy:updated:${strategyId}`, { strategyId, strategy: updatedStrategy });
-
-      logService.log('info', `Successfully adapted strategy ${strategyId}`, {
-        oldConfig: strategy.strategy_config,
-        newConfig: updatedConfig
-      }, 'TradeGenerator');
-    } catch (error) {
-      logService.log('error', `Failed to adapt strategy ${strategy.id}`, error, 'TradeGenerator');
+      // Return the original strategy without changes
+      logService.log('info', `Keeping original strategy configuration for ${strategyId} due to API error`, null, 'TradeGenerator');
+      return strategy;
     }
   }
 

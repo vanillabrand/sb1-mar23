@@ -33,6 +33,10 @@ export function Pagination({
   const screenSize = useScreenSize();
   const isMobile = screenSize === 'sm';
 
+  // Calculate start and end items for display (moved to the top to avoid reference error)
+  const startItem = totalItems ? (currentPage - 1) * itemsPerPage + 1 : 0;
+  const endItem = totalItems ? Math.min(currentPage * itemsPerPage, totalItems) : 0;
+
   // Don't render pagination if there's only one page
   if (totalPages <= 1) return null;
 
@@ -149,9 +153,7 @@ export function Pagination({
     }
   };
 
-  // Calculate start and end items for display
-  const startItem = totalItems ? (currentPage - 1) * itemsPerPage + 1 : 0;
-  const endItem = totalItems ? Math.min(currentPage * itemsPerPage, totalItems) : 0;
+  // Start and end items are calculated at the top of the component
 
   return (
     <motion.div

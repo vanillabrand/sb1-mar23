@@ -32,7 +32,27 @@ export function MobileBottomNav({ onMenuToggle }: MobileBottomNavProps) {
   }, []);
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut();
+    try {
+      // Sign out from Supabase
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+
+      // Force clear any cached user data
+      localStorage.removeItem('supabase.auth.token');
+
+      // Force a page reload to ensure all state is cleared
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 100);
+    } catch (error) {
+      console.error('Error during sign out:', error);
+      // Still try to sign out even if there's an error
+      await supabase.auth.signOut();
+      localStorage.removeItem('supabase.auth.token');
+      setTimeout(() => {
+        window.location.href = '/';
+      }, 100);
+    }
   };
 
   // Only show on mobile screens

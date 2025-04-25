@@ -184,13 +184,26 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
 
   const signOut = async () => {
     try {
+      console.log('useAuth: Signing out user');
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
+
+      // Explicitly set user to null to ensure UI updates immediately
+      setUser(null);
+
+      // Clear any cached auth data
+      localStorage.removeItem('supabase.auth.token');
+
+      console.log('useAuth: User signed out successfully');
       toast.success('Successfully signed out!');
     } catch (error) {
+      console.error('useAuth: Error during sign out:', error);
       const authError = error as AuthError;
       setError(authError);
       toast.error(authError.message);
+
+      // Still try to clear user state
+      setUser(null);
       throw error;
     }
   };
