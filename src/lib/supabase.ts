@@ -42,11 +42,13 @@ export const supabase = createClient<Database>(
     auth: {
       persistSession: true,
       autoRefreshToken: true,
-      detectSessionInUrl: true
+      detectSessionInUrl: true,
+      storageKey: 'sb-auth-token',
+      storage: localStorage
     },
     global: {
       headers: {
-        'Accept': '*/*',  // Accept any content type to avoid 406 errors
+        'Accept': 'application/json, text/plain, */*',  // Expanded Accept header to fix 406 errors
         'Content-Type': 'application/json',
         'apikey': supabaseAnonKey,
         'X-Client-Info': 'supabase-js/2.x',
@@ -55,6 +57,11 @@ export const supabase = createClient<Database>(
     },
     db: {
       schema: 'public'
+    },
+    realtime: {
+      params: {
+        eventsPerSecond: 10
+      }
     }
   }
 );

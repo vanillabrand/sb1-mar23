@@ -163,9 +163,148 @@ app.options('/api/bitmart/*', (req, res) => {
 app.options('/api/kraken/*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key, API-Sign');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key, API-Sign, api-key, api-sign');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
   res.status(200).send();
+});
+
+// Add a specific handler for Kraken Direct OPTIONS requests
+app.options('/api/kraken-direct/*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key, API-Sign, api-key, api-sign');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // 24 hours
+  res.status(200).send();
+});
+
+// Store the last used nonce for Kraken API
+let lastKrakenNonce = 0;
+
+// Function to generate a unique nonce for Kraken API
+function generateKrakenNonce() {
+  // Get current timestamp in microseconds
+  const timestamp = Date.now() * 1000;
+
+  // Ensure the nonce is always increasing
+  const nonce = Math.max(timestamp, lastKrakenNonce + 1);
+
+  // Update the last used nonce
+  lastKrakenNonce = nonce;
+
+  return nonce;
+}
+
+// Add a handler for Kraken Direct API requests
+app.all('/api/kraken-direct/*', async (req, res) => {
+  try {
+    console.log(`[${new Date().toISOString()}] Kraken Direct API request: ${req.method} ${req.path}`);
+
+    // Extract the API endpoint from the path
+    const endpoint = req.path.replace('/api/kraken-direct/', '');
+
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key, API-Sign, api-key, api-sign');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    // Determine if this is a public or private API request
+    const isPublic = endpoint.startsWith('public/');
+    const isPrivate = endpoint.startsWith('private/');
+
+    if (!isPublic && !isPrivate) {
+      return res.status(400).json({ error: 'Invalid API endpoint' });
+    }
+
+    // Base URL for Kraken API
+    const krakenBaseUrl = 'https://api.kraken.com';
+    const apiVersion = '0';
+
+    // Construct the full URL
+    const url = `${krakenBaseUrl}/${apiVersion}/${endpoint}`;
+
+    // For private API requests, we need to sign the request
+    if (isPrivate) {
+      // Check if API key and secret are provided
+      const apiKey = req.headers['api-key'] || req.headers['API-Key'];
+      const apiSecret = req.headers['api-secret'] || req.headers['API-Secret'];
+
+      if (!apiKey || !apiSecret) {
+        return res.status(401).json({ error: 'API key and secret are required for private API requests' });
+      }
+
+      // Add nonce to params
+      const nonce = generateKrakenNonce();
+      const params = {
+        ...(req.body || {}),
+        nonce
+      };
+
+      // Create signature
+      const path = `/${apiVersion}/${endpoint}`;
+      const message = params.nonce +
+        require('crypto')
+          .createHash('sha256')
+          .update(JSON.stringify(params))
+          .digest('hex');
+
+      const signature = require('crypto')
+        .createHmac('sha512', Buffer.from(apiSecret, 'base64'))
+        .update(path + message)
+        .digest('base64');
+
+      // Forward the request to Kraken with the generated signature
+      const options = {
+        method: req.method,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'API-Key': apiKey,
+          'API-Sign': signature,
+          'User-Agent': 'GiGAntic Trading Bot'
+        }
+      };
+
+      // Add body for POST requests
+      if (req.method === 'POST') {
+        // Convert request body to URL encoded form data
+        const formData = new URLSearchParams();
+
+        // Add all parameters from the request body
+        Object.entries(params).forEach(([key, value]) => {
+          formData.append(key, String(value));
+        });
+
+        options.body = formData.toString();
+      }
+
+      // Make the request to Kraken
+      const response = await fetch(url, options);
+      const data = await response.json();
+
+      // Return the response
+      return res.json(data);
+    }
+
+    // For public API requests, simply forward the request
+    const queryParams = new URLSearchParams(req.query).toString();
+    const fullUrl = queryParams ? `${url}?${queryParams}` : url;
+
+    const response = await fetch(fullUrl, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'User-Agent': 'GiGAntic Trading Bot'
+      }
+    });
+
+    const data = await response.json();
+    return res.json(data);
+  } catch (error) {
+    console.error(`[${new Date().toISOString()}] Error in Kraken Direct API request:`, error);
+    return res.status(500).json({ error: 'Internal server error', message: error.message });
+  }
 });
 
 // Add a specific handler for Coinbase OPTIONS requests
@@ -402,7 +541,7 @@ const exchangeProxies = {
         'binanceTestnet': ['X-MBX-APIKEY'],
         'binanceFutures': ['X-MBX-APIKEY'],
         'bitmart': ['X-BM-KEY', 'X-BM-SIGN', 'X-BM-TIMESTAMP'],
-        'kraken': ['API-Key', 'API-Sign'],
+        'kraken': ['API-Key', 'API-Sign', 'api-key', 'api-sign'],
         'coinbase': ['CB-ACCESS-KEY', 'CB-ACCESS-SIGN', 'CB-ACCESS-TIMESTAMP', 'CB-ACCESS-PASSPHRASE'],
         'okx': ['OK-ACCESS-KEY', 'OK-ACCESS-SIGN', 'OK-ACCESS-TIMESTAMP', 'OK-ACCESS-PASSPHRASE'],
         'bybit': ['X-BAPI-API-KEY', 'X-BAPI-SIGN', 'X-BAPI-TIMESTAMP'],
@@ -494,6 +633,53 @@ const exchangeProxies = {
       proxyRes.headers['access-control-allow-credentials'] = 'true';
       proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
       proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, X-MBX-APIKEY, x-mbx-apikey, X-BM-KEY, X-BM-SIGN, X-BM-TIMESTAMP, X-BAPI-API-KEY, X-BAPI-SIGN, X-BAPI-TIMESTAMP, x-bapi-timestamp, x-bapi-api-key, x-bapi-sign, kc-api-timestamp, kc-api-key, kc-api-sign, kc-api-passphrase, OK-ACCESS-KEY, ok-access-key, OK-ACCESS-SIGN, ok-access-sign, OK-ACCESS-TIMESTAMP, ok-access-timestamp, OK-ACCESS-PASSPHRASE, ok-access-passphrase, CB-ACCESS-KEY, cb-access-key, CB-ACCESS-SIGN, cb-access-sign, CB-ACCESS-TIMESTAMP, cb-access-timestamp, CB-ACCESS-PASSPHRASE, cb-access-passphrase';
+    }
+  },
+
+  // Kraken proxy configuration
+  kraken: {
+    target: 'https://api.kraken.com',
+    changeOrigin: true,
+    pathRewrite: {
+      '^/api/kraken': ''
+    },
+    onProxyReq: (proxyReq, req, _res) => {
+      // Use the helper function to forward authentication headers
+      forwardAuthHeaders(proxyReq, req, ['API-Key', 'API-Sign', 'api-key', 'api-sign'], 'Kraken');
+
+      // Add custom User-Agent header
+      proxyReq.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+
+      // Log all headers for debugging
+      console.log('Kraken request headers:', req.headers);
+    },
+    onProxyRes: (proxyRes, req, _res) => {
+      // Remove ALL existing CORS headers
+      Object.keys(proxyRes.headers).forEach(key => {
+        if (key.toLowerCase().startsWith('access-control-')) {
+          delete proxyRes.headers[key];
+        }
+      });
+
+      // Add our own CORS headers
+      proxyRes.headers['access-control-allow-origin'] = req.headers.origin || 'http://localhost:5173';
+      proxyRes.headers['access-control-allow-credentials'] = 'true';
+      proxyRes.headers['access-control-allow-methods'] = 'GET, POST, PUT, DELETE, OPTIONS';
+      proxyRes.headers['access-control-allow-headers'] = 'Content-Type, Authorization, API-Key, API-Sign, api-key, api-sign';
+
+      console.log(`Received response from Kraken: ${proxyRes.statusCode}`);
+    },
+    onError: (err, req, res) => {
+      console.error(`Proxy error for Kraken: ${err.message}`);
+      res.writeHead(500, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': req.headers.origin || 'http://localhost:5173',
+        'Access-Control-Allow-Credentials': 'true'
+      });
+      res.end(JSON.stringify({
+        error: 'Proxy error',
+        message: err.message
+      }));
     }
   },
   binance: {
@@ -845,6 +1031,60 @@ const exchangeProxies = {
 // Health check endpoint
 app.get('/health', (_req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
+// Add a direct handler for Kraken API requests
+app.use('/api/kraken-direct/*', async (req, res) => {
+  try {
+    const path = req.params[0];
+    // Kraken API has a different URL structure
+    const url = path.includes('public')
+      ? `https://api.kraken.com/${path}`
+      : `https://api.kraken.com/0/${path}`;
+
+    console.log(`Direct Kraken request to ${url}`);
+
+    // Forward the request to the Kraken API with special handling
+    const response = await fetch(url, {
+      method: req.method,
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        ...(req.headers.authorization && { 'Authorization': req.headers.authorization }),
+        ...(req.headers['api-key'] && { 'API-Key': req.headers['api-key'] }),
+        ...(req.headers['api-sign'] && { 'API-Sign': req.headers['api-sign'] })
+      },
+      body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
+      timeout: 60000 // 60 second timeout
+    });
+
+    // Get the response data
+    const data = await response.json();
+
+    // Set CORS headers
+    res.header('Access-Control-Allow-Origin', req.headers.origin || 'http://localhost:5173');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, API-Key, API-Sign, api-key, api-sign');
+    res.header('Access-Control-Allow-Credentials', 'true');
+
+    // Return the response
+    res.status(response.status).json(data);
+  } catch (error) {
+    console.error('Kraken Direct API error:', error.message);
+
+    // Special error handling for Kraken
+    if (error.code === 'ECONNABORTED') {
+      return res.status(504).json({
+        error: 'Kraken API request timed out',
+        details: { message: error.message }
+      });
+    }
+
+    res.status(500).json({
+      error: error.message,
+      details: error.response?.data || {}
+    });
+  }
 });
 
 // Add a handler for the DeepSeek API endpoint
@@ -1288,7 +1528,9 @@ wss.on('connection', (ws, req) => {
     ws,
     isDemo,
     subscriptions: [],
-    binanceWs: null // Will be initialized if needed
+    binanceWs: null, // Will be initialized if needed
+    pongTimeout: null, // For tracking ping/pong timeouts
+    lastPongReceived: Date.now() // Track when we last received a pong
   });
 
   console.log(`WebSocket client connected: ${clientId}, Demo mode: ${isDemo}`);
@@ -1311,6 +1553,39 @@ wss.on('connection', (ws, req) => {
         type: 'ping',
         timestamp: Date.now()
       }));
+
+      // Set a timeout to check if we receive a pong
+      const pongTimeout = setTimeout(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          console.log(`No pong received from client ${clientId} within timeout, checking connection...`);
+
+          // Send a verification ping
+          try {
+            ws.send(JSON.stringify({
+              type: 'ping',
+              timestamp: Date.now(),
+              isVerification: true
+            }));
+
+            // Set another timeout for the verification ping
+            setTimeout(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                console.log(`No verification pong received from client ${clientId}, terminating connection`);
+                ws.terminate(); // Force close the connection
+              }
+            }, 5000); // Wait 5 seconds for verification pong
+          } catch (error) {
+            console.error(`Error sending verification ping to client ${clientId}:`, error);
+            ws.terminate(); // Force close the connection on error
+          }
+        }
+      }, 15000); // Wait 15 seconds for pong
+
+      // Store the timeout in the client object so we can clear it if we receive a pong
+      const client = clients.get(clientId);
+      if (client) {
+        client.pongTimeout = pongTimeout;
+      }
     } else {
       clearInterval(pingInterval);
     }
@@ -1322,8 +1597,16 @@ wss.on('connection', (ws, req) => {
 
     // Clean up any Binance WebSocket connections
     const client = clients.get(clientId);
-    if (client && client.binanceWs) {
-      client.binanceWs.close();
+    if (client) {
+      // Close Binance WebSocket if it exists
+      if (client.binanceWs) {
+        client.binanceWs.close();
+      }
+
+      // Clear any pending pong timeout
+      if (client.pongTimeout) {
+        clearTimeout(client.pongTimeout);
+      }
     }
 
     // Remove client from the map
@@ -1347,6 +1630,14 @@ wss.on('connection', (ws, req) => {
           timestamp: Date.now(),
           echo: parsedMessage.timestamp
         }));
+      } else if (parsedMessage.type === 'pong') {
+        // Clear the pong timeout if it exists
+        const client = clients.get(clientId);
+        if (client && client.pongTimeout) {
+          clearTimeout(client.pongTimeout);
+          client.pongTimeout = null;
+          console.log(`Received pong from client ${clientId}, cleared timeout`);
+        }
       } else if (parsedMessage.type === 'subscribe') {
         // Handle subscription requests
         handleSubscription(clientId, parsedMessage.data, isDemo);
@@ -1360,19 +1651,6 @@ wss.on('connection', (ws, req) => {
     } catch (error) {
       console.error('Error parsing WebSocket message:', error);
     }
-  });
-
-  // Handle client disconnection
-  ws.on('close', () => {
-    console.log(`WebSocket client disconnected: ${clientId}`);
-
-    // Close Binance WebSocket connection if it exists
-    const client = clients.get(clientId);
-    if (client && client.binanceWs) {
-      client.binanceWs.close();
-    }
-
-    clients.delete(clientId);
   });
 });
 

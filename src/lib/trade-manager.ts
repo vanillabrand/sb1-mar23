@@ -1,5 +1,5 @@
 import { EventEmitter } from './event-emitter';
-import { TradeOptions, TradeResult, TradeStatus } from '../types';
+import { TradeOptions, TradeResult, TradeStatus } from './types';
 import { logService } from './log-service';
 import { exchangeService } from './exchange-service';
 import { riskManager } from './risk-manager';
@@ -325,14 +325,32 @@ class TradeManager extends EventEmitter {
       const useTestNet = options.testnet || isDemoMode;
       const useRealExchange = !useTestNet && isExchangeConnected;
 
+      // Get the active exchange
+      const activeExchange = await exchangeService.getActiveExchange();
+
       // Log the mode being used
       logService.log('info', `Executing trade in ${useTestNet ? 'TestNet/Demo' : (useRealExchange ? 'Real Exchange' : 'Simulated')} mode`, {
         useTestNet,
         useRealExchange,
         isDemoMode,
         isExchangeConnected,
+        activeExchange: activeExchange?.id || 'none',
         options
       }, 'TradeManager');
+
+      // If we're in real exchange mode, ensure we have an active exchange
+      if (!useTestNet && !options.demo && !activeExchange) {
+        logService.log('warn', 'No active exchange found for real trading, falling back to simulated mode', null, 'TradeManager');
+        // Fall back to simulated mode
+        const simulatedOrder = this.createSimulatedOrder(options, tradeId);
+        this.startOrderTracking(tradeId, simulatedOrder);
+
+        // Emit trade created event
+        this.emit('tradeCreated', { tradeId, order: simulatedOrder });
+        eventBus.emit('trade:created', { tradeId, order: simulatedOrder });
+
+        return this.createTradeResult(simulatedOrder, 'pending');
+      }
 
       // Set the testnet option
       options.testnet = useTestNet;
@@ -359,12 +377,13 @@ class TradeManager extends EventEmitter {
             status: 'pending',
             timestamp: Date.now(),
             createdAt: new Date().toISOString(),
-            executedAt: null
+            executedAt: null,
+            exchangeId: 'testnet'
           });
 
           // Emit trade created event
-          this.emit('tradeCreated', { tradeId: testnetOrder.id, order: testnetOrder });
-          eventBus.emit('trade:created', { tradeId: testnetOrder.id, order: testnetOrder });
+          this.emit('tradeCreated', { tradeId: testnetOrder.id, order: testnetOrder, exchangeId: 'testnet' });
+          eventBus.emit('trade:created', { tradeId: testnetOrder.id, order: testnetOrder, exchangeId: 'testnet' });
 
           return this.createTradeResult(testnetOrder, 'pending');
         } catch (testnetError) {
@@ -380,7 +399,7 @@ class TradeManager extends EventEmitter {
 
           return this.createTradeResult(simulatedOrder, 'pending');
         }
-      } else if (options.demo || !useRealExchange) {
+      } else if (options.demo || !useRealExchange || !activeExchange) {
         // For demo mode without TestNet or when no real exchange is connected, create a simulated trade
         const simulatedOrder = this.createSimulatedOrder(options, tradeId);
         this.startOrderTracking(tradeId, simulatedOrder);
@@ -481,6 +500,15 @@ class TradeManager extends EventEmitter {
         // Log the attempt
         logService.log('info', `Trade execution attempt ${attempt}/${this.MAX_RETRIES} for ${options.symbol}`,
           { attempt, maxRetries: this.MAX_RETRIES }, 'TradeManager');
+
+        // Get the active exchange
+        const activeExchange = await exchangeService.getActiveExchange();
+
+        // Log the active exchange being used
+        logService.log('info', `Using exchange ${activeExchange?.id || 'default'} for trade execution`, {
+          symbol: options.symbol,
+          exchangeId: activeExchange?.id || 'default'
+        }, 'TradeManager');
 
         // Execute the trade with timeout
         const result = await this.executeWithTimeout(
@@ -669,10 +697,15 @@ class TradeManager extends EventEmitter {
         let currentPrice = null;
 
         try {
-          const marketData = await exchangeService.fetchMarketPrice(symbol);
-          currentPrice = marketData.price;
+          // Make sure symbol is defined
+          if (symbol) {
+            const marketData = await exchangeService.fetchMarketPrice(symbol);
+            currentPrice = marketData.price;
+          } else {
+            logService.log('warn', 'Cannot fetch market price: Symbol is undefined', null, 'TradeManager');
+          }
         } catch (priceError) {
-          logService.log('warn', `Failed to fetch current price for ${symbol}`, priceError, 'TradeManager');
+          logService.log('warn', `Failed to fetch current price for ${symbol || 'unknown symbol'}`, priceError, 'TradeManager');
         }
 
         // Check if we need to evaluate exit conditions
@@ -738,7 +771,7 @@ class TradeManager extends EventEmitter {
         }
 
         // Update order status based on exchange response
-        this.handleOrderStatusUpdate(orderId, orderStatus, currentPrice);
+        this.handleOrderStatusUpdate(orderId, orderStatus, currentPrice || undefined);
       } catch (error) {
         logService.log('error', `Failed to update order ${orderId}`, error, 'TradeManager');
       }
@@ -1521,13 +1554,47 @@ class TradeManager extends EventEmitter {
     }
   }
 
+  /**
+   * Create a trade result object
+   * @param order The order details
+   * @param status The status of the trade
+   * @returns A trade result object
+   */
   private createTradeResult(order: any, status: string): TradeResult {
     return {
       id: order.id,
       status,
       timestamp: Date.now(),
-      details: order
+      details: order,
+      exchangeId: order.exchangeId || 'default'
     };
+  }
+
+  /**
+   * Get market price synchronously from cache or use fallback
+   * @param symbol The trading pair symbol
+   * @returns The market price or 0 if not available
+   */
+  private getMarketPriceSync(symbol: string): number {
+    try {
+      // Check if we have a cached price
+      const cacheKey = `price:${symbol}`;
+      const cachedPrice = localStorage.getItem(cacheKey);
+
+      if (cachedPrice) {
+        const priceData = JSON.parse(cachedPrice);
+        // Check if the cached price is still valid (less than 5 minutes old)
+        if (priceData.timestamp && Date.now() - priceData.timestamp < 5 * 60 * 1000) {
+          return priceData.price;
+        }
+      }
+
+      // If no valid cached price, use fallback
+      return 0;
+    } catch (error) {
+      logService.log('error', `Failed to get market price synchronously for ${symbol}`, error, 'TradeManager');
+      return 0;
+    }
   }
 
   private isOrderComplete(status: any): boolean {
@@ -1556,18 +1623,22 @@ class TradeManager extends EventEmitter {
     // Generate realistic price based on the symbol
     let entryPrice = options.entry_price || 0;
     if (!entryPrice || entryPrice === 0) {
+      // Try to get current market price from exchange service
       try {
-        // Try to get current market price from exchange service
-        const marketData = exchangeService.fetchMarketPrice(options.symbol);
-        if (marketData && marketData.price) {
-          entryPrice = marketData.price;
+        // Use synchronous method to get price from cache or use fallback
+        const marketPrice = this.getMarketPriceSync(options.symbol);
+        if (marketPrice > 0) {
+          entryPrice = marketPrice;
           // Update the options with the current price
           options.entry_price = entryPrice;
           logService.log('info', `Updated entry price for ${options.symbol} to ${entryPrice}`, null, 'TradeManager');
         }
       } catch (error) {
         logService.log('warn', `Failed to fetch market price for ${options.symbol}, using fallback price`, error, 'TradeManager');
+      }
 
+      // If we still don't have a price, use fallback values
+      if (!entryPrice || entryPrice === 0) {
         // Set realistic base prices for common symbols as fallback
         if (options.symbol.includes('BTC')) {
           // Use a more stable BTC price around $45,000
@@ -1629,7 +1700,7 @@ class TradeManager extends EventEmitter {
       let maxAmount = 0;
 
       if (options.strategyId || options.strategy_id) {
-        const strategyId = options.strategyId || options.strategy_id;
+        const strategyId = options.strategyId || options.strategy_id || '';
         try {
           budget = tradeService.getBudget(strategyId);
           if (budget && budget.available > 0) {
@@ -1702,7 +1773,7 @@ class TradeManager extends EventEmitter {
     let budget = null;
 
     if (options.strategyId || options.strategy_id) {
-      const strategyId = options.strategyId || options.strategy_id;
+      const strategyId = options.strategyId || options.strategy_id || '';
       try {
         budget = tradeService.getBudget(strategyId);
         if (budget && budget.available < tradeCost) {
@@ -1742,7 +1813,9 @@ class TradeManager extends EventEmitter {
       entry_conditions: entryConditions,
       exit_conditions: exitConditions,
       // Add market type if available
-      marketType: options.marketType || 'spot'
+      marketType: options.marketType || 'spot',
+      // Add exchange ID
+      exchangeId: options.exchangeId || options.exchange_id || 'simulated'
     };
   }
 }

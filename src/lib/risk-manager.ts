@@ -1,7 +1,7 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { tradeService } from './trade-service';
-import type { Strategy, RiskMetrics, Position } from './types';
+import type { Strategy, RiskMetrics, Position, TradeOptions } from './types';
 
 export class RiskManager extends EventEmitter {
   private static instance: RiskManager;
@@ -37,7 +37,7 @@ export class RiskManager extends EventEmitter {
 
       return metrics;
     } catch (error) {
-      logService.log('error', 'Failed to evaluate risk', 
+      logService.log('error', 'Failed to evaluate risk',
         { strategyId: strategy.id, error }, 'RiskManager');
       throw error;
     }
@@ -142,6 +142,82 @@ export class RiskManager extends EventEmitter {
 
   getRiskMetrics(strategyId: string): RiskMetrics | undefined {
     return this.metrics.get(strategyId);
+  }
+
+  /**
+   * Validates a trade against risk parameters
+   * @param options Trade options
+   * @returns Object with approval status and reason
+   */
+  async validateTrade(options: TradeOptions): Promise<{ approved: boolean; reason: string }> {
+    try {
+      // Get the strategy ID
+      const strategyId = options.strategyId || options.strategy_id;
+
+      if (!strategyId) {
+        return { approved: true, reason: 'No strategy ID provided, skipping risk validation' };
+      }
+
+      // Get the budget for this strategy
+      const budget = tradeService.getBudget(strategyId);
+      if (!budget) {
+        return { approved: false, reason: 'No budget found for strategy' };
+      }
+
+      // Calculate the trade cost
+      const tradePrice = options.entry_price || options.price || 0;
+      const tradeAmount = options.amount || 0;
+      const tradeCost = tradePrice * tradeAmount;
+
+      // Check if we have enough budget
+      if (budget.available < tradeCost) {
+        return {
+          approved: false,
+          reason: `Insufficient budget: ${tradeCost} required, ${budget.available} available`
+        };
+      }
+
+      // Check if the trade exceeds the maximum position size
+      if (tradeCost > budget.total * this.POSITION_SIZE_LIMIT) {
+        return {
+          approved: false,
+          reason: `Trade exceeds maximum position size: ${tradeCost} > ${budget.total * this.POSITION_SIZE_LIMIT}`
+        };
+      }
+
+      // Get risk metrics for this strategy if available
+      const metrics = this.getRiskMetrics(strategyId);
+      if (metrics) {
+        // Check if we're already at risk limits
+        if (metrics.drawdown > this.MAX_DRAWDOWN) {
+          return {
+            approved: false,
+            reason: `Maximum drawdown exceeded: ${(metrics.drawdown * 100).toFixed(2)}% > ${(this.MAX_DRAWDOWN * 100).toFixed(2)}%`
+          };
+        }
+
+        if (metrics.dailyPnL < -this.MAX_DAILY_LOSS * budget.total) {
+          return {
+            approved: false,
+            reason: `Maximum daily loss exceeded: ${metrics.dailyPnL.toFixed(2)} < ${(-this.MAX_DAILY_LOSS * budget.total).toFixed(2)}`
+          };
+        }
+
+        if (metrics.riskScore > 0.7) {
+          return {
+            approved: false,
+            reason: `Risk score too high: ${metrics.riskScore.toFixed(2)} > 0.7`
+          };
+        }
+      }
+
+      // All checks passed
+      return { approved: true, reason: 'Trade approved' };
+    } catch (error) {
+      logService.log('error', 'Error validating trade', error, 'RiskManager');
+      // Default to approving the trade if there's an error in validation
+      return { approved: true, reason: 'Error in validation, trade approved by default' };
+    }
   }
 }
 

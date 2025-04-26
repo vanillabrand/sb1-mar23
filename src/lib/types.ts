@@ -93,8 +93,31 @@ export interface TradeOptions {
   riskPercentage?: number;
   maxRiskAmount?: number;
   timeBasedExit?: number; // Time in milliseconds after which to exit
+  // Exchange information
+  exchangeId?: string;
+  exchange_id?: string;
+  // Entry and exit conditions
+  entryConditions?: string[] | string;
+  entry_conditions?: string[] | string;
+  exitConditions?: string[] | string;
+  exit_conditions?: string[] | string;
+  // Metadata
+  metadata?: any;
+  // Risk level
+  risk_level?: string;
+  riskLevel?: string;
+  // Confidence level (0-1)
+  confidence?: number;
+  // Price (alias for entry_price)
+  price?: number;
   // Add aliases for camelCase properties
   strategyId?: string;
+  stopLoss?: number;
+  takeProfit?: number;
+  trailingStop?: number;
+  // Trade ID for tracking
+  trade_id?: string;
+  tradeId?: string;
 }
 
 export interface BacktestResult {
@@ -127,6 +150,7 @@ export interface TradeResult {
   status: string;
   timestamp: number;
   details: any;
+  exchangeId?: string;
 }
 
 export interface TradeStatus {
@@ -139,20 +163,99 @@ export interface TradeStatus {
   exitPrice?: number;
   profit?: number;
   strategyId?: string;
+  strategy_id?: string;
   createdAt?: string;
   executedAt?: string | null;
+  amount?: number;
+  entry_price?: number;
+  stopLoss?: number;
+  takeProfit?: number;
+  trailingStop?: number;
+  highestPrice?: number;
+  lowestPrice?: number;
+  entryConditions?: string[] | string;
+  exitConditions?: string[] | string;
+  entry_conditions?: string[] | string;
+  exit_conditions?: string[] | string;
+  currentPrice?: number;
+  exchangeId?: string;
+  exchange_id?: string;
+  marketType?: MarketType;
+}
+
+export interface ExchangeHealth {
+  ok: boolean;
+  degraded?: boolean;
+  message?: string;
+  timestamp: string;
 }
 
 export interface IndicatorConfig {
-  type: 'SMA' | 'EMA' | 'RSI' | 'MACD' | 'BB';
+  type: 'SMA' | 'EMA' | 'RSI' | 'MACD' | 'BB' | 'ADX' | 'ATR' | 'STOCH' | 'CCI' | 'OBV' |
+        'ICHIMOKU' | 'PSAR' | 'MFI' | 'VWAP' | 'SUPERTREND' | 'PIVOT';
   period?: number;
   signal?: number;
+  signalPeriod?: number;
+  acceleration?: number;
+  maximum?: number;
+  multiplier?: number;
+  fastPeriod?: number;
+  slowPeriod?: number;
 }
 
 export interface IndicatorResult {
+  name: string;
   value: number;
   signal?: number;
   timestamp: number;
+  metadata?: {
+    period?: number;
+    standardDeviation?: number;
+    upper?: number;
+    lower?: number;
+    signal?: number;
+    histogram?: number;
+    k?: number;
+    d?: number;
+    kValues?: number[];
+    dValues?: number[];
+    sma?: number;
+    meanDeviation?: number;
+    typicalPrice?: number;
+    obvValues?: number[];
+    tenkanSen?: number;
+    kijunSen?: number;
+    senkouSpanA?: number;
+    senkouSpanB?: number;
+    chikouSpan?: number;
+    cloud?: 'bullish' | 'bearish';
+    currentPrice?: number;
+    trend?: string;
+    sarValues?: number[];
+    trends?: string[];
+    positiveFlow?: number;
+    negativeFlow?: number;
+    moneyFlowRatio?: number;
+    cumulativeTPV?: number;
+    cumulativeVolume?: number;
+    atr?: number;
+    superTrends?: number[];
+    pivot?: number;
+    r1?: number;
+    r2?: number;
+    r3?: number;
+    s1?: number;
+    s2?: number;
+    s3?: number;
+    high?: number;
+    low?: number;
+    close?: number;
+    plusDI?: number;
+    minusDI?: number;
+    dx?: number;
+    trueRanges?: number[];
+    [key: string]: any;
+  };
 }
 
 export interface StrategyBudget {

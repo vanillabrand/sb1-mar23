@@ -78,13 +78,53 @@ class SystemSync {
 
   async initializeWebSocket(): Promise<void> {
     try {
-      // For now, just log success since WebSocket isn't critical
-      logService.log('info', 'WebSocket initialization skipped', null, 'SystemSync');
+      // Connect to the WebSocket server
+      const { websocketService } = await import('./websocket-service');
+
+      if (!websocketService.getConnectionStatus()) {
+        await websocketService.connect({});
+        logService.log('info', 'WebSocket connection established', null, 'SystemSync');
+      } else {
+        logService.log('info', 'WebSocket already connected', null, 'SystemSync');
+      }
+
       return;
     } catch (error) {
       logService.log('warn', 'WebSocket initialization failed, continuing anyway', error, 'SystemSync');
       // Don't throw error for WebSocket - treat as non-critical
       return;
+    }
+  }
+
+  /**
+   * Check if the WebSocket connection is still alive and reconnect if needed
+   */
+  async checkWebSocketConnection(): Promise<void> {
+    try {
+      const { websocketService } = await import('./websocket-service');
+
+      if (!websocketService.getConnectionStatus()) {
+        logService.log('info', 'WebSocket connection lost, reconnecting...', null, 'SystemSync');
+        await websocketService.reconnect();
+      } else {
+        // Send a ping to verify the connection
+        await websocketService.send({
+          type: 'ping',
+          timestamp: Date.now(),
+          isConnectionCheck: true
+        });
+        logService.log('debug', 'WebSocket connection verified', null, 'SystemSync');
+      }
+    } catch (error) {
+      logService.log('warn', 'Failed to check WebSocket connection', error, 'SystemSync');
+
+      // Try to reconnect
+      try {
+        const { websocketService } = await import('./websocket-service');
+        await websocketService.reconnect();
+      } catch (reconnectError) {
+        logService.log('error', 'Failed to reconnect WebSocket', reconnectError, 'SystemSync');
+      }
     }
   }
 
@@ -99,6 +139,59 @@ class SystemSync {
 
     while (retryCount < this.MAX_RETRIES) {
       try {
+        // First, try to initialize from user profile (for cross-device persistence)
+        const { userProfileService } = await import('./user-profile-service');
+        const savedExchange = await userProfileService.getActiveExchange();
+
+        if (savedExchange && !savedExchange.testnet) {
+          logService.log('info', `Found saved exchange in user profile: ${savedExchange.id}`, null, 'SystemSync');
+
+          // Use Promise.race to add timeout to the initialization
+          const exchangePromise = exchangeService.initialize();
+
+          await Promise.race([
+            exchangePromise,
+            new Promise<void>((_, reject) =>
+              setTimeout(() => reject(new Error('Exchange initialization timed out')), this.INITIALIZATION_TIMEOUT)
+            )
+          ]);
+
+          logService.log('info',
+            `Exchange initialized from user profile in ${exchangeService.isDemo() ? 'testnet' : 'live'} mode`,
+            null,
+            'SystemSync'
+          );
+          return;
+        }
+
+        // If no saved exchange or it's in testnet mode, check if user has any exchanges configured
+        const userExchanges = await exchangeService.getUserExchanges();
+
+        if (userExchanges.length > 0) {
+          // Find the default exchange or use the first one
+          const defaultExchange = userExchanges.find(e => e.is_default) || userExchanges[0];
+
+          if (defaultExchange && !defaultExchange.testnet) {
+            logService.log('info', `Using user's exchange: ${defaultExchange.name}`, null, 'SystemSync');
+
+            // Connect to the exchange
+            const connectPromise = exchangeService.connect(defaultExchange);
+
+            await Promise.race([
+              connectPromise,
+              new Promise<void>((_, reject) =>
+                setTimeout(() => reject(new Error('Exchange connection timed out')), this.INITIALIZATION_TIMEOUT)
+              )
+            ]);
+
+            logService.log('info', `Connected to user's exchange: ${defaultExchange.name}`, null, 'SystemSync');
+            return;
+          }
+        }
+
+        // If no user exchanges found or all are in testnet mode, fall back to demo mode
+        logService.log('info', 'No live exchanges found, falling back to demo mode', null, 'SystemSync');
+
         // Use Promise.race to add timeout to the initialization
         const exchangePromise = exchangeService.initializeExchange({
           name: 'binance',
@@ -215,6 +308,28 @@ class SystemSync {
       }
     } catch (sessionError) {
       logService.log('warn', 'Failed to get session, continuing with demo mode', sessionError, 'SystemSync');
+    }
+  }
+  /**
+   * Clean up resources when the system is shutting down
+   */
+  async cleanup(): Promise<void> {
+    try {
+      logService.log('info', 'Cleaning up system resources', null, 'SystemSync');
+
+      // Clean up WebSocket connection
+      try {
+        const { websocketService } = await import('./websocket-service');
+        websocketService.cleanup();
+      } catch (error) {
+        logService.log('warn', 'Failed to clean up WebSocket service', error, 'SystemSync');
+      }
+
+      logService.log('info', 'System cleanup completed', null, 'SystemSync');
+      return Promise.resolve();
+    } catch (error) {
+      logService.log('error', 'System cleanup failed', error, 'SystemSync');
+      return Promise.resolve(); // Still resolve to allow other cleanup tasks to run
     }
   }
 }

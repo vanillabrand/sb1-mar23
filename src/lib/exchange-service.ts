@@ -12,7 +12,8 @@ import type {
   ExchangeConfig,
   ExchangeCredentials,
   WalletBalance,
-  ExchangeId
+  ExchangeId,
+  ExchangeHealth
 } from './types';
 import { ccxtService } from './ccxt-service';
 import * as ccxt from 'ccxt';
@@ -37,6 +38,7 @@ class ExchangeService extends EventEmitter {
   private readonly TICKER_CACHE_TTL = 10 * 1000; // 10 seconds
   private readonly ORDERBOOK_CACHE_TTL = 5 * 1000; // 5 seconds
   private readonly TRADES_CACHE_TTL = 30 * 1000; // 30 seconds
+  private _websocketHealthCheckInterval: NodeJS.Timeout | null = null;
 
   private constructor() {
     super();
@@ -224,8 +226,9 @@ class ExchangeService extends EventEmitter {
         return null;
       }
 
-      // If we have an active exchange in memory, verify it still exists
+      // First check if we have an active exchange in memory
       if (this.activeExchange) {
+        // Verify it still exists in the database
         const { data, error } = await supabase
           .from('user_exchanges')
           .select('*')
@@ -234,6 +237,37 @@ class ExchangeService extends EventEmitter {
           .single();
 
         if (!error && data) {
+          // Exchange exists in database, return it
+          logService.log('info', `Using active exchange from memory: ${this.activeExchange.id}`, null, 'ExchangeService');
+          return {
+            ...data,
+            credentials: data.encrypted_credentials ?
+              this.decryptCredentials(data.encrypted_credentials) : undefined
+          };
+        } else {
+          // Exchange no longer exists in database, clear it from memory
+          logService.log('warn', `Active exchange ${this.activeExchange.id} no longer exists in database, clearing from memory`, null, 'ExchangeService');
+          this.activeExchange = null;
+          localStorage.removeItem('activeExchange');
+        }
+      }
+
+      // Next, check if we have an active exchange in user profile
+      const profileExchange = await userProfileService.getActiveExchange();
+      if (profileExchange) {
+        // Verify it exists in the database
+        const { data, error } = await supabase
+          .from('user_exchanges')
+          .select('*')
+          .eq('user_id', user.user.id)
+          .eq('name', profileExchange.id)
+          .single();
+
+        if (!error && data) {
+          // Exchange exists in database, set it as active and return it
+          logService.log('info', `Using active exchange from user profile: ${profileExchange.id}`, null, 'ExchangeService');
+          this.activeExchange = profileExchange;
+          localStorage.setItem('activeExchange', JSON.stringify(profileExchange));
           return {
             ...data,
             credentials: data.encrypted_credentials ?
@@ -242,12 +276,13 @@ class ExchangeService extends EventEmitter {
         }
       }
 
-      // Try to get from localStorage
+      // Next, try to get from localStorage
       const activeExchangeStr = localStorage.getItem('activeExchange');
       if (activeExchangeStr) {
         try {
           const activeExchangeInfo = JSON.parse(activeExchangeStr);
           if (activeExchangeInfo && activeExchangeInfo.id) {
+            // Verify it exists in the database
             const { data, error } = await supabase
               .from('user_exchanges')
               .select('*')
@@ -256,15 +291,22 @@ class ExchangeService extends EventEmitter {
               .single();
 
             if (!error && data) {
-              return {
+              // Exchange exists in database, set it as active and return it
+              logService.log('info', `Using active exchange from localStorage: ${activeExchangeInfo.id}`, null, 'ExchangeService');
+              const exchange = {
                 ...data,
                 credentials: data.encrypted_credentials ?
                   this.decryptCredentials(data.encrypted_credentials) : undefined
               };
+              this.activeExchange = exchange;
+              // Also save to user profile for cross-device persistence
+              await userProfileService.saveActiveExchange(exchange);
+              return exchange;
             }
           }
         } catch (e) {
           console.error('Failed to parse active exchange from localStorage:', e);
+          localStorage.removeItem('activeExchange');
         }
       }
 
@@ -277,11 +319,18 @@ class ExchangeService extends EventEmitter {
         .single();
 
       if (!defaultError && defaultExchange) {
-        return {
+        // Set as active exchange and return it
+        logService.log('info', `Using default exchange: ${defaultExchange.name}`, null, 'ExchangeService');
+        const exchange = {
           ...defaultExchange,
           credentials: defaultExchange.encrypted_credentials ?
             this.decryptCredentials(defaultExchange.encrypted_credentials) : undefined
         };
+        this.activeExchange = exchange;
+        localStorage.setItem('activeExchange', JSON.stringify(exchange));
+        // Also save to user profile for cross-device persistence
+        await userProfileService.saveActiveExchange(exchange);
+        return exchange;
       }
 
       // If no default exchange, try to get the first exchange
@@ -294,14 +343,22 @@ class ExchangeService extends EventEmitter {
         .single();
 
       if (!firstError && firstExchange) {
-        return {
+        // Set as active exchange and return it
+        logService.log('info', `Using first available exchange: ${firstExchange.name}`, null, 'ExchangeService');
+        const exchange = {
           ...firstExchange,
           credentials: firstExchange.encrypted_credentials ?
             this.decryptCredentials(firstExchange.encrypted_credentials) : undefined
         };
+        this.activeExchange = exchange;
+        localStorage.setItem('activeExchange', JSON.stringify(exchange));
+        // Also save to user profile for cross-device persistence
+        await userProfileService.saveActiveExchange(exchange);
+        return exchange;
       }
 
       // If no exchange found, return null
+      logService.log('info', 'No exchange found', null, 'ExchangeService');
       return null;
     } catch (error) {
       logService.log('error', 'Failed to get active exchange', error, 'ExchangeService');
@@ -341,22 +398,45 @@ class ExchangeService extends EventEmitter {
       }
 
       // For real exchanges, proceed with normal connection
+      // Validate exchange ID
+      if (!exchange.id) {
+        throw new Error('Invalid exchange: missing ID');
+      }
+
+      // Normalize exchange ID to lowercase
+      const exchangeId = exchange.id.toLowerCase();
+
+      // Validate that this is a supported exchange
+      const supportedExchanges = ['binance', 'bybit', 'bitmart', 'bitget', 'okx', 'coinbase', 'kraken'];
+      if (!supportedExchanges.includes(exchangeId)) {
+        logService.log('warn', `Connecting to potentially unsupported exchange: ${exchangeId}`, null, 'ExchangeService');
+      }
+
       // Initialize CCXT exchange instance if not already created
-      if (!this.exchangeInstances.has(exchange.id)) {
+      if (!this.exchangeInstances.has(exchangeId)) {
         const credentials = exchange.credentials;
         if (!credentials) {
           throw new Error('Exchange credentials not found');
         }
 
+        logService.log('info', `Creating new exchange instance for ${exchangeId}`, {
+          hasApiKey: !!credentials.apiKey,
+          hasSecret: !!credentials.secret,
+          testnet: !!exchange.testnet
+        }, 'ExchangeService');
+
         const ccxtInstance = await ccxtService.createExchange(
-          exchange.name.toLowerCase() as ExchangeId,
+          exchangeId as ExchangeId,
           credentials,
           exchange.testnet
         );
-        this.exchangeInstances.set(exchange.id, ccxtInstance);
+        this.exchangeInstances.set(exchangeId, ccxtInstance);
       }
 
-      const ccxtInstance = this.exchangeInstances.get(exchange.id);
+      const ccxtInstance = this.exchangeInstances.get(exchangeId);
+      if (!ccxtInstance) {
+        throw new Error(`Failed to get exchange instance for ${exchangeId}`);
+      }
 
       // Try to load markets with retry logic
       let retries = 3;
@@ -364,30 +444,53 @@ class ExchangeService extends EventEmitter {
 
       while (retries > 0 && !success) {
         try {
+          logService.log('info', `Loading markets for ${exchangeId} (attempt ${4-retries}/3)`, null, 'ExchangeService');
           await ccxtInstance.loadMarkets();
           success = true;
+          logService.log('info', `Successfully loaded markets for ${exchangeId}`, null, 'ExchangeService');
         } catch (error) {
           retries--;
           if (retries === 0) {
             throw error;
           }
-          logService.log('warn', `Failed to load markets, retrying (${retries} attempts left)`, error, 'ExchangeService');
+          logService.log('warn', `Failed to load markets for ${exchangeId}, retrying (${retries} attempts left)`, error, 'ExchangeService');
           await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
         }
       }
 
-      this.activeExchange = exchange;
-      localStorage.setItem('activeExchange', JSON.stringify(exchange));
+      // Update active exchange
+      this.activeExchange = {
+        ...exchange,
+        id: exchangeId // Ensure ID is normalized
+      };
+
+      // Store in localStorage
+      localStorage.setItem('activeExchange', JSON.stringify(this.activeExchange));
 
       // Save to user profile in database for persistence across devices
-      await userProfileService.saveActiveExchange(exchange);
+      await userProfileService.saveActiveExchange(this.activeExchange);
       await userProfileService.updateConnectionStatus('connected');
       await userProfileService.resetConnectionAttempts();
 
-      // Initialize WebSocket connection for this exchange
-      await this.initializeExchangeWebSocket(exchange.id);
+      // Set as default exchange if requested
+      if (exchange.is_default) {
+        await this.setDefaultExchange(exchangeId);
+      }
 
-      this.emit('exchange:connected', exchange);
+      // Initialize WebSocket connection for this exchange
+      await this.initializeExchangeWebSocket(exchangeId);
+
+      // Verify the connection is still active
+      try {
+        // Simple API call to verify connection
+        await ccxtInstance.fetchTime();
+        logService.log('info', `Successfully connected to ${exchangeId} exchange`, null, 'ExchangeService');
+        this.emit('exchange:connected', this.activeExchange);
+      } catch (verifyError) {
+        logService.log('warn', `Connected to ${exchangeId} exchange but verification failed`, verifyError, 'ExchangeService');
+        // Still emit the connected event, but with a warning flag
+        this.emit('exchange:connected', { ...this.activeExchange, connectionWarning: true });
+      }
 
     } catch (error) {
       logService.log('error', 'Failed to connect to exchange', error, 'ExchangeService');
@@ -414,10 +517,57 @@ class ExchangeService extends EventEmitter {
         await this.initializeExchangeWebSocket(this.activeExchange.id);
       }
 
+      // Set up periodic WebSocket health check
+      this.setupWebSocketHealthCheck();
+
       logService.log('info', 'Initialized WebSocket connections', null, 'ExchangeService');
     } catch (error) {
       logService.log('error', 'Failed to initialize WebSocket connections', error, 'ExchangeService');
     }
+  }
+
+  /**
+   * Set up periodic health check for WebSocket connections
+   * This will check every 30 seconds if the WebSocket is still connected
+   * and reconnect if necessary
+   */
+  private setupWebSocketHealthCheck(): void {
+    // Clear any existing interval
+    if (this._websocketHealthCheckInterval) {
+      clearInterval(this._websocketHealthCheckInterval);
+    }
+
+    // Set up new interval
+    this._websocketHealthCheckInterval = setInterval(async () => {
+      try {
+        // Skip if we're not in a state where we need WebSockets
+        if (!this.initialized || !this.activeExchange) {
+          return;
+        }
+
+        // Get the connection ID for the active exchange
+        const connectionId = this.websocketConnections.get(this.activeExchange.id);
+
+        // If we have a connection ID but the WebSocket is disconnected, reconnect
+        if (connectionId && !websocketManager.isConnected(connectionId)) {
+          logService.log('warn', `WebSocket for ${this.activeExchange.id} is disconnected, reconnecting...`, null, 'ExchangeService');
+
+          try {
+            // Close the existing connection
+            websocketManager.close(connectionId);
+
+            // Initialize a new connection
+            await this.initializeExchangeWebSocket(this.activeExchange.id);
+
+            logService.log('info', `Successfully reconnected WebSocket for ${this.activeExchange.id}`, null, 'ExchangeService');
+          } catch (reconnectError) {
+            logService.log('error', `Failed to reconnect WebSocket for ${this.activeExchange.id}`, reconnectError, 'ExchangeService');
+          }
+        }
+      } catch (error) {
+        logService.log('error', 'Error in WebSocket health check', error, 'ExchangeService');
+      }
+    }, 30000); // Check every 30 seconds
   }
 
   /**
@@ -628,6 +778,12 @@ class ExchangeService extends EventEmitter {
     // Clear connections and subscriptions
     this.websocketConnections.clear();
     this.marketDataSubscriptions.clear();
+
+    // Clear the health check interval
+    if (this._websocketHealthCheckInterval) {
+      clearInterval(this._websocketHealthCheckInterval);
+      this._websocketHealthCheckInterval = null;
+    }
   }
 
   /**
@@ -661,6 +817,47 @@ class ExchangeService extends EventEmitter {
     }
   }
 
+  /**
+   * Set an exchange as the default exchange
+   * @param exchangeId ID of the exchange to set as default
+   */
+  async setDefaultExchange(exchangeId: string): Promise<void> {
+    try {
+      const { data: user } = await supabase.auth.getUser();
+      if (!user.user) {
+        throw new Error('User not authenticated');
+      }
+
+      // First, clear the default flag from all exchanges
+      await supabase
+        .from('user_exchanges')
+        .update({ is_default: false })
+        .eq('user_id', user.user.id);
+
+      // Then set the default flag for the specified exchange
+      const { error } = await supabase
+        .from('user_exchanges')
+        .update({ is_default: true })
+        .eq('user_id', user.user.id)
+        .eq('id', exchangeId);
+
+      if (error) {
+        throw error;
+      }
+
+      // Also update the user profile with the default exchange ID
+      await supabase
+        .from('user_profiles')
+        .update({ default_exchange_id: exchangeId })
+        .eq('user_id', user.user.id);
+
+      logService.log('info', `Set ${exchangeId} as default exchange`, null, 'ExchangeService');
+    } catch (error) {
+      logService.log('error', `Failed to set ${exchangeId} as default exchange`, error, 'ExchangeService');
+      // Don't throw the error, just log it
+    }
+  }
+
   async disconnect(): Promise<void> {
     this.activeExchange = null;
     localStorage.removeItem('activeExchange');
@@ -677,28 +874,7 @@ class ExchangeService extends EventEmitter {
     eventBus.emit('exchange:disconnected');
   }
 
-  /**
-   * Set an exchange as the default exchange
-   * @param exchangeId Exchange ID to set as default
-   */
-  async setDefaultExchange(exchangeId: string): Promise<void> {
-    try {
-      // Update user profile to set this as the default exchange
-      await userProfileService.setDefaultExchange(exchangeId);
 
-      // Store in localStorage for persistence
-      localStorage.setItem('defaultExchange', exchangeId);
-
-      logService.log('info', `Set ${exchangeId} as default exchange`, null, 'ExchangeService');
-
-      // Emit event for UI updates
-      this.emit('exchange:defaultSet', exchangeId);
-      eventBus.emit('exchange:defaultSet', { exchangeId });
-    } catch (error) {
-      logService.log('error', 'Failed to set default exchange', error, 'ExchangeService');
-      throw new Error('Failed to set default exchange');
-    }
-  }
 
   async testConnection(config: ExchangeConfig): Promise<void> {
     try {
@@ -708,8 +884,25 @@ class ExchangeService extends EventEmitter {
         return;
       }
 
+      // Log the connection test attempt
+      logService.log('info', `Testing connection to ${config.name}`, {
+        testnet: config.testnet,
+        hasApiKey: !!config.apiKey,
+        hasSecret: !!config.secret
+      }, 'ExchangeService');
+
+      // Set a longer timeout for Kraken
+      const timeoutDuration = config.name.toLowerCase() === 'kraken' ? 30000 : 15000;
+
+      // Set a timeout for the connection test
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`Connection test timed out for ${config.name}`));
+        }, timeoutDuration);
+      });
+
       // Create exchange instance with proper configuration
-      const testInstance = await ccxtService.createExchange(
+      const connectionPromise = ccxtService.createExchange(
         config.name as ExchangeId,
         {
           apiKey: config.apiKey,
@@ -719,14 +912,50 @@ class ExchangeService extends EventEmitter {
         config.testnet // Pass testnet flag to ensure proper endpoint usage
       );
 
+      // Race the connection promise against the timeout
+      const testInstance = await Promise.race([connectionPromise, timeoutPromise]);
+
       // Proxy configuration is now handled in ccxt-service.ts
       logService.log('info', 'Using proxy configuration from ccxt-service.ts', null, 'ExchangeService');
 
-      // Increase timeout for API calls
-      testInstance.timeout = 30000; // 30 seconds
+      // Increase timeout for API calls - use longer timeout for Kraken
+      testInstance.timeout = config.name.toLowerCase() === 'kraken' ? 60000 : 30000;
 
+      // Special handling for Kraken
+      if (config.name.toLowerCase() === 'kraken') {
+        logService.log('info', 'Using special handling for Kraken connection test', null, 'ExchangeService');
+
+        // For Kraken, try a simpler API call first (Time API) which doesn't require authentication
+        try {
+          logService.log('info', 'Testing Kraken connection with Time API', null, 'ExchangeService');
+          const timeResponse = await testInstance.fetchTime();
+          logService.log('info', 'Successfully connected to Kraken Time API', { timeResponse }, 'ExchangeService');
+
+          // Now try a simple authenticated call
+          try {
+            logService.log('info', 'Testing Kraken authenticated API', null, 'ExchangeService');
+            // Try to get account balance which requires authentication
+            await testInstance.fetchBalance();
+            logService.log('info', 'Successfully authenticated with Kraken', null, 'ExchangeService');
+
+            // If we get here, both tests passed
+            logService.log('info', 'Kraken connection test successful', null, 'ExchangeService');
+            return;
+          } catch (authError) {
+            // If authentication fails but basic connection works, it's likely an API key issue
+            logService.log('error', 'Kraken authentication failed', authError, 'ExchangeService');
+            throw new Error(`Kraken authentication failed. Please check your API key and secret: ${authError instanceof Error ? authError.message : 'Unknown error'}`);
+          }
+        } catch (timeError) {
+          // If even the Time API fails, it's likely a connection issue
+          logService.log('error', 'Failed to connect to Kraken Time API', timeError, 'ExchangeService');
+          throw new Error(`Failed to connect to Kraken. Please check your internet connection: ${timeError instanceof Error ? timeError.message : 'Unknown error'}`);
+        }
+      }
+
+      // For other exchanges, use the standard test procedure
       // Test basic API functionality with better error handling and retry logic
-      let retries = 3;
+      let retries = config.name.toLowerCase() === 'kraken' ? 5 : 3;
       let marketsLoaded = false;
 
       while (retries > 0 && !marketsLoaded) {
@@ -741,12 +970,14 @@ class ExchangeService extends EventEmitter {
             throw new Error(`Failed to load markets: ${marketError instanceof Error ? marketError.message : 'Unknown error'}`);
           }
           logService.log('warn', `Failed to load markets, retrying (${retries} attempts left)`, marketError, 'ExchangeService');
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+          // Wait longer between retries for Kraken
+          const retryDelay = config.name.toLowerCase() === 'kraken' ? 2000 : 1000;
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
       }
 
       // Try to fetch balance with retry logic
-      retries = 3;
+      retries = config.name.toLowerCase() === 'kraken' ? 5 : 3;
       let balanceLoaded = false;
 
       while (retries > 0 && !balanceLoaded) {
@@ -762,7 +993,9 @@ class ExchangeService extends EventEmitter {
             throw new Error(`Failed to fetch balance. Please ensure your API key has 'Read' permissions: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
           }
           logService.log('warn', `Failed to fetch balance, retrying (${retries} attempts left)`, balanceError, 'ExchangeService');
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+          // Wait longer between retries for Kraken
+          const retryDelay = config.name.toLowerCase() === 'kraken' ? 2000 : 1000;
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
       }
 
@@ -793,6 +1026,21 @@ class ExchangeService extends EventEmitter {
         hasApiKey: !!config.apiKey,
         hasSecret: !!config.secret
       });
+
+      // Special handling for Kraken errors
+      if (config.name.toLowerCase() === 'kraken') {
+        if (errorMessage.includes('EAPI:Invalid nonce')) {
+          throw new Error(`Kraken API error: Invalid nonce. This usually happens when requests are made too quickly. Please try again in a few seconds.`);
+        }
+
+        if (errorMessage.includes('EGeneral:Invalid arguments')) {
+          throw new Error(`Kraken API error: Invalid arguments. Please check your API key and secret.`);
+        }
+
+        if (errorMessage.includes('EService:Unavailable')) {
+          throw new Error(`Kraken service is currently unavailable. Please try again later.`);
+        }
+      }
 
       // Check for common error patterns and provide more helpful messages
       if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT') || errorMessage.includes('ECONNREFUSED')) {
@@ -1531,6 +1779,30 @@ class ExchangeService extends EventEmitter {
   }
 
   /**
+   * Clean up resources when the service is no longer needed
+   * This should be called when the application is shutting down
+   */
+  cleanup(): void {
+    // Close all WebSocket connections
+    this.closeAllWebSockets();
+
+    // Clear any cached data
+    cacheService.clearNamespace(this.CACHE_NAMESPACE);
+    cacheService.clearNamespace(this.MARKET_DATA_CACHE_NAMESPACE);
+
+    // Clear exchange instances
+    this.exchangeInstances.clear();
+
+    // Clear active orders
+    this.activeOrders.clear();
+
+    // Clear logged order errors
+    this.loggedOrderErrors.clear();
+
+    logService.log('info', 'Exchange service cleaned up', null, 'ExchangeService');
+  }
+
+  /**
    * Switch between demo and live mode
    * @param isLive Whether to switch to live mode (true) or demo mode (false)
    */
@@ -1584,6 +1856,10 @@ class ExchangeService extends EventEmitter {
         // Set as active exchange
         this.activeExchange = demoExchange as Exchange;
         localStorage.setItem('activeExchange', JSON.stringify(demoExchange));
+
+        // Also save to user profile for cross-device persistence
+        await userProfileService.saveActiveExchange(demoExchange);
+        await userProfileService.updateConnectionStatus('connected');
       } else {
         // If switching to live mode, try to connect to the user's exchange
         const userExchanges = await this.getUserExchanges();
@@ -1592,11 +1868,59 @@ class ExchangeService extends EventEmitter {
           throw new Error('No exchanges configured. Please add an exchange in the Wallet Manager.');
         }
 
-        // Find the default exchange or use the first one
-        const defaultExchange = userExchanges.find(e => e.is_default) || userExchanges[0];
+        // First try to get the previously used live exchange from user profile
+        const { data: userProfile } = await supabase
+          .from('user_profiles')
+          .select('active_exchange')
+          .eq('user_id', (await supabase.auth.getUser()).data.user?.id)
+          .single();
+
+        let exchangeToUse = null;
+
+        // If we have a previously used live exchange in the profile and it's not a demo exchange
+        if (userProfile?.active_exchange &&
+            userProfile.active_exchange.id !== 'demo-exchange' &&
+            !userProfile.active_exchange.testnet) {
+
+          // Find this exchange in the user's exchanges
+          const savedExchange = userExchanges.find(e => e.id === userProfile.active_exchange.id ||
+                                                       e.name === userProfile.active_exchange.id);
+
+          if (savedExchange) {
+            logService.log('info', `Using previously used live exchange: ${savedExchange.name}`, null, 'ExchangeService');
+            exchangeToUse = savedExchange;
+          }
+        }
+
+        // If we couldn't find a previously used live exchange, use the default or first one
+        if (!exchangeToUse) {
+          // Find the default exchange or use the first one
+          exchangeToUse = userExchanges.find(e => e.is_default) || userExchanges[0];
+          logService.log('info', `Using ${exchangeToUse.is_default ? 'default' : 'first available'} exchange: ${exchangeToUse.name}`, null, 'ExchangeService');
+        }
 
         // Connect to the exchange
-        await this.connect(defaultExchange);
+        await this.connect(exchangeToUse);
+      }
+
+      // Update the backend trading engine mode
+      try {
+        const response = await fetch('/api/demo-mode', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ demo_mode: !isLive }),
+        });
+
+        if (!response.ok) {
+          logService.log('warn', `Failed to update backend trading engine mode: ${response.statusText}`, null, 'ExchangeService');
+        } else {
+          logService.log('info', `Updated backend trading engine mode to ${!isLive ? 'demo' : 'live'}`, null, 'ExchangeService');
+        }
+      } catch (backendError) {
+        logService.log('warn', 'Failed to update backend trading engine mode', backendError, 'ExchangeService');
+        // Continue anyway, as this is not critical
       }
 
       // Emit event for UI updates
@@ -1605,8 +1929,29 @@ class ExchangeService extends EventEmitter {
 
       logService.log('info', `Successfully switched to ${isLive ? 'live' : 'demo'} mode`, null, 'ExchangeService');
     } catch (error) {
-      logService.log('error', `Failed to switch to ${isLive ? 'live' : 'demo'} mode`, error, 'ExchangeService');
-      throw error;
+      // Provide more specific error messages based on the error type
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      if (isLive) {
+        // Live mode specific errors
+        if (errorMessage.includes('No exchanges configured')) {
+          logService.log('error', 'Failed to switch to live mode: No exchanges configured', error, 'ExchangeService');
+          throw new Error('No exchanges configured. Please add an exchange in the Wallet Manager before switching to live mode.');
+        } else if (errorMessage.includes('credentials')) {
+          logService.log('error', 'Failed to switch to live mode: Invalid credentials', error, 'ExchangeService');
+          throw new Error('Invalid exchange credentials. Please check your API keys in the Wallet Manager.');
+        } else if (errorMessage.includes('timeout') || errorMessage.includes('ETIMEDOUT')) {
+          logService.log('error', 'Failed to switch to live mode: Connection timeout', error, 'ExchangeService');
+          throw new Error('Connection to exchange timed out. Please check your internet connection and try again.');
+        } else {
+          logService.log('error', `Failed to switch to live mode: ${errorMessage}`, error, 'ExchangeService');
+          throw new Error(`Failed to switch to live mode: ${errorMessage}`);
+        }
+      } else {
+        // Demo mode specific errors
+        logService.log('error', `Failed to switch to demo mode: ${errorMessage}`, error, 'ExchangeService');
+        throw new Error(`Failed to switch to demo mode: ${errorMessage}`);
+      }
     }
   }
 
@@ -1853,9 +2198,9 @@ class ExchangeService extends EventEmitter {
       // Log the request
       logService.log('info', `Fetching market price for ${normalizedSymbol}`, null, 'ExchangeService');
 
-      // If in demo mode or no active exchange, return mock data
-      if (this.demoMode || !this.activeExchange) {
-        logService.log('info', `Using mock price data for ${normalizedSymbol} (demo mode: ${this.demoMode})`, null, 'ExchangeService');
+      // If in demo mode, return mock data
+      if (this.demoMode) {
+        logService.log('info', `Using mock price data for ${normalizedSymbol} (demo mode)`, null, 'ExchangeService');
         const mockTicker = this.createMockTicker(normalizedSymbol);
 
         // Cache the mock ticker
@@ -1868,10 +2213,70 @@ class ExchangeService extends EventEmitter {
         };
       }
 
-      // Get the exchange instance
+      // Ensure we have an active exchange
+      if (!this.activeExchange) {
+        // Try to get the active exchange
+        const exchange = await this.getActiveExchange();
+
+        if (!exchange) {
+          logService.log('warn', `No active exchange found, using mock data for ${normalizedSymbol}`, null, 'ExchangeService');
+          const mockTicker = this.createMockTicker(normalizedSymbol);
+
+          // Cache the mock ticker
+          cacheService.set(cacheKey, mockTicker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
+
+          return {
+            symbol: normalizedSymbol,
+            price: mockTicker.last,
+            timestamp: mockTicker.timestamp
+          };
+        }
+
+        // Set the active exchange
+        this.activeExchange = exchange;
+      }
+
+      // Get the exchange instance for the active exchange
       const exchange = this.exchangeInstances.get(this.activeExchange.id);
       if (!exchange) {
-        throw new Error(`Exchange instance not found for ${this.activeExchange.id}`);
+        logService.log('warn', `Exchange instance not found for ${this.activeExchange.id}, attempting to create it`, null, 'ExchangeService');
+
+        // Try to create the exchange instance
+        try {
+          const newExchange = await ccxtService.createExchange(
+            this.activeExchange.id as ExchangeId,
+            this.activeExchange.credentials,
+            this.activeExchange.testnet
+          );
+
+          this.exchangeInstances.set(this.activeExchange.id, newExchange);
+
+          // Use the new exchange instance
+          const ticker = await newExchange.fetchTicker(normalizedSymbol);
+
+          // Cache the ticker
+          cacheService.set(cacheKey, ticker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
+
+          return {
+            symbol: normalizedSymbol,
+            price: ticker.last,
+            timestamp: ticker.timestamp
+          };
+        } catch (createError) {
+          logService.log('error', `Failed to create exchange instance for ${this.activeExchange.id}`, createError, 'ExchangeService');
+
+          // Fall back to mock data
+          const mockTicker = this.createMockTicker(normalizedSymbol);
+
+          // Cache the mock ticker
+          cacheService.set(cacheKey, mockTicker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
+
+          return {
+            symbol: normalizedSymbol,
+            price: mockTicker.last,
+            timestamp: mockTicker.timestamp
+          };
+        }
       }
 
       // Check if we have a WebSocket connection for this exchange
@@ -1894,6 +2299,7 @@ class ExchangeService extends EventEmitter {
       }
 
       // Fetch the ticker from the exchange
+      logService.log('info', `Fetching ticker from ${this.activeExchange.id} for ${normalizedSymbol}`, null, 'ExchangeService');
       const ticker = await exchange.fetchTicker(normalizedSymbol);
 
       // Cache the ticker
@@ -2481,83 +2887,130 @@ class ExchangeService extends EventEmitter {
         price: options.entry_price || options.price
       }, 'ExchangeService');
 
-      // If in demo mode or no active exchange, return mock order
-      if (this.demoMode || !this.activeExchange) {
+      // If in demo mode, return mock order
+      if (this.demoMode) {
+        logService.log('info', `Using mock order for ${normalizedSymbol} (demo mode)`, null, 'ExchangeService');
         return this.createMockOrder(normalizedSymbol, options);
       }
 
-      // Get the exchange instance
+      // Ensure we have an active exchange
+      if (!this.activeExchange) {
+        // Try to get the active exchange
+        const exchange = await this.getActiveExchange();
+
+        if (!exchange) {
+          logService.log('warn', `No active exchange found, using mock order for ${normalizedSymbol}`, null, 'ExchangeService');
+          return this.createMockOrder(normalizedSymbol, options);
+        }
+
+        // Set the active exchange
+        this.activeExchange = exchange;
+        logService.log('info', `Set active exchange to ${exchange.id} for order creation`, null, 'ExchangeService');
+      }
+
+      // Get the exchange instance for the active exchange
       const exchange = this.exchangeInstances.get(this.activeExchange.id);
       if (!exchange) {
-        return this.createMockOrder(normalizedSymbol, options);
-      }
+        logService.log('warn', `Exchange instance not found for ${this.activeExchange.id}, attempting to create it`, null, 'ExchangeService');
 
-      try {
-        // Determine the order type (market or limit)
-        const orderType = options.type || 'market';
-
-        // For market orders, we don't need a price
-        if (orderType === 'market') {
-          const order = await exchange.createOrder(
-            normalizedSymbol,
-            orderType,
-            options.side,
-            options.amount
+        // Try to create the exchange instance
+        try {
+          const newExchange = await ccxtService.createExchange(
+            this.activeExchange.id as ExchangeId,
+            this.activeExchange.credentials,
+            this.activeExchange.testnet
           );
 
-          // Track the order
-          this.activeOrders.set(order.id, {
-            ...order,
-            symbol: normalizedSymbol,
-            side: options.side,
-            amount: options.amount,
-            price: options.entry_price || options.price,
-            status: 'open',
-            timestamp: Date.now(),
-            stopLoss: options.stop_loss,
-            takeProfit: options.take_profit,
-            trailingStop: options.trailing_stop
-          });
+          this.exchangeInstances.set(this.activeExchange.id, newExchange);
 
-          return order;
-        } else {
-          // For limit orders, we need a price
-          const price = options.entry_price || options.price;
-          if (!price) {
-            throw new Error('Price is required for limit orders');
-          }
-
-          const order = await exchange.createOrder(
-            normalizedSymbol,
-            orderType,
-            options.side,
-            options.amount,
-            price
-          );
-
-          // Track the order
-          this.activeOrders.set(order.id, {
-            ...order,
-            symbol: normalizedSymbol,
-            side: options.side,
-            amount: options.amount,
-            price: price,
-            status: 'open',
-            timestamp: Date.now(),
-            stopLoss: options.stop_loss,
-            takeProfit: options.take_profit,
-            trailingStop: options.trailing_stop
-          });
-
-          return order;
+          // Use the new exchange instance
+          return await this.executeOrderWithExchange(newExchange, normalizedSymbol, options);
+        } catch (createError) {
+          logService.log('error', `Failed to create exchange instance for ${this.activeExchange.id}`, createError, 'ExchangeService');
+          return this.createMockOrder(normalizedSymbol, options);
         }
-      } catch (exchangeError) {
-        logService.log('warn', `Failed to create order on exchange for ${normalizedSymbol}, using mock order`, exchangeError, 'ExchangeService');
-        return this.createMockOrder(normalizedSymbol, options);
       }
+
+      // Execute the order with the exchange instance
+      return await this.executeOrderWithExchange(exchange, normalizedSymbol, options);
     } catch (error) {
       logService.log('error', `Failed to create order for ${options.symbol}`, error, 'ExchangeService');
       return this.createMockOrder(options.symbol, options);
+    }
+  }
+
+  /**
+   * Execute an order with a specific exchange instance
+   * @param exchange The exchange instance to use
+   * @param symbol The trading pair symbol
+   * @param options Order options
+   * @returns The created order
+   */
+  private async executeOrderWithExchange(exchange: any, symbol: string, options: any): Promise<any> {
+    try {
+      // Determine the order type (market or limit)
+      const orderType = options.type || 'market';
+
+      // For market orders, we don't need a price
+      if (orderType === 'market') {
+        logService.log('info', `Creating market order for ${symbol} on ${this.activeExchange?.id}`, null, 'ExchangeService');
+        const order = await exchange.createOrder(
+          symbol,
+          orderType,
+          options.side,
+          options.amount
+        );
+
+        // Track the order
+        this.activeOrders.set(order.id, {
+          ...order,
+          symbol: symbol,
+          side: options.side,
+          amount: options.amount,
+          price: options.entry_price || options.price,
+          status: 'open',
+          timestamp: Date.now(),
+          stopLoss: options.stop_loss,
+          takeProfit: options.take_profit,
+          trailingStop: options.trailing_stop
+        });
+
+        return order;
+      } else {
+        // For limit orders, we need a price
+        const price = options.entry_price || options.price;
+        if (!price) {
+          throw new Error('Price is required for limit orders');
+        }
+
+        logService.log('info', `Creating limit order for ${symbol} on ${this.activeExchange?.id}`, null, 'ExchangeService');
+        const order = await exchange.createOrder(
+          symbol,
+          orderType,
+          options.side,
+          options.amount,
+          price
+        );
+
+        // Track the order
+        this.activeOrders.set(order.id, {
+          ...order,
+          symbol: symbol,
+          side: options.side,
+          amount: options.amount,
+          price: price,
+          status: 'open',
+          timestamp: Date.now(),
+          stopLoss: options.stop_loss,
+          takeProfit: options.take_profit,
+          trailingStop: options.trailing_stop
+        });
+
+        return order;
+      }
+    } catch (exchangeError) {
+      logService.log('warn', `Failed to create order on exchange for ${symbol}, using mock order`, exchangeError, 'ExchangeService');
+      return this.createMockOrder(symbol, options);
     }
   }
 

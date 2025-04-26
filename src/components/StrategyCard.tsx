@@ -1538,10 +1538,18 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                                 </span>
                               </td>
                               <td className="px-3 py-2 text-xs text-white">
-                                {trade.amount !== undefined ? trade.amount.toFixed(6) : '-'}
+                                {trade.amount !== undefined && typeof trade.amount === 'number'
+                                  ? trade.amount.toFixed(6)
+                                  : typeof trade.amount === 'string'
+                                    ? (isNaN(parseFloat(trade.amount)) ? '-' : parseFloat(trade.amount).toFixed(6))
+                                    : '-'}
                               </td>
                               <td className="px-3 py-2 text-xs text-white">
-                                {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
+                                {trade.entryPrice !== undefined && typeof trade.entryPrice === 'number'
+                                  ? `$${trade.entryPrice.toFixed(2)}`
+                                  : typeof trade.entryPrice === 'string'
+                                    ? (isNaN(parseFloat(trade.entryPrice)) ? '-' : `$${parseFloat(trade.entryPrice).toFixed(2)}`)
+                                    : '-'}
                               </td>
                               <td className="px-3 py-2 text-xs">
                                 <span

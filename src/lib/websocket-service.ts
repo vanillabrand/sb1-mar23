@@ -27,13 +27,56 @@ export class WebSocketService extends EventEmitter {
   private isConnected: boolean = false;
   private reconnectAttempts: number = 0;
   private pingInterval: NodeJS.Timeout | null = null;
-  private readonly MAX_RECONNECT_ATTEMPTS = 5;
+  private readonly MAX_RECONNECT_ATTEMPTS = 10; // Increased from 5 to 10
   // RECONNECT_INTERVAL is used in the ReconnectingWebSocket config
   private readonly MESSAGE_QUEUE_SIZE = 1000;
   private readonly PING_INTERVAL = 30000; // 30 seconds
 
+  private isPageVisible: boolean = true;
+  private visibilityChangeHandler: () => void;
+
   private constructor() {
     super();
+
+    // Set up visibility change handler
+    this.visibilityChangeHandler = this.handleVisibilityChange.bind(this);
+
+    // Add event listener for visibility change
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', this.visibilityChangeHandler);
+    }
+  }
+
+  /**
+   * Handle visibility change events to manage WebSocket connection
+   */
+  private handleVisibilityChange(): void {
+    if (typeof document === 'undefined') return;
+
+    const isVisible = document.visibilityState === 'visible';
+
+    if (isVisible && !this.isPageVisible) {
+      // Page became visible again
+      logService.log('info', 'Page became visible, checking WebSocket connection', null, 'WebSocketService');
+
+      // Check if the connection is still alive
+      if (this.socket && this.socket.readyState !== WebSocket.OPEN) {
+        logService.log('warn', 'WebSocket not open after visibility change, reconnecting...', null, 'WebSocketService');
+        this.reconnect();
+      } else {
+        // Send a ping to verify the connection
+        this.send({
+          type: 'ping',
+          timestamp: Date.now(),
+          isVisibilityCheck: true
+        }).catch(() => {
+          logService.log('warn', 'Failed to send ping after visibility change, reconnecting...', null, 'WebSocketService');
+          this.reconnect();
+        });
+      }
+    }
+
+    this.isPageVisible = isVisible;
   }
 
   static getInstance(): WebSocketService {
@@ -176,6 +219,9 @@ export class WebSocketService extends EventEmitter {
             logService.log('error', 'Failed to send pong message', error, 'WebSocketService');
           });
         } else if (message.type === 'pong') {
+          // Update the last pong received timestamp
+          this.lastPongReceived = Date.now();
+
           // Calculate round-trip time
           const rtt = Date.now() - (message.echo || 0);
           logService.log('debug', 'WebSocket pong received', { rtt }, 'WebSocketService');
@@ -278,6 +324,39 @@ export class WebSocketService extends EventEmitter {
       logService.log('error', 'Max WebSocket reconnection attempts reached',
         null, 'WebSocketService');
       this.emit('maxReconnectAttemptsReached');
+
+      // Reset reconnect attempts to allow future reconnection attempts
+      setTimeout(() => {
+        this.reconnectAttempts = 0;
+        logService.log('info', 'Reset WebSocket reconnection attempts counter', null, 'WebSocketService');
+      }, 60000); // Wait 1 minute before resetting
+    }
+  }
+
+  /**
+   * Force a reconnection of the WebSocket
+   */
+  async reconnect(): Promise<void> {
+    logService.log('info', 'Forcing WebSocket reconnection', null, 'WebSocketService');
+
+    // Disconnect first
+    await this.disconnect();
+
+    // Small delay to ensure clean disconnection
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Reconnect
+    try {
+      await this.connect({});
+      logService.log('info', 'WebSocket reconnected successfully', null, 'WebSocketService');
+    } catch (error) {
+      logService.log('error', 'Failed to reconnect WebSocket', error, 'WebSocketService');
+
+      // Try again after a delay if not at max attempts
+      if (this.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
+        logService.log('info', `Will try to reconnect again in 5 seconds (attempt ${this.reconnectAttempts + 1}/${this.MAX_RECONNECT_ATTEMPTS})`, null, 'WebSocketService');
+        setTimeout(() => this.reconnect(), 5000);
+      }
     }
   }
 
@@ -292,6 +371,21 @@ export class WebSocketService extends EventEmitter {
       this.messageQueue = [];
       logService.log('info', 'WebSocket disconnected', null, 'WebSocketService');
     }
+  }
+
+  /**
+   * Clean up resources when the service is no longer needed
+   */
+  cleanup(): void {
+    // Remove event listeners
+    if (typeof document !== 'undefined' && this.visibilityChangeHandler) {
+      document.removeEventListener('visibilitychange', this.visibilityChangeHandler);
+    }
+
+    // Disconnect the WebSocket
+    this.disconnect();
+
+    logService.log('info', 'WebSocket service cleaned up', null, 'WebSocketService');
   }
 
   /**
@@ -539,20 +633,67 @@ export class WebSocketService extends EventEmitter {
     }
   }
 
+  private lastPongReceived: number = 0;
+  private pingTimeoutTimer: NodeJS.Timeout | null = null;
+
   private startPingInterval(): void {
-    // Clear any existing ping interval
+    // Clear any existing ping interval and timeout
     this.stopPingInterval();
+
+    // Initialize the last pong time to now
+    this.lastPongReceived = Date.now();
 
     // Start a new ping interval
     this.pingInterval = setInterval(() => {
       if (this.isConnected && this.socket?.readyState === WebSocket.OPEN) {
+        // Check if we've received a pong since the last ping timeout check
+        const now = Date.now();
+        const timeSinceLastPong = now - this.lastPongReceived;
+
+        // If we haven't received a pong in 2.5x the ping interval, reconnect
+        if (timeSinceLastPong > this.PING_INTERVAL * 2.5) {
+          logService.log('warn', `No pong received in ${Math.round(timeSinceLastPong / 1000)}s, reconnecting...`, null, 'WebSocketService');
+
+          // Force reconnection
+          this.reconnect();
+          return;
+        }
+
         // Send a ping message
         this.send({
           type: 'ping',
-          timestamp: Date.now()
+          timestamp: now
         }).catch(error => {
           logService.log('error', 'Failed to send ping message', error, 'WebSocketService');
         });
+
+        // Set a timeout to check if we receive a pong
+        if (this.pingTimeoutTimer) {
+          clearTimeout(this.pingTimeoutTimer);
+        }
+
+        this.pingTimeoutTimer = setTimeout(() => {
+          const timeSincePing = Date.now() - now;
+          logService.log('warn', `No pong received within timeout (${Math.round(timeSincePing / 1000)}s), checking connection...`, null, 'WebSocketService');
+
+          // Check if the connection is still alive
+          if (this.socket?.readyState === WebSocket.OPEN) {
+            // Send another ping to verify connection
+            this.send({
+              type: 'ping',
+              timestamp: Date.now(),
+              isVerification: true
+            }).catch(() => {
+              // If this fails, force reconnection
+              logService.log('warn', 'Verification ping failed, reconnecting...', null, 'WebSocketService');
+              this.reconnect();
+            });
+          } else {
+            // Socket is not open, force reconnection
+            logService.log('warn', 'Socket not open, reconnecting...', null, 'WebSocketService');
+            this.reconnect();
+          }
+        }, this.PING_INTERVAL * 1.5); // Wait 1.5x the ping interval for a pong
       }
     }, this.PING_INTERVAL);
 
@@ -564,6 +705,12 @@ export class WebSocketService extends EventEmitter {
       clearInterval(this.pingInterval);
       this.pingInterval = null;
       logService.log('debug', 'Stopped WebSocket ping interval', null, 'WebSocketService');
+    }
+
+    if (this.pingTimeoutTimer) {
+      clearTimeout(this.pingTimeoutTimer);
+      this.pingTimeoutTimer = null;
+      logService.log('debug', 'Cleared WebSocket ping timeout timer', null, 'WebSocketService');
     }
   }
 }

@@ -359,6 +359,62 @@ class MarketDataService extends EventEmitter {
   }
 
   /**
+   * Get order book for a symbol
+   * @param symbol Trading pair symbol
+   * @returns Promise that resolves to the order book or undefined if not available
+   */
+  async getOrderBook(symbol: string): Promise<{ bids: [number, number][], asks: [number, number][] } | undefined> {
+    try {
+      // Normalize the symbol
+      const normalizedSymbol = this.normalizeSymbol(symbol);
+
+      // Try to get order book from WebSocket service
+      const orderBook = marketDataWebSocket.getOrderBook?.(normalizedSymbol);
+
+      if (orderBook) {
+        return orderBook;
+      }
+
+      // If WebSocket doesn't have order book data, create a simulated one based on current price
+      const marketData = await this.getMarketData(normalizedSymbol);
+
+      if (!marketData) {
+        return undefined;
+      }
+
+      // Create a simulated order book with 10 levels on each side
+      const price = marketData.price;
+      const bids: [number, number][] = [];
+      const asks: [number, number][] = [];
+
+      // Create bids (buy orders) below current price
+      for (let i = 0; i < 10; i++) {
+        const bidPrice = price * (1 - (0.001 * (i + 1)));
+        const bidSize = 1 / (i + 1); // Decreasing size as we move away from the price
+        bids.push([bidPrice, bidSize]);
+      }
+
+      // Create asks (sell orders) above current price
+      for (let i = 0; i < 10; i++) {
+        const askPrice = price * (1 + (0.001 * (i + 1)));
+        const askSize = 1 / (i + 1); // Decreasing size as we move away from the price
+        asks.push([askPrice, askSize]);
+      }
+
+      // Sort bids in descending order (highest price first)
+      bids.sort((a, b) => b[0] - a[0]);
+
+      // Sort asks in ascending order (lowest price first)
+      asks.sort((a, b) => a[0] - b[0]);
+
+      return { bids, asks };
+    } catch (error) {
+      logService.log('error', `Failed to get order book for ${symbol}`, error, 'MarketDataService');
+      return undefined;
+    }
+  }
+
+  /**
    * Clean up resources
    */
   cleanup(): void {

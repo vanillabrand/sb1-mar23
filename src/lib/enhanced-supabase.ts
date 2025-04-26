@@ -83,7 +83,26 @@ class EnhancedSupabase {
       this.client = createClient(supabaseUrl, supabaseKey, {
         auth: {
           persistSession: true,
-          autoRefreshToken: true
+          autoRefreshToken: true,
+          storageKey: 'sb-auth-token',
+          storage: localStorage
+        },
+        global: {
+          headers: {
+            'Accept': 'application/json, text/plain, */*',  // Expanded Accept header to fix 406 errors
+            'Content-Type': 'application/json',
+            'apikey': supabaseKey,
+            'X-Client-Info': 'supabase-js/2.x',
+            'Prefer': 'return=representation'  // Always return representation
+          }
+        },
+        db: {
+          schema: 'public'
+        },
+        realtime: {
+          params: {
+            eventsPerSecond: 10
+          }
         }
       });
     }
@@ -184,7 +203,21 @@ class EnhancedSupabase {
       const connection = createClient(supabaseUrl, supabaseKey, {
         auth: {
           persistSession: true,
-          autoRefreshToken: true
+          autoRefreshToken: true,
+          storageKey: 'sb-auth-token',
+          storage: localStorage
+        },
+        global: {
+          headers: {
+            'Accept': 'application/json, text/plain, */*',  // Expanded Accept header to fix 406 errors
+            'Content-Type': 'application/json',
+            'apikey': supabaseKey,
+            'X-Client-Info': 'supabase-js/2.x',
+            'Prefer': 'return=representation'  // Always return representation
+          }
+        },
+        db: {
+          schema: 'public'
         }
       });
       this.connectionPool.push(connection);

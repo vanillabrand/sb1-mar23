@@ -38,6 +38,35 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
     const initializeAuth = async () => {
       try {
         console.log('useAuth: Initializing auth context');
+
+        // First check localStorage for a cached user
+        const cachedUserStr = localStorage.getItem('sb-user');
+        let cachedUser = null;
+
+        if (cachedUserStr) {
+          try {
+            cachedUser = JSON.parse(cachedUserStr);
+            console.log('useAuth: Found cached user:', cachedUser);
+
+            // Set the user from cache immediately to avoid flicker
+            if (mounted && cachedUser) {
+              setUser(cachedUser);
+
+              // Initialize services with cached user
+              userProfileService.initialize(cachedUser.id);
+
+              // Don't await this to avoid blocking the UI
+              exchangeService.initialize().catch(err => {
+                console.error('Failed to initialize exchange service from cache:', err);
+              });
+            }
+          } catch (e) {
+            console.error('useAuth: Failed to parse cached user:', e);
+            localStorage.removeItem('sb-user');
+          }
+        }
+
+        // Get the current session from Supabase
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         console.log('useAuth: Initial session check:', { session, error: sessionError });
 
@@ -47,8 +76,59 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         }
 
         if (mounted) {
-          console.log('useAuth: Setting initial user state:', session?.user);
-          setUser(session?.user ?? null);
+          const sessionUser = session?.user ?? null;
+          console.log('useAuth: Setting initial user state from session:', sessionUser);
+
+          if (sessionUser) {
+            setUser(sessionUser);
+
+            // Cache the user in localStorage
+            localStorage.setItem('sb-user', JSON.stringify(sessionUser));
+
+            // Initialize user profile service
+            userProfileService.initialize(sessionUser.id);
+
+            // Create user profile if it doesn't exist
+            try {
+              const profile = await userProfileService.getUserProfile();
+              if (!profile) {
+                await userProfileService.saveUserProfile({
+                  email: sessionUser.email,
+                  auto_reconnect: true
+                });
+              }
+
+              // Initialize exchange service
+              await exchangeService.initialize();
+            } catch (profileError) {
+              console.error('Failed to initialize user profile:', profileError);
+              logService.error('Failed to initialize user profile', profileError, 'AuthProvider');
+            }
+          } else if (cachedUser) {
+            // If we have a cached user but no session, try to refresh the session
+            try {
+              const { data, error } = await supabase.auth.refreshSession();
+              if (error) {
+                console.error('useAuth: Failed to refresh session:', error);
+                // Clear cached user if refresh fails
+                localStorage.removeItem('sb-user');
+                setUser(null);
+              } else if (data.session) {
+                console.log('useAuth: Session refreshed successfully:', data.session);
+                setUser(data.session.user);
+
+                // Initialize user profile service
+                userProfileService.initialize(data.session.user.id);
+
+                // Initialize exchange service
+                await exchangeService.initialize();
+              }
+            } catch (refreshError) {
+              console.error('useAuth: Error refreshing session:', refreshError);
+              localStorage.removeItem('sb-user');
+              setUser(null);
+            }
+          }
         }
 
         console.log('useAuth: Setting up auth state change listener');
@@ -56,30 +136,39 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
           console.log('useAuth: Auth state changed:', { event, user: session?.user });
           if (mounted) {
             const currentUser = session?.user ?? null;
-            setUser(currentUser);
-            console.log('useAuth: User state updated after auth change:', currentUser);
 
-            // Initialize user profile service when user logs in
-            if (currentUser && (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED')) {
-              try {
-                // Initialize user profile service
-                userProfileService.initialize(currentUser.id);
+            if (currentUser) {
+              setUser(currentUser);
+              // Cache the user in localStorage
+              localStorage.setItem('sb-user', JSON.stringify(currentUser));
+              console.log('useAuth: User state updated after auth change:', currentUser);
 
-                // Create user profile if it doesn't exist
-                const profile = await userProfileService.getUserProfile();
-                if (!profile) {
-                  await userProfileService.saveUserProfile({
-                    email: currentUser.email,
-                    auto_reconnect: true
-                  });
+              // Initialize user profile service when user logs in
+              if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+                try {
+                  // Initialize user profile service
+                  userProfileService.initialize(currentUser.id);
+
+                  // Create user profile if it doesn't exist
+                  const profile = await userProfileService.getUserProfile();
+                  if (!profile) {
+                    await userProfileService.saveUserProfile({
+                      email: currentUser.email,
+                      auto_reconnect: true
+                    });
+                  }
+
+                  // Initialize exchange service
+                  await exchangeService.initialize();
+                } catch (profileError) {
+                  console.error('Failed to initialize user profile:', profileError);
+                  logService.error('Failed to initialize user profile', profileError, 'AuthProvider');
                 }
-
-                // Initialize exchange service
-                await exchangeService.initialize();
-              } catch (profileError) {
-                console.error('Failed to initialize user profile:', profileError);
-                logService.error('Failed to initialize user profile', profileError, 'AuthProvider');
               }
+            } else if (event === 'SIGNED_OUT') {
+              // Clear cached user on sign out
+              localStorage.removeItem('sb-user');
+              setUser(null);
             }
 
             setLoading(false);
@@ -191,8 +280,16 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
       // Explicitly set user to null to ensure UI updates immediately
       setUser(null);
 
-      // Clear any cached auth data
+      // Clear all cached auth data
       localStorage.removeItem('supabase.auth.token');
+      localStorage.removeItem('sb-auth-token');
+      localStorage.removeItem('sb-user');
+      localStorage.removeItem('activeExchange');
+      localStorage.removeItem('defaultExchange');
+
+      // Clear session storage as well
+      sessionStorage.removeItem('supabase.auth.token');
+      sessionStorage.removeItem('sb-auth-token');
 
       console.log('useAuth: User signed out successfully');
       toast.success('Successfully signed out!');
@@ -202,8 +299,11 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
       setError(authError);
       toast.error(authError.message);
 
-      // Still try to clear user state
+      // Still try to clear user state and storage
       setUser(null);
+      localStorage.removeItem('sb-user');
+      localStorage.removeItem('activeExchange');
+      localStorage.removeItem('defaultExchange');
       throw error;
     }
   };

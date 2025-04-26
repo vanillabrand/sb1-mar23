@@ -38,10 +38,23 @@ function App() {
     if (isInitializing) {
       initialLoad();
     }
-  }, [isInitializing]);
 
-  // Remove visibility change handling completely
-  // The app should maintain its state when switching tabs
+    // Add a visibility change handler to check WebSocket connection when tab becomes visible again
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !isInitializing) {
+        // Check if we need to reinitialize the WebSocket
+        systemSync.checkWebSocketConnection();
+      }
+    };
+
+    // Add event listener for visibility change
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    // Clean up event listener
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isInitializing]);
 
   // Show preloader only during initial load
   if (isInitializing) {

@@ -3,6 +3,7 @@ import { systemSync } from './system-sync';
 import { analyticsService } from './analytics-service';
 import { templateManager } from './template-manager';
 import { tradeEngine } from './trade-engine';
+import { websocketService } from './websocket-service';
 
 export class CleanupManager {
   private static cleanupTasks: (() => Promise<void>)[] = [];
@@ -37,6 +38,11 @@ CleanupManager.register(() => systemSync.cleanup());
 CleanupManager.register(() => analyticsService.cleanup());
 CleanupManager.register(() => templateManager.cleanup());
 CleanupManager.register(() => tradeEngine.cleanup());
+// Register WebSocket service cleanup
+CleanupManager.register(async () => {
+  websocketService.cleanup();
+  return Promise.resolve();
+});
 
 // Handle application shutdown based on environment
 if (typeof window !== 'undefined') {
@@ -50,7 +56,7 @@ if (typeof window !== 'undefined') {
     await CleanupManager.cleanup();
     process.exit(0);
   });
-  
+
   process.on('SIGINT', async () => {
     await CleanupManager.cleanup();
     process.exit(0);
