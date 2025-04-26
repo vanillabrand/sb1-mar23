@@ -21,14 +21,50 @@ export class IndicatorService extends EventEmitter {
 
   async calculateIndicator(
     config: IndicatorConfig,
-    trades: Trade[]
+    trades: Trade[] | number[]
   ): Promise<IndicatorResult> {
     try {
-      const cacheKey = this.getCacheKey(config, trades);
+      // Handle both old and new parameter formats
+      let processedTrades: Trade[];
+
+      // If trades is an array of numbers, convert to Trade objects
+      if (Array.isArray(trades) && trades.length > 0 && typeof trades[0] === 'number') {
+        processedTrades = (trades as number[]).map((price, index) => ({
+          price,
+          timestamp: Date.now() - (trades.length - index) * 60000, // Fake timestamps
+          id: `synthetic-${index}`,
+          symbol: 'SYNTHETIC',
+          side: 'buy',
+          amount: 1,
+          high: price,
+          low: price,
+          open: price,
+          close: price,
+          volume: 1
+        }));
+      } else {
+        processedTrades = trades as Trade[];
+      }
+
+      // Handle both old and new config formats
+      let processedConfig: IndicatorConfig;
+      if (config.name && config.params) {
+        // New format
+        processedConfig = {
+          type: config.name,
+          period: config.params.period || 14,
+          parameters: config.params
+        };
+      } else {
+        // Old format
+        processedConfig = config;
+      }
+
+      const cacheKey = this.getCacheKey(processedConfig, processedTrades);
       const cachedResult = this.getFromCache(cacheKey);
       if (cachedResult) return cachedResult;
 
-      const result = await this.compute(config, trades);
+      const result = await this.compute(processedConfig, processedTrades);
       this.cache.set(cacheKey, {
         ...result,
         timestamp: Date.now()
@@ -38,7 +74,14 @@ export class IndicatorService extends EventEmitter {
     } catch (error) {
       logService.log('error', 'Failed to calculate indicator',
         { config, error }, 'IndicatorService');
-      throw error;
+
+      // Return a default result instead of throwing
+      return {
+        name: config.name || config.type || 'UNKNOWN',
+        value: 0,
+        timestamp: Date.now(),
+        metadata: { error: error.message }
+      };
     }
   }
 
@@ -64,41 +107,80 @@ export class IndicatorService extends EventEmitter {
     config: IndicatorConfig,
     trades: Trade[]
   ): Promise<IndicatorResult> {
-    switch (config.type) {
-      case 'SMA':
-        return this.calculateSMA(trades, config.period);
-      case 'EMA':
-        return this.calculateEMA(trades, config.period);
-      case 'RSI':
-        return this.calculateRSI(trades, config.period);
-      case 'MACD':
-        return this.calculateMACD(trades);
-      case 'BB':
-        return this.calculateBollingerBands(trades, config.period);
-      case 'ADX':
-        return this.calculateADX(trades, config.period || 14);
-      case 'ATR':
-        return this.calculateATR(trades, config.period || 14);
-      case 'STOCH':
-        return this.calculateStochastic(trades, config.period || 14, config.signalPeriod || 3);
-      case 'CCI':
-        return this.calculateCCI(trades, config.period || 20);
-      case 'OBV':
-        return this.calculateOBV(trades);
-      case 'ICHIMOKU':
-        return this.calculateIchimoku(trades);
-      case 'PSAR':
-        return this.calculateParabolicSAR(trades, config.acceleration || 0.02, config.maximum || 0.2);
-      case 'MFI':
-        return this.calculateMFI(trades, config.period || 14);
-      case 'VWAP':
-        return this.calculateVWAP(trades);
-      case 'SUPERTREND':
-        return this.calculateSuperTrend(trades, config.period || 10, config.multiplier || 3);
-      case 'PIVOT':
-        return this.calculatePivotPoints(trades);
-      default:
-        throw new Error(`Unsupported indicator type: ${config.type}`);
+    try {
+      // Check if we have enough data
+      if (trades.length < 2) {
+        return {
+          name: config.name || config.type || 'UNKNOWN',
+          value: 0,
+          timestamp: Date.now(),
+          metadata: { insufficient_data: true }
+        };
+      }
+
+      // Handle EMA with specific periods (like EMA50)
+      if (config.type === 'EMA' && config.name && config.name.startsWith('EMA')) {
+        const periodMatch = config.name.match(/EMA(\d+)/);
+        if (periodMatch && periodMatch[1]) {
+          const period = parseInt(periodMatch[1], 10);
+          if (!isNaN(period)) {
+            return this.calculateEMA(trades, period);
+          }
+        }
+      }
+
+      switch (config.type) {
+        case 'SMA':
+          return this.calculateSMA(trades, config.period);
+        case 'EMA':
+          return this.calculateEMA(trades, config.period);
+        case 'RSI':
+          return this.calculateRSI(trades, config.period);
+        case 'MACD':
+          return this.calculateMACD(trades);
+        case 'BB':
+          return this.calculateBollingerBands(trades, config.period);
+        case 'ADX':
+          return this.calculateADX(trades, config.period || 14);
+        case 'ATR':
+          return this.calculateATR(trades, config.period || 14);
+        case 'STOCH':
+          return this.calculateStochastic(trades, config.period || 14, config.signalPeriod || 3);
+        case 'CCI':
+          return this.calculateCCI(trades, config.period || 20);
+        case 'OBV':
+          return this.calculateOBV(trades);
+        case 'ICHIMOKU':
+          return this.calculateIchimoku(trades);
+        case 'PSAR':
+          return this.calculateParabolicSAR(trades, config.acceleration || 0.02, config.maximum || 0.2);
+        case 'MFI':
+          return this.calculateMFI(trades, config.period || 14);
+        case 'VWAP':
+          return this.calculateVWAP(trades);
+        case 'SUPERTREND':
+          return this.calculateSuperTrend(trades, config.period || 10, config.multiplier || 3);
+        case 'PIVOT':
+          return this.calculatePivotPoints(trades);
+        default:
+          // For unknown indicator types, return a default value instead of throwing
+          logService.log('warn', `Unsupported indicator type: ${config.type}`, { config }, 'IndicatorService');
+          return {
+            name: config.name || config.type || 'UNKNOWN',
+            value: 0,
+            timestamp: Date.now(),
+            metadata: { unsupported_type: true }
+          };
+      }
+    } catch (error) {
+      // Catch any errors in the compute method
+      logService.log('error', `Error in compute method for ${config.type}`, error, 'IndicatorService');
+      return {
+        name: config.name || config.type || 'UNKNOWN',
+        value: 0,
+        timestamp: Date.now(),
+        metadata: { compute_error: true, error_message: error.message }
+      };
     }
   }
 
@@ -116,32 +198,109 @@ export class IndicatorService extends EventEmitter {
   }
 
   private calculateEMA(trades: Trade[], period: number): IndicatorResult {
-    const prices = trades.map(trade => trade.price);
-    const multiplier = 2 / (period + 1);
-    let ema = prices[0];
-
-    for (let i = 1; i < prices.length; i++) {
-      ema = (prices[i] * multiplier) + (ema * (1 - multiplier));
+    // Check if we have enough data
+    if (trades.length < period) {
+      return {
+        name: 'EMA',
+        value: 0,
+        timestamp: Date.now(),
+        metadata: { period, insufficient_data: true }
+      };
     }
 
-    return {
-      name: 'EMA',
-      value: ema,
-      timestamp: Date.now(),
-      metadata: { period }
-    };
+    try {
+      // Extract prices, ensuring they are valid numbers
+      const prices = trades.map(trade => {
+        const price = typeof trade.price === 'number' ? trade.price :
+                     (trade.close ? parseFloat(trade.close.toString()) :
+                     (trade.price ? parseFloat(trade.price.toString()) : null));
+
+        if (price === null || isNaN(price)) {
+          throw new Error(`Invalid price data for EMA calculation: ${JSON.stringify(trade)}`);
+        }
+
+        return price;
+      });
+
+      // Calculate SMA for the first period points as the starting EMA value
+      const smaStart = prices.slice(0, period).reduce((sum, price) => sum + price, 0) / period;
+
+      if (isNaN(smaStart)) {
+        throw new Error(`Invalid SMA start value: ${smaStart}`);
+      }
+
+      // Calculate the multiplier
+      const multiplier = 2 / (period + 1);
+
+      // Start with SMA for the first period points
+      let ema = smaStart;
+
+      // Calculate EMA for the remaining points
+      for (let i = period; i < prices.length; i++) {
+        ema = (prices[i] * multiplier) + (ema * (1 - multiplier));
+
+        // Check for NaN after each calculation
+        if (isNaN(ema)) {
+          throw new Error(`EMA calculation resulted in NaN at index ${i}`);
+        }
+      }
+
+      return {
+        name: 'EMA',
+        value: ema,
+        timestamp: Date.now(),
+        metadata: { period, smaStart }
+      };
+    } catch (error) {
+      logService.log('error', 'Error calculating EMA', error, 'IndicatorService');
+
+      // Return a default value if calculation fails
+      return {
+        name: 'EMA',
+        value: 0,
+        timestamp: Date.now(),
+        metadata: {
+          period,
+          calculation_error: true,
+          error_message: error.message
+        }
+      };
+    }
   }
 
   private calculateRSI(trades: Trade[], period: number): IndicatorResult {
-    const prices = trades.map(trade => trade.price);
-    const changes = [];
-    let gains = 0;
-    let losses = 0;
+    // Check if we have enough data
+    if (trades.length < period + 1) {
+      return {
+        name: 'RSI',
+        value: 50, // Default neutral value
+        timestamp: Date.now(),
+        metadata: { period, insufficient_data: true }
+      };
+    }
 
+    // Extract prices, ensuring they are valid numbers
+    const prices = trades.map(trade => {
+      const price = typeof trade.price === 'number' ? trade.price :
+                   (trade.close ? parseFloat(trade.close.toString()) :
+                   (trade.price ? parseFloat(trade.price.toString()) : null));
+
+      if (price === null || isNaN(price)) {
+        throw new Error(`Invalid price data for RSI calculation: ${JSON.stringify(trade)}`);
+      }
+
+      return price;
+    });
+
+    // Calculate price changes
+    const changes = [];
     for (let i = 1; i < prices.length; i++) {
       changes.push(prices[i] - prices[i - 1]);
     }
 
+    // Calculate gains and losses
+    let gains = 0;
+    let losses = 0;
     changes.slice(-period).forEach(change => {
       if (change > 0) gains += change;
       else losses -= change;
@@ -149,66 +308,211 @@ export class IndicatorService extends EventEmitter {
 
     const avgGain = gains / period;
     const avgLoss = losses / period;
+
+    // Handle division by zero
+    if (avgLoss === 0) {
+      return {
+        name: 'RSI',
+        value: 100, // If no losses, RSI is 100
+        timestamp: Date.now(),
+        metadata: { period, avgGain, avgLoss: 0 }
+      };
+    }
+
     const rs = avgGain / avgLoss;
     const rsi = 100 - (100 / (1 + rs));
+
+    // Ensure the result is a valid number
+    if (isNaN(rsi)) {
+      return {
+        name: 'RSI',
+        value: 50, // Default to neutral if calculation fails
+        timestamp: Date.now(),
+        metadata: { period, calculation_error: true, avgGain, avgLoss }
+      };
+    }
 
     return {
       name: 'RSI',
       value: rsi,
       timestamp: Date.now(),
-      metadata: { period }
+      metadata: { period, avgGain, avgLoss, rs }
     };
   }
 
   private calculateMACD(trades: Trade[]): IndicatorResult {
-    const prices = trades.map(trade => trade.price);
-    const ema12 = this.calculateEMA(trades, 12).value;
-    const ema26 = this.calculateEMA(trades, 26).value;
-    const macd = ema12 - ema26;
-    const signal = this.calculateEMA(
-      trades.map(t => ({ ...t, price: macd })),
-      9
-    ).value;
+    // Check if we have enough data for MACD calculation
+    if (trades.length < 26) {
+      return {
+        name: 'MACD',
+        value: 0,
+        timestamp: Date.now(),
+        metadata: {
+          signal: 0,
+          histogram: 0,
+          insufficient_data: true
+        }
+      };
+    }
 
-    return {
-      name: 'MACD',
-      value: macd,
-      timestamp: Date.now(),
-      metadata: {
-        signal,
-        histogram: macd - signal
+    try {
+      // Extract prices, ensuring they are valid numbers
+      const prices = trades.map(trade => {
+        const price = typeof trade.price === 'number' ? trade.price :
+                     (trade.close ? parseFloat(trade.close.toString()) :
+                     (trade.price ? parseFloat(trade.price.toString()) : null));
+
+        if (price === null || isNaN(price)) {
+          throw new Error(`Invalid price data for MACD calculation: ${JSON.stringify(trade)}`);
+        }
+
+        return price;
+      });
+
+      // Calculate EMAs
+      const ema12Result = this.calculateEMA(trades, 12);
+      const ema26Result = this.calculateEMA(trades, 26);
+
+      if (isNaN(ema12Result.value) || isNaN(ema26Result.value)) {
+        throw new Error(`Invalid EMA values: EMA12=${ema12Result.value}, EMA26=${ema26Result.value}`);
       }
-    };
+
+      const ema12 = ema12Result.value;
+      const ema26 = ema26Result.value;
+      const macd = ema12 - ema26;
+
+      // Create synthetic trades with MACD as price for signal line calculation
+      const macdTrades = trades.map((t, i) => ({
+        ...t,
+        price: i >= trades.length - 9 ? macd : 0 // Only use the last 9 points for signal
+      }));
+
+      const signalResult = this.calculateEMA(macdTrades, 9);
+      const signal = signalResult.value;
+
+      if (isNaN(signal)) {
+        throw new Error(`Invalid signal value: ${signal}`);
+      }
+
+      const histogram = macd - signal;
+
+      return {
+        name: 'MACD',
+        value: macd,
+        timestamp: Date.now(),
+        metadata: {
+          signal,
+          histogram,
+          ema12,
+          ema26
+        }
+      };
+    } catch (error) {
+      logService.log('error', 'Error calculating MACD', error, 'IndicatorService');
+
+      // Return a default value if calculation fails
+      return {
+        name: 'MACD',
+        value: 0,
+        timestamp: Date.now(),
+        metadata: {
+          signal: 0,
+          histogram: 0,
+          calculation_error: true,
+          error_message: error.message
+        }
+      };
+    }
   }
 
   private calculateBollingerBands(
     trades: Trade[],
     period: number
   ): IndicatorResult {
-    const prices = trades.map(trade => trade.price);
-    const sma = this.calculateSMA(trades, period).value;
-
-    const squaredDiffs = prices
-      .slice(-period)
-      .map(price => Math.pow(price - sma, 2));
-
-    const standardDeviation = Math.sqrt(
-      squaredDiffs.reduce((a, b) => a + b, 0) / period
-    );
-
-    const upperBand = sma + (standardDeviation * 2);
-    const lowerBand = sma - (standardDeviation * 2);
-
-    return {
-      name: 'BB',
-      value: sma,
-      timestamp: Date.now(),
-      metadata: {
-        upper: upperBand,
-        lower: lowerBand,
-        standardDeviation
+    try {
+      // Check if we have enough data
+      if (trades.length < period) {
+        return {
+          name: 'BB',
+          value: 0,
+          timestamp: Date.now(),
+          metadata: {
+            period,
+            upper: 0,
+            lower: 0,
+            standardDeviation: 0,
+            insufficient_data: true
+          }
+        };
       }
-    };
+
+      // Extract prices, ensuring they are valid numbers
+      const prices = trades.map(trade => {
+        const price = typeof trade.price === 'number' ? trade.price :
+                     (trade.close ? parseFloat(trade.close.toString()) :
+                     (trade.price ? parseFloat(trade.price.toString()) : null));
+
+        if (price === null || isNaN(price)) {
+          throw new Error(`Invalid price data for Bollinger Bands calculation: ${JSON.stringify(trade)}`);
+        }
+
+        return price;
+      });
+
+      // Calculate SMA
+      const smaResult = this.calculateSMA(trades, period);
+      const sma = smaResult.value;
+
+      if (isNaN(sma)) {
+        throw new Error(`Invalid SMA value: ${sma}`);
+      }
+
+      // Calculate standard deviation
+      const squaredDiffs = prices
+        .slice(-period)
+        .map(price => Math.pow(price - sma, 2));
+
+      const standardDeviation = Math.sqrt(
+        squaredDiffs.reduce((a, b) => a + b, 0) / period
+      );
+
+      if (isNaN(standardDeviation)) {
+        throw new Error(`Invalid standard deviation: ${standardDeviation}`);
+      }
+
+      // Calculate upper and lower bands
+      const upperBand = sma + (standardDeviation * 2);
+      const lowerBand = sma - (standardDeviation * 2);
+
+      return {
+        name: 'BB',
+        value: sma,
+        timestamp: Date.now(),
+        metadata: {
+          period,
+          upper: upperBand,
+          lower: lowerBand,
+          standardDeviation
+        }
+      };
+    } catch (error) {
+      logService.log('error', 'Error calculating Bollinger Bands', error, 'IndicatorService');
+
+      // Return a default value if calculation fails
+      return {
+        name: 'BB',
+        value: 0,
+        timestamp: Date.now(),
+        metadata: {
+          period,
+          upper: 0,
+          lower: 0,
+          standardDeviation: 0,
+          calculation_error: true,
+          error_message: error.message
+        }
+      };
+    }
   }
 
   /**
@@ -218,56 +522,97 @@ export class IndicatorService extends EventEmitter {
    * @returns ATR indicator result
    */
   private calculateATR(trades: Trade[], period: number): IndicatorResult {
-    if (trades.length < period + 1) {
+    try {
+      // Check if we have enough data
+      if (trades.length < period + 1) {
+        return {
+          name: 'ATR',
+          value: 0,
+          timestamp: Date.now(),
+          metadata: { period, insufficient_data: true }
+        };
+      }
+
+      // We need high, low, close values for ATR calculation
+      const trueRanges: number[] = [];
+
+      // For the first element, we can only use high-low
+      const firstTrade = trades[0];
+
+      // Handle missing high/low values
+      const firstHigh = firstTrade.high !== undefined ? firstTrade.high : firstTrade.price;
+      const firstLow = firstTrade.low !== undefined ? firstTrade.low : firstTrade.price;
+
+      if (isNaN(firstHigh) || isNaN(firstLow)) {
+        throw new Error(`Invalid high/low values for first trade: high=${firstHigh}, low=${firstLow}`);
+      }
+
+      trueRanges.push(Math.abs(firstHigh - firstLow));
+
+      // Calculate true ranges for the rest
+      for (let i = 1; i < trades.length; i++) {
+        const current = trades[i];
+        const previous = trades[i - 1];
+
+        // If high/low are not available, use price as both high and low
+        const currentHigh = current.high !== undefined ? current.high : current.price;
+        const currentLow = current.low !== undefined ? current.low : current.price;
+        const previousClose = previous.price;
+
+        // Validate the values
+        if (isNaN(currentHigh) || isNaN(currentLow) || isNaN(previousClose)) {
+          throw new Error(`Invalid values for ATR calculation at index ${i}: high=${currentHigh}, low=${currentLow}, prevClose=${previousClose}`);
+        }
+
+        // True Range is the greatest of:
+        // 1. Current High - Current Low
+        // 2. |Current High - Previous Close|
+        // 3. |Current Low - Previous Close|
+        const tr1 = currentHigh - currentLow;
+        const tr2 = Math.abs(currentHigh - previousClose);
+        const tr3 = Math.abs(currentLow - previousClose);
+
+        const trueRange = Math.max(tr1, tr2, tr3);
+
+        if (isNaN(trueRange)) {
+          throw new Error(`Invalid true range at index ${i}: tr1=${tr1}, tr2=${tr2}, tr3=${tr3}`);
+        }
+
+        trueRanges.push(trueRange);
+      }
+
+      // Calculate ATR as the average of the last 'period' true ranges
+      const lastPeriodRanges = trueRanges.slice(-period);
+      const atr = lastPeriodRanges.reduce((sum, tr) => sum + tr, 0) / period;
+
+      if (isNaN(atr)) {
+        throw new Error(`Invalid ATR calculation result: ${atr}`);
+      }
+
+      return {
+        name: 'ATR',
+        value: atr,
+        timestamp: Date.now(),
+        metadata: {
+          period,
+          trueRanges: lastPeriodRanges
+        }
+      };
+    } catch (error) {
+      logService.log('error', 'Error calculating ATR', error, 'IndicatorService');
+
+      // Return a default value if calculation fails
       return {
         name: 'ATR',
         value: 0,
         timestamp: Date.now(),
-        metadata: { period }
+        metadata: {
+          period,
+          calculation_error: true,
+          error_message: error.message
+        }
       };
     }
-
-    // We need high, low, close values for ATR calculation
-    const trueRanges: number[] = [];
-
-    // For the first element, we can only use high-low
-    const firstTrade = trades[0];
-    trueRanges.push(Math.abs(firstTrade.high - firstTrade.low));
-
-    // Calculate true ranges for the rest
-    for (let i = 1; i < trades.length; i++) {
-      const current = trades[i];
-      const previous = trades[i - 1];
-
-      // If high/low are not available, use price as both high and low
-      const currentHigh = current.high || current.price;
-      const currentLow = current.low || current.price;
-      const previousClose = previous.price;
-
-      // True Range is the greatest of:
-      // 1. Current High - Current Low
-      // 2. |Current High - Previous Close|
-      // 3. |Current Low - Previous Close|
-      const tr1 = currentHigh - currentLow;
-      const tr2 = Math.abs(currentHigh - previousClose);
-      const tr3 = Math.abs(currentLow - previousClose);
-
-      const trueRange = Math.max(tr1, tr2, tr3);
-      trueRanges.push(trueRange);
-    }
-
-    // Calculate ATR as the average of the last 'period' true ranges
-    const atr = trueRanges.slice(-period).reduce((sum, tr) => sum + tr, 0) / period;
-
-    return {
-      name: 'ATR',
-      value: atr,
-      timestamp: Date.now(),
-      metadata: {
-        period,
-        trueRanges: trueRanges.slice(-period)
-      }
-    };
   }
 
   /**

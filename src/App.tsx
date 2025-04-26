@@ -18,6 +18,9 @@ function App() {
       // Initialize exchange connection
       await systemSync.initializeExchange();
 
+      // Initialize enhanced services for improved trading functionality
+      await systemSync.initializeEnhancedServices();
+
       return true;
     } catch (error) {
       console.error('Failed to initialize app:', error);

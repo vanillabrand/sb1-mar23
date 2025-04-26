@@ -22,14 +22,20 @@ export const RiskHeatmap: React.FC<RiskHeatmapProps> = ({ assetRisks }) => {
     );
   }
 
-  // Transform data for the scatter chart
-  const chartData = assetRisks.map(risk => ({
-    x: risk.volatility, // X-axis: Volatility
-    y: risk.liquidity,  // Y-axis: Liquidity
-    z: risk.riskScore,  // Z-axis (bubble size): Risk Score
-    symbol: risk.symbol,
-    regime: risk.regime
-  }));
+  // Transform data for the scatter chart and filter out invalid data
+  const chartData = assetRisks
+    .filter(risk =>
+      typeof risk.volatility === 'number' && !isNaN(risk.volatility) &&
+      typeof risk.liquidity === 'number' && !isNaN(risk.liquidity) &&
+      typeof risk.riskScore === 'number' && !isNaN(risk.riskScore)
+    )
+    .map(risk => ({
+      x: Math.min(100, Math.max(0, risk.volatility)), // X-axis: Volatility (clamped to 0-100)
+      y: Math.min(100, Math.max(0, risk.liquidity)),  // Y-axis: Liquidity (clamped to 0-100)
+      z: Math.min(100, Math.max(0, risk.riskScore)),  // Z-axis (bubble size): Risk Score (clamped to 0-100)
+      symbol: risk.symbol,
+      regime: risk.regime || 'neutral'
+    }));
 
   // Get color based on risk score
   const getColor = (score: number) => {
@@ -76,40 +82,40 @@ export const RiskHeatmap: React.FC<RiskHeatmapProps> = ({ assetRisks }) => {
         <ScatterChart
           margin={{ top: 20, right: 20, bottom: 20, left: 20 }}
         >
-          <XAxis 
-            type="number" 
-            dataKey="x" 
-            name="Volatility" 
+          <XAxis
+            type="number"
+            dataKey="x"
+            name="Volatility"
             domain={[0, 100]}
             tick={{ fill: '#9CA3AF' }}
             stroke="#6B7280"
-            label={{ 
-              value: 'Volatility', 
-              position: 'bottom', 
+            label={{
+              value: 'Volatility',
+              position: 'bottom',
               fill: '#9CA3AF',
               offset: 0
             }}
           />
-          <YAxis 
-            type="number" 
-            dataKey="y" 
-            name="Liquidity" 
+          <YAxis
+            type="number"
+            dataKey="y"
+            name="Liquidity"
             domain={[0, 100]}
             tick={{ fill: '#9CA3AF' }}
             stroke="#6B7280"
-            label={{ 
-              value: 'Liquidity', 
-              angle: -90, 
-              position: 'left', 
+            label={{
+              value: 'Liquidity',
+              angle: -90,
+              position: 'left',
               fill: '#9CA3AF',
               offset: 0
             }}
           />
-          <ZAxis 
-            type="number" 
-            dataKey="z" 
-            range={[20, 80]} 
-            name="Risk Score" 
+          <ZAxis
+            type="number"
+            dataKey="z"
+            range={[20, 80]}
+            name="Risk Score"
           />
           <Tooltip content={<CustomTooltip />} />
           <Scatter name="Asset Risk" data={chartData}>

@@ -161,9 +161,9 @@ class StrategyService {
         throw new Error('Failed to create strategy - no data returned');
       }
 
-      // Refresh news cache in the background to include news for the new strategy's assets
-      this.refreshNewsForStrategy(createdStrategy).catch(error => {
-        logService.log('warn', 'Failed to refresh news for new strategy', error, 'StrategyService');
+      // Refresh news and market insights cache in the background to include the new strategy's assets
+      this.refreshCachesForNewStrategy(createdStrategy).catch(error => {
+        logService.log('warn', 'Failed to refresh caches for new strategy', error, 'StrategyService');
       });
 
       return createdStrategy;
@@ -496,6 +496,12 @@ class StrategyService {
         throw new Error(`Strategy with ID ${id} not found`);
       }
 
+      // Check if strategy is already active
+      if (currentStrategy.status === 'active') {
+        logService.log('info', `Strategy ${id} is already active, returning current state`, null, 'StrategyService');
+        return currentStrategy;
+      }
+
       // Check if the strategy has trading pairs
       let tradingPairs = [];
       let updateNeeded = false;
@@ -540,14 +546,14 @@ class StrategyService {
       updateNeeded = true; // Always update to ensure consistency
 
       // Update the strategy with active status, trading pairs, and market type
+      // Only use market_type for the database column, not marketType
       const updateData = {
         status: 'active',
         updated_at: new Date().toISOString(),
         deactivated_at: null, // Clear deactivated_at when activating
         selected_pairs: currentStrategy.selected_pairs,
         strategy_config: currentStrategy.strategy_config,
-        market_type: currentStrategy.market_type,
-        marketType: currentStrategy.marketType
+        market_type: currentStrategy.market_type || currentStrategy.marketType || 'spot'
       };
 
       const { data, error } = await supabase
@@ -559,10 +565,65 @@ class StrategyService {
 
       if (error) {
         logService.log('error', 'Failed to activate strategy', { error, id }, 'StrategyService');
+
+        // Check if the error is due to RLS policy or permissions
+        if (error.code === '42501' || error.message?.includes('permission denied')) {
+          logService.log('error', 'Permission denied when activating strategy - likely an RLS policy issue', { error, id }, 'StrategyService');
+
+          // Try to get the current state of the strategy
+          try {
+            const { data: currentState } = await supabase
+              .from('strategies')
+              .select('*')
+              .eq('id', id)
+              .single();
+
+            if (currentState && currentState.status === 'active') {
+              logService.log('info', 'Strategy appears to be active despite update error', { id }, 'StrategyService');
+
+              // Emit event to notify other components
+              eventBus.emit('strategy:activated', {
+                strategyId: id,
+                strategy: currentState,
+                timestamp: Date.now()
+              });
+
+              return currentState;
+            }
+          } catch (checkError) {
+            // If we can't check the current state, just throw the original error
+            logService.log('error', 'Failed to check current strategy state after activation error', { error: checkError, id }, 'StrategyService');
+          }
+        }
+
         throw error;
       }
 
       if (!data) {
+        // Try to get the current state as a fallback
+        try {
+          const { data: currentState } = await supabase
+            .from('strategies')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+          if (currentState && currentState.status === 'active') {
+            logService.log('info', 'Strategy appears to be active despite data being null', { id }, 'StrategyService');
+
+            // Emit event to notify other components
+            eventBus.emit('strategy:activated', {
+              strategyId: id,
+              strategy: currentState,
+              timestamp: Date.now()
+            });
+
+            return currentState;
+          }
+        } catch (checkError) {
+          logService.log('error', 'Failed to get current strategy state after activation failure', { error: checkError, id }, 'StrategyService');
+        }
+
         throw new Error(`Strategy with ID ${id} not found or activation failed`);
       }
 
@@ -763,16 +824,16 @@ class StrategyService {
 
 
   /**
-   * Refresh news for a specific strategy
-   * This is called when a new strategy is created to ensure we have relevant news
+   * Refresh caches for a new strategy
+   * This is called when a new strategy is created to ensure we have relevant news and market insights
    */
-  private async refreshNewsForStrategy(strategy: Strategy): Promise<void> {
+  private async refreshCachesForNewStrategy(strategy: Strategy): Promise<void> {
     try {
       // Extract asset pairs from the strategy
       const assetPairs = this.extractAssetPairsFromStrategy(strategy);
 
       if (!assetPairs || assetPairs.length === 0) {
-        logService.log('info', 'No asset pairs found in strategy, skipping news refresh', { strategyId: strategy.id }, 'StrategyService');
+        logService.log('info', 'No asset pairs found in strategy, skipping cache refresh', { strategyId: strategy.id }, 'StrategyService');
         return;
       }
 
@@ -784,18 +845,32 @@ class StrategyService {
       }).filter(Boolean); // Remove any empty strings
 
       if (assets.length === 0) {
-        logService.log('info', 'No valid assets extracted from pairs, skipping news refresh', { strategyId: strategy.id, pairs: assetPairs }, 'StrategyService');
+        logService.log('info', 'No valid assets extracted from pairs, skipping cache refresh', { strategyId: strategy.id, pairs: assetPairs }, 'StrategyService');
         return;
       }
 
-      logService.log('info', 'Refreshing news for strategy assets', { strategyId: strategy.id, assets }, 'StrategyService');
+      logService.log('info', 'Refreshing caches for new strategy assets', { strategyId: strategy.id, assets }, 'StrategyService');
+
+      // Prepare assets in the format needed for market insights (with _USDT suffix)
+      const marketInsightAssets = assets.map(asset => `${asset}_USDT`);
 
       // Force a refresh of the news cache to include these assets
-      await globalCacheService.forceRefreshNews();
-
+      await globalCacheService.forceRefreshNews(assets);
       logService.log('info', 'Successfully refreshed news for strategy assets', { strategyId: strategy.id, assets }, 'StrategyService');
+
+      // Force a refresh of the market insights cache to include these assets
+      await globalCacheService.forceRefreshMarketInsights(marketInsightAssets);
+      logService.log('info', 'Successfully refreshed market insights for strategy assets', { strategyId: strategy.id, marketInsightAssets }, 'StrategyService');
+
+      // Emit an event to notify components that caches have been refreshed
+      eventBus.emit('strategy:caches:refreshed', {
+        strategyId: strategy.id,
+        assets,
+        marketInsightAssets,
+        timestamp: Date.now()
+      });
     } catch (error) {
-      logService.log('error', 'Failed to refresh news for strategy', error, 'StrategyService');
+      logService.log('error', 'Failed to refresh caches for strategy', error, 'StrategyService');
       // Don't throw the error, just log it
     }
   }

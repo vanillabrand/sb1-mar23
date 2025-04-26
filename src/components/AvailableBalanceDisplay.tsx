@@ -89,19 +89,34 @@ const AvailableBalanceDisplay: React.FC<AvailableBalanceDisplayProps> = ({
         setBalance(generalBalance);
       }
 
-      const balanceToLog = marketBalance || (generalBalance || {});
+      // Safely create the balance object to log
+      const balanceToLog = marketBalance || walletBalanceService.getBalance() || {};
       logService.log('info', `Fetched ${marketType} balance`, balanceToLog, 'AvailableBalanceDisplay');
     } catch (error) {
       logService.log('error', 'Failed to fetch market balance', error, 'AvailableBalanceDisplay');
       // Fallback to general available balance
       try {
+        // Get the general balance safely
         const generalBalance = walletBalanceService.getBalance();
+
+        // Save previous balance for comparison
         setPrevBalance(balance);
-        setBalance(generalBalance);
+
+        if (generalBalance) {
+          setBalance(generalBalance);
+          logService.log('info', 'Using general balance as fallback', generalBalance, 'AvailableBalanceDisplay');
+        } else {
+          // If no general balance, create a default balance object
+          const defaultBalance = { free: 0, used: 0, total: 0, currency: 'USDT' };
+          setBalance(defaultBalance);
+          logService.log('info', 'Using default balance as fallback', defaultBalance, 'AvailableBalanceDisplay');
+        }
       } catch (balanceError) {
         logService.log('error', 'Failed to get general balance', balanceError, 'AvailableBalanceDisplay');
         // Set a default balance object if all else fails
-        setBalance({ free: 0, used: 0, total: 0, currency: 'USDT' });
+        const defaultBalance = { free: 0, used: 0, total: 0, currency: 'USDT' };
+        setBalance(defaultBalance);
+        logService.log('info', 'Using default balance after error', defaultBalance, 'AvailableBalanceDisplay');
       }
     } finally {
       if (showLoading) setIsRefreshing(false);

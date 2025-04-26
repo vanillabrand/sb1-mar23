@@ -597,6 +597,135 @@ class RiskManagementService extends EventEmitter {
   }
 
   /**
+   * Calculate portfolio risk metrics based on active strategies
+   * @param strategies Array of active strategies
+   * @returns Portfolio risk metrics
+   */
+  async calculatePortfolioRisk(strategies: Strategy[]): Promise<{
+    totalRiskScore: number;
+    maxDrawdown: number;
+    volatilityScore: number;
+    correlationScore: number;
+  }> {
+    try {
+      // If no strategies, return default values
+      if (!strategies || strategies.length === 0) {
+        return {
+          totalRiskScore: 0,
+          maxDrawdown: 0,
+          volatilityScore: 0,
+          correlationScore: 0
+        };
+      }
+
+      // Get market analyses for all pairs in all strategies
+      const allPairs = new Set<string>();
+      strategies.forEach(strategy => {
+        (strategy.selected_pairs || []).forEach(pair => {
+          allPairs.add(pair);
+        });
+      });
+
+      // Get market analyses for all pairs
+      const marketAnalyses: Record<string, any> = {};
+      for (const pair of allPairs) {
+        try {
+          const analysis = await marketAnalyzer.analyzeMarket(pair);
+          marketAnalyses[pair] = analysis;
+        } catch (error) {
+          logService.log('warn', `Failed to analyze market for ${pair}`, error, 'RiskManagementService');
+          // Provide default values for this pair
+          marketAnalyses[pair] = {
+            symbol: pair,
+            volatility: 40, // Default medium volatility
+            regime: 'neutral',
+            riskScore: 50, // Default medium risk
+            liquidity: { score: 70 } // Default good liquidity
+          };
+        }
+      }
+
+      // Calculate risk metrics based on strategies and market analyses
+      let totalRisk = 0;
+      let maxDrawdown = 0;
+      let volatilityScore = 0;
+      let totalWeight = 0;
+
+      // Calculate weighted average of risk metrics
+      strategies.forEach(strategy => {
+        // Use budget as weight, default to 1 if not available
+        const weight = strategy.budget?.total || 1;
+        totalWeight += weight;
+
+        // Get average volatility of strategy pairs
+        let strategyVolatility = 0;
+        let pairCount = 0;
+        (strategy.selected_pairs || []).forEach(pair => {
+          if (marketAnalyses[pair]) {
+            strategyVolatility += marketAnalyses[pair].volatility;
+            pairCount++;
+          }
+        });
+        strategyVolatility = pairCount > 0 ? strategyVolatility / pairCount : 40;
+
+        // Calculate risk metrics based on strategy risk level and volatility
+        const riskMultiplier = this.getRiskMultiplier(strategy.risk_level);
+
+        totalRisk += (strategyVolatility * riskMultiplier * weight);
+        maxDrawdown += (strategyVolatility * 0.2 * riskMultiplier * weight); // Estimate max drawdown as 20% of volatility
+        volatilityScore += (strategyVolatility * weight);
+      });
+
+      // Normalize by total weight
+      if (totalWeight > 0) {
+        totalRisk /= totalWeight;
+        maxDrawdown /= totalWeight;
+        volatilityScore /= totalWeight;
+      }
+
+      // Calculate correlation score based on pair diversity
+      const uniquePairs = allPairs.size;
+      const correlationScore = Math.max(0, 100 - (uniquePairs * 10));
+
+      return {
+        totalRiskScore: totalRisk,
+        maxDrawdown,
+        volatilityScore,
+        correlationScore
+      };
+    } catch (error) {
+      logService.log('error', 'Failed to calculate portfolio risk', error, 'RiskManagementService');
+      // Return safe default values
+      return {
+        totalRiskScore: 50,
+        maxDrawdown: 10,
+        volatilityScore: 40,
+        correlationScore: 50
+      };
+    }
+  }
+
+  /**
+   * Get risk multiplier based on risk level
+   * @param riskLevel Risk level of the strategy
+   * @returns Risk multiplier value
+   */
+  private getRiskMultiplier(riskLevel?: RiskLevel): number {
+    if (!riskLevel) return 1.0; // Default to Medium
+
+    switch (riskLevel) {
+      case 'Ultra Low': return 0.5;
+      case 'Low': return 0.75;
+      case 'Medium': return 1.0;
+      case 'High': return 1.25;
+      case 'Ultra High': return 1.5;
+      case 'Extreme': return 1.75;
+      case 'God Mode': return 2.0;
+      default: return 1.0; // Default to Medium
+    }
+  }
+
+  /**
    * Calculate trailing stop percentage based on volatility
    * @param volatility Normalized volatility (0-100)
    * @param riskLevel Risk level of the strategy

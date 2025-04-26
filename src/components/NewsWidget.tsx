@@ -5,6 +5,7 @@ import { globalCacheService } from '../lib/global-cache-service';
 import { formatDistanceToNow } from 'date-fns';
 import { Pagination } from './ui/Pagination';
 import { logService } from '../lib/log-service';
+import { eventBus } from '../lib/event-bus';
 
 interface NewsWidgetProps {
   assets: string[];
@@ -47,12 +48,36 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
       setError(null);
       if (!refreshing) setLoading(true);
 
-      const newsAssets = assets.length > 0 ? assets : ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
+      let newsItems: any[] = [];
 
-      logService.log('info', `Fetching news for assets: ${newsAssets.join(', ')}`, null, 'NewsWidget');
+      // If specific assets are provided as props, use those
+      if (assets.length > 0) {
+        logService.log('info', `Fetching news for specified assets: ${assets.join(', ')}`, null, 'NewsWidget');
+        newsItems = await globalCacheService.getNewsForAssets(assets);
+      } else {
+        // Otherwise, get news for all assets in user strategies
+        logService.log('info', 'Fetching news for user strategy assets', null, 'NewsWidget');
 
-      // Use the global cache service instead of direct API call
-      const newsItems = await globalCacheService.getNewsForAssets(newsAssets);
+        try {
+          // Import the news service dynamically to avoid circular dependencies
+          const { newsService } = await import('../lib/news-service');
+
+          // Get news for all assets in user strategies
+          newsItems = await newsService.getNewsForUserStrategies();
+
+          logService.log('info', `Fetched ${newsItems.length} news items for user strategy assets`, null, 'NewsWidget');
+        } catch (strategyError) {
+          logService.log('error', 'Error fetching news for user strategies', strategyError, 'NewsWidget');
+
+          // Fallback to default assets
+          const defaultAssets = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
+          logService.log('info', `Falling back to default assets: ${defaultAssets.join(', ')}`, null, 'NewsWidget');
+
+          newsItems = await globalCacheService.getNewsForAssets(defaultAssets);
+        }
+      }
+
+      // Update state with the fetched news
       setAllNews(newsItems);
 
       // Update the paginated news
@@ -98,8 +123,76 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
 
       logService.log('info', 'Manual refresh requested', null, 'NewsWidget');
 
-      // Force a refresh of the global cache
-      await globalCacheService.forceRefreshNews();
+      // If specific assets are provided as props, use those
+      if (assets.length > 0) {
+        logService.log('info', `Refreshing news for specified assets: ${assets.join(', ')}`, null, 'NewsWidget');
+        // Force a refresh of the global cache for the specified assets
+        await globalCacheService.forceRefreshNews(assets);
+      } else {
+        try {
+          // Import services dynamically to avoid circular dependencies
+          const { newsService } = await import('../lib/news-service');
+          const { strategyService } = await import('../lib/strategy-service');
+
+          // Get all user strategies
+          const strategies = await strategyService.getAllStrategies();
+
+          // Extract unique asset symbols from all strategies
+          const assetSet = new Set<string>();
+
+          if (strategies && strategies.length > 0) {
+            strategies.forEach(strategy => {
+              // Extract trading pairs from various possible locations
+              let pairs: string[] = [];
+
+              if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+                pairs = strategy.selected_pairs;
+              } else if (strategy.strategy_config?.assets && strategy.strategy_config.assets.length > 0) {
+                pairs = strategy.strategy_config.assets;
+              } else if (strategy.strategy_config?.config?.pairs && strategy.strategy_config.config.pairs.length > 0) {
+                pairs = strategy.strategy_config.config.pairs;
+              }
+
+              // Process each trading pair
+              pairs.forEach(pair => {
+                // Extract the base asset (e.g., 'BTC' from 'BTC/USDT')
+                const baseAsset = pair.split(/[\/\_\-]/)[0].toUpperCase();
+                if (baseAsset) assetSet.add(baseAsset);
+
+                // Also extract the quote asset if it's not a stablecoin
+                const parts = pair.split(/[\/\_\-]/);
+                if (parts.length > 1) {
+                  const quoteAsset = parts[1].toUpperCase();
+                  // Only add quote assets that aren't stablecoins
+                  if (quoteAsset && !['USDT', 'USDC', 'BUSD', 'DAI', 'USD'].includes(quoteAsset)) {
+                    assetSet.add(quoteAsset);
+                  }
+                }
+              });
+            });
+          }
+
+          // Convert Set to Array
+          const strategyAssets = Array.from(assetSet);
+
+          if (strategyAssets.length > 0) {
+            logService.log('info', `Refreshing news for user strategy assets: ${strategyAssets.join(', ')}`, null, 'NewsWidget');
+            await globalCacheService.forceRefreshNews(strategyAssets);
+          } else {
+            // Fallback to default assets
+            const defaultAssets = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
+            logService.log('info', `No user strategy assets found, refreshing news for default assets: ${defaultAssets.join(', ')}`, null, 'NewsWidget');
+            await globalCacheService.forceRefreshNews(defaultAssets);
+          }
+        } catch (strategyError) {
+          logService.log('error', 'Error getting user strategy assets for news refresh', strategyError, 'NewsWidget');
+
+          // Fallback to default assets
+          const defaultAssets = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
+          logService.log('info', `Falling back to default assets: ${defaultAssets.join(', ')}`, null, 'NewsWidget');
+          await globalCacheService.forceRefreshNews(defaultAssets);
+        }
+      }
 
       // Then fetch the updated news with force refresh flag
       await fetchNews(true);
@@ -113,8 +206,26 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
     }
   };
 
+  // Reference to track if component is mounted
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
+    // Initial fetch
     fetchNews();
+
+    // Subscribe to strategy:caches:refreshed event
+    const unsubscribe = eventBus.subscribe('strategy:caches:refreshed', (data) => {
+      if (isMountedRef.current) {
+        logService.log('info', 'Received strategy:caches:refreshed event, refreshing news', data, 'NewsWidget');
+        fetchNews(true); // Force refresh
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      isMountedRef.current = false;
+      unsubscribe();
+    };
   }, [fetchNews]);
 
   // Update paginated news when page or items per page changes

@@ -268,7 +268,8 @@ export function BudgetModal({ onConfirm, onCancel, onClose, maxBudget = 10000, i
         allocated: 0,
         available: Number(totalBudget.toFixed(2)),
         maxPositionSize: Number((totalBudget * positionSizeMultiplier).toFixed(2)),
-        marketType: marketType // Include the market type in the budget
+        market_type: marketType, // Use market_type for database column name
+        marketType: marketType // Keep marketType for backward compatibility
       };
 
       await onConfirm(budget);

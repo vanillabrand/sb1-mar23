@@ -182,7 +182,7 @@ class ExchangeInterface:
         # Base price depends on the symbol
         base_price = 0
         if "BTC" in symbol:
-            base_price = 45000 + (random.random() * 1000)
+            base_price = 65000 + (random.random() * 1000)
         elif "ETH" in symbol:
             base_price = 3000 + (random.random() * 100)
         elif "SOL" in symbol:

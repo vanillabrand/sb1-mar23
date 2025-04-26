@@ -16,6 +16,18 @@ export const RiskMetricsCard: React.FC<RiskMetricsCardProps> = ({
   color,
   description
 }) => {
+  // Ensure value is a valid string
+  const displayValue = (() => {
+    if (value === undefined || value === null) return 'N/A';
+    if (typeof value === 'string') {
+      // Check if the string contains a number that might be NaN
+      const numValue = parseFloat(value);
+      if (isNaN(numValue)) return value; // Keep original string if not a number
+      return value; // Return original string if it's a valid number
+    }
+    return 'N/A';
+  })();
+
   const getColorClasses = () => {
     switch (color) {
       case 'red':
@@ -44,13 +56,16 @@ export const RiskMetricsCard: React.FC<RiskMetricsCardProps> = ({
       </div>
       <div className="flex items-end justify-between">
         <div className="flex flex-col">
-          <span className="text-2xl font-bold text-white">{value}</span>
+          <span className="text-2xl font-bold text-white">{displayValue}</span>
           {description && (
             <span className="text-xs text-gray-400 mt-1">{description}</span>
           )}
         </div>
         <div className="h-10 w-16">
-          <RiskIndicator value={parseFloat(value)} color={color} />
+          <RiskIndicator
+            value={typeof value === 'string' ? parseFloat(value) : 0}
+            color={color}
+          />
         </div>
       </div>
     </motion.div>
@@ -63,12 +78,17 @@ interface RiskIndicatorProps {
 }
 
 const RiskIndicator: React.FC<RiskIndicatorProps> = ({ value, color }) => {
+  // Handle invalid values
+  if (value === undefined || value === null || isNaN(value)) {
+    value = 0;
+  }
+
   // Normalize value to 0-100 range if it's a percentage
   const normalizedValue = value > 1 && value <= 100 ? value : value * 100;
-  
+
   // Calculate height based on normalized value (max height is 100%)
-  const height = `${Math.min(100, normalizedValue)}%`;
-  
+  const height = `${Math.min(100, Math.max(0, normalizedValue))}%`;
+
   const getBarColor = () => {
     switch (color) {
       case 'red':
@@ -81,7 +101,7 @@ const RiskIndicator: React.FC<RiskIndicatorProps> = ({ value, color }) => {
         return 'bg-gradient-to-t from-gray-900/30 to-gray-500/70';
     }
   };
-  
+
   return (
     <div className="h-full w-full bg-gray-900/50 rounded-md relative overflow-hidden">
       <motion.div

@@ -72,16 +72,16 @@ export const AssetRiskTable: React.FC<AssetRiskTableProps> = ({ assets }) => {
             <tr key={asset.symbol} className="border-b border-gunmetal-800/30">
               <td className="py-3 px-4 text-gray-300">{asset.symbol}</td>
               <td className="py-3 px-4 text-center">
-                {asset.analysis ? (
+                {asset.analysis && typeof asset.analysis.volatility === 'number' && !isNaN(asset.analysis.volatility) ? (
                   <div className="flex items-center justify-center">
                     <div className="w-20 bg-gunmetal-800 rounded-full h-2">
                       <div
                         className={`h-2 rounded-full ${
-                          asset.analysis.volatility > 70 ? 'bg-neon-raspberry' : 
-                          asset.analysis.volatility > 40 ? 'bg-neon-yellow' : 
+                          asset.analysis.volatility > 70 ? 'bg-neon-raspberry' :
+                          asset.analysis.volatility > 40 ? 'bg-neon-yellow' :
                           'bg-neon-turquoise'
                         }`}
-                        style={{ width: `${asset.analysis.volatility}%` }}
+                        style={{ width: `${Math.min(100, Math.max(0, asset.analysis.volatility))}%` }}
                       />
                     </div>
                     <span className="ml-2 text-gray-300">{asset.analysis.volatility.toFixed(0)}%</span>
@@ -91,7 +91,7 @@ export const AssetRiskTable: React.FC<AssetRiskTableProps> = ({ assets }) => {
                 )}
               </td>
               <td className="py-3 px-4 text-center">
-                {asset.analysis ? (
+                {asset.analysis && asset.analysis.regime ? (
                   <div className="flex items-center justify-center">
                     <span className={`flex items-center ${getRegimeColor(asset.analysis.regime)}`}>
                       {getRegimeIcon(asset.analysis.regime)}
@@ -103,7 +103,9 @@ export const AssetRiskTable: React.FC<AssetRiskTableProps> = ({ assets }) => {
                 )}
               </td>
               <td className="py-3 px-4 text-center">
-                {asset.analysis && asset.analysis.liquidity ? (
+                {asset.analysis && asset.analysis.liquidity &&
+                 typeof asset.analysis.liquidity.score === 'number' &&
+                 !isNaN(asset.analysis.liquidity.score) ? (
                   <div className="flex items-center justify-center">
                     <Droplet className="w-4 h-4 text-blue-400 mr-1" />
                     <span className="text-gray-300">{asset.analysis.liquidity.score.toFixed(0)}%</span>
@@ -113,9 +115,9 @@ export const AssetRiskTable: React.FC<AssetRiskTableProps> = ({ assets }) => {
                 )}
               </td>
               <td className="py-3 px-4 text-center">
-                {asset.analysis ? (
-                  <span className={getRiskColor(asset.analysis.riskScore || 50)}>
-                    {(asset.analysis.riskScore || 50).toFixed(0)}/100
+                {asset.analysis && typeof asset.analysis.riskScore === 'number' && !isNaN(asset.analysis.riskScore) ? (
+                  <span className={getRiskColor(asset.analysis.riskScore)}>
+                    {asset.analysis.riskScore.toFixed(0)}/100
                   </span>
                 ) : (
                   <span className="text-gray-500">N/A</span>

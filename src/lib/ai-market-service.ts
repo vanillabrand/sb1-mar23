@@ -33,6 +33,9 @@ class AIMarketService {
       return this.generateSyntheticInsights(assets);
     }
 
+    // Get current market data for the assets
+    const marketData = await this.fetchMarketData(assets);
+
     let retries = 0;
 
     while (retries <= this.MAX_RETRIES) {
@@ -43,27 +46,39 @@ class AIMarketService {
           logService.log('info', `Retrying DeepSeek API call (${retries}/${this.MAX_RETRIES}) after ${delay}ms delay`, null, 'AIMarketService');
           await new Promise(resolve => setTimeout(resolve, delay));
         }
-      // Log the API request for debugging
-      logService.log('info', 'Making DeepSeek API request', {
-        url: this.API_URL,
-        model: this.MODEL,
-        assets: assets.join(', ')
-      }, 'AIMarketService');
 
-      const requestBody = {
-        model: this.MODEL,
-        messages: [{
-          role: 'system',
-          content: 'You are a crypto market analyst. Provide concise, accurate market insights in JSON format only. Keep explanations brief and focus on key indicators.'
-        }, {
-          role: 'user',
-          content: `Analyze these crypto assets: ${assets.join(', ')}. Return ONLY a JSON object with this structure:
+        // Log the API request for debugging
+        logService.log('info', 'Making DeepSeek API request', {
+          url: this.API_URL,
+          model: this.MODEL,
+          assets: assets.join(', '),
+          hasMarketData: !!marketData
+        }, 'AIMarketService');
+
+        // Create a more detailed prompt with market data
+        let marketDataPrompt = '';
+        if (marketData && Object.keys(marketData).length > 0) {
+          marketDataPrompt = `\n\nCurrent market data:\n${JSON.stringify(marketData, null, 2)}`;
+        }
+
+        const requestBody = {
+          model: this.MODEL,
+          messages: [{
+            role: 'system',
+            content: 'You are a crypto market analyst specializing in trading strategies. Provide concise, accurate market insights in JSON format only. Focus on actionable signals, key indicators, and strategic recommendations for traders.'
+          }, {
+            role: 'user',
+            content: `Analyze these crypto assets that are being used in trading strategies: ${assets.join(', ')}.
+
+Provide detailed insights on market conditions, sentiment, and specific trading recommendations for each asset.${marketDataPrompt}
+
+Return ONLY a JSON object with this structure:
 {
   "timestamp": ${Date.now()},
   "assets": [{
     "symbol": string,
     "sentiment": "bullish" | "bearish" | "neutral",
-    "signals": string[], // 1-3 brief signals
+    "signals": string[], // 2-4 specific trading signals with technical indicators
     "riskLevel": "low" | "medium" | "high"
   }],
   "marketConditions": {
@@ -71,14 +86,14 @@ class AIMarketService {
     "volatility": "low" | "medium" | "high",
     "volume": "low" | "medium" | "high"
   },
-  "recommendations": string[] // 2-3 brief recommendations
+  "recommendations": string[] // 3-5 specific strategic recommendations for traders
 }`
-        }],
-        temperature: 0.2,
-        max_tokens: 1000,
-        stream: false,
-        timeout: 10
-      };
+          }],
+          temperature: 0.3,
+          max_tokens: 1500,
+          stream: false,
+          timeout: 20
+        };
 
       const response = await fetch(this.API_URL, {
         method: 'POST',
@@ -257,7 +272,54 @@ class AIMarketService {
     }
   }
 
-  // End of class
+  /**
+   * Fetch current market data for the given assets
+   * @param assets List of assets to fetch market data for
+   * @returns Object containing market data for each asset
+   */
+  private async fetchMarketData(assets: string[]): Promise<Record<string, any>> {
+    try {
+      // Import market data service dynamically to avoid circular dependencies
+      const { marketDataService } = await import('./market-data-service');
+
+      const marketData: Record<string, any> = {};
+
+      // Process each asset
+      for (const asset of assets) {
+        try {
+          // Normalize asset format (convert BTC_USDT to BTC/USDT if needed)
+          const normalizedAsset = asset.includes('_') ? asset.replace('_', '/') : asset;
+
+          // Get market data for this asset
+          const assetData = await marketDataService.getMarketData(normalizedAsset);
+
+          if (assetData) {
+            // Extract relevant data for the AI
+            marketData[normalizedAsset] = {
+              price: assetData.price || 0,
+              change24h: assetData.change24h || 0,
+              volume24h: assetData.volume24h || 0,
+              high24h: assetData.high24h || 0,
+              low24h: assetData.low24h || 0
+            };
+
+            // Add technical indicators if available
+            if (assetData.indicators) {
+              marketData[normalizedAsset].indicators = assetData.indicators;
+            }
+          }
+        } catch (assetError) {
+          logService.log('warn', `Failed to fetch market data for ${asset}`, assetError, 'AIMarketService');
+          // Continue with other assets
+        }
+      }
+
+      return marketData;
+    } catch (error) {
+      logService.log('error', 'Failed to fetch market data', error, 'AIMarketService');
+      return {}; // Return empty object on error
+    }
+  }
 }
 
 export const aiMarketService = AIMarketService.getInstance();

@@ -150,43 +150,11 @@ class GlobalCacheService {
       // Use Promise.allSettled to continue even if some promises fail
       await Promise.allSettled(initPromises);
 
-      // Set up background refresh timers with smart retry logic
-      this.marketInsightsTimer = setInterval(() => {
-        // Skip if already refreshing
-        if (this.isRefreshingInBackground) {
-          logService.log('info', 'Skipping scheduled market insights refresh, refresh already in progress', null, 'GlobalCacheService');
-          return;
-        }
+      // We no longer use automatic refresh timers for market insights and news
+      // They will only be refreshed when a new strategy is added
+      logService.log('info', 'Automatic refresh timers for market insights and news are disabled', null, 'GlobalCacheService');
 
-        // Check if we've recently had a failure
-        const now = Date.now();
-        const timeSinceLastFailure = now - this.lastFailedRefreshAttempt;
-
-        // If we've failed recently, don't try again until the backoff period has passed
-        if (this.lastFailedRefreshAttempt > 0 && timeSinceLastFailure < 5 * 60 * 1000) {
-          logService.log('info', `Skipping scheduled market insights refresh, last attempt failed ${Math.round(timeSinceLastFailure/1000)}s ago`, null, 'GlobalCacheService');
-          return;
-        }
-
-        // Set the flag to prevent multiple refreshes
-        this.isRefreshingInBackground = true;
-
-        this.refreshMarketInsights()
-          .catch(error => {
-            logService.log('error', 'Failed to refresh market insights cache in timer', error, 'GlobalCacheService');
-          })
-          .finally(() => {
-            // Reset the flag when done
-            this.isRefreshingInBackground = false;
-          });
-      }, this.CACHE_REFRESH_INTERVAL);
-
-      this.newsTimer = setInterval(() => {
-        this.refreshNews().catch(error => {
-          logService.log('error', 'Failed to refresh news cache', error, 'GlobalCacheService');
-        });
-      }, this.NEWS_REFRESH_INTERVAL);
-
+      // Only set up background refresh timer for portfolio data
       this.portfolioTimer = setInterval(() => {
         this.refreshPortfolioData().catch(error => {
           logService.log('error', 'Failed to refresh portfolio cache', error, 'GlobalCacheService');
@@ -235,7 +203,77 @@ class GlobalCacheService {
   private isRefreshingInBackground: boolean = false;
 
   /**
-   * Refresh the market insights cache for default assets
+   * Get assets from user strategies
+   * @returns Array of unique asset symbols from user strategies
+   */
+  private async getUserStrategyAssets(): Promise<string[]> {
+    try {
+      // Import dynamically to avoid circular dependencies
+      const { strategyService } = await import('./strategy-service');
+
+      // Get all strategies (both active and inactive)
+      const strategies = await strategyService.getAllStrategies();
+
+      if (!strategies || strategies.length === 0) {
+        logService.log('info', 'No user strategies found, using default assets', null, 'GlobalCacheService');
+        return this.DEFAULT_ASSETS;
+      }
+
+      // Extract unique asset pairs from all strategies
+      const assetSet = new Set<string>();
+
+      strategies.forEach(strategy => {
+        // Extract trading pairs from various possible locations
+        let pairs: string[] = [];
+
+        if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+          pairs = strategy.selected_pairs;
+        } else if (strategy.strategy_config?.assets && strategy.strategy_config.assets.length > 0) {
+          pairs = strategy.strategy_config.assets;
+        } else if (strategy.strategy_config?.config?.pairs && strategy.strategy_config.config.pairs.length > 0) {
+          pairs = strategy.strategy_config.config.pairs;
+        }
+
+        // Add each pair to the set
+        pairs.forEach(pair => {
+          // Normalize pair format (ensure it uses underscores for DeepSeek API)
+          const normalizedPair = pair.includes('/') ? pair.replace('/', '_') : pair;
+          assetSet.add(normalizedPair);
+        });
+      });
+
+      // Convert Set to Array
+      const assets = Array.from(assetSet);
+
+      // If no assets found, use defaults
+      if (assets.length === 0) {
+        return this.DEFAULT_ASSETS;
+      }
+
+      // Add some default assets if we have very few user assets
+      if (assets.length < 3) {
+        this.DEFAULT_ASSETS.forEach(asset => {
+          if (!assets.includes(asset)) {
+            assets.push(asset);
+          }
+
+          // Stop once we have at least 3 assets
+          if (assets.length >= 3) {
+            return;
+          }
+        });
+      }
+
+      logService.log('info', `Found ${assets.length} unique assets from user strategies`, { assets }, 'GlobalCacheService');
+      return assets;
+    } catch (error) {
+      logService.log('error', 'Failed to get assets from user strategies', error, 'GlobalCacheService');
+      return this.DEFAULT_ASSETS;
+    }
+  }
+
+  /**
+   * Refresh the market insights cache for user strategy assets
    */
   private async refreshMarketInsights(): Promise<MarketInsight> {
     try {
@@ -259,20 +297,24 @@ class GlobalCacheService {
 
       logService.log('info', 'Refreshing market insights cache', null, 'GlobalCacheService');
 
-      // Generate a cache key for the default assets
-      const cacheKey = this.DEFAULT_ASSETS.sort().join(',');
+      // Get assets from user strategies
+      const userAssets = await this.getUserStrategyAssets();
+
+      // Generate a cache key for the user assets
+      const cacheKey = userAssets.sort().join(',');
 
       // Set a timeout for the API call - increased to 30 seconds
       const timeoutPromise = new Promise<MarketInsight>((resolve, _) => {
         setTimeout(() => {
           // Instead of rejecting, resolve with synthetic data and log a warning
           logService.log('warn', 'Market insights API timeout, using synthetic data', null, 'GlobalCacheService');
-          resolve(this.createSyntheticMarketInsights());
+          resolve(this.createSyntheticMarketInsights(userAssets));
         }, 30000);
       });
 
       // Fetch fresh market insights with timeout
-      const insightsPromise = aiMarketService.getMarketInsights(this.DEFAULT_ASSETS);
+      logService.log('info', 'Requesting market insights from DeepSeek API', { assets: userAssets }, 'GlobalCacheService');
+      const insightsPromise = aiMarketService.getMarketInsights(userAssets);
 
       // Race between the API call and the timeout
       const insights = await Promise.race([insightsPromise, timeoutPromise]);
@@ -478,12 +520,23 @@ class GlobalCacheService {
   /**
    * Get market insights from the global cache
    * @param assets List of assets to get insights for
+   * @param skipRefresh If true, don't trigger a background refresh even if cache is stale
    * @returns Market insights for the specified assets
    */
-  async getMarketInsights(assets: string[] = []): Promise<MarketInsight> {
+  async getMarketInsights(assets: string[] = [], skipRefresh: boolean = false): Promise<MarketInsight> {
     try {
-      // If no assets specified, use default assets
-      const assetsToUse = assets.length > 0 ? assets : this.DEFAULT_ASSETS;
+      // If specific assets are requested, use those
+      // Otherwise, get assets from user strategies
+      let assetsToUse: string[];
+
+      if (assets.length > 0) {
+        assetsToUse = assets;
+        logService.log('info', 'Using explicitly requested assets for market insights', { assets, skipRefresh }, 'GlobalCacheService');
+      } else {
+        // Get assets from user strategies
+        assetsToUse = await this.getUserStrategyAssets();
+        logService.log('info', 'Using assets from user strategies for market insights', { assets: assetsToUse, skipRefresh }, 'GlobalCacheService');
+      }
 
       // Generate a cache key for the requested assets
       const cacheKey = assetsToUse.sort().join(',');
@@ -494,48 +547,37 @@ class GlobalCacheService {
         const now = Date.now();
         const cacheAge = now - this.marketInsightsLastUpdate;
 
-        // If cache is stale, trigger a background refresh but still return cached data
-        if (cacheAge > this.CACHE_REFRESH_INTERVAL && !this.isRefreshingInBackground) {
-          // Only trigger a refresh if we haven't failed recently
-          const timeSinceLastFailure = now - this.lastFailedRefreshAttempt;
-          if (this.lastFailedRefreshAttempt === 0 || timeSinceLastFailure > 5 * 60 * 1000) {
-            this.triggerBackgroundRefresh();
-          }
+        // We no longer trigger automatic background refresh
+        // Market insights will only be refreshed when a new strategy is added
+        // Just log the cache age for debugging
+        if (cacheAge > this.CACHE_REFRESH_INTERVAL) {
+          logService.log('info', `Market insights cache is stale (${Math.round(cacheAge/60000)}m old) but will not be auto-refreshed`, { skipRefresh }, 'GlobalCacheService');
         }
 
+        logService.log('info', 'Returning cached market insights', { cacheKey, cacheAge: Math.round(cacheAge/1000) + 's', skipRefresh }, 'GlobalCacheService');
         return this.marketInsightsCache.get(cacheKey)!;
       }
 
-      // If we're requesting the default assets but they're not cached yet,
-      // return synthetic data immediately to improve perceived performance
-      if (cacheKey === this.DEFAULT_ASSETS.sort().join(',') || assetsToUse.length > 0) {
-        // Create synthetic data
-        const syntheticInsights = this.createSyntheticMarketInsights(assetsToUse);
+      // If we don't have cached data, we need to fetch it
+      // Provide synthetic data immediately to improve perceived performance
+      const syntheticInsights = this.createSyntheticMarketInsights(assetsToUse);
 
-        // Cache the synthetic data temporarily
-        this.marketInsightsCache.set(cacheKey, syntheticInsights);
-        this.marketInsightsLastUpdate = Date.now();
+      // Cache the synthetic data temporarily
+      this.marketInsightsCache.set(cacheKey, syntheticInsights);
+      this.marketInsightsLastUpdate = Date.now();
 
-        // Trigger a refresh in the background if we're not already refreshing
-        // and haven't failed recently
-        const now = Date.now();
-        const timeSinceLastFailure = now - this.lastFailedRefreshAttempt;
-        if (!this.isRefreshingInBackground &&
-            (this.lastFailedRefreshAttempt === 0 || timeSinceLastFailure > 5 * 60 * 1000)) {
-          this.triggerBackgroundRefresh();
-        }
+      logService.log('info', 'Created temporary synthetic market insights', { skipRefresh }, 'GlobalCacheService');
 
-        return syntheticInsights;
+      // We no longer trigger automatic background refresh
+      // Market insights will only be refreshed when a new strategy is added
+
+      // If skipRefresh is false and we're not already refreshing, we could trigger a refresh here
+      // But for now, we'll just return the synthetic data
+      if (!skipRefresh && !this.isRefreshingInBackground) {
+        logService.log('info', 'Skipping background refresh as requested', null, 'GlobalCacheService');
       }
 
-      // If we get here, it means we need to fetch custom assets not in the default set
-      // Fetch directly from the AI service
-      const insights = await aiMarketService.getMarketInsights(assetsToUse);
-
-      // Cache the results
-      this.marketInsightsCache.set(cacheKey, insights);
-
-      return insights;
+      return syntheticInsights;
     } catch (error) {
       logService.log('error', 'Failed to get market insights from cache', error, 'GlobalCacheService');
 
@@ -846,42 +888,52 @@ class GlobalCacheService {
 
   // The getPortfolioSummary method is already defined above
 
-  /**
-   * Trigger a background refresh of market insights with debouncing
-   */
-  private triggerBackgroundRefresh(): void {
-    if (this.isRefreshingInBackground) {
-      return; // Already refreshing, don't trigger another refresh
-    }
-
-    this.isRefreshingInBackground = true;
-
-    // Use a longer timeout (1 second) to reduce chances of multiple simultaneous refreshes
-    setTimeout(() => {
-      this.refreshMarketInsights()
-        .catch(error => {
-          logService.log('error', 'Failed to refresh market insights in background', error, 'GlobalCacheService');
-        })
-        .finally(() => {
-          // Reset the flag when done, regardless of success or failure
-          this.isRefreshingInBackground = false;
-        });
-    }, 1000);
-  }
+  // We've removed the triggerBackgroundRefresh method since we no longer use automatic refreshes
+  // Market insights will only be refreshed when a new strategy is added
 
   /**
    * Force a refresh of the market insights cache
+   * @param assets Optional list of assets to refresh insights for
    * @returns Promise that resolves when the refresh is complete
    */
-  async forceRefreshMarketInsights(): Promise<void> {
+  async forceRefreshMarketInsights(assets?: string[]): Promise<void> {
     // If already refreshing, don't start another refresh
     if (this.isRefreshingInBackground) {
+      logService.log('info', 'Skipping force refresh, already refreshing in background', null, 'GlobalCacheService');
       return;
     }
 
     this.isRefreshingInBackground = true;
     try {
-      await this.refreshMarketInsights();
+      if (assets && assets.length > 0) {
+        logService.log('info', 'Forcing refresh of market insights for specific assets', { assets: assets.join(',') }, 'GlobalCacheService');
+
+        // Generate a cache key for the requested assets
+        const cacheKey = assets.sort().join(',');
+
+        // Fetch fresh market insights
+        const insights = await aiMarketService.getMarketInsights(assets);
+
+        // Update the cache
+        this.marketInsightsCache.set(cacheKey, insights);
+        this.marketInsightsLastUpdate = Date.now();
+
+        // Reset the failed attempt tracker on success
+        this.lastFailedRefreshAttempt = 0;
+
+        // Save to localStorage
+        this.saveCacheToLocalStorage();
+
+        logService.log('info', 'Market insights cache refreshed successfully for specific assets', { assets: assets.join(',') }, 'GlobalCacheService');
+      } else {
+        // Refresh with user strategy assets
+        logService.log('info', 'Forcing refresh of market insights with user strategy assets', null, 'GlobalCacheService');
+        await this.refreshMarketInsights();
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to force refresh market insights cache', error, 'GlobalCacheService');
+      this.lastFailedRefreshAttempt = Date.now();
+      throw error;
     } finally {
       this.isRefreshingInBackground = false;
     }
@@ -889,10 +941,53 @@ class GlobalCacheService {
 
   /**
    * Force a refresh of the news cache
+   * @param assets Optional list of assets to refresh news for
    * @returns Promise that resolves when the refresh is complete
    */
-  async forceRefreshNews(): Promise<void> {
-    return this.refreshNews();
+  async forceRefreshNews(assets?: string[]): Promise<void> {
+    try {
+      logService.log('info', 'Forcing refresh of news cache', { assets: assets?.join(',') }, 'GlobalCacheService');
+
+      if (assets && assets.length > 0) {
+        // Clear previous news for these specific assets
+        for (const asset of assets) {
+          const normalizedAsset = asset.replace(/[\/|_|\-].+$/, '').toUpperCase();
+          this.newsCache.delete(normalizedAsset);
+          logService.log('info', `Cleared news cache for ${normalizedAsset}`, null, 'GlobalCacheService');
+        }
+
+        // Fetch fresh news for each asset
+        for (const asset of assets) {
+          const normalizedAsset = asset.replace(/[\/|_|\-].+$/, '').toUpperCase();
+
+          try {
+            // Fetch fresh news for this asset
+            const news = await newsService.getNewsForAsset(normalizedAsset);
+
+            // Only update the cache if we got news
+            if (news && news.length > 0) {
+              this.newsCache.set(normalizedAsset, news);
+              logService.log('info', `Refreshed news cache for ${normalizedAsset} with ${news.length} articles`, null, 'GlobalCacheService');
+            } else {
+              logService.log('info', `No news found for ${normalizedAsset}`, null, 'GlobalCacheService');
+            }
+          } catch (assetError) {
+            logService.log('warn', `Failed to refresh news for ${normalizedAsset}`, assetError, 'GlobalCacheService');
+          }
+        }
+
+        // Update the last update time
+        this.newsLastUpdate = Date.now();
+
+        logService.log('info', `News cache refreshed for specific assets: ${assets.join(', ')}`, null, 'GlobalCacheService');
+      } else {
+        // If no specific assets, refresh all news
+        await this.refreshNews();
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to force refresh news cache', error, 'GlobalCacheService');
+      throw error;
+    }
   }
 
   /**
@@ -955,16 +1050,8 @@ class GlobalCacheService {
    * Clean up resources when the service is no longer needed
    */
   cleanup(): void {
-    if (this.marketInsightsTimer) {
-      clearInterval(this.marketInsightsTimer);
-      this.marketInsightsTimer = null;
-    }
-
-    if (this.newsTimer) {
-      clearInterval(this.newsTimer);
-      this.newsTimer = null;
-    }
-
+    // We no longer use automatic refresh timers for market insights and news
+    // Only clean up the portfolio timer
     if (this.portfolioTimer) {
       clearInterval(this.portfolioTimer);
       this.portfolioTimer = null;

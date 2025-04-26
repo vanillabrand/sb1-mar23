@@ -694,8 +694,18 @@ class DemoTradeGenerator extends EventEmitter {
           }
         } catch (aiError) {
           logService.log('warn', `Failed to get AI trade signals on attempt ${attempts}/${maxAttempts}`, aiError, 'DemoTradeGenerator');
-          // Wait a short time before retrying
-          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          // Check if this is the last attempt
+          if (attempts >= maxAttempts) {
+            logService.log('info', `All ${maxAttempts} attempts to get AI trade signals failed, will use fallback`, null, 'DemoTradeGenerator');
+            // Don't throw, just let the fallback mechanism handle it
+            break;
+          }
+
+          // Wait a short time before retrying with exponential backoff
+          const backoffTime = Math.min(1000 * Math.pow(2, attempts - 1), 5000);
+          logService.log('info', `Waiting ${backoffTime}ms before retry attempt ${attempts + 1}`, null, 'DemoTradeGenerator');
+          await new Promise(resolve => setTimeout(resolve, backoffTime));
         }
       }
 
@@ -797,76 +807,183 @@ class DemoTradeGenerator extends EventEmitter {
    * @returns Fallback trade signals
    */
   private generateFallbackTradeSignals(pairHistories: Map<string, any[]>, availableBudget: number, batchId: number, marketType: MarketType = 'spot'): any {
-    // Decide how many trades to generate (1-3)
-    const numTrades = Math.floor(Math.random() * 3) + 1;
+    try {
+      logService.log('info', `Generating fallback trade signals with market type ${marketType}`, {
+        availableBudget,
+        numPairs: pairHistories.size,
+        batchId
+      }, 'DemoTradeGenerator');
 
-    // Get all available pairs
-    const availablePairs = Array.from(pairHistories.keys());
+      // Decide how many trades to generate (1-3)
+      const numTrades = Math.floor(Math.random() * 3) + 1;
 
-    // Generate trades
-    const trades = [];
+      // Get all available pairs
+      const availablePairs = Array.from(pairHistories.keys());
 
-    // Calculate budget per trade
-    const budgetPerTrade = availableBudget / numTrades;
+      // If no pairs are available, use default pairs
+      if (availablePairs.length === 0) {
+        logService.log('warn', 'No pairs available for fallback trade generation, using default pairs', null, 'DemoTradeGenerator');
+        availablePairs.push('BTC/USDT', 'ETH/USDT');
 
-    for (let i = 0; i < numTrades && i < availablePairs.length; i++) {
-      // Select a random pair
-      const randomIndex = Math.floor(Math.random() * availablePairs.length);
-      const symbol = availablePairs[randomIndex];
+        // Initialize price history for these pairs if needed
+        if (!this.lastPrices.has('BTC/USDT')) {
+          this.lastPrices.set('BTC/USDT', 65000);
+        }
+        if (!this.lastPrices.has('ETH/USDT')) {
+          this.lastPrices.set('ETH/USDT', 3500);
+        }
+      }
 
-      // Remove this pair from available pairs to avoid duplicates
-      availablePairs.splice(randomIndex, 1);
+      // Generate trades
+      const trades = [];
 
-      // Get current price
-      const history = pairHistories.get(symbol) || [];
-      const currentPrice = history[history.length - 1] || 0;
-      if (currentPrice === 0) continue;
+      // Calculate budget per trade
+      const budgetPerTrade = availableBudget / numTrades;
 
-      // Generate random trade parameters
-      const direction = Math.random() > 0.5 ? 'Long' : 'Short';
-      const confidence = 0.5 + Math.random() * 0.3;
+      for (let i = 0; i < numTrades && i < availablePairs.length; i++) {
+        try {
+          // Select a random pair
+          const randomIndex = Math.floor(Math.random() * availablePairs.length);
+          const symbol = availablePairs[randomIndex];
 
-      // Calculate position size (10-30% of budget per trade)
-      const positionSizePercent = 0.1 + Math.random() * 0.2;
-      const positionSize = (budgetPerTrade * positionSizePercent) / currentPrice;
+          // Remove this pair from available pairs to avoid duplicates
+          availablePairs.splice(randomIndex, 1);
 
-      const stopLossPercent = direction === 'Long' ? -0.02 : 0.02;
-      const takeProfitPercent = direction === 'Long' ? 0.04 : -0.04;
+          // Get current price - first try from price history, then from lastPrices
+          let currentPrice = 0;
+          const history = pairHistories.get(symbol) || [];
 
-      // Set leverage and margin type based on the market type
-      const leverage = marketType === 'futures' ? this.getLeverageForRiskLevel('Medium') :
-                      marketType === 'margin' ? '3x' : undefined;
-      const marginType = marketType === 'futures' || marketType === 'margin' ? 'cross' : undefined;
+          if (history.length > 0) {
+            currentPrice = history[history.length - 1];
+          } else if (this.lastPrices.has(symbol)) {
+            currentPrice = this.lastPrices.get(symbol) || 0;
+          }
 
-      trades.push({
-        symbol,
-        direction,
-        confidence,
-        positionSize,
-        stopLossPercent,
-        takeProfitPercent,
-        trailingStop: 0.01,
-        rationale: `Fallback ${marketType} trade signal for ${symbol} due to AI analysis failure`,
-        // Explicitly include market type
-        marketType: marketType,
-        // Include leverage and margin type based on market type
-        leverage: leverage,
-        marginType: marginType,
-        // Include detailed entry and exit conditions
-        entryConditions: [
-          `Price crosses ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
-        ],
-        exitConditions: [
-          `Take profit at ${currentPrice * (1 + takeProfitPercent)}`,
-          `Stop loss at ${currentPrice * (1 + stopLossPercent)}`
-        ]
-      });
+          // If still no price, use a default value based on the symbol
+          if (currentPrice === 0) {
+            if (symbol.startsWith('BTC')) {
+              currentPrice = 65000;
+            } else if (symbol.startsWith('ETH')) {
+              currentPrice = 3500;
+            } else {
+              currentPrice = 100; // Default fallback price
+            }
+            logService.log('warn', `No price history for ${symbol}, using default price ${currentPrice}`, null, 'DemoTradeGenerator');
+          }
+
+          // Generate random trade parameters
+          const direction = Math.random() > 0.5 ? 'Long' : 'Short';
+          const confidence = 0.5 + Math.random() * 0.3;
+
+          // Calculate position size (10-30% of budget per trade)
+          const positionSizePercent = 0.1 + Math.random() * 0.2;
+          const positionSize = (budgetPerTrade * positionSizePercent) / currentPrice;
+
+          const stopLossPercent = direction === 'Long' ? -0.02 : 0.02;
+          const takeProfitPercent = direction === 'Long' ? 0.04 : -0.04;
+
+          // Set leverage and margin type based on the market type
+          const leverage = marketType === 'futures' ? this.getLeverageForRiskLevel('Medium') :
+                          marketType === 'margin' ? '3x' : undefined;
+          const marginType = marketType === 'futures' || marketType === 'margin' ? 'cross' : undefined;
+
+          trades.push({
+            symbol,
+            direction,
+            confidence,
+            positionSize,
+            stopLossPercent,
+            takeProfitPercent,
+            trailingStop: 0.01,
+            rationale: `Fallback ${marketType} trade signal for ${symbol} due to AI analysis failure`,
+            // Explicitly include market type
+            marketType: marketType,
+            // Include leverage and margin type based on market type
+            leverage: leverage,
+            marginType: marginType,
+            // Include detailed entry and exit conditions
+            entryConditions: [
+              `Price crosses ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`
+            ],
+            exitConditions: [
+              `Take profit at ${currentPrice * (1 + takeProfitPercent)}`,
+              `Stop loss at ${currentPrice * (1 + stopLossPercent)}`
+            ]
+          });
+
+          logService.log('info', `Generated fallback trade for ${symbol} with direction ${direction}`, {
+            currentPrice,
+            positionSize,
+            stopLossPercent,
+            takeProfitPercent
+          }, 'DemoTradeGenerator');
+        } catch (tradeError) {
+          logService.log('error', `Error generating fallback trade ${i+1}/${numTrades}`, tradeError, 'DemoTradeGenerator');
+          // Continue to next trade
+        }
+      }
+
+      // If no trades were generated, create at least one default trade
+      if (trades.length === 0) {
+        logService.log('warn', 'No fallback trades were generated, creating a default trade', null, 'DemoTradeGenerator');
+
+        const defaultSymbol = 'BTC/USDT';
+        const defaultPrice = 65000;
+        const defaultDirection = 'Long';
+        const defaultPositionSize = (availableBudget * 0.1) / defaultPrice;
+
+        trades.push({
+          symbol: defaultSymbol,
+          direction: defaultDirection,
+          confidence: 0.6,
+          positionSize: defaultPositionSize,
+          stopLossPercent: -0.02,
+          takeProfitPercent: 0.04,
+          trailingStop: 0.01,
+          rationale: `Default fallback ${marketType} trade for BTC/USDT`,
+          marketType: marketType,
+          leverage: marketType === 'futures' ? '10x' : marketType === 'margin' ? '3x' : undefined,
+          marginType: marketType === 'futures' || marketType === 'margin' ? 'cross' : undefined,
+          entryConditions: [`Price crosses above ${defaultPrice}`],
+          exitConditions: [
+            `Take profit at ${defaultPrice * 1.04}`,
+            `Stop loss at ${defaultPrice * 0.98}`
+          ]
+        });
+
+        logService.log('info', 'Created default fallback trade for BTC/USDT', {
+          price: defaultPrice,
+          positionSize: defaultPositionSize
+        }, 'DemoTradeGenerator');
+      }
+
+      logService.log('info', `Generated ${trades.length} fallback trades`, null, 'DemoTradeGenerator');
+
+      return {
+        batchId,
+        trades
+      };
+    } catch (error) {
+      logService.log('error', 'Error in generateFallbackTradeSignals', error, 'DemoTradeGenerator');
+
+      // Return a minimal valid response with one trade to prevent further errors
+      return {
+        batchId,
+        trades: [{
+          symbol: 'BTC/USDT',
+          direction: 'Long',
+          confidence: 0.5,
+          positionSize: (availableBudget * 0.1) / 65000,
+          stopLossPercent: -0.02,
+          takeProfitPercent: 0.04,
+          trailingStop: 0.01,
+          rationale: 'Emergency fallback trade due to error',
+          marketType: marketType,
+          entryConditions: ['Emergency fallback entry'],
+          exitConditions: ['Emergency fallback exit']
+        }]
+      };
     }
-
-    return {
-      batchId,
-      trades
-    };
   }
 
   /**

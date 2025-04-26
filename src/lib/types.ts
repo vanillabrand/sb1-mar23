@@ -267,7 +267,8 @@ export interface StrategyBudget {
   profit?: number;
   allocationPercentage?: number;
   profitPercentage?: number;
-  marketType?: MarketType; // Added market type
+  market_type?: MarketType; // Database column name
+  marketType?: MarketType; // For backward compatibility
 }
 
 export type ExchangeId = 'binance' | 'bitmart' | 'kucoin' | 'coinbase' | 'kraken' | string;

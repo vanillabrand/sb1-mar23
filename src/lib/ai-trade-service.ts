@@ -345,18 +345,53 @@ Return an array of trade signals with this exact structure:
         throw new Error('No content in DeepSeek response');
       }
 
-      // Extract JSON from response by locating the first "[" and the last "]"
-      const jsonStart = content.indexOf('[');
-      const jsonEnd = content.lastIndexOf(']');
+      // Extract JSON from response
+      try {
+        // First, try to find JSON within code blocks (```json ... ```)
+        let jsonContent = '';
+        const codeBlockMatch = content.match(/```(?:json)?\s*([\[\{][\s\S]*?[\]\}])\s*```/);
 
-      if (jsonStart === -1 || jsonEnd === -1) {
-        throw new Error('No valid JSON array found in response');
-      }
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          jsonContent = codeBlockMatch[1];
+          logService.log('info', 'Found JSON in code block', null, 'AITradeService');
+        } else {
+          // If no code block, try to find JSON array directly
+          const jsonStart = content.indexOf('[');
+          const jsonEnd = content.lastIndexOf(']');
 
-      const jsonContent = content.substring(jsonStart, jsonEnd + 1);
-      const trades = JSON.parse(jsonContent);
+          if (jsonStart === -1 || jsonEnd === -1) {
+            // Try to find a JSON object if array is not found
+            const objStart = content.indexOf('{');
+            const objEnd = content.lastIndexOf('}');
 
-      return this.validateTrades(trades);
+            if (objStart === -1 || objEnd === -1) {
+              throw new Error('No valid JSON found in response');
+            }
+
+            jsonContent = content.substring(objStart, objEnd + 1);
+            logService.log('info', 'Found JSON object directly in content', null, 'AITradeService');
+          } else {
+            jsonContent = content.substring(jsonStart, jsonEnd + 1);
+            logService.log('info', 'Found JSON array directly in content', null, 'AITradeService');
+          }
+        }
+
+        // Clean up the JSON content
+        jsonContent = jsonContent.trim();
+
+        // Log the JSON content for debugging
+        logService.log('debug', 'Extracted JSON content', { jsonContent: jsonContent.substring(0, 100) + '...' }, 'AITradeService');
+
+        // Parse the JSON content
+        let trades;
+        if (jsonContent.startsWith('{')) {
+          // If it's an object, wrap it in an array
+          trades = [JSON.parse(jsonContent)];
+        } else {
+          trades = JSON.parse(jsonContent);
+        }
+
+        return this.validateTrades(trades);
     } catch (error) {
       logService.log('error', 'Failed to generate trades with DeepSeek', error, 'AITradeService');
       return this.generateSyntheticTrades();

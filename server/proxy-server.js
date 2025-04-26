@@ -56,11 +56,17 @@ app.get('/api/news', async (req, res) => {
     console.log(`Fetching news for asset: ${asset} with API key: ${apiKey.substring(0, 5)}...`);
 
     // Get the base URL from environment variables or use default
-    const baseUrl = process.env.NEWS_API_URL || 'https://data-api.coindesk.com/news/v1/article/list?lang=EN&limit=10';
+    // Use the v2 endpoint based on error messages
+    const baseUrl = process.env.NEWS_API_URL || 'https://data-api.coindesk.com/v2/news/search';
 
-    // Construct the URL for the Coindesk API
-    const url = `${baseUrl}&categories=${encodeURIComponent(asset)}`;
-    console.log(`News API URL: ${url}`);
+    // Normalize the asset name for search
+    const normalizedAsset = asset.replace(/[\/|_].*$/, '').toLowerCase();
+
+    // Construct the URL for the Coindesk API with correct parameters
+    const url = `${baseUrl}?q=${encodeURIComponent(normalizedAsset)}&limit=10&sort=publishedAt&lang=EN`;
+
+    console.log(`Trying updated legacy news API URL format: ${url}`);
+    console.log(`Legacy News API URL: ${url} for asset: ${asset} (normalized to: ${normalizedAsset})`);
 
     // Set CORS headers
     res.header('Access-Control-Allow-Origin', '*');
@@ -112,15 +118,21 @@ app.get('/api/coindesk-news', async (req, res) => {
 
     console.log(`Fetching Coindesk news for asset: ${asset} with API key: ${apiKey.substring(0, 5)}...`);
 
-    // Use the correct Coindesk API URL format according to documentation
-    // https://data-api.coindesk.com/news/v1/article/list
-    const baseUrl = process.env.NEWS_API_URL || 'https://data-api.coindesk.com/news/v1/article/list';
+    // Use the correct Coindesk API URL format based on error messages
+    // The correct endpoint appears to be /v2/news/search
+    const baseUrl = process.env.NEWS_API_URL || 'https://data-api.coindesk.com/v2/news/search';
 
-    // Construct the URL with the correct parameters
-    // Use tags parameter instead of categories
-    const url = `${baseUrl}?lang=EN&limit=10&tags=${encodeURIComponent(asset.toLowerCase())}`;
+    // Normalize the asset name for search
+    // Remove trading pair suffixes like /USDT or _USDT
+    const normalizedAsset = asset.replace(/[\/|_].*$/, '').toLowerCase();
 
-    console.log(`Using Coindesk API URL: ${url}`);
+    // Construct the URL with the parameters that work based on error messages
+    // Use the search endpoint with the q parameter for keyword search
+    const url = `${baseUrl}?q=${encodeURIComponent(normalizedAsset)}&limit=10&sort=publishedAt&lang=EN`;
+
+    console.log(`Trying updated Coindesk API URL format: ${url}`);
+
+    console.log(`Using updated Coindesk API URL: ${url} for asset: ${asset} (normalized to: ${normalizedAsset})`);
 
     // Make the request with the proper headers
     const response = await axios.get(url, {
@@ -155,9 +167,11 @@ app.get('/api/coindesk-news', async (req, res) => {
     console.error('Error details:', error.response ? error.response.data : 'No response data');
 
     // Generate fallback news data instead of returning an error
-    const fallbackNews = generateFallbackNewsArticles(asset);
+    // Make sure asset is defined before passing it to the function
+    const assetToUse = asset || 'btc';
+    const fallbackNews = generateFallbackNewsArticles(assetToUse);
 
-    console.log(`Generated ${fallbackNews.length} fallback news articles for ${asset}`);
+    console.log(`Generated ${fallbackNews.length} fallback news articles for ${assetToUse}`);
 
     // Return fallback news data with a 200 status code
     res.status(200).json({

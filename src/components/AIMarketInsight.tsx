@@ -1,6 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Brain, RefreshCw, Loader2, Clock } from 'lucide-react';
 import { globalCacheService } from '../lib/global-cache-service';
+import { logService } from '../lib/log-service';
+import { eventBus } from '../lib/event-bus';
 import { ErrorBoundary } from './ErrorBoundary';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -56,9 +58,60 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
       // Start with loading state
       setLoading(true);
 
-      const assetList = assets.size > 0
-        ? Array.from(assets)
-        : ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT'];
+      // Get assets from props or from user strategies
+      let assetList: string[];
+
+      if (assets.size > 0) {
+        // Use assets from props if provided
+        assetList = Array.from(assets);
+      } else {
+        try {
+          // Import strategy service dynamically to avoid circular dependencies
+          const { strategyService } = await import('../lib/strategy-service');
+
+          // Get all strategies (both active and inactive)
+          const strategies = await strategyService.getAllStrategies();
+
+          // Extract unique asset pairs from all strategies
+          const assetSet = new Set<string>();
+
+          if (strategies && strategies.length > 0) {
+            strategies.forEach(strategy => {
+              // Extract trading pairs from various possible locations
+              let pairs: string[] = [];
+
+              if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+                pairs = strategy.selected_pairs;
+              } else if (strategy.strategy_config?.assets && strategy.strategy_config.assets.length > 0) {
+                pairs = strategy.strategy_config.assets;
+              } else if (strategy.strategy_config?.config?.pairs && strategy.strategy_config.config.pairs.length > 0) {
+                pairs = strategy.strategy_config.config.pairs;
+              }
+
+              // Add each pair to the set
+              pairs.forEach(pair => {
+                // Normalize pair format (ensure it uses underscores for DeepSeek API)
+                const normalizedPair = pair.includes('/') ? pair.replace('/', '_') : pair;
+                assetSet.add(normalizedPair);
+              });
+            });
+          }
+
+          // Convert Set to Array
+          assetList = Array.from(assetSet);
+
+          // If no assets found, use defaults
+          if (assetList.length === 0) {
+            assetList = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT'];
+          }
+
+          logService.log('info', 'Using assets from user strategies for market insights', { assets: assetList }, 'AIMarketInsight');
+        } catch (strategyError) {
+          logService.log('error', 'Error getting user strategy assets', strategyError, 'AIMarketInsight');
+          // Fallback to default assets
+          assetList = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT'];
+        }
+      }
 
       // First, try to get insights from localStorage for immediate display
       try {
@@ -84,13 +137,16 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
           }
         }
       } catch (cacheError) {
-        console.warn('Error reading from localStorage cache:', cacheError);
+        logService.log('warn', 'Error reading from localStorage cache', cacheError, 'AIMarketInsight');
         // Continue with normal loading
       }
 
       // Use the global cache service to get the latest data (may be from cache or fresh)
-      const marketInsights = await globalCacheService.getMarketInsights(assetList);
+      // Pass skipRefresh=true to prevent triggering background refreshes
+      const marketInsights = await globalCacheService.getMarketInsights(assetList, true);
       setInsights(marketInsights);
+
+      logService.log('info', 'Successfully fetched market insights', { timestamp: Date.now() }, 'AIMarketInsight');
 
       const distribution = calculateSentimentDistribution(marketInsights);
       setSentimentDistribution(distribution);
@@ -100,7 +156,7 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
       setLastUpdateTime(lastUpdateTime);
     } catch (err) {
       setError('Failed to generate market insights');
-      console.error('Error fetching market insights:', err);
+      logService.log('error', 'Error fetching market insights', err, 'AIMarketInsight');
       setSentimentDistribution(DEFAULT_DISTRIBUTION);
     } finally {
       // Ensure loading state is turned off
@@ -109,19 +165,114 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
     }
   };
 
+  // Reference to track if component is mounted
+  const isMountedRef = useRef(true);
+  // Reference to track if we're already fetching to prevent loops
+  const isFetchingRef = useRef(false);
+  // Reference to track the last fetch time to prevent too frequent updates
+  const lastFetchTimeRef = useRef(0);
+
   useEffect(() => {
-    fetchInsights();
+    // Initial fetch only if we haven't fetched recently
+    const now = Date.now();
+    if (!isFetchingRef.current && (now - lastFetchTimeRef.current > 10000)) {
+      isFetchingRef.current = true;
+      lastFetchTimeRef.current = now;
+
+      fetchInsights().finally(() => {
+        if (isMountedRef.current) {
+          isFetchingRef.current = false;
+        }
+      });
+    }
+
+    // Subscribe to strategy:caches:refreshed event
+    const unsubscribe = eventBus.subscribe('strategy:caches:refreshed', (data) => {
+      if (isMountedRef.current && !isFetchingRef.current) {
+        logService.log('info', 'Received strategy:caches:refreshed event, refreshing market insights', data, 'AIMarketInsight');
+
+        isFetchingRef.current = true;
+        lastFetchTimeRef.current = Date.now();
+
+        fetchInsights().finally(() => {
+          if (isMountedRef.current) {
+            isFetchingRef.current = false;
+          }
+        });
+      }
+    });
+
+    // Cleanup function
+    return () => {
+      isMountedRef.current = false;
+      unsubscribe();
+    };
   }, [assets]);
 
   const handleRefresh = async () => {
     try {
       setRefreshing(true);
-      // Force a refresh of the global cache
-      await globalCacheService.forceRefreshMarketInsights();
+
+      // Get assets from props or from user strategies
+      let assetList: string[];
+
+      if (assets.size > 0) {
+        // Use assets from props if provided
+        assetList = Array.from(assets);
+      } else {
+        try {
+          // Import strategy service dynamically to avoid circular dependencies
+          const { strategyService } = await import('../lib/strategy-service');
+
+          // Get all strategies (both active and inactive)
+          const strategies = await strategyService.getAllStrategies();
+
+          // Extract unique asset pairs from all strategies
+          const assetSet = new Set<string>();
+
+          if (strategies && strategies.length > 0) {
+            strategies.forEach(strategy => {
+              // Extract trading pairs from various possible locations
+              let pairs: string[] = [];
+
+              if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+                pairs = strategy.selected_pairs;
+              } else if (strategy.strategy_config?.assets && strategy.strategy_config.assets.length > 0) {
+                pairs = strategy.strategy_config.assets;
+              } else if (strategy.strategy_config?.config?.pairs && strategy.strategy_config.config.pairs.length > 0) {
+                pairs = strategy.strategy_config.config.pairs;
+              }
+
+              // Add each pair to the set
+              pairs.forEach(pair => {
+                // Normalize pair format (ensure it uses underscores for DeepSeek API)
+                const normalizedPair = pair.includes('/') ? pair.replace('/', '_') : pair;
+                assetSet.add(normalizedPair);
+              });
+            });
+          }
+
+          // Convert Set to Array
+          assetList = Array.from(assetSet);
+
+          // If no assets found, use defaults
+          if (assetList.length === 0) {
+            assetList = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT'];
+          }
+        } catch (strategyError) {
+          console.error('Error getting user strategy assets:', strategyError);
+          // Fallback to default assets
+          assetList = ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT'];
+        }
+      }
+
+      // Force a refresh of the global cache with the specific assets
+      await globalCacheService.forceRefreshMarketInsights(assetList);
+
       // Then fetch the updated insights
       await fetchInsights();
     } catch (error) {
-      console.error('Error refreshing insights:', error);
+      logService.log('error', 'Error refreshing market insights', error, 'AIMarketInsight');
       setError('Failed to refresh market insights');
     } finally {
       setRefreshing(false);

@@ -13,6 +13,8 @@ import { riskManagementService } from './risk-management-service';
 import { walletBalanceService } from './wallet-balance-service';
 import { supabase } from './supabase';
 import { unifiedTradeService } from './unified-trade-service';
+import { enhancedMarketDataService } from './enhanced-market-data-service';
+import { strategyAdaptationService } from './strategy-adaptation-service';
 import type { Strategy, MarketAnalysis, RiskLevel, MarketRegime, MarketType, TradeOptions } from './types';
 import { config } from './config';
 
@@ -791,15 +793,90 @@ class TradeGenerator extends EventEmitter {
 
   private async calculateIndicators(strategy: Strategy, data: any[]): Promise<IndicatorData[]> {
     const indicators: IndicatorData[] = [];
-    const closes = data.map(d => d.close);
 
     try {
+      // Ensure data is valid
+      if (!data || !Array.isArray(data) || data.length === 0) {
+        logService.log('warn', 'No valid data for calculating indicators', null, 'TradeGenerator');
+        return indicators;
+      }
+
+      logService.log('info', `Calculating indicators for ${strategy.id} with ${data.length} data points`,
+        { dataFormat: typeof data[0], firstItem: JSON.stringify(data[0]).substring(0, 100) }, 'TradeGenerator');
+
+      // Extract prices, handling different data formats
+      let closes: number[] = [];
+      let highs: number[] = [];
+      let lows: number[] = [];
+      let volumes: number[] = [];
+
+      // Determine data format and extract values
+      if (typeof data[0].close === 'number') {
+        // Object format with properties
+        closes = data.map(d => d.close);
+        highs = data.map(d => d.high || d.close);
+        lows = data.map(d => d.low || d.close);
+        volumes = data.map(d => d.volume || 0);
+      } else if (Array.isArray(data[0]) && data[0].length >= 5) {
+        // Array format from exchange API [timestamp, open, high, low, close, volume]
+        closes = data.map(d => parseFloat(d[4]));
+        highs = data.map(d => parseFloat(d[2]));
+        lows = data.map(d => parseFloat(d[3]));
+        volumes = data.map(d => parseFloat(d[5] || '0'));
+      } else if (typeof data[0] === 'number') {
+        // Simple array of prices
+        closes = data as number[];
+        highs = closes;
+        lows = closes;
+        volumes = new Array(closes.length).fill(1);
+      } else {
+        // Unknown format - log and return empty indicators
+        logService.log('warn', 'Unknown data format for calculating indicators',
+          { sampleData: JSON.stringify(data[0]).substring(0, 100) }, 'TradeGenerator');
+        return indicators;
+      }
+
+      // Ensure we have enough data points for the most demanding indicator
+      const minDataPoints = 26; // MACD needs at least 26 data points
+      if (closes.length < minDataPoints) {
+        logService.log('warn', `Not enough data points for indicators: ${closes.length}, need at least ${minDataPoints}`,
+          { strategyId: strategy.id }, 'TradeGenerator');
+
+        // If we have at least some data, we can still calculate simple indicators
+        if (closes.length >= 5) {
+          logService.log('info', `Calculating limited indicators with ${closes.length} data points`, null, 'TradeGenerator');
+
+          // Calculate simple moving average with available data
+          try {
+            const smaConfig = {
+              name: 'SMA',
+              params: {
+                period: Math.min(5, closes.length - 1)
+              }
+            };
+            const sma = await indicatorService.calculateIndicator(smaConfig, closes);
+            indicators.push({
+              name: 'SMA',
+              value: sma.value,
+              timeframe: '5m'
+            });
+          } catch (smaError) {
+            logService.log('warn', 'Failed to calculate SMA with limited data', smaError, 'TradeGenerator');
+          }
+
+          return indicators;
+        }
+
+        return indicators;
+      }
+
       // Calculate RSI
-      if (strategy.strategy_config?.indicators?.includes('RSI')) {
+      try {
         const rsiConfig = {
-          type: 'RSI',
-          period: 14,
-          parameters: {}
+          name: 'RSI',
+          params: {
+            period: 14
+          }
         };
         const rsi = await indicatorService.calculateIndicator(rsiConfig, closes);
         indicators.push({
@@ -807,14 +884,17 @@ class TradeGenerator extends EventEmitter {
           value: rsi.value,
           timeframe: '5m'
         });
+
+        logService.log('debug', `Calculated RSI: ${rsi.value}`, null, 'TradeGenerator');
+      } catch (rsiError) {
+        logService.log('warn', 'Failed to calculate RSI', rsiError, 'TradeGenerator');
       }
 
       // Calculate MACD
-      if (strategy.strategy_config?.indicators?.includes('MACD')) {
+      try {
         const macdConfig = {
-          type: 'MACD',
-          period: null,
-          parameters: {
+          name: 'MACD',
+          params: {
             fast_period: 12,
             slow_period: 26,
             signal_period: 9
@@ -824,13 +904,155 @@ class TradeGenerator extends EventEmitter {
         indicators.push({
           name: 'MACD',
           value: macd.value,
-          signal: macd.signal,
+          signal: macd.metadata?.signal || 0,
           timeframe: '5m'
         });
+
+        logService.log('debug', `Calculated MACD: ${macd.value}, Signal: ${macd.metadata?.signal}`, null, 'TradeGenerator');
+      } catch (macdError) {
+        logService.log('warn', 'Failed to calculate MACD', macdError, 'TradeGenerator');
       }
 
-      // Add more indicators as needed...
+      // Calculate Bollinger Bands
+      try {
+        const bbConfig = {
+          name: 'BB',
+          params: {
+            period: 20
+          }
+        };
+        const bb = await indicatorService.calculateIndicator(bbConfig, closes);
+        indicators.push({
+          name: 'BB',
+          value: bb.value,
+          timeframe: '5m',
+          upper: bb.metadata?.upper,
+          lower: bb.metadata?.lower
+        });
 
+        logService.log('debug', `Calculated BB: Middle: ${bb.value}, Upper: ${bb.metadata?.upper}, Lower: ${bb.metadata?.lower}`, null, 'TradeGenerator');
+      } catch (bbError) {
+        logService.log('warn', 'Failed to calculate Bollinger Bands', bbError, 'TradeGenerator');
+      }
+
+      // Calculate EMA (50)
+      try {
+        const emaConfig = {
+          name: 'EMA',
+          params: {
+            period: 50
+          }
+        };
+        if (closes.length >= 50) {
+          const ema = await indicatorService.calculateIndicator(emaConfig, closes);
+          indicators.push({
+            name: 'EMA50',
+            value: ema.value,
+            timeframe: '5m'
+          });
+
+          logService.log('debug', `Calculated EMA50: ${ema.value}`, null, 'TradeGenerator');
+        }
+      } catch (emaError) {
+        logService.log('warn', 'Failed to calculate EMA50', emaError, 'TradeGenerator');
+      }
+
+      // Calculate ATR if we have high/low data
+      if (highs.length === lows.length && highs.length === closes.length) {
+        try {
+          // Create synthetic trades with high/low/close for ATR calculation
+          const tradesForATR = closes.map((close, i) => ({
+            price: close,
+            high: highs[i],
+            low: lows[i],
+            timestamp: Date.now() - (closes.length - i) * 60000
+          }));
+
+          const atrConfig = {
+            name: 'ATR',
+            params: {
+              period: 14
+            }
+          };
+          const atr = await indicatorService.calculateIndicator(atrConfig, tradesForATR);
+          indicators.push({
+            name: 'ATR',
+            value: atr.value,
+            timeframe: '5m'
+          });
+
+          logService.log('debug', `Calculated ATR: ${atr.value}`, null, 'TradeGenerator');
+        } catch (atrError) {
+          logService.log('warn', 'Failed to calculate ATR', atrError, 'TradeGenerator');
+        }
+      }
+
+      // Add strategy-specific indicators if configured
+      if (strategy.strategy_config?.indicators && Array.isArray(strategy.strategy_config.indicators)) {
+        for (const indicator of strategy.strategy_config.indicators) {
+          // Skip indicators we've already calculated
+          if (['RSI', 'MACD', 'BB', 'EMA50', 'ATR'].includes(indicator)) {
+            continue;
+          }
+
+          try {
+            logService.log('info', `Calculating strategy-specific indicator: ${indicator}`, null, 'TradeGenerator');
+
+            // Configure indicator based on type
+            let config: any;
+            switch (indicator) {
+              case 'STOCH':
+                config = {
+                  name: 'STOCH',
+                  params: {
+                    period: 14,
+                    signalPeriod: 3
+                  }
+                };
+                break;
+              case 'CCI':
+                config = {
+                  name: 'CCI',
+                  params: {
+                    period: 20
+                  }
+                };
+                break;
+              case 'ADX':
+                config = {
+                  name: 'ADX',
+                  params: {
+                    period: 14
+                  }
+                };
+                break;
+              default:
+                config = {
+                  name: indicator,
+                  params: {
+                    period: 14
+                  }
+                };
+            }
+
+            // Calculate the indicator
+            const result = await indicatorService.calculateIndicator(config, closes);
+            indicators.push({
+              name: indicator,
+              value: result.value,
+              timeframe: '5m',
+              ...result.metadata
+            });
+
+            logService.log('debug', `Calculated ${indicator}: ${result.value}`, null, 'TradeGenerator');
+          } catch (indicatorError) {
+            logService.log('warn', `Failed to calculate strategy-specific indicator: ${indicator}`, indicatorError, 'TradeGenerator');
+          }
+        }
+      }
+
+      logService.log('info', `Successfully calculated ${indicators.length} indicators for strategy ${strategy.id}`,
+        { indicators: indicators.map(i => i.name) }, 'TradeGenerator');
       return indicators;
     } catch (error) {
       logService.log('error', 'Error calculating indicators', error, 'TradeGenerator');
@@ -840,22 +1062,91 @@ class TradeGenerator extends EventEmitter {
 
   private async getHistoricalData(symbol: string): Promise<any[]> {
     try {
+      logService.log('info', `Getting historical data for ${symbol}`, null, 'TradeGenerator');
+
+      // Normalize the symbol format to ensure consistency
+      const normalizedSymbol = this.normalizeSymbol(symbol);
+
       const endTime = Math.floor(Date.now() / 1000);
       const startTime = Math.floor((Date.now() - this.LOOKBACK_PERIOD) / 1000);
 
-      const klines = await bitmartService.getKlines(symbol, startTime, endTime, '1m');
-      return klines.map(kline => ({
-        timestamp: kline[0],
-        open: parseFloat(kline[1]),
-        high: parseFloat(kline[2]),
-        low: parseFloat(kline[3]),
-        close: parseFloat(kline[4]),
-        volume: parseFloat(kline[5])
-      }));
+      // Try to get data from bitmart first
+      try {
+        const klines = await bitmartService.getKlines(normalizedSymbol, startTime, endTime, '1m');
+
+        // Validate the data format
+        if (klines && Array.isArray(klines) && klines.length > 0) {
+          logService.log('info', `Retrieved ${klines.length} klines from Bitmart for ${normalizedSymbol}`, null, 'TradeGenerator');
+
+          // Transform the data into a consistent format
+          return klines.map(kline => ({
+            timestamp: kline[0],
+            open: parseFloat(kline[1]),
+            high: parseFloat(kline[2]),
+            low: parseFloat(kline[3]),
+            close: parseFloat(kline[4]),
+            volume: parseFloat(kline[5])
+          }));
+        } else {
+          logService.log('warn', `Received empty or invalid klines from Bitmart for ${normalizedSymbol}`, { klines }, 'TradeGenerator');
+        }
+      } catch (bitmartError) {
+        logService.log('warn', `Failed to get klines from Bitmart for ${normalizedSymbol}, trying fallback sources`, bitmartError, 'TradeGenerator');
+      }
+
+      // Fallback to market monitor if bitmart fails
+      try {
+        const marketData = marketMonitor.getMarketData(normalizedSymbol);
+        if (marketData && marketData.candles && marketData.candles.length > 0) {
+          logService.log('info', `Retrieved ${marketData.candles.length} candles from market monitor for ${normalizedSymbol}`, null, 'TradeGenerator');
+          return marketData.candles;
+        } else {
+          logService.log('warn', `No candles available from market monitor for ${normalizedSymbol}`, null, 'TradeGenerator');
+        }
+      } catch (marketMonitorError) {
+        logService.log('warn', `Failed to get data from market monitor for ${normalizedSymbol}`, marketMonitorError, 'TradeGenerator');
+      }
+
+      // Last resort: try to get data from enhanced market data service
+      try {
+        const enhancedData = await enhancedMarketDataService.getMarketData(normalizedSymbol, ['1m', '5m'], true);
+        if (enhancedData && enhancedData.candles && enhancedData.candles['1m'] && enhancedData.candles['1m'].length > 0) {
+          logService.log('info', `Retrieved ${enhancedData.candles['1m'].length} candles from enhanced market data service for ${normalizedSymbol}`, null, 'TradeGenerator');
+          return enhancedData.candles['1m'];
+        } else if (enhancedData && enhancedData.candles && enhancedData.candles['5m'] && enhancedData.candles['5m'].length > 0) {
+          logService.log('info', `Retrieved ${enhancedData.candles['5m'].length} candles from enhanced market data service (5m) for ${normalizedSymbol}`, null, 'TradeGenerator');
+          return enhancedData.candles['5m'];
+        } else {
+          logService.log('warn', `No candles available from enhanced market data service for ${normalizedSymbol}`, null, 'TradeGenerator');
+        }
+      } catch (enhancedDataError) {
+        logService.log('warn', `Failed to get data from enhanced market data service for ${normalizedSymbol}`, enhancedDataError, 'TradeGenerator');
+      }
+
+      // If all attempts fail, return an empty array
+      logService.log('error', `All attempts to get historical data for ${normalizedSymbol} failed`, null, 'TradeGenerator');
+      return [];
     } catch (error) {
       logService.log('error', `Failed to get historical data for ${symbol}`, error, 'TradeGenerator');
       return [];
     }
+  }
+
+  /**
+   * Normalize symbol format to ensure consistency across different exchanges
+   */
+  private normalizeSymbol(symbol: string): string {
+    // If symbol doesn't contain a separator, assume it's BTC/USDT format
+    if (!symbol.includes('/') && !symbol.includes('-')) {
+      return 'BTC/USDT';
+    }
+
+    // Ensure consistent format with / separator
+    if (symbol.includes('-')) {
+      return symbol.replace('-', '/');
+    }
+
+    return symbol;
   }
 
   private async generateTradeSignal(
@@ -873,6 +1164,10 @@ class TradeGenerator extends EventEmitter {
     takeProfit: number;
     trailingStop?: number;
     rationale: string;
+    entryConditions?: string[];
+    exitConditions?: string[];
+    marginType?: string;
+    leverage?: number;
   } | null> {
     try {
       // Log that we're generating a trade signal
@@ -883,23 +1178,40 @@ class TradeGenerator extends EventEmitter {
         marketType: strategy.marketType || 'spot'
       }, 'TradeGenerator');
 
-      // Get market analysis for better trade generation
-      let marketAnalysis: MarketAnalysis | undefined;
+      // Get enhanced market data for better trade generation
+      let enhancedMarketData;
       try {
-        marketAnalysis = await marketAnalysisService.getMarketAnalysis(symbol, true); // Force refresh
-        logService.log('info', `Market analysis for ${symbol}:`, {
-          regime: marketAnalysis.regime,
-          trend: marketAnalysis.trend,
-          strength: marketAnalysis.strength,
-          volatility: marketAnalysis.volatility,
-          support: marketAnalysis.support,
-          resistance: marketAnalysis.resistance
+        enhancedMarketData = await enhancedMarketDataService.getMarketData(symbol, ['5m', '1h', '4h'], true);
+        logService.log('info', `Enhanced market data for ${symbol}:`, {
+          currentPrice: enhancedMarketData.currentPrice,
+          priceChange24h: enhancedMarketData.priceChange24h,
+          volatility: enhancedMarketData.volatility,
+          trend: enhancedMarketData.trend,
+          marketConditions: enhancedMarketData.marketConditions
         }, 'TradeGenerator');
       } catch (error) {
-        logService.log('warn', `Failed to get market analysis for ${symbol}, proceeding without it`, error, 'TradeGenerator');
+        logService.log('warn', `Failed to get enhanced market data for ${symbol}, falling back to basic market analysis`, error, 'TradeGenerator');
       }
 
-      // Prepare a more detailed prompt for DeepSeek with market analysis
+      // Get market analysis as fallback if enhanced data is not available
+      let marketAnalysis: MarketAnalysis | undefined;
+      if (!enhancedMarketData) {
+        try {
+          marketAnalysis = await marketAnalysisService.getMarketAnalysis(symbol, true); // Force refresh
+          logService.log('info', `Market analysis for ${symbol}:`, {
+            regime: marketAnalysis.regime,
+            trend: marketAnalysis.trend,
+            strength: marketAnalysis.strength,
+            volatility: marketAnalysis.volatility,
+            support: marketAnalysis.support,
+            resistance: marketAnalysis.resistance
+          }, 'TradeGenerator');
+        } catch (error) {
+          logService.log('warn', `Failed to get market analysis for ${symbol}, proceeding without it`, error, 'TradeGenerator');
+        }
+      }
+
+      // Prepare a more detailed prompt for DeepSeek with enhanced market data
       const prompt = `Analyze this trading opportunity with the following context:
 
 Strategy Configuration:
@@ -907,26 +1219,28 @@ ${JSON.stringify(strategy.strategy_config, null, 2)}
 
 Current Market Data:
 - Symbol: ${symbol}
-- Current Price: ${currentPrice}
-- Market Regime: ${marketAnalysis?.regime || 'unknown'}
-- Market Trend: ${marketAnalysis?.trend || 'neutral'} (Strength: ${marketAnalysis?.strength || 50})
-- Volatility: ${marketAnalysis?.volatility || 50}/100
-- Liquidity Score: ${marketAnalysis?.liquidity?.score || 50}/100
-- Support Level: ${marketAnalysis?.support || 'unknown'}
-- Resistance Level: ${marketAnalysis?.resistance || 'unknown'}
+- Current Price: ${enhancedMarketData?.currentPrice || currentPrice}
+- Price Change 24h: ${enhancedMarketData?.priceChange24h || 'unknown'}%
+- Market Trend: ${enhancedMarketData?.trend || marketAnalysis?.trend || 'neutral'}
+- Volatility: ${enhancedMarketData?.volatility || marketAnalysis?.volatility || 50}/100
+- Support Level: ${enhancedMarketData?.indicators?.['1h']?.supportResistance?.support || marketAnalysis?.support || 'unknown'}
+- Resistance Level: ${enhancedMarketData?.indicators?.['1h']?.supportResistance?.resistance || marketAnalysis?.resistance || 'unknown'}
 - Risk Level: ${strategy.riskLevel || 'Medium'}
 - Available Budget: $${availableBudget ? availableBudget.toFixed(2) : 'Unknown'}
 - Market Type: ${strategy.marketType || 'spot'}
 
 Technical Indicators:
-${JSON.stringify(indicators, null, 2)}
+${JSON.stringify(enhancedMarketData?.indicators || indicators, null, 2)}
 
 Historical Data (Last 10 Candles):
-${JSON.stringify(historicalData.slice(-10), null, 2)}
+${JSON.stringify(enhancedMarketData?.candles?.['1h']?.slice(-10) || historicalData.slice(-10), null, 2)}
+
+Market Conditions:
+${JSON.stringify(enhancedMarketData?.marketConditions || { volatility: marketAnalysis?.volatility || 50, trend: marketAnalysis?.trend || 'neutral' }, null, 2)}
 
 Requirements:
 1. Analyze if current conditions match strategy rules
-2. Consider market regime, trend, and volatility
+2. Consider market trend, volatility, and technical indicators
 3. Calculate precise entry, exit, and risk levels appropriate for ${strategy.marketType || 'spot'} trading
 4. Provide confidence score and detailed rationale
 5. Ensure risk parameters match ${strategy.riskLevel || 'Medium'} risk level
@@ -935,6 +1249,8 @@ Requirements:
 8. If conditions are not favorable, return null or a confidence score below 0.5
 9. For futures trades, recommend appropriate leverage (1-10x) based on volatility
 10. For margin trades, specify if cross or isolated margin is more appropriate
+11. Include specific entry and exit conditions based on technical indicators
+12. Consider support and resistance levels for stop loss and take profit targets
 
 Return ONLY a JSON object with this structure:
 {
@@ -945,6 +1261,8 @@ Return ONLY a JSON object with this structure:
   "trailingStop": number (optional, percentage),
   "leverage": number (only for futures),
   "marginType": "cross" | "isolated" (only for futures/margin),
+  "entryConditions": string[] (specific conditions for entry),
+  "exitConditions": string[] (specific conditions for exit),
   "rationale": string (detailed explanation)
 }`;
 
@@ -1490,11 +1808,15 @@ Return ONLY a JSON object with this structure:
 
   /**
    * Adapt a single strategy based on current market conditions
+   * Uses the strategy adaptation service for more comprehensive adaptation
    */
   private async adaptStrategy(strategy: Strategy): Promise<void> {
     try {
       const strategyId = strategy.id;
       logService.log('info', `Adapting strategy ${strategyId} to current market conditions`, null, 'TradeGenerator');
+
+      // Use the strategy adaptation service to check and adapt the strategy
+      await strategyAdaptationService.checkStrategyMarketFit(strategyId);
 
       // Get the trading pairs for this strategy
       const tradingPairs = strategy.selected_pairs || [];
@@ -1692,15 +2014,33 @@ Return ONLY a JSON object with the updated strategy configuration:
       }
 
       // Extract JSON from response
-      const jsonStart = content.indexOf('{');
-      const jsonEnd = content.lastIndexOf('}');
-
-      if (jsonStart === -1 || jsonEnd === -1) {
-        throw new Error('No valid JSON found in response');
-      }
-
       try {
-        const jsonContent = content.substring(jsonStart, jsonEnd + 1);
+        // First, try to find JSON within code blocks (```json ... ```)
+        let jsonContent = '';
+        const codeBlockMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          jsonContent = codeBlockMatch[1];
+          logService.log('info', 'Found JSON in code block', null, 'TradeGenerator');
+        } else {
+          // If no code block, try to find JSON directly
+          const jsonStart = content.indexOf('{');
+          const jsonEnd = content.lastIndexOf('}');
+
+          if (jsonStart === -1 || jsonEnd === -1) {
+            throw new Error('No valid JSON found in response');
+          }
+
+          jsonContent = content.substring(jsonStart, jsonEnd + 1);
+          logService.log('info', 'Found JSON directly in content', null, 'TradeGenerator');
+        }
+
+        // Clean up the JSON content
+        jsonContent = jsonContent.trim();
+
+        // Log the JSON content for debugging
+        logService.log('debug', 'Extracted JSON content', { jsonContent: jsonContent.substring(0, 100) + '...' }, 'TradeGenerator');
+
         const updatedConfig = JSON.parse(jsonContent);
 
         // Validate updated config

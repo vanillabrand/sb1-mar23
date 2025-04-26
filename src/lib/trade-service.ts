@@ -170,9 +170,16 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     }
 
     // Validate the amount is positive and reasonable
-    if (!amount || amount <= 0) {
-      logService.log('warn', `Invalid amount for budget reservation: ${amount}`, null, 'TradeService');
-      return false;
+    if (isNaN(amount) || !amount || amount <= 0) {
+      logService.log('warn', `Invalid amount for budget reservation: ${amount}`, { tradeId, strategyId }, 'TradeService');
+
+      // In demo mode, we can use a small default amount
+      if (this.isDemo) {
+        amount = 10; // Use a small default amount in demo mode
+        logService.log('info', `Using default amount ${amount} for budget reservation in demo mode`, { tradeId, strategyId }, 'TradeService');
+      } else {
+        return false;
+      }
     }
 
     // Check if we have enough available budget

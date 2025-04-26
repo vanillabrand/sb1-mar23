@@ -1028,10 +1028,84 @@ const exchangeProxies = {
   }
 };
 
-// Health check endpoint
-app.get('/health', (_req, res) => {
-  res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
+// Health check endpoint with detailed status
+app.get('/health', async (_req, res) => {
+  try {
+    const memoryUsage = process.memoryUsage();
+    const uptime = process.uptime();
+
+    // Check database connection if needed
+    // const dbStatus = await checkDatabaseConnection();
+
+    // Count active WebSocket connections
+    const activeConnections = clients.size;
+
+    // Check if we can reach external APIs
+    let externalApiStatus = 'unknown';
+    try {
+      const response = await fetch('https://api.binance.com/api/v3/time', {
+        timeout: 5000
+      });
+      externalApiStatus = response.ok ? 'ok' : 'error';
+    } catch (error) {
+      externalApiStatus = 'error';
+    }
+
+    res.status(200).json({
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: {
+        seconds: uptime,
+        formatted: formatUptime(uptime)
+      },
+      memory: {
+        rss: formatBytes(memoryUsage.rss),
+        heapTotal: formatBytes(memoryUsage.heapTotal),
+        heapUsed: formatBytes(memoryUsage.heapUsed),
+        external: formatBytes(memoryUsage.external)
+      },
+      connections: {
+        active: activeConnections
+      },
+      externalApis: {
+        status: externalApiStatus
+      },
+      version: process.env.npm_package_version || 'unknown'
+    });
+  } catch (error) {
+    console.error('Health check error:', error);
+    res.status(500).json({
+      status: 'error',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
+
+// Format bytes to human-readable format
+function formatBytes(bytes) {
+  if (bytes === 0) return '0 Bytes';
+  const k = 1024;
+  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Format uptime to human-readable format
+function formatUptime(seconds) {
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (hours > 0) parts.push(`${hours}h`);
+  if (minutes > 0) parts.push(`${minutes}m`);
+  if (secs > 0 || parts.length === 0) parts.push(`${secs}s`);
+
+  return parts.join(' ');
+}
 
 // Add a direct handler for Kraken API requests
 app.use('/api/kraken-direct/*', async (req, res) => {
@@ -1150,37 +1224,99 @@ app.post('/api/deepseek/v1/chat/completions', async (req, res) => {
 
     // Make the request to the DeepSeek API
     try {
-      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify(requestBody)
-      });
+      // Add timeout and retry logic
+      let retryCount = 0;
+      const maxRetries = 3;
+      let response = null;
+
+      while (retryCount <= maxRetries) {
+        try {
+          // Add exponential backoff for retries
+          if (retryCount > 0) {
+            const delay = 1000 * Math.pow(2, retryCount - 1);
+            console.log(`Retrying DeepSeek API call (${retryCount}/${maxRetries}) after ${delay}ms delay`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+
+          response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify(requestBody),
+            timeout: 30000 // 30 second timeout
+          });
+
+          // If successful, break out of retry loop
+          if (response.ok) {
+            break;
+          }
+
+          // If we get a 5xx error, retry
+          if (response.status >= 500) {
+            const errorText = await response.text();
+            console.error(`DeepSeek API server error (${response.status}), will retry:`, errorText);
+            retryCount++;
+            continue;
+          }
+
+          // For other errors (4xx), don't retry
+          const errorText = await response.text();
+          console.error(`DeepSeek API client error: ${response.status}`, errorText);
+          return res.status(response.status).json({
+            error: `DeepSeek API error: ${response.status}`,
+            message: errorText
+          });
+        } catch (fetchAttemptError) {
+          console.error(`DeepSeek API fetch attempt ${retryCount + 1} failed:`, fetchAttemptError);
+          retryCount++;
+
+          // If we've exhausted all retries, throw the error to be caught by the outer catch
+          if (retryCount > maxRetries) {
+            throw fetchAttemptError;
+          }
+        }
+      }
 
       // Log the response status
       console.log(`DeepSeek API response status: ${response.status}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`DeepSeek API error: ${response.status}`, errorText);
-        return res.status(response.status).json({
-          error: `DeepSeek API error: ${response.status}`,
-          message: errorText
-        });
-      }
 
       // Parse the response
       const data = await response.json();
       console.log('Successfully received response from DeepSeek API');
       return res.json(data);
     } catch (fetchError) {
-      console.error('Error fetching from DeepSeek API:', fetchError);
-      return res.status(500).json({
-        error: 'Error fetching from DeepSeek API',
-        message: fetchError.message
-      });
+      console.error('Error fetching from DeepSeek API after all retries:', fetchError);
+
+      // Generate a synthetic response as fallback
+      console.log('Generating synthetic response as fallback');
+
+      // Create a basic synthetic response that matches the DeepSeek API format
+      const syntheticResponse = {
+        id: `synthetic-${Date.now()}`,
+        object: 'chat.completion',
+        created: Math.floor(Date.now() / 1000),
+        model: 'deepseek-chat',
+        choices: [
+          {
+            index: 0,
+            message: {
+              role: 'assistant',
+              content: 'I apologize, but I am currently unable to process your request due to technical difficulties. Please try again later.'
+            },
+            finish_reason: 'stop'
+          }
+        ],
+        usage: {
+          prompt_tokens: 0,
+          completion_tokens: 0,
+          total_tokens: 0
+        },
+        _synthetic: true // Add a flag to indicate this is a synthetic response
+      };
+
+      return res.json(syntheticResponse);
     }
   } catch (error) {
     console.error('Error in DeepSeek API handler:', error);
@@ -1291,8 +1427,10 @@ Return ONLY a JSON object with this structure:
 
 // Add a handler for the coindesk-news endpoint
 app.get('/api/coindesk-news', async (req, res) => {
+  // Define asset outside the try block so it's available in the catch block
+  const asset = req.query.asset || 'btc';
+
   try {
-    const asset = req.query.asset || 'btc';
     const apiKey = req.query.apiKey;
 
     if (!apiKey) {
@@ -1301,12 +1439,14 @@ app.get('/api/coindesk-news', async (req, res) => {
 
     console.log(`Fetching news for ${asset} with API key ${apiKey.substring(0, 5)}...`);
 
-    // Try multiple URL formats for the Coindesk API
+    // Try multiple URL formats for the Coindesk API, starting with v2 endpoint
     const urls = [
+      `https://data-api.coindesk.com/v2/news/search?q=${encodeURIComponent(asset)}&limit=10&sort=publishedAt&lang=EN`,
       `https://data-api.coindesk.com/v1/news/search?q=${encodeURIComponent(asset)}&limit=10&sortBy=publishedAt&lang=EN`,
-      `https://data-api.coindesk.com/news/v1/article/list?categories=${encodeURIComponent(asset)}&lang=EN&limit=10`,
-      `https://data-api.coindesk.com/v1/news/articles?tags=${encodeURIComponent(asset.toLowerCase())}&limit=10&sortBy=publishedAt&lang=EN`
+      `https://data-api.coindesk.com/news/v1/article/list?categories=${encodeURIComponent(asset)}&lang=EN&limit=10`
     ];
+
+    console.log(`Trying CoinDesk API URLs for asset: ${asset}`);
 
     let response = null;
     let lastError = null;
@@ -1354,28 +1494,48 @@ app.get('/api/coindesk-news', async (req, res) => {
       articles: []
     };
 
-    // Check if we have articles in the response
-    if (data && data.data && Array.isArray(data.data.items)) {
-      transformedData.articles = data.data.items.map(item => ({
-        id: item.id || `${Date.now()}-${Math.random()}`,
-        title: item.title || 'No Title',
-        description: item.description || item.excerpt || '',
-        content: item.content || item.description || '',
-        url: item.url || '',
-        urlToImage: item.thumbnail?.url || item.leadImage?.url || '',
-        publishedAt: item.publishedAt || new Date().toISOString(),
-        source: { name: 'Coindesk' }
-      }));
-    } else if (data && Array.isArray(data.results)) {
-      // Alternative format
+    // Log the structure of the response to help debug
+    console.log(`CoinDesk API response structure: ${Object.keys(data).join(', ')}`);
+
+    // Check for v2 API format first
+    if (data && Array.isArray(data.results)) {
+      console.log(`Found v2 API format with ${data.results.length} results`);
       transformedData.articles = data.results.map(item => ({
         id: item.id || `${Date.now()}-${Math.random()}`,
         title: item.title || 'No Title',
-        description: item.description || item.excerpt || '',
+        description: item.description || item.excerpt || item.summary || '',
         content: item.content || item.description || '',
         url: item.url || '',
         urlToImage: item.thumbnail?.url || item.leadImage?.url || item.image || '',
-        publishedAt: item.publishedAt || new Date().toISOString(),
+        publishedAt: item.publishedAt || item.published_at || new Date().toISOString(),
+        source: { name: 'Coindesk' }
+      }));
+    }
+    // Check for v1 API format
+    else if (data && data.data && Array.isArray(data.data.items)) {
+      console.log(`Found v1 API format with ${data.data.items.length} items`);
+      transformedData.articles = data.data.items.map(item => ({
+        id: item.id || `${Date.now()}-${Math.random()}`,
+        title: item.title || 'No Title',
+        description: item.description || item.excerpt || item.summary || '',
+        content: item.content || item.description || '',
+        url: item.url || '',
+        urlToImage: item.thumbnail?.url || item.leadImage?.url || '',
+        publishedAt: item.publishedAt || item.published_at || new Date().toISOString(),
+        source: { name: 'Coindesk' }
+      }));
+    }
+    // Check for any other array format
+    else if (data && Array.isArray(data)) {
+      console.log(`Found direct array format with ${data.length} items`);
+      transformedData.articles = data.map(item => ({
+        id: item.id || `${Date.now()}-${Math.random()}`,
+        title: item.title || 'No Title',
+        description: item.description || item.excerpt || item.summary || '',
+        content: item.content || item.description || '',
+        url: item.url || '',
+        urlToImage: item.thumbnail?.url || item.leadImage?.url || item.image || '',
+        publishedAt: item.publishedAt || item.published_at || new Date().toISOString(),
         source: { name: 'Coindesk' }
       }));
     }
@@ -1385,9 +1545,12 @@ app.get('/api/coindesk-news', async (req, res) => {
   } catch (error) {
     console.error('Error fetching news:', error);
 
+    // Make sure asset is defined before generating synthetic news
+    const assetToUse = asset || 'btc';
+
     // Generate synthetic news data as a fallback
-    const syntheticArticles = generateSyntheticNewsArticles(asset);
-    console.log(`Generated ${syntheticArticles.length} synthetic news articles for ${asset}`);
+    const syntheticArticles = generateSyntheticNewsArticles(assetToUse);
+    console.log(`Generated ${syntheticArticles.length} synthetic news articles for ${assetToUse}`);
 
     // Return synthetic articles instead of empty array to provide a better user experience
     res.json({ status: 'ok', articles: syntheticArticles });
@@ -1548,48 +1711,81 @@ wss.on('connection', (ws, req) => {
   // Set up a ping interval to keep the connection alive
   const pingInterval = setInterval(() => {
     if (ws.readyState === WebSocket.OPEN) {
-      console.log(`Sending ping to client ${clientId}`);
-      ws.send(JSON.stringify({
-        type: 'ping',
-        timestamp: Date.now()
-      }));
-
-      // Set a timeout to check if we receive a pong
-      const pongTimeout = setTimeout(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          console.log(`No pong received from client ${clientId} within timeout, checking connection...`);
-
-          // Send a verification ping
-          try {
-            ws.send(JSON.stringify({
-              type: 'ping',
-              timestamp: Date.now(),
-              isVerification: true
-            }));
-
-            // Set another timeout for the verification ping
-            setTimeout(() => {
-              if (ws.readyState === WebSocket.OPEN) {
-                console.log(`No verification pong received from client ${clientId}, terminating connection`);
-                ws.terminate(); // Force close the connection
-              }
-            }, 5000); // Wait 5 seconds for verification pong
-          } catch (error) {
-            console.error(`Error sending verification ping to client ${clientId}:`, error);
-            ws.terminate(); // Force close the connection on error
-          }
-        }
-      }, 15000); // Wait 15 seconds for pong
-
-      // Store the timeout in the client object so we can clear it if we receive a pong
       const client = clients.get(clientId);
-      if (client) {
-        client.pongTimeout = pongTimeout;
+      if (!client) {
+        clearInterval(pingInterval);
+        return;
+      }
+
+      // Check if we haven't received a pong in a long time (5 minutes)
+      const lastPongAge = Date.now() - client.lastPongReceived;
+      if (lastPongAge > 300000) { // 5 minutes
+        console.log(`No pong received from client ${clientId} for ${Math.round(lastPongAge/1000)}s, terminating connection`);
+        ws.terminate();
+        clearInterval(pingInterval);
+        return;
+      }
+
+      console.log(`Sending ping to client ${clientId}`);
+      try {
+        ws.send(JSON.stringify({
+          type: 'ping',
+          timestamp: Date.now()
+        }));
+
+        // Set a timeout to check if we receive a pong
+        const pongTimeout = setTimeout(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            console.log(`No pong received from client ${clientId} within timeout, checking connection...`);
+
+            // Send a verification ping
+            try {
+              ws.send(JSON.stringify({
+                type: 'ping',
+                timestamp: Date.now(),
+                isVerification: true
+              }));
+
+              // Set another timeout for the verification ping
+              setTimeout(() => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  // Check if we've received a pong since sending the verification ping
+                  const client = clients.get(clientId);
+                  if (client && Date.now() - client.lastPongReceived > 5000) {
+                    console.log(`No verification pong received from client ${clientId}, terminating connection`);
+                    ws.terminate(); // Force close the connection
+                  }
+                }
+              }, 5000); // Wait 5 seconds for verification pong
+            } catch (error) {
+              console.error(`Error sending verification ping to client ${clientId}:`, error);
+              ws.terminate(); // Force close the connection on error
+            }
+          }
+        }, 15000); // Wait 15 seconds for pong
+
+        // Store the timeout in the client object so we can clear it if we receive a pong
+        if (client) {
+          // Clear any existing timeout to prevent memory leaks
+          if (client.pongTimeout) {
+            clearTimeout(client.pongTimeout);
+          }
+          client.pongTimeout = pongTimeout;
+        }
+      } catch (error) {
+        console.error(`Error sending ping to client ${clientId}:`, error);
+        // If we can't send a ping, the connection is probably dead
+        try {
+          ws.terminate();
+        } catch (terminateError) {
+          console.error(`Error terminating WebSocket for client ${clientId}:`, terminateError);
+        }
+        clearInterval(pingInterval);
       }
     } else {
       clearInterval(pingInterval);
     }
-  }, 30000);
+  }, 30000); // Send ping every 30 seconds
 
   // Handle client disconnection
   ws.on('close', () => {
@@ -1633,10 +1829,14 @@ wss.on('connection', (ws, req) => {
       } else if (parsedMessage.type === 'pong') {
         // Clear the pong timeout if it exists
         const client = clients.get(clientId);
-        if (client && client.pongTimeout) {
-          clearTimeout(client.pongTimeout);
-          client.pongTimeout = null;
-          console.log(`Received pong from client ${clientId}, cleared timeout`);
+        if (client) {
+          if (client.pongTimeout) {
+            clearTimeout(client.pongTimeout);
+            client.pongTimeout = null;
+          }
+          // Update the last pong received timestamp
+          client.lastPongReceived = Date.now();
+          console.log(`Received pong from client ${clientId}, cleared timeout and updated lastPongReceived`);
         }
       } else if (parsedMessage.type === 'subscribe') {
         // Handle subscription requests

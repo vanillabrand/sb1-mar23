@@ -4,6 +4,7 @@ import { exchangeService } from './exchange-service';
 import { templateService } from './template-service';
 import { demoService } from './demo-service';
 import { config } from './config';
+import { initializeEnhancedServices, cleanupEnhancedServices } from './enhanced-services';
 
 class SystemSync {
   private initialized = false;
@@ -311,6 +312,23 @@ class SystemSync {
     }
   }
   /**
+   * Initialize enhanced services for improved trading functionality
+   */
+  async initializeEnhancedServices(): Promise<void> {
+    try {
+      logService.log('info', 'Initializing enhanced services', null, 'SystemSync');
+
+      // Initialize enhanced services
+      await initializeEnhancedServices();
+
+      logService.log('info', 'Enhanced services initialized successfully', null, 'SystemSync');
+    } catch (error) {
+      logService.log('warn', 'Failed to initialize enhanced services, continuing anyway', error, 'SystemSync');
+      // Don't throw error - we want to continue even if enhanced services fail
+    }
+  }
+
+  /**
    * Clean up resources when the system is shutting down
    */
   async cleanup(): Promise<void> {
@@ -323,6 +341,13 @@ class SystemSync {
         websocketService.cleanup();
       } catch (error) {
         logService.log('warn', 'Failed to clean up WebSocket service', error, 'SystemSync');
+      }
+
+      // Clean up enhanced services
+      try {
+        await cleanupEnhancedServices();
+      } catch (error) {
+        logService.log('warn', 'Failed to clean up enhanced services', error, 'SystemSync');
       }
 
       logService.log('info', 'System cleanup completed', null, 'SystemSync');

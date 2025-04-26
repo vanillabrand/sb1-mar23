@@ -33,6 +33,9 @@ import { tradeEngine } from '../lib/trade-engine';
 import { tradeGenerator } from '../lib/trade-generator';
 import { strategyMonitor } from '../lib/strategy-monitor';
 import { websocketService } from '../lib/websocket-service';
+import { enhancedMarketDataService } from '../lib/enhanced-market-data-service';
+import { strategyAdaptationService } from '../lib/strategy-adaptation-service';
+import { unifiedTradeService } from '../lib/unified-trade-service';
 import { strategySync } from '../lib/strategy-sync';
 import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
@@ -421,6 +424,24 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         // Initialize market analyzer
         await marketAnalyzer.initialize();
 
+        // Initialize enhanced market data service
+        try {
+          // This will start the service and set up caching
+          await enhancedMarketDataService.getMarketData('BTC/USDT');
+          logService.log('info', 'Enhanced market data service initialized', null, 'TradeMonitor');
+        } catch (error) {
+          logService.log('warn', 'Failed to initialize enhanced market data service, will fall back to standard market data', error, 'TradeMonitor');
+        }
+
+        // Initialize strategy adaptation service
+        try {
+          // This will initialize the service and load active strategies
+          await strategyAdaptationService.checkStrategyMarketFit(strategies[0]?.id || '');
+          logService.log('info', 'Strategy adaptation service initialized', null, 'TradeMonitor');
+        } catch (error) {
+          logService.log('warn', 'Failed to initialize strategy adaptation service', error, 'TradeMonitor');
+        }
+
         // Initialize budgets for all strategies
         const initializeBudgets = async () => {
           // Get all strategies, not just active ones
@@ -459,6 +480,24 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         // Subscribe to trading opportunities
         eventBus.subscribe('market:tradingOpportunity', (analysis) => {
           logService.log('info', `Trading opportunity detected for ${analysis.symbol}`, analysis, 'TradeMonitor');
+        });
+
+        // Subscribe to strategy adaptation events
+        eventBus.subscribe('strategy:adapted', (data) => {
+          logService.log('info', `Strategy ${data.strategyId} adapted to current market conditions`, data, 'TradeMonitor');
+          // Refresh the strategies list to show the updated strategy
+          fetchStrategies();
+        });
+
+        // Subscribe to market fit updates
+        eventBus.subscribe('strategy:marketFit', (data) => {
+          logService.log('info', `Market fit updated for strategy ${data.strategyId}`, data, 'TradeMonitor');
+          // Update the UI to show the market fit score
+          setStrategies(prev => prev.map(s =>
+            s.id === data.strategyId
+              ? { ...s, market_fit_score: data.analysis.score, market_fit_details: data.analysis.details }
+              : s
+          ));
         });
       } catch (error) {
         logService.log('error', 'Failed to initialize services', error, 'TradeMonitor');
@@ -1797,9 +1836,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         // Get the budget for this strategy
         const strategyBudget = tradeService.getBudget(strategy.id);
 
-        // Create a placeholder trade for immediate visual feedback with realistic values
+        // Create a real trade using the unified trade service for immediate visual feedback
         const symbol = strategy.selected_pairs?.[0] || 'BTC/USDT';
         const basePrice = getBasePrice(symbol);
+        const marketType = strategy.market_type || 'spot';
 
         // Calculate a reasonable amount based on budget
         let amount = 0.1; // Default fallback
@@ -1811,34 +1851,86 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           // Round to 6 decimal places for crypto
           amount = Math.round(amount * 1000000) / 1000000;
 
-          logService.log('info', `Calculated placeholder trade amount ${amount} based on budget ${strategyBudget.available} for ${symbol}`, null, 'TradeMonitor');
+          logService.log('info', `Calculated trade amount ${amount} based on budget ${strategyBudget.available} for ${symbol}`, null, 'TradeMonitor');
         }
 
-        const placeholderTrade: Trade = {
-          id: `placeholder-${strategy.id}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}-${Math.random().toString(36).substring(2, 8)}`,
-          symbol: symbol,
-          side: Math.random() > 0.5 ? 'buy' : 'sell',
-          status: 'pending',
-          entryPrice: basePrice,
-          timestamp: Date.now(),
-          strategyId: strategy.id,
-          createdAt: new Date().toISOString(),
-          executedAt: null,
-          amount: amount
-        };
+        try {
+          // Generate a trade side based on market conditions
+          const side = Math.random() > 0.5 ? 'buy' : 'sell';
 
-        // Add the placeholder trade to the strategy's trades only if it doesn't exist
-        setStrategyTrades(prev => {
-          // Check if a similar placeholder trade already exists
-          const existingPlaceholder = (prev[strategy.id] || []).find(t =>
-            t.id.startsWith('placeholder-') && t.symbol === placeholderTrade.symbol);
-          if (existingPlaceholder) return prev; // Skip if a similar placeholder exists
+          // Calculate stop loss and take profit based on market conditions
+          const stopLoss = side === 'buy'
+            ? basePrice * 0.95 // 5% below entry for buy
+            : basePrice * 1.05; // 5% above entry for sell
 
-          return {
-            ...prev,
-            [strategy.id]: [placeholderTrade, ...(prev[strategy.id] || [])]
+          const takeProfit = side === 'buy'
+            ? basePrice * 1.1 // 10% above entry for buy
+            : basePrice * 0.9; // 10% below entry for sell
+
+          // Create trade options
+          const tradeOptions = {
+            strategy_id: strategy.id,
+            symbol: symbol,
+            side: side,
+            quantity: amount,
+            price: basePrice,
+            entry_price: basePrice,
+            stop_loss: stopLoss,
+            take_profit: takeProfit,
+            trailing_stop: 2.5, // 2.5% trailing stop
+            market_type: marketType, // Use market_type for database column name
+            marginType: marketType === 'futures' ? 'cross' : undefined,
+            leverage: marketType === 'futures' ? 2 : undefined,
+            rationale: 'Initial trade for newly activated strategy',
+            entry_conditions: ['Strategy activation'],
+            exit_conditions: ['Take profit', 'Stop loss', 'Trailing stop']
           };
-        });
+
+          // Create the trade using unified trade service
+          const createdTrade = await unifiedTradeService.createTrade(tradeOptions);
+
+          if (createdTrade) {
+            logService.log('info', `Created initial trade for strategy ${strategy.id} using unified trade service`, {
+              tradeId: createdTrade.id,
+              symbol,
+              side,
+              amount
+            }, 'TradeMonitor');
+
+            // The trade will be added to the UI through the event system
+          } else {
+            // Fallback to adding a placeholder trade if creation fails
+            logService.log('warn', `Failed to create trade using unified service, adding placeholder`, null, 'TradeMonitor');
+
+            const placeholderTrade: Trade = {
+              id: `placeholder-${strategy.id}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+              symbol: symbol,
+              side: side,
+              status: 'pending',
+              entryPrice: basePrice,
+              timestamp: Date.now(),
+              strategyId: strategy.id,
+              createdAt: new Date().toISOString(),
+              executedAt: null,
+              amount: amount
+            };
+
+            // Add the placeholder trade to the strategy's trades only if it doesn't exist
+            setStrategyTrades(prev => {
+              // Check if a similar placeholder trade already exists
+              const existingPlaceholder = (prev[strategy.id] || []).find(t =>
+                t.id.startsWith('placeholder-') && t.symbol === placeholderTrade.symbol);
+              if (existingPlaceholder) return prev; // Skip if a similar placeholder exists
+
+              return {
+                ...prev,
+                [strategy.id]: [placeholderTrade, ...(prev[strategy.id] || [])]
+              };
+            });
+          }
+        } catch (tradeError) {
+          logService.log('error', `Failed to create initial trade for strategy ${strategy.id}`, tradeError, 'TradeMonitor');
+        }
       } catch (wsError) {
         logService.log('warn', `Error subscribing to WebSocket updates for strategy ${strategy.id}`, wsError, 'TradeMonitor');
       }

@@ -15,10 +15,10 @@ import type { Strategy, MarketAnalysis } from '../lib/types';
 export const RiskManagerPage: React.FC = () => {
   // State for risk data
   const [portfolioRisk, setPortfolioRisk] = useState({
-    totalRisk: 42.5,
-    maxDrawdown: 8.3,
-    volatilityScore: 38.7,
-    correlationScore: 45.2
+    totalRisk: 0,
+    maxDrawdown: 0,
+    volatilityScore: 0,
+    correlationScore: 0
   });
 
   const [assetRisks, setAssetRisks] = useState([
@@ -30,7 +30,74 @@ export const RiskManagerPage: React.FC = () => {
   const [activeStrategies, setActiveStrategies] = useState<Strategy[]>([]);
   const [marketAnalyses, setMarketAnalyses] = useState<Record<string, MarketAnalysis>>({});
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Function to refresh risk data
+  const refreshRiskData = async () => {
+    try {
+      setRefreshing(true);
+      setError(null);
+
+      // Re-initialize market analyzer
+      await marketAnalyzer.initialize();
+
+      // Get market analyses for all pairs
+      const allPairs = new Set<string>();
+      activeStrategies.forEach(strategy => {
+        (strategy.selected_pairs || []).forEach(pair => {
+          allPairs.add(pair);
+        });
+      });
+
+      // If no pairs found, don't proceed with refresh
+      if (allPairs.size === 0) {
+        setRefreshing(false);
+        return;
+      }
+
+      // Get fresh market analyses for all pairs
+      const analyses: Record<string, MarketAnalysis> = {};
+      for (const pair of allPairs) {
+        try {
+          // Get real-time market data
+          const marketData = await exchangeService.getMarketPrice(pair);
+          const analysis = await marketAnalyzer.analyzeMarket(pair, marketData);
+          analyses[pair] = analysis;
+        } catch (error) {
+          logService.log('warn', `Failed to refresh analysis for ${pair}`, error, 'RiskManagerPage');
+          // Keep existing analysis if available
+          if (marketAnalyses[pair]) {
+            analyses[pair] = marketAnalyses[pair];
+          }
+        }
+      }
+
+      setMarketAnalyses(analyses);
+
+      // Recalculate portfolio risk metrics with fresh data
+      const riskMetrics = await calculatePortfolioRisk(activeStrategies, analyses);
+      setPortfolioRisk(riskMetrics);
+
+      // Update asset risks display
+      const formattedAssetRisks = Object.values(analyses).map(analysis => ({
+        symbol: analysis.symbol,
+        volatility: analysis.volatility,
+        regime: analysis.regime,
+        riskScore: analysis.riskScore,
+        liquidity: analysis.liquidity.score
+      }));
+      setAssetRisks(formattedAssetRisks);
+
+      logService.log('info', 'Risk data refreshed successfully', null, 'RiskManagerPage');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to refresh risk data';
+      setError(errorMessage);
+      logService.log('error', 'Failed to refresh risk data', error, 'RiskManagerPage');
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   // Load strategies and risk data
   useEffect(() => {
@@ -105,26 +172,49 @@ export const RiskManagerPage: React.FC = () => {
           allPairs.add('SOL/USDT');
         }
 
-        // Get market analyses for all pairs
+        // Get market analyses for all pairs using real-time data
         const analyses: Record<string, MarketAnalysis> = {};
         for (const pair of allPairs) {
           try {
-            const analysis = await marketAnalyzer.analyzeMarket(pair);
+            // Get real-time market data from exchange service
+            const marketData = await exchangeService.getMarketPrice(pair);
+
+            // Use market analyzer to get detailed analysis with real-time data
+            const analysis = await marketAnalyzer.analyzeMarket(pair, marketData);
+
+            // Log successful analysis
+            logService.log('info', `Successfully analyzed market for ${pair} using live data`,
+              { volatility: analysis.volatility, regime: analysis.regime }, 'RiskManagerPage');
+
             analyses[pair] = analysis;
           } catch (error) {
-            logService.log('warn', `Failed to analyze market for ${pair}`, error, 'RiskManagerPage');
-            // Create a synthetic analysis as fallback
-            analyses[pair] = {
-              symbol: pair,
-              volatility: Math.floor(Math.random() * 50) + 20,
-              regime: ['trending', 'ranging', 'volatile', 'bearish'][Math.floor(Math.random() * 4)],
-              riskScore: Math.floor(Math.random() * 60) + 20,
-              liquidity: {
-                score: Math.floor(Math.random() * 40) + 50,
-                spreadPercentage: Math.random() * 0.5,
-                depth: Math.random() * 1000000
-              }
-            };
+            logService.log('warn', `Failed to analyze market for ${pair} with live data, trying fallback method`,
+              error, 'RiskManagerPage');
+
+            try {
+              // Try fallback method with historical data
+              const analysis = await marketAnalyzer.analyzeMarket(pair);
+              analyses[pair] = analysis;
+
+              logService.log('info', `Used fallback analysis for ${pair}`,
+                { volatility: analysis.volatility, regime: analysis.regime }, 'RiskManagerPage');
+            } catch (fallbackError) {
+              logService.log('error', `All analysis methods failed for ${pair}, using synthetic data`,
+                fallbackError, 'RiskManagerPage');
+
+              // Create a synthetic analysis as last resort fallback
+              analyses[pair] = {
+                symbol: pair,
+                volatility: 40, // Default medium volatility
+                regime: 'neutral',
+                riskScore: 50, // Default medium risk
+                liquidity: {
+                  score: 70, // Default good liquidity
+                  spreadPercentage: 0.2,
+                  depth: 500000
+                }
+              };
+            }
           }
         }
         setMarketAnalyses(analyses);
@@ -166,16 +256,20 @@ export const RiskManagerPage: React.FC = () => {
       // If no strategies, return default values
       if (!strategies || strategies.length === 0) {
         return {
-          totalRisk: 42.5,
-          maxDrawdown: 8.3,
-          volatilityScore: 38.7,
-          correlationScore: 45.2
+          totalRisk: 0,
+          maxDrawdown: 0,
+          volatilityScore: 0,
+          correlationScore: 0
         };
       }
 
-      // Get risk metrics from risk management service if available
+      // Get risk metrics from risk management service
       try {
+        logService.log('info', 'Calculating portfolio risk using risk management service',
+          { strategyCount: strategies.length }, 'RiskManagerPage');
+
         const riskMetrics = await riskManagementService.calculatePortfolioRisk(strategies);
+
         return {
           totalRisk: riskMetrics.totalRiskScore,
           maxDrawdown: riskMetrics.maxDrawdown,
@@ -183,8 +277,12 @@ export const RiskManagerPage: React.FC = () => {
           correlationScore: riskMetrics.correlationScore
         };
       } catch (error) {
-        logService.log('warn', 'Failed to get risk metrics from service, using calculated values', error, 'RiskManagerPage');
+        logService.log('warn', 'Failed to get risk metrics from service, using fallback calculation',
+          error, 'RiskManagerPage');
       }
+
+      // Fallback calculation if the service fails
+      logService.log('info', 'Using fallback risk calculation', null, 'RiskManagerPage');
 
       // Calculate risk metrics based on strategies and market analyses
       let totalRisk = 0;
@@ -203,7 +301,7 @@ export const RiskManagerPage: React.FC = () => {
         let pairCount = 0;
         (strategy.selected_pairs || []).forEach(pair => {
           if (analyses[pair]) {
-            strategyVolatility += analyses[pair].volatility;
+            strategyVolatility += analyses[pair].volatility || 40; // Default to 40 if volatility is missing
             pairCount++;
           }
         });
@@ -215,7 +313,9 @@ export const RiskManagerPage: React.FC = () => {
           strategy.risk_level === 'Low' ? 0.75 :
           strategy.risk_level === 'Medium' ? 1.0 :
           strategy.risk_level === 'High' ? 1.25 :
-          strategy.risk_level === 'Ultra High' ? 1.5 : 1.0;
+          strategy.risk_level === 'Ultra High' ? 1.5 :
+          strategy.risk_level === 'Extreme' ? 1.75 :
+          strategy.risk_level === 'God Mode' ? 2.0 : 1.0;
 
         totalRisk += (strategyVolatility * riskMultiplier * weight);
         maxDrawdown += (strategyVolatility * 0.2 * riskMultiplier * weight); // Estimate max drawdown as 20% of volatility
@@ -227,6 +327,11 @@ export const RiskManagerPage: React.FC = () => {
         totalRisk /= totalWeight;
         maxDrawdown /= totalWeight;
         volatilityScore /= totalWeight;
+      } else {
+        // If no weight, use default values
+        totalRisk = 40;
+        maxDrawdown = 8;
+        volatilityScore = 40;
       }
 
       // Calculate correlation score based on pair diversity
@@ -240,6 +345,12 @@ export const RiskManagerPage: React.FC = () => {
       // More unique pairs = lower correlation
       correlationScore = Math.max(0, 100 - (uniquePairs.size * 10));
 
+      // Ensure all values are valid numbers
+      totalRisk = isNaN(totalRisk) ? 40 : totalRisk;
+      maxDrawdown = isNaN(maxDrawdown) ? 8 : maxDrawdown;
+      volatilityScore = isNaN(volatilityScore) ? 40 : volatilityScore;
+      correlationScore = isNaN(correlationScore) ? 50 : correlationScore;
+
       return {
         totalRisk,
         maxDrawdown,
@@ -248,11 +359,12 @@ export const RiskManagerPage: React.FC = () => {
       };
     } catch (error) {
       logService.log('error', 'Failed to calculate portfolio risk', error, 'RiskManagerPage');
+      // Return safe default values
       return {
-        totalRisk: 42.5,
-        maxDrawdown: 8.3,
-        volatilityScore: 38.7,
-        correlationScore: 45.2
+        totalRisk: 40,
+        maxDrawdown: 8,
+        volatilityScore: 40,
+        correlationScore: 50
       };
     }
   };
@@ -261,11 +373,29 @@ export const RiskManagerPage: React.FC = () => {
     <div className="p-4 md:p-6 bg-black min-h-screen">
       {/* Header */}
       <div className="mb-6">
-        <div className="flex items-center mb-2">
-          <Shield className="w-6 h-6 text-neon-pink mr-2" />
-          <h1 className="text-2xl font-bold gradient-text mb-4">Risk Manager</h1>
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center">
+            <Shield className="w-6 h-6 text-neon-pink mr-2" />
+            <h1 className="text-2xl font-bold gradient-text">Risk Manager</h1>
+          </div>
+          {activeStrategies.length > 0 && (
+            <button
+              onClick={refreshRiskData}
+              disabled={refreshing || loading}
+              className="flex items-center px-3 py-1.5 rounded-md bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors"
+            >
+              {refreshing ? (
+                <Loader2 className="w-4 h-4 text-neon-turquoise mr-2 animate-spin" />
+              ) : (
+                <svg className="w-4 h-4 text-neon-turquoise mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              )}
+              <span className="text-sm text-gray-300">{refreshing ? 'Refreshing...' : 'Refresh Data'}</span>
+            </button>
+          )}
         </div>
-        <p className="text-gray-400">
+        <p className="text-gray-400 mt-2">
           Monitor and manage risk across your active trading strategies
         </p>
       </div>
@@ -284,52 +414,64 @@ export const RiskManagerPage: React.FC = () => {
           {/* Portfolio Risk Overview */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold gradient-text mb-4">Portfolio Risk Overview</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <RiskMetricsCard
-                title="Total Risk Exposure"
-                value={`${portfolioRisk.totalRisk.toFixed(1)}%`}
-                icon={<AlertTriangle className="w-5 h-5" />}
-                color={portfolioRisk.totalRisk > 70 ? 'red' : portfolioRisk.totalRisk > 40 ? 'yellow' : 'green'}
-                description="Overall portfolio risk level"
-              />
-              <RiskMetricsCard
-                title="Max Drawdown"
-                value={`${portfolioRisk.maxDrawdown.toFixed(1)}%`}
-                icon={<TrendingUp className="w-5 h-5" />}
-                color={portfolioRisk.maxDrawdown > 15 ? 'red' : portfolioRisk.maxDrawdown > 8 ? 'yellow' : 'green'}
-                description="Maximum potential loss"
-              />
-              <RiskMetricsCard
-                title="Volatility Score"
-                value={`${portfolioRisk.volatilityScore.toFixed(1)}`}
-                icon={<Activity className="w-5 h-5" />}
-                color={portfolioRisk.volatilityScore > 70 ? 'red' : portfolioRisk.volatilityScore > 40 ? 'yellow' : 'green'}
-                description="Market price fluctuation"
-              />
-              <RiskMetricsCard
-                title="Correlation Score"
-                value={`${portfolioRisk.correlationScore.toFixed(1)}`}
-                icon={<BarChart2 className="w-5 h-5" />}
-                color={portfolioRisk.correlationScore > 70 ? 'red' : portfolioRisk.correlationScore > 40 ? 'yellow' : 'green'}
-                description="Asset correlation level"
-              />
-            </div>
+            {activeStrategies.length === 0 ? (
+              <div className="panel-metallic rounded-xl p-6 text-center">
+                <div className="flex flex-col items-center justify-center">
+                  <AlertTriangle className="w-10 h-10 text-neon-yellow mb-4" />
+                  <p className="text-gray-300 text-lg mb-2">No active strategies found</p>
+                  <p className="text-gray-400">Please activate a strategy to start viewing risk analytics</p>
+                </div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                <RiskMetricsCard
+                  title="Total Risk Exposure"
+                  value={`${portfolioRisk.totalRisk.toFixed(1)}%`}
+                  icon={<AlertTriangle className="w-5 h-5" />}
+                  color={portfolioRisk.totalRisk > 70 ? 'red' : portfolioRisk.totalRisk > 40 ? 'yellow' : 'green'}
+                  description="Overall portfolio risk level"
+                />
+                <RiskMetricsCard
+                  title="Max Drawdown"
+                  value={`${portfolioRisk.maxDrawdown.toFixed(1)}%`}
+                  icon={<TrendingUp className="w-5 h-5" />}
+                  color={portfolioRisk.maxDrawdown > 15 ? 'red' : portfolioRisk.maxDrawdown > 8 ? 'yellow' : 'green'}
+                  description="Maximum potential loss"
+                />
+                <RiskMetricsCard
+                  title="Volatility Score"
+                  value={`${portfolioRisk.volatilityScore.toFixed(1)}`}
+                  icon={<Activity className="w-5 h-5" />}
+                  color={portfolioRisk.volatilityScore > 70 ? 'red' : portfolioRisk.volatilityScore > 40 ? 'yellow' : 'green'}
+                  description="Market price fluctuation"
+                />
+                <RiskMetricsCard
+                  title="Correlation Score"
+                  value={`${portfolioRisk.correlationScore.toFixed(1)}`}
+                  icon={<BarChart2 className="w-5 h-5" />}
+                  color={portfolioRisk.correlationScore > 70 ? 'red' : portfolioRisk.correlationScore > 40 ? 'yellow' : 'green'}
+                  description="Asset correlation level"
+                />
+              </div>
+            )}
           </div>
 
           {/* Risk Visualization */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-            <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
-              <h3 className="text-lg font-semibold gradient-text mb-4">Portfolio Risk Distribution</h3>
-              <PortfolioRiskChart
-                strategies={activeStrategies as any}
-                marketAnalyses={marketAnalyses}
-              />
+          {activeStrategies.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+              <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+                <h3 className="text-lg font-semibold gradient-text mb-4">Portfolio Risk Distribution</h3>
+                <PortfolioRiskChart
+                  strategies={activeStrategies as any}
+                  marketAnalyses={marketAnalyses}
+                />
+              </div>
+              <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+                <h3 className="text-lg font-semibold gradient-text mb-4">Asset Risk Heatmap</h3>
+                <RiskHeatmap assetRisks={assetRisks} />
+              </div>
             </div>
-            <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
-              <h3 className="text-lg font-semibold gradient-text mb-4">Asset Risk Heatmap</h3>
-              <RiskHeatmap assetRisks={assetRisks} />
-            </div>
-          </div>
+          )}
 
           {/* Active Strategies Risk Management */}
           <div className="mb-8">
@@ -399,21 +541,10 @@ export const RiskManagerPage: React.FC = () => {
                         <h4 className="text-sm font-medium text-gray-300 mb-2">Trading Pairs Risk Analysis</h4>
                         <div className="overflow-x-auto">
                           <AssetRiskTable
-                            assets={[
-                              {
-                                symbol: strategy.selected_pairs[0],
-                                analysis: {
-                                  volatility: 45,
-                                  regime: 'trending' as any,
-                                  riskScore: 38,
-                                  liquidity: {
-                                    score: 85,
-                                    spreadPercentage: 0.2,
-                                    depth: 500000
-                                  }
-                                }
-                              }
-                            ]}
+                            assets={strategy.selected_pairs.map(pair => ({
+                              symbol: pair,
+                              analysis: marketAnalyses[pair] || null
+                            }))}
                           />
                         </div>
                       </div>

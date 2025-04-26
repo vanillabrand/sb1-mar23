@@ -25,6 +25,7 @@ import {
 
 import { useStrategies } from '../hooks/useStrategies';
 import { backtestService } from '../lib/backtest-service';
+import { logService } from '../lib/log-service';
 import { BacktestConfigModal } from './BacktestConfigModal';
 import { BacktestProgress } from './BacktestProgress';
 import { BacktestResults } from './BacktestResults';
@@ -85,9 +86,6 @@ const MARKET_SCENARIOS = [
     color: 'neon-orange'
   }
 ];
-
-type SortField = 'title' | 'performance' | 'risk_level' | 'created_at';
-type SortOrder = 'asc' | 'desc';
 
 const ITEMS_PER_PAGE = 6; // Number of strategies to show per page
 
