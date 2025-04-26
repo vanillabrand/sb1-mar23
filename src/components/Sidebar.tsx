@@ -314,31 +314,47 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
     try {
       logService.log('info', 'Signing out user', null, 'Sidebar');
 
+      // Disconnect from WebSocket
+      websocketService.disconnect();
+
       // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
 
-      // Force clear any cached user data
+      // Force clear all cached user data
       localStorage.removeItem('supabase.auth.token');
+      localStorage.removeItem('sb-auth-token');
+      localStorage.removeItem('sb-user');
+      localStorage.removeItem('activeExchange');
+      localStorage.removeItem('defaultExchange');
+
+      // Clear session storage as well
+      sessionStorage.removeItem('supabase.auth.token');
+      sessionStorage.removeItem('sb-auth-token');
 
       // Navigate to home page with replace to prevent back navigation
       navigate('/', { replace: true });
 
       // Force a page reload to ensure all state is cleared
-      setTimeout(() => {
-        window.location.reload();
-      }, 100);
+      window.location.href = '/';
 
       logService.log('info', 'User signed out successfully', null, 'Sidebar');
     } catch (error) {
       logService.log('error', 'Error during sign out:', error, 'Sidebar');
+
       // Still try to sign out and redirect even if there's an error
-      await supabase.auth.signOut();
-      localStorage.removeItem('supabase.auth.token');
-      navigate('/', { replace: true });
-      setTimeout(() => {
-        window.location.reload();
-      }, 100);
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        logService.log('error', 'Failed to sign out from Supabase', e, 'Sidebar');
+      }
+
+      // Clear all storage
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Force redirect to home page
+      window.location.href = '/';
     }
   };
 

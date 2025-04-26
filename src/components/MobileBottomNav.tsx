@@ -10,6 +10,8 @@ import {
 } from 'lucide-react';
 import { MobileMenu } from './MobileMenu';
 import { supabase } from '../lib/supabase';
+import { logService } from '../lib/log-service';
+import { websocketService } from '../lib/websocket-service';
 
 interface MobileBottomNavProps {
   onMenuToggle: () => void;
@@ -33,25 +35,46 @@ export function MobileBottomNav({ onMenuToggle }: MobileBottomNavProps) {
 
   const handleSignOut = async () => {
     try {
+      logService.log('info', 'Signing out user from mobile nav', null, 'MobileBottomNav');
+
+      // Disconnect from WebSocket
+      websocketService.disconnect();
+
       // Sign out from Supabase
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
 
-      // Force clear any cached user data
+      // Force clear all cached user data
       localStorage.removeItem('supabase.auth.token');
+      localStorage.removeItem('sb-auth-token');
+      localStorage.removeItem('sb-user');
+      localStorage.removeItem('activeExchange');
+      localStorage.removeItem('defaultExchange');
 
-      // Force a page reload to ensure all state is cleared
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 100);
+      // Clear session storage as well
+      sessionStorage.removeItem('supabase.auth.token');
+      sessionStorage.removeItem('sb-auth-token');
+
+      // Force a direct redirect to home page
+      window.location.href = '/';
+
+      logService.log('info', 'User signed out successfully from mobile nav', null, 'MobileBottomNav');
     } catch (error) {
-      console.error('Error during sign out:', error);
-      // Still try to sign out even if there's an error
-      await supabase.auth.signOut();
-      localStorage.removeItem('supabase.auth.token');
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 100);
+      logService.log('error', 'Error during sign out from mobile nav:', error, 'MobileBottomNav');
+
+      // Still try to sign out and redirect even if there's an error
+      try {
+        await supabase.auth.signOut();
+      } catch (e) {
+        logService.log('error', 'Failed to sign out from Supabase', e, 'MobileBottomNav');
+      }
+
+      // Clear all storage
+      localStorage.clear();
+      sessionStorage.clear();
+
+      // Force redirect to home page
+      window.location.href = '/';
     }
   };
 
