@@ -4,7 +4,14 @@ import { tradeService } from '../lib/trade-service';
 import { exchangeService } from '../lib/exchange-service';
 import { logService } from '../lib/log-service';
 import type { Strategy } from '../lib/supabase-types';
-import type { StrategyBudget, ExchangeWallets } from '../lib/types';
+import type { StrategyBudget } from '../lib/types';
+
+// Define ExchangeWallets type locally
+interface ExchangeWallets {
+  [exchangeId: string]: {
+    [currency: string]: number;
+  };
+}
 
 interface BudgetControlProps {
   strategy: Strategy;
@@ -22,10 +29,10 @@ export const BudgetControl: React.FC<BudgetControlProps> = ({ strategy, onSave }
 
   useEffect(() => {
     loadWalletBalances();
-    
+
     // Subscribe to balance updates
     exchangeService.on('balancesUpdated', setWalletBalances);
-    
+
     return () => {
       exchangeService.off('balancesUpdated', setWalletBalances);
     };
@@ -33,8 +40,8 @@ export const BudgetControl: React.FC<BudgetControlProps> = ({ strategy, onSave }
 
   const getAvailableBalance = (): number => {
     if (!walletBalances) return 0;
-    
-    switch ((strategy.strategy_config as { marketType: string })?.marketType) {
+
+    switch (((strategy as any).strategy_config as { marketType: string })?.marketType) {
       case 'margin':
         return walletBalances.margin?.available || 0;
       case 'futures':
@@ -58,7 +65,7 @@ export const BudgetControl: React.FC<BudgetControlProps> = ({ strategy, onSave }
       setLoading(true);
       setError(null);
 
-      const balances = await exchangeService.fetchBalance();
+      const balances = await (exchangeService as any).fetchBalance();
       setWalletBalances(balances);
 
       const availableBalance = getAvailableBalance();
@@ -94,7 +101,7 @@ export const BudgetControl: React.FC<BudgetControlProps> = ({ strategy, onSave }
         'Ultra High': 0.25,
         'Extreme': 0.3,
         'God Mode': 0.5
-      }[strategy.risk_level] || 0.15;
+      }[(strategy as any).risk_level] || 0.1;
 
       const newBudget: StrategyBudget = {
         total: budget,

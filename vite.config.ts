@@ -1,6 +1,8 @@
 import { defineConfig, loadEnv } from 'vite';
 import path from 'path';
 import react from '@vitejs/plugin-react';
+import { nodePolyfills } from 'vite-plugin-node-polyfills';
+import ccxtFixPlugin from './src/lib/vite-plugin-ccxt-fix';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
@@ -9,10 +11,25 @@ export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
 
   return {
-    plugins: [react()],
+    plugins: [
+      react(),
+      nodePolyfills({
+        // Whether to polyfill `node:` protocol imports.
+        protocolImports: true,
+        // Polyfills for specific Node.js modules
+        include: ['querystring', 'events', 'util', 'buffer', 'stream']
+      }),
+      // Custom plugin to fix CCXT static dependencies
+      ccxtFixPlugin(),
+    ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, './src')
+        '@': path.resolve(__dirname, './src'),
+        // Replace the entire CCXT library with our browser-compatible wrapper
+        'ccxt': path.resolve(__dirname, './src/lib/ccxt-browser-wrapper.js'),
+        // Other aliases for specific modules
+        'qs': path.resolve(__dirname, './src/lib/qs-browser-shim.js'),
+        'node_modules/qs': path.resolve(__dirname, './src/lib/qs-browser-shim.js')
       }
     },
     server: {
@@ -44,14 +61,21 @@ export default defineConfig(({ command, mode }) => {
             ui: ['framer-motion', 'lucide-react', 'react-hot-toast'],
             three: ['three', '@react-three/fiber', '@react-three/drei']
           }
-        }
+        },
+        // Handle Node.js built-in modules and problematic libraries
+        external: [
+          'http', 'https', 'url', 'assert', 'stream', 'tty', 'util', 'os', 'zlib',
+          'events', 'net', 'tls', 'crypto', 'fs', 'path', 'querystring',
+          'ccxt', 'node:stream', 'node:util', 'node:buffer', 'node:*'
+        ]
       },
       // Reduce chunk size warnings threshold
       chunkSizeWarningLimit: 1000
     },
     // Optimize dependencies
     optimizeDeps: {
-      include: ['react', 'react-dom', 'react-router-dom', 'chart.js', 'framer-motion']
+      include: ['react', 'react-dom', 'react-router-dom', 'chart.js', 'framer-motion'],
+      exclude: ['ccxt']
     },
     // Enable gzip compression
     preview: {

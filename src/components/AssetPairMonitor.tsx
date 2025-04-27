@@ -178,7 +178,7 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
 
     // Set up monitoring progress updates
     const monitoringInterval = setInterval(() => {
-      strategy.strategy_config?.assets?.forEach(symbol => {
+      strategy.strategy_config?.assets?.forEach((symbol: string) => {
         setMonitoringProgress(prev => {
           const newProgress = new Map(prev);
           const currentProgress = newProgress.get(symbol) || 0;
@@ -192,7 +192,7 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
     return () => {
       // Clean up bitmart service
       bitmartService.off('priceUpdate', handlePriceUpdate);
-      strategy.strategy_config?.assets?.forEach(symbol => {
+      strategy.strategy_config?.assets?.forEach((symbol: string) => {
         bitmartService.unsubscribeFromSymbol(symbol);
       });
 
@@ -287,7 +287,7 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
 
     try {
       // Get indicator values
-      const indicators = await marketMonitor.getIndicatorValues(
+      const indicators = await (marketMonitor as any).getIndicatorValues(
         symbol,
         strategy.strategy_config.indicators || []
       );
@@ -296,8 +296,8 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
       let entrySignals = 0;
       let totalSignals = 0;
 
-      strategy.strategy_config.conditions.entry.forEach(condition => {
-        const indicator = indicators.find(i => i.name === condition.indicator);
+      strategy.strategy_config.conditions.entry.forEach((condition: any) => {
+        const indicator = indicators.find((i: any) => i.name === condition.indicator);
         if (!indicator) return;
 
         totalSignals++;
@@ -308,8 +308,8 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
 
       // Check exit conditions
       let exitSignals = 0;
-      strategy.strategy_config.conditions.exit.forEach(condition => {
-        const indicator = indicators.find(i => i.name === condition.indicator);
+      strategy.strategy_config.conditions.exit.forEach((condition: any) => {
+        const indicator = indicators.find((i: any) => i.name === condition.indicator);
         if (!indicator) return;
 
         totalSignals++;
@@ -383,7 +383,7 @@ export function AssetPairMonitor({ strategy, onTradeSignal }: AssetPairMonitorPr
           {refreshing ? (
             <Loader2 className="w-5 h-5 animate-spin" />
           ) : (
-            <RefreshCw className="w-5 h-5" />
+            <span className="w-5 h-5">↻</span>
           )}
         </button>
       </div>

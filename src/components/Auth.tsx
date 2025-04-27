@@ -17,7 +17,15 @@ import { useAuth } from '../hooks/useAuth';
 import { Hero } from './Hero';
 import { Reviews } from './Reviews';
 import { Awards } from './Awards';
-import type { AuthMode, AuthError } from '@/lib/types';
+// Define types locally to avoid import errors
+type AuthMode = 'sign_in' | 'sign_up' | 'forgotten_password';
+
+class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthError';
+  }
+}
 
 interface AuthState {
   loading: boolean;

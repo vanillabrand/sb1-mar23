@@ -207,6 +207,37 @@ class CacheService extends EventEmitter {
   }
 
   /**
+   * Clear a specific namespace by name (even if it's not the exact namespace object)
+   * @param namespaceName The name of the namespace to clear
+   * @returns True if the cache was cleared, false if it didn't exist
+   */
+  clearNamespace(namespaceName: string): boolean {
+    // Find all namespaces that match or start with the given name
+    const matchingNamespaces = this.getNamespaces().filter(ns =>
+      ns === namespaceName || ns.startsWith(`${namespaceName}:`)
+    );
+
+    if (matchingNamespaces.length === 0) {
+      logService.log('warn', `No cache namespaces found matching: ${namespaceName}`, null, 'CacheService');
+      return false;
+    }
+
+    let cleared = false;
+
+    // Clear all matching namespaces
+    for (const ns of matchingNamespaces) {
+      const result = this.clear(ns);
+      cleared = cleared || result;
+
+      if (result) {
+        logService.log('info', `Cleared cache namespace: ${ns}`, null, 'CacheService');
+      }
+    }
+
+    return cleared;
+  }
+
+  /**
    * Get cache statistics
    * @param namespace The cache namespace
    * @returns Cache statistics

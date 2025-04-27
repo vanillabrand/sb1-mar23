@@ -462,7 +462,7 @@ const RiskPerformancePanel: React.FC<{ data: any }> = ({ data }) => {
                   paddingAngle={5}
                   dataKey="value"
                 >
-                  {riskData.riskDistribution.map((entry, index) => (
+                  {riskData.riskDistribution.map((entry: any, index: number) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
@@ -474,7 +474,7 @@ const RiskPerformancePanel: React.FC<{ data: any }> = ({ data }) => {
             </ResponsiveContainer>
           </div>
           <div className="flex justify-center gap-4 mt-2">
-            {riskData.riskDistribution.map((entry, index) => (
+            {riskData.riskDistribution.map((entry: any, index: number) => (
               <div key={`legend-${index}`} className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS[index % COLORS.length] }}></div>
                 <span className="text-xs text-gray-400">{entry.name}: {entry.value}%</span>
@@ -922,7 +922,7 @@ const WalletBalancePanel: React.FC = () => {
           <ResponsiveContainer width="100%" height="100%">
             <PieChart>
               <Pie
-                data={walletData.assets.map(asset => ({
+                data={walletData.assets.map((asset: any) => ({
                   name: asset.symbol,
                   value: asset.usdValue || asset.balance
                 }))}
@@ -933,7 +933,7 @@ const WalletBalancePanel: React.FC = () => {
                 paddingAngle={2}
                 dataKey="value"
               >
-                {walletData.assets.map((entry, index) => (
+                {walletData.assets.map((entry: any, index: number) => (
                   <Cell key={`cell-${index}`} fill={[
                     '#00F5FF', '#FF00A8', '#FFD700', '#00FF7F', '#FF4500'
                   ][index % 5]} />
@@ -947,7 +947,7 @@ const WalletBalancePanel: React.FC = () => {
           </ResponsiveContainer>
         </div>
         <div className="flex flex-wrap justify-center gap-3 mt-2">
-          {walletData.assets.map((asset, index) => (
+          {walletData.assets.map((asset: any, index: number) => (
             <div key={`legend-${index}`} className="flex items-center gap-1">
               <div className="w-2 h-2 rounded-full" style={{ backgroundColor: [
                 '#00F5FF', '#FF00A8', '#FFD700', '#00FF7F', '#FF4500'
@@ -969,7 +969,7 @@ const WalletBalancePanel: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {walletData.assets.map((asset, index) => (
+            {walletData.assets.map((asset: any, index: number) => (
               <tr key={index} className="border-b border-gunmetal-800/30">
                 <td className="py-2 px-2 text-gray-300">{asset.symbol}</td>
                 <td className="py-2 px-2 text-right text-gray-300">

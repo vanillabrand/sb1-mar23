@@ -1,4 +1,5 @@
-import ccxt from 'ccxt';
+// Import the browser-compatible CCXT wrapper
+import ccxt from './ccxt-browser-wrapper';
 import type { ExchangeId, ExchangeCredentials } from './types';
 import { logService } from './log-service';
 import { EventEmitter } from './event-emitter';
@@ -202,6 +203,7 @@ export class CCXTService extends EventEmitter {
         };
       }
 
+      // Use our browser-compatible exchange wrapper
       const exchange = new ccxt[exchangeId](config);
 
       // Set up proper error handling

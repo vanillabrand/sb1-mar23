@@ -13,7 +13,12 @@ import {
 } from 'lucide-react';
 import type { Strategy } from '../lib/supabase-types';
 import type { BacktestConfig } from '../lib/backtest-service';
-import type { CSVValidationError } from '@/lib/types';
+// Define types locally to avoid import errors
+interface CSVValidationError {
+  row: number;
+  column: string;
+  message: string;
+}
 
 interface BacktestConfigModalProps {
   strategy: Strategy;
@@ -147,21 +152,24 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
 
     try {
       // Validate strategy configuration
-      if (!strategy.strategy_config) {
-        strategy.strategy_config = {}; // Create empty config if missing
+      // Ensure strategy has a config object
+      const strategyWithConfig = strategy as any;
+      if (!strategyWithConfig.strategy_config) {
+        strategyWithConfig.strategy_config = {}; // Create empty config if missing
       }
 
       // Check for trading pairs in selected_pairs (primary) or strategy_config.assets (fallback)
-      let tradingPairs = strategy.selected_pairs || (strategy.strategy_config?.assets as string[] || []);
+      let tradingPairs = (strategy as any).selected_pairs || ((strategy as any).strategy_config?.assets as string[] || []);
 
       // If no trading pairs found, add a default one
       if (!Array.isArray(tradingPairs) || tradingPairs.length === 0) {
         tradingPairs = ['BTC/USDT'];
 
         // Update the strategy with the default pair
-        strategy.selected_pairs = tradingPairs;
-        if (!strategy.strategy_config.assets) {
-          strategy.strategy_config.assets = tradingPairs;
+        // Use the existing strategyWithConfig variable instead of declaring a new one
+        (strategy as any).selected_pairs = tradingPairs;
+        if (!(strategy as any).strategy_config.assets) {
+          (strategy as any).strategy_config.assets = tradingPairs;
         }
 
         console.log('Added default trading pair BTC/USDT to strategy for backtesting');
@@ -365,13 +373,13 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-400">Name:</span>
-                  <span className="text-sm text-gray-200 font-medium">{strategy.title}</span>
+                  <span className="text-sm text-gray-200 font-medium">{(strategy as any).title || strategy.name}</span>
                 </div>
 
                 <div className="flex justify-between">
                   <span className="text-sm text-gray-400">Risk Level:</span>
-                  <span className={`text-sm font-medium ${strategy.riskLevel === 'High' ? 'text-neon-pink' : strategy.riskLevel === 'Medium' ? 'text-neon-orange' : 'text-neon-turquoise'}`}>
-                    {strategy.riskLevel}
+                  <span className={`text-sm font-medium ${(strategy as any).riskLevel === 'High' ? 'text-neon-pink' : (strategy as any).riskLevel === 'Medium' ? 'text-neon-orange' : 'text-neon-turquoise'}`}>
+                    {(strategy as any).riskLevel || 'Medium'}
                   </span>
                 </div>
 
@@ -380,7 +388,7 @@ export function BacktestConfigModal({ strategy, open, onStart, onClose }: Backte
                   <span className="text-sm text-gray-200 font-medium">
                     {(() => {
                       // Get trading pairs from selected_pairs or strategy_config.assets
-                      const pairs = strategy.selected_pairs || (strategy.strategy_config?.assets as string[] || []);
+                      const pairs = (strategy as any).selected_pairs || ((strategy as any).strategy_config?.assets as string[] || []);
                       return pairs && pairs.length > 0 ? pairs[0] : 'N/A';
                     })()}
                   </span>

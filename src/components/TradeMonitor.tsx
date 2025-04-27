@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, lazy, Suspense } from 'react';
 import { motion } from 'framer-motion';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import {
@@ -18,7 +18,8 @@ import { marketDataService } from '../lib/market-data-service';
 import { marketAnalyzer } from '../lib/market-analyzer';
 import { tradeService } from '../lib/trade-service';
 import { logService } from '../lib/log-service';
-import { supabase } from '../lib/supabase';
+import { supabase } from '../lib/enhanced-supabase';
+import { cacheService } from '../lib/cache-service';
 import { directDeleteStrategy } from '../lib/direct-delete';
 import { eventBus } from '../lib/event-bus';
 import { standardizeAssetPairFormat, toBinanceWsFormat } from '../lib/format-utils';
@@ -43,6 +44,7 @@ import { DeactivationProgressModal, type DeactivationStep } from './Deactivation
 import { ErrorBoundary } from './ErrorBoundary';
 import AvailableBalanceDisplay from './AvailableBalanceDisplay';
 import MarketTypeBalanceDisplay from './MarketTypeBalanceDisplay';
+import { SimplifiedTradeMonitor } from './SimplifiedTradeMonitor';
 import type { Trade, Strategy, StrategyBudget, MarketType } from '../lib/types';
 
 // Define local types
@@ -69,6 +71,9 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [wsConnected, setWsConnected] = useState(false);
   const [subscribedStrategies, setSubscribedStrategies] = useState<string[]>([]);
   // const [binanceConnected, setBinanceConnected] = useState(false); // Unused
+
+  // Track budget update timestamps to prevent loops
+  const budgetUpdateTimestamps = React.useRef<Record<string, number>>({});
 
   // UI state
   const [isLoading, setIsLoading] = useState(true);
@@ -417,12 +422,50 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     // Initialize services
     const initializeServices = async () => {
       try {
-        // Initialize wallet balance service
-        await walletBalanceService.initialize();
-        setAvailableBalance(walletBalanceService.getAvailableBalance());
+        logService.log('info', 'Initializing TradeMonitor services', null, 'TradeMonitor');
 
-        // Initialize market analyzer
-        await marketAnalyzer.initialize();
+        // Check if we can connect to Supabase
+        try {
+          const { data, error } = await supabase.auth.getSession();
+          if (error) {
+            throw new Error(`Supabase authentication error: ${error.message}`);
+          }
+          logService.log('info', 'Supabase connection verified', null, 'TradeMonitor');
+        } catch (supabaseError) {
+          logService.log('error', 'Failed to connect to Supabase', supabaseError, 'TradeMonitor');
+          setError('Failed to connect to the database. Please refresh the page.');
+          // Continue initialization despite this error
+        }
+
+        // Initialize wallet balance service with retry logic
+        let walletInitialized = false;
+        let retryCount = 0;
+        while (!walletInitialized && retryCount < 3) {
+          try {
+            await walletBalanceService.initialize();
+            setAvailableBalance(walletBalanceService.getAvailableBalance());
+            walletInitialized = true;
+            logService.log('info', 'Wallet balance service initialized', null, 'TradeMonitor');
+          } catch (walletError) {
+            retryCount++;
+            logService.log('warn', `Failed to initialize wallet balance service (attempt ${retryCount}/3)`, walletError, 'TradeMonitor');
+            await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retrying
+          }
+        }
+
+        if (!walletInitialized) {
+          logService.log('error', 'Failed to initialize wallet balance service after multiple attempts', null, 'TradeMonitor');
+          // Continue initialization despite this error
+        }
+
+        // Initialize market analyzer with error handling
+        try {
+          await marketAnalyzer.initialize();
+          logService.log('info', 'Market analyzer initialized', null, 'TradeMonitor');
+        } catch (analyzerError) {
+          logService.log('warn', 'Failed to initialize market analyzer', analyzerError, 'TradeMonitor');
+          // Continue initialization despite this error
+        }
 
         // Initialize enhanced market data service
         try {
@@ -920,9 +963,8 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setAvailableBalance(walletBalanceService.getAvailableBalance());
     };
 
-    // Track last budget update time to prevent loops
-    const budgetUpdateTimestamps = React.useRef<Record<string, number>>({});
-    const BUDGET_UPDATE_THROTTLE_MS = 500; // Throttle budget updates to once per 500ms per strategy
+    // Throttle budget updates to once per 500ms per strategy
+    const BUDGET_UPDATE_THROTTLE_MS = 500;
 
     // Subscribe to budget updates with throttling to prevent infinite loops
     const handleBudgetUpdate = (data: any) => {
@@ -1138,14 +1180,42 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     try {
       logService.log('debug', 'Fetching strategies from database', null, 'TradeMonitor');
 
-      // Get strategies directly from the database
-      const { data: fetchedStrategies, error } = await supabase
-        .from('strategies')
-        .select('*')
-        .order('created_at', { ascending: false });
+      // Set loading state
+      setIsLoading(true);
 
-      if (error) {
-        throw error;
+      // Clear any previous errors
+      setError(null);
+
+      // Get strategies directly from the database with retry logic
+      let fetchedStrategies = null;
+      let fetchError = null;
+      let retryCount = 0;
+
+      while (!fetchedStrategies && retryCount < 3) {
+        try {
+          const { data, error } = await supabase
+            .from('strategies')
+            .select('*')
+            .order('created_at', { ascending: false });
+
+          if (error) {
+            throw error;
+          }
+
+          fetchedStrategies = data;
+          break;
+        } catch (err) {
+          retryCount++;
+          fetchError = err;
+          logService.log('warn', `Failed to fetch strategies (attempt ${retryCount}/3)`, err, 'TradeMonitor');
+
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+
+      if (fetchError && !fetchedStrategies) {
+        throw fetchError;
       }
 
       // If no strategies found, create a default one for demo purposes
@@ -2118,8 +2188,76 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     }
   `;
 
+  // Function to clear caches and reset state
+  const clearCachesAndReset = async () => {
+    try {
+      // Clear relevant caches
+      cacheService.clearNamespace('strategies');
+      cacheService.clearNamespace('trades');
+      cacheService.clearNamespace('market_data');
+
+      // Reset state
+      setIsLoading(false);
+      setRefreshing(false);
+      setError(null);
+      setStrategies([]);
+      setTrades({});
+      setExpandedStrategyId(null);
+      setFilteredStrategies([]);
+      setSubscribedStrategies(new Set());
+
+      logService.log('info', 'Cleared caches and reset state', null, 'TradeMonitor');
+      return true;
+    } catch (error) {
+      logService.log('error', 'Failed to clear caches and reset state', error, 'TradeMonitor');
+      return false;
+    }
+  };
+
+  // Function to handle error boundary reset
+  const handleErrorBoundaryReset = async () => {
+    // Clear caches and reset state
+    const resetSuccess = await clearCachesAndReset();
+
+    if (resetSuccess) {
+      // Try to fetch strategies again
+      try {
+        await fetchStrategies();
+        await fetchTradeData();
+        logService.log('info', 'Successfully reset TradeMonitor after error', null, 'TradeMonitor');
+      } catch (error) {
+        logService.log('error', 'Failed to reset TradeMonitor after error', error, 'TradeMonitor');
+      }
+    }
+  };
+
+  // Create a fallback component that doesn't use hooks directly in the JSX
+  const FallbackComponent = ({ error, onReset }: { error?: Error, onReset?: () => void }) => {
+    return (
+      <div className="min-h-screen bg-black p-6">
+        <SimplifiedTradeMonitor />
+        {error && (
+          <div className="mt-4 p-4 bg-red-500/10 border border-red-500/30 rounded-lg">
+            <p className="text-red-400 mb-2">Error details: {error.message}</p>
+            {onReset && (
+              <button
+                onClick={onReset}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg"
+              >
+                Try Again
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
-    <ErrorBoundary>
+    <ErrorBoundary
+      onReset={handleErrorBoundaryReset}
+      fallback={<FallbackComponent />}
+    >
       <div className="min-h-screen bg-black p-6 sm:p-8 mobile-p-4 overflow-x-hidden pb-24 sm:pb-8">
         <style>{scrollbarStyles}</style>
         <motion.div

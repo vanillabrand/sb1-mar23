@@ -133,7 +133,7 @@ export const AnimatedStats: React.FC = () => {
         }
       };
 
-      card.addEventListener('mousemove', handleMouseMove);
+      card.addEventListener('mousemove', (e: Event) => handleMouseMove(e as MouseEvent));
       card.addEventListener('mouseleave', handleMouseLeave);
     });
   }, []);

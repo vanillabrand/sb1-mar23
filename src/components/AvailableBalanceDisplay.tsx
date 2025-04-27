@@ -151,7 +151,7 @@ const AvailableBalanceDisplay: React.FC<AvailableBalanceDisplayProps> = ({
   };
 
   // Helper function to render animated values
-  const AnimatedValue = ({ value, prefix = "$", suffix = "", className = "" }) => {
+  const AnimatedValue = ({ value, prefix = "$", suffix = "", className = "" }: { value: any, prefix?: string, suffix?: string, className?: string }) => {
     return (
       <AnimatePresence mode="wait">
         <motion.span

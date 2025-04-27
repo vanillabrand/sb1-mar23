@@ -56,9 +56,9 @@ export function AssetDistribution({ assets, className = "" }: AssetDistributionP
           sentiment = realTimeData.change24h > 2 ? 'bullish' :
                      realTimeData.change24h < -2 ? 'bearish' :
                      'neutral';
-        } else if (analyticsData?.metrics?.exposure) {
-          weight = analyticsData.metrics.exposure / 100;
-          sentiment = analyticsData.marketState?.sentiment || 'neutral';
+        } else if (analyticsData?.metrics && 'exposure' in analyticsData.metrics) {
+          weight = (analyticsData.metrics as any).exposure / 100;
+          sentiment = (analyticsData as any).marketState?.sentiment || 'neutral';
         } else {
           weight = 10 + Math.random() * 30;
           sentiment = Math.random() > 0.6 ? 'bullish' :

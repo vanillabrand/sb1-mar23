@@ -392,13 +392,17 @@ Return an array of trade signals with this exact structure:
         }
 
         return this.validateTrades(trades);
+      } catch (parseError) {
+        logService.log('error', 'Failed to parse DeepSeek response', parseError, 'AITradeService');
+        return this.generateSyntheticTrades();
+      }
     } catch (error) {
       logService.log('error', 'Failed to generate trades with DeepSeek', error, 'AITradeService');
       return this.generateSyntheticTrades();
     }
   }
 
-  private async validateTrades(trades: any[]): Promise<TradeSignal[]> {
+  private validateTrades(trades: any[]): any[] {
     return trades.filter(trade => {
       try {
         // Validate required fields

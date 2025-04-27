@@ -191,14 +191,14 @@ export function Backtester() {
 
         // Filter by risk level
         const matchesRiskLevel = !filterRiskLevel ||
-          strategy.risk_level === filterRiskLevel;
+          (strategy as any).risk_level === filterRiskLevel;
 
         return matchesSearch && matchesRiskLevel;
       })
       .sort((a, b) => {
         // Sort by selected field
-        let aValue = a[sortField];
-        let bValue = b[sortField];
+        let aValue = (a as any)[sortField];
+        let bValue = (b as any)[sortField];
 
         // Handle special cases
         if (sortField === 'performance') {
@@ -332,8 +332,8 @@ export function Backtester() {
                         <div className="text-xs text-gray-400 mt-1 line-clamp-1">{strategy.description}</div>
                       </td>
                       <td className="hidden md:table-cell px-6 py-5">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${strategy.risk_level === 'High' ? 'bg-neon-pink/10 text-neon-pink' : strategy.risk_level === 'Medium' ? 'bg-neon-orange/10 text-neon-orange' : 'bg-neon-turquoise/10 text-neon-turquoise'}`}>
-                          {strategy.risk_level}
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${(strategy as any).risk_level === 'High' ? 'bg-neon-pink/10 text-neon-pink' : (strategy as any).risk_level === 'Medium' ? 'bg-neon-orange/10 text-neon-orange' : 'bg-neon-turquoise/10 text-neon-turquoise'}`}>
+                          {(strategy as any).risk_level || 'Medium'}
                         </span>
                       </td>
                       <td className="hidden sm:table-cell px-6 py-5">
@@ -433,7 +433,7 @@ export function Backtester() {
       {/* Modals */}
       <BacktestConfigModal
         open={showConfig}
-        strategy={selectedStrategy || {} as Strategy}
+        strategy={selectedStrategy || {} as any}
         onClose={() => setShowConfig(false)}
         onStart={handleStartBacktest}
       />

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Wallet, DollarSign, TrendingUp, TrendingDown, AlertCircle } from 'lucide-react';
 import { tradeService } from '../lib/trade-service';
 import { logService } from '../lib/log-service';
@@ -128,128 +128,167 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
     }
   }, [trades, strategyId]);
 
-  // Get budget and subscribe to updates
+  // Get budget and subscribe to updates with debouncing
   useEffect(() => {
-    // Initial budget fetch
+    let isMounted = true;
+    let budgetUpdateTimeout: NodeJS.Timeout | null = null;
+
+    // Debounced budget fetch to prevent multiple rapid requests
     const fetchBudget = () => {
-      try {
-        const currentBudget = tradeService.getBudget(strategyId);
-        if (currentBudget) {
-          setBudget(currentBudget);
-          logService.log('debug', `Fetched budget for strategy ${strategyId}`,
-            { budget: currentBudget }, 'TradeBudgetPanel');
-        }
-      } catch (error) {
-        logService.log('error', `Error fetching budget for strategy ${strategyId}`, error, 'TradeBudgetPanel');
+      // Clear any pending timeout
+      if (budgetUpdateTimeout) {
+        clearTimeout(budgetUpdateTimeout);
       }
+
+      // Set a new timeout to fetch budget after a short delay
+      budgetUpdateTimeout = setTimeout(() => {
+        try {
+          const currentBudget = tradeService.getBudget(strategyId);
+          if (currentBudget && isMounted) {
+            setBudget(currentBudget);
+            logService.log('debug', `Fetched budget for strategy ${strategyId}`,
+              { budget: currentBudget }, 'TradeBudgetPanel');
+          }
+        } catch (error) {
+          logService.log('error', `Error fetching budget for strategy ${strategyId}`, error, 'TradeBudgetPanel');
+        }
+      }, 300); // 300ms debounce
     };
 
     fetchBudget();
 
-    // Subscribe to budget updates
+    // Subscribe to budget updates with debouncing
     const handleBudgetUpdate = (event: any) => {
-      if (event.strategyId === strategyId) {
+      if (event.strategyId === strategyId && isMounted) {
+        // Clear any pending timeout
+        if (budgetUpdateTimeout) {
+          clearTimeout(budgetUpdateTimeout);
+        }
+
+        // Set budget directly from the event without fetching
         setBudget(event.budget);
         logService.log('debug', `Budget updated for strategy ${strategyId}`,
           { budget: event.budget }, 'TradeBudgetPanel');
       }
     };
 
-    // Subscribe to trade events to recalculate budget
-    const handleTradeCreated = (event: any) => {
-      if (event.trade?.strategy_id === strategyId) {
-        fetchBudget(); // Refresh budget when a trade is created
-      }
-    };
-
-    const handleTradeClosed = (event: any) => {
-      if (event.trade?.strategy_id === strategyId) {
-        fetchBudget(); // Refresh budget when a trade is closed
+    // Subscribe to trade events to recalculate budget - with debouncing
+    const handleTradeEvent = (event: any) => {
+      if (event.trade?.strategy_id === strategyId ||
+          event.strategyId === strategyId) {
+        fetchBudget(); // Debounced budget refresh
       }
     };
 
     // Subscribe to events
     tradeService.on('budgetUpdated', handleBudgetUpdate);
     eventBus.subscribe('budget:updated', handleBudgetUpdate);
-    eventBus.subscribe('trade:created', handleTradeCreated);
-    eventBus.subscribe('trade:closed', handleTradeClosed);
+
+    // Use a single handler for both trade events to reduce duplicate code
+    eventBus.subscribe('trade:created', handleTradeEvent);
+    eventBus.subscribe('trade:closed', handleTradeEvent);
 
     // Cleanup
     return () => {
+      isMounted = false;
+      if (budgetUpdateTimeout) {
+        clearTimeout(budgetUpdateTimeout);
+      }
       tradeService.off('budgetUpdated', handleBudgetUpdate);
       eventBus.unsubscribe('budget:updated', handleBudgetUpdate);
-      eventBus.unsubscribe('trade:created', handleTradeCreated);
-      eventBus.unsubscribe('trade:closed', handleTradeClosed);
+      eventBus.unsubscribe('trade:created', handleTradeEvent);
+      eventBus.unsubscribe('trade:closed', handleTradeEvent);
     };
   }, [strategyId]);
 
-  // Reconcile budget with actual trade costs
+  // Reconcile budget with actual trade costs - with throttling
   useEffect(() => {
     if (!budget || !trades) return;
 
-    try {
-      // Ensure budget values are valid numbers
-      const budgetTotal = isNaN(budget.total) ? 0 : Number(budget.total);
-      const budgetAllocated = isNaN(budget.allocated) ? 0 : Number(budget.allocated);
+    // Use a ref to track the last reconciliation time
+    const lastReconciliationRef = React.useRef<number>(0);
+    const now = Date.now();
 
-      // Skip reconciliation if we have no trades or invalid budget
-      if (trades.length === 0 || budgetTotal <= 0) return;
-
-      // Only count open or pending trades for allocation
-      const activeTrades = trades.filter(trade =>
-        trade.status === 'open' || trade.status === 'pending' || trade.status === 'executed'
-      );
-
-      // Calculate actual allocated amount from active trades
-      let actualAllocated = 0;
-
-      activeTrades.forEach(trade => {
-        try {
-          const price = parseFloat(trade.entry_price || trade.entryPrice || trade.price || '0');
-          const amount = parseFloat(trade.amount || trade.quantity || trade.size || '0');
-
-          if (!isNaN(price) && !isNaN(amount) && price > 0 && amount > 0) {
-            actualAllocated += price * amount;
-          } else if (trade.metadata?.tradeCost && !isNaN(parseFloat(trade.metadata.tradeCost))) {
-            actualAllocated += parseFloat(trade.metadata.tradeCost);
-          }
-        } catch (error) {
-          // Skip this trade if there's an error
-          logService.log('warn', `Error calculating cost for trade ${trade.id}`, error, 'TradeBudgetPanel');
-        }
-      });
-
-      // Format to 2 decimal places
-      const formattedActualAllocated = Number(actualAllocated.toFixed(2));
-
-      // Check if the allocated amount in the budget matches the sum of trade costs
-      const difference = Math.abs(budgetAllocated - formattedActualAllocated);
-
-      // If there's a significant difference (more than $1), log it and update the budget
-      if (difference > 1) {
-        logService.log('warn', `Budget allocation mismatch for strategy ${strategyId}`,
-          { budgetAllocated, calculatedAllocation: formattedActualAllocated, difference }, 'TradeBudgetPanel');
-
-        // Calculate available budget (ensure it's not negative)
-        const newAvailable = Math.max(0, budgetTotal - formattedActualAllocated);
-
-        // Update the budget to match the actual trade costs
-        const updatedBudget = {
-          ...budget,
-          allocated: formattedActualAllocated,
-          available: Number(newAvailable.toFixed(2)),
-          lastUpdated: Date.now()
-        };
-
-        // Update the budget cache
-        tradeService.updateBudgetCache(strategyId, updatedBudget);
-
-        logService.log('info', `Reconciled budget for strategy ${strategyId}`,
-          { updatedBudget }, 'TradeBudgetPanel');
-      }
-    } catch (error) {
-      logService.log('error', `Error reconciling budget for strategy ${strategyId}`, error, 'TradeBudgetPanel');
+    // Throttle reconciliations to once every 5 seconds
+    const THROTTLE_MS = 5000;
+    if (now - lastReconciliationRef.current < THROTTLE_MS) {
+      return;
     }
+
+    // Set the last reconciliation time
+    lastReconciliationRef.current = now;
+
+    // Use a timeout to prevent immediate reconciliation
+    const reconciliationTimeout = setTimeout(() => {
+      try {
+        // Ensure budget values are valid numbers
+        const budgetTotal = isNaN(budget.total) ? 0 : Number(budget.total);
+        const budgetAllocated = isNaN(budget.allocated) ? 0 : Number(budget.allocated);
+
+        // Skip reconciliation if we have no trades or invalid budget
+        if (trades.length === 0 || budgetTotal <= 0) return;
+
+        // Only count open or pending trades for allocation
+        const activeTrades = trades.filter(trade =>
+          trade.status === 'open' || trade.status === 'pending' || trade.status === 'executed'
+        );
+
+        // Calculate actual allocated amount from active trades
+        let actualAllocated = 0;
+
+        activeTrades.forEach(trade => {
+          try {
+            const price = parseFloat(trade.entry_price || trade.entryPrice || trade.price || '0');
+            const amount = parseFloat(trade.amount || trade.quantity || trade.size || '0');
+
+            if (!isNaN(price) && !isNaN(amount) && price > 0 && amount > 0) {
+              actualAllocated += price * amount;
+            } else if (trade.metadata?.tradeCost && !isNaN(parseFloat(trade.metadata.tradeCost))) {
+              actualAllocated += parseFloat(trade.metadata.tradeCost);
+            }
+          } catch (error) {
+            // Skip this trade if there's an error
+            logService.log('warn', `Error calculating cost for trade ${trade.id}`, error, 'TradeBudgetPanel');
+          }
+        });
+
+        // Format to 2 decimal places
+        const formattedActualAllocated = Number(actualAllocated.toFixed(2));
+
+        // Check if the allocated amount in the budget matches the sum of trade costs
+        const difference = Math.abs(budgetAllocated - formattedActualAllocated);
+
+        // If there's a significant difference (more than $1), log it and update the budget
+        if (difference > 1) {
+          logService.log('warn', `Budget allocation mismatch for strategy ${strategyId}`,
+            { budgetAllocated, calculatedAllocation: formattedActualAllocated, difference }, 'TradeBudgetPanel');
+
+          // Calculate available budget (ensure it's not negative)
+          const newAvailable = Math.max(0, budgetTotal - formattedActualAllocated);
+
+          // Update the budget to match the actual trade costs
+          const updatedBudget = {
+            ...budget,
+            allocated: formattedActualAllocated,
+            available: Number(newAvailable.toFixed(2)),
+            lastUpdated: Date.now()
+          };
+
+          // Update the budget cache - use a throttled update
+          tradeService.updateBudgetCache(strategyId, updatedBudget);
+
+          logService.log('info', `Reconciled budget for strategy ${strategyId}`,
+            { updatedBudget }, 'TradeBudgetPanel');
+        }
+      } catch (error) {
+        logService.log('error', `Error reconciling budget for strategy ${strategyId}`, error, 'TradeBudgetPanel');
+      }
+    }, 500); // Delay reconciliation by 500ms
+
+    // Clean up the timeout
+    return () => {
+      clearTimeout(reconciliationTimeout);
+    };
   }, [budget, totalAllocated, trades, strategyId]);
 
   if (!budget) {

@@ -115,9 +115,9 @@ export const AssetRiskTable: React.FC<AssetRiskTableProps> = ({ assets }) => {
                 )}
               </td>
               <td className="py-3 px-4 text-center">
-                {asset.analysis && typeof asset.analysis.riskScore === 'number' && !isNaN(asset.analysis.riskScore) ? (
-                  <span className={getRiskColor(asset.analysis.riskScore)}>
-                    {asset.analysis.riskScore.toFixed(0)}/100
+                {asset.analysis && typeof (asset.analysis as any).riskScore === 'number' && !isNaN((asset.analysis as any).riskScore) ? (
+                  <span className={getRiskColor((asset.analysis as any).riskScore)}>
+                    {(asset.analysis as any).riskScore.toFixed(0)}/100
                   </span>
                 ) : (
                   <span className="text-gray-500">N/A</span>

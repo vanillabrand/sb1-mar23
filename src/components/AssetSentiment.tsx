@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Brain, 
-  TrendingUp, 
-  TrendingDown, 
-  Loader2, 
+import {
+  Brain,
+  TrendingUp,
+  TrendingDown,
+  Loader2,
   RefreshCw,
   Activity,
   Gauge,
@@ -13,9 +13,22 @@ import {
 } from 'lucide-react';
 import { bitmartService } from '../lib/bitmart-service';
 import { analyticsService } from '../lib/analytics-service';
-import { AIMarketService } from '@/lib/ai-market-service';
+import { aiMarketService } from '@/lib/ai-market-service';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import type { SentimentData, MarketSentiment } from '@/lib/types';
+// Define types locally to avoid import errors
+interface SentimentData {
+  symbol: string;
+  sentiment: 'bullish' | 'bearish' | 'neutral';
+  score: number;
+  timestamp: number;
+  signals: string[];
+}
+
+interface MarketSentiment {
+  sentiment: 'bullish' | 'bearish' | 'neutral';
+  score: number;
+  signals: string[];
+}
 
 interface AssetSentimentProps {
   assets: Set<string>;
@@ -30,11 +43,11 @@ const AssetSentiment: React.FC<AssetSentimentProps> = ({ assets }) => {
     try {
       setError(null);
       setLoading(true);
-      
-      const assetList = assets.size > 0 
+
+      const assetList = assets.size > 0
         ? Array.from(assets)
         : ['BTC_USDT', 'ETH_USDT', 'SOL_USDT', 'BNB_USDT'];
-      
+
       const marketInsights = await AIMarketService.getMarketInsights(assetList);
       setSentiment(marketInsights);
     } catch (err) {

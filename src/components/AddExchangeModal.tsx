@@ -175,7 +175,7 @@ export function AddExchangeModal({
                   className="pr-8"
                 />
                 <div className="absolute right-2 top-1/2 transform -translate-y-1/2 cursor-help">
-                  <HelpCircle className="w-4 h-4 text-gray-400 hover:text-gray-300" title={field.description} />
+                  <HelpCircle className="w-4 h-4 text-gray-400 hover:text-gray-300" aria-label={field.description} data-tooltip={field.description} />
                 </div>
               </div>
               <p className="text-xs text-gray-400 mt-1">{field.description}</p>
@@ -233,7 +233,7 @@ export function AddExchangeModal({
                 id="useTestnet"
                 checked={useTestnet}
                 onChange={(e) => setUseTestnet(e.target.checked)}
-                disabled={exchangeConfig && !exchangeConfig.testnetSupported}
+                disabled={exchangeConfig && !exchangeConfig.testnetSupported ? true : undefined}
                 className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
               />
               <label htmlFor="useTestnet" className="text-sm font-medium">

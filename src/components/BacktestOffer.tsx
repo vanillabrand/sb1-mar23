@@ -18,8 +18,8 @@ export function BacktestOffer({ strategy, onAccept, onDecline }: BacktestOfferPr
         </div>
 
         <p className="text-gray-300 mb-6">
-          Would you like to backtest <span className="text-neon-turquoise font-semibold">{strategy.title}</span> before 
-          deploying it? This will help you understand how your strategy would have performed 
+          Would you like to backtest <span className="text-neon-turquoise font-semibold">{(strategy as any).title || strategy.name}</span> before
+          deploying it? This will help you understand how your strategy would have performed
           historically and optimize its parameters.
         </p>
 

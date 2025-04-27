@@ -16,7 +16,8 @@ import type {
   ExchangeHealth
 } from './types';
 import { ccxtService } from './ccxt-service';
-import * as ccxt from 'ccxt';
+// Import the browser-compatible CCXT shim instead of the full library
+import { createBrowserCompatibleExchange } from './ccxt-browser-shim';
 import { config } from './config';
 import { demoService } from './demo-service';
 
