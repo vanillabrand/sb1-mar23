@@ -1,17 +1,47 @@
 /**
- * iOS-specific CSS fixes
- * These styles will only apply to iOS devices
+ * Safari and iOS-specific CSS fixes
+ * These styles will apply to Safari on macOS and iOS devices
  */
+
+/* Common Safari fixes */
+:root {
+  --app-height: 100%;
+}
+
+/* Fix for Safari viewport height issues */
+@media not all and (min-resolution:.001dpcm) {
+  @supports (-webkit-appearance:none) {
+    html, body {
+      height: 100%;
+      min-height: 100%;
+      position: relative;
+      width: 100%;
+    }
+
+    #root {
+      display: flex;
+      flex-direction: column;
+      min-height: 100%;
+      height: var(--app-height);
+    }
+
+    .full-height {
+      height: var(--app-height);
+    }
+  }
+}
 
 /* Fix for iOS Safari viewport height issues */
 .ios-device {
   height: 100%;
-  position: relative; /* Changed from fixed to relative */
+  position: relative;
   width: 100%;
+  min-height: -webkit-fill-available;
 }
 
 .ios-device #root {
   height: 100%;
+  min-height: -webkit-fill-available;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
 }

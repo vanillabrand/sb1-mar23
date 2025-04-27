@@ -3,11 +3,8 @@
   publish = "dist"
   functions = "netlify/functions"
 
-# Redirect all API requests to the appropriate Netlify Function
-[[redirects]]
-  from = "/.netlify/functions/*"
-  to = "/.netlify/functions/:splat"
-  status = 200
+# Netlify Functions are handled automatically, no need to redirect them
+# The previous redirect was causing an error because paths starting with /.netlify are reserved
 
 # Handle SPA routing - redirect all paths to index.html
 [[redirects]]

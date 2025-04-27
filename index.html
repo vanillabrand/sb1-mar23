@@ -15,27 +15,60 @@
     <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <style>
-      /* Prevent FOUC */
+      /* Prevent FOUC and ensure proper rendering in all browsers */
+      html {
+        height: 100%;
+        width: 100%;
+      }
+
       body {
         background-color: #0a0a0c;
         margin: 0;
+        padding: 0;
+        min-height: 100%;
+        width: 100%;
+        position: relative;
         -webkit-text-size-adjust: 100%;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
         overscroll-behavior-y: none;
+        display: flex;
+        flex-direction: column;
+      }
+
+      #root {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+      }
+
+      /* Safari-specific fixes */
+      @supports (not (-ms-ime-align: auto)) and (not (overflow:-webkit-marquee)) and (not (-moz-appearance:none)) {
+        html, body {
+          height: 100%;
+          width: 100%;
+        }
+
+        #root {
+          min-height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
       }
 
       /* iOS-specific fixes */
       @supports (-webkit-touch-callout: none) {
         html, body {
           height: 100%;
-          overflow: hidden;
+          width: 100%;
         }
+
         #root {
-          height: 100%;
-          overflow: auto;
+          min-height: 100%;
+          flex: 1;
           -webkit-overflow-scrolling: touch;
         }
+
         input, textarea {
           -webkit-appearance: none;
           border-radius: 0;

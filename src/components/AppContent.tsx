@@ -73,9 +73,9 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
 
   // If user is authenticated, show protected routes with sidebar
   return (
-    <div className="flex flex-col md:flex-row h-screen bg-black">
+    <div className="flex flex-col md:flex-row h-screen full-height bg-black" style={{ minHeight: '100%' }}>
       <Sidebar isOpen={isSidebarOpen} onToggle={handleMenuToggle} hasBottomNav={isMobile} />
-      <main className={`flex-1 overflow-auto bg-black pt-0 md:pt-0 ${isMobile ? 'has-bottom-nav' : ''}`}>
+      <main className={`flex-1 overflow-auto bg-black pt-0 md:pt-0 ${isMobile ? 'has-bottom-nav' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
         <AnimatePresence mode="wait">
           <Routes location={location} key={location.pathname}>
             <Route path="/" element={

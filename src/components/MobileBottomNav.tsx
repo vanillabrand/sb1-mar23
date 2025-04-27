@@ -12,6 +12,7 @@ import { MobileMenu } from './MobileMenu';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 import { websocketService } from '../lib/websocket-service';
+import { useMobileDetect } from '../hooks/useMobileDetect';
 
 interface MobileBottomNavProps {
   onMenuToggle: () => void;
@@ -21,17 +22,8 @@ export function MobileBottomNav({ onMenuToggle }: MobileBottomNavProps) {
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
-  // Use React's useState and useEffect for responsive behavior instead of direct window check
-  const [isMobile, setIsMobile] = React.useState(window.innerWidth < 768);
-
-  React.useEffect(() => {
-    const handleResize = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
+  // Import the useMobileDetect hook instead of implementing our own detection
+  const { isMobile } = useMobileDetect();
 
   const handleSignOut = async () => {
     try {
@@ -94,10 +86,13 @@ export function MobileBottomNav({ onMenuToggle }: MobileBottomNavProps) {
 
       {/* Bottom Navigation Bar */}
       <motion.div
-        className="mobile-bottom-nav"
+        className="mobile-bottom-nav safe-area-inset-bottom"
         initial={{ y: 100 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.3, ease: "easeOut" }}
+        style={{
+          paddingBottom: 'env(safe-area-inset-bottom, 10px)'
+        }}
       >
         <NavLink
           to="/dashboard"

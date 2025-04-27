@@ -4,6 +4,8 @@ import { marketMonitor } from './market-monitor';
 import { supabase } from './supabase';
 import { detectMarketType, normalizeMarketType, supportsLeverage, supportsShortPositions } from './market-type-detection';
 import type { MarketType } from './types';
+import { v4 as uuidv4 } from 'uuid';
+import { strategyMetricsCalculator } from './strategy-metrics-calculator';
 
 export class AIService extends EventEmitter {
   private static instance: AIService;
@@ -646,12 +648,19 @@ Please provide a complete strategy in JSON format with the following structure:
 
     // Customize the template based on the description and assets
     const strategy = {
+      id: uuidv4(), // Generate a unique ID for the strategy
       ...template,
       name: `${riskLevel} Risk ${assets && assets[0] ? assets[0].split('/')[0] : 'Crypto'} Strategy`,
       description: description || template.description,
       riskLevel,
+      risk_level: riskLevel, // Add both formats for compatibility
       assets,
-      marketType
+      selected_pairs: assets, // Add selected_pairs for compatibility
+      marketType,
+      market_type: marketType, // Add both formats for compatibility
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'inactive'
     };
 
     // Add market-specific parameters
@@ -684,11 +693,15 @@ Please provide a complete strategy in JSON format with the following structure:
     for (const marketType of marketTypes) {
       // Strategy 1: Trend Following
       strategies.push({
+        id: uuidv4(), // Generate a unique ID for each strategy
         name: `${riskLevel} Risk ${marketType.charAt(0).toUpperCase() + marketType.slice(1)} Trend Following`,
         description: `A ${riskLevel.toLowerCase()} risk ${marketType} trend following strategy for ${Array.isArray(assets) ? assets.join(', ') : 'BTC/USDT'} that uses moving averages to identify trends and enter positions.`,
         riskLevel,
+        risk_level: riskLevel, // Add both formats for compatibility
         assets,
+        selected_pairs: assets, // Add selected_pairs for compatibility
         marketType,
+        market_type: marketType, // Add both formats for compatibility
         timeframe: riskLevel === 'Low' ? '1d' : riskLevel === 'Medium' ? '4h' : '1h',
         entryConditions: [
           { indicator: 'SMA', condition: 'Price > SMA', value: riskLevel === 'Low' ? '200' : riskLevel === 'Medium' ? '100' : '50' },
@@ -705,16 +718,23 @@ Please provide a complete strategy in JSON format with the following structure:
           maxOpenPositions: riskLevel === 'Low' ? 3 : riskLevel === 'Medium' ? 5 : 8,
           ...(marketType === 'futures' ? { leverage: riskLevel === 'Low' ? '2x' : riskLevel === 'Medium' ? '5x' : '10x' } : {}),
           ...(marketType === 'margin' ? { borrowAmount: riskLevel === 'Low' ? '20%' : riskLevel === 'Medium' ? '50%' : '80%' } : {})
-        }
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: 'inactive'
     });
 
       // Strategy 2: Momentum
       strategies.push({
+        id: uuidv4(), // Generate a unique ID for each strategy
         name: `${riskLevel} Risk ${marketType.charAt(0).toUpperCase() + marketType.slice(1)} Momentum Strategy`,
         description: `A ${riskLevel.toLowerCase()} risk ${marketType} momentum strategy for ${Array.isArray(assets) ? assets.join(', ') : 'BTC/USDT'} that uses MACD and volume to identify potential entry and exit points.`,
         riskLevel,
+        risk_level: riskLevel, // Add both formats for compatibility
         assets,
+        selected_pairs: assets, // Add selected_pairs for compatibility
         marketType,
+        market_type: marketType, // Add both formats for compatibility
         timeframe: riskLevel === 'Low' ? '1d' : riskLevel === 'Medium' ? '4h' : '1h',
         entryConditions: [
           { indicator: 'MACD', condition: 'MACD Crossover', value: 'Signal Line' },
@@ -731,9 +751,22 @@ Please provide a complete strategy in JSON format with the following structure:
           maxOpenPositions: riskLevel === 'Low' ? 2 : riskLevel === 'Medium' ? 4 : 6,
           ...(marketType === 'futures' ? { leverage: riskLevel === 'Low' ? '2x' : riskLevel === 'Medium' ? '5x' : '10x' } : {}),
           ...(marketType === 'margin' ? { borrowAmount: riskLevel === 'Low' ? '20%' : riskLevel === 'Medium' ? '50%' : '80%' } : {})
-        }
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: 'inactive'
       });
     }
+
+    // Log the generated strategies to ensure they have IDs
+    strategies.forEach(strategy => {
+      logService.log('info', `Generated strategy with ID: ${strategy.id}`, {
+        id: strategy.id,
+        name: strategy.name,
+        riskLevel: strategy.riskLevel,
+        marketType: strategy.marketType
+      }, 'AIService');
+    });
 
     return strategies;
   }
@@ -827,6 +860,9 @@ Please provide a complete strategy in JSON format with the following structure:
    * Normalizes strategy configuration
    */
   private normalizeStrategyConfig(config: any, riskLevel: string): any {
+    // Generate a UUID for the strategy if it doesn't have one
+    const id = config.id || uuidv4();
+
     // Detect or normalize market type
     let marketType: MarketType;
     if (config.marketType) {
@@ -848,6 +884,7 @@ Please provide a complete strategy in JSON format with the following structure:
 
     // Calculate metrics using the strategy metrics calculator
     const tempStrategy = {
+      id,
       riskLevel: riskLevel,
       risk_level: riskLevel,
       market_type: marketType,
@@ -884,18 +921,29 @@ Please provide a complete strategy in JSON format with the following structure:
       riskManagement.borrowAmount = config.riskManagement.borrowAmount;
     }
 
+    // Log the strategy ID to ensure it's set
+    logService.log('info', `Normalizing strategy with ID: ${id}`, { id }, 'AIService');
+
     // Ensure all required fields are present
     return {
+      id, // Explicitly set the ID to ensure it's never null
       name: config.name || `${riskLevel} Risk ${marketType.charAt(0).toUpperCase() + marketType.slice(1)} Strategy`,
       description: config.description || `A ${riskLevel.toLowerCase()} risk ${marketType} trading strategy.`,
       riskLevel: config.riskLevel || riskLevel,
+      risk_level: config.riskLevel || riskLevel, // Add both formats for compatibility
       marketType: marketType,
+      market_type: marketType, // Add both formats for compatibility
       assets: config.assets || ['BTC/USDT'],
+      selected_pairs: config.assets || config.selected_pairs || ['BTC/USDT'], // Add selected_pairs for compatibility
       timeframe: config.timeframe || '1h',
       entryConditions: config.entryConditions || [],
       exitConditions: config.exitConditions || [],
       riskManagement: riskManagement,
       metrics: metrics, // Add metrics to the strategy
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'inactive',
+      user_id: config.user_id || null, // Will be set by the strategy sync service
       strategy_config: {
         ...(config.strategy_config || {}),
         metrics: metrics, // Also add metrics to strategy_config for compatibility
