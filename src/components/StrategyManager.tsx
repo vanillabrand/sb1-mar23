@@ -477,8 +477,12 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         user_id: user.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        // Ensure selected_pairs is properly set
-        selected_pairs: strategyData.selected_pairs || [],
+        // Ensure selected_pairs is properly set and formatted correctly
+        selected_pairs: Array.isArray(strategyData.selected_pairs)
+          ? strategyData.selected_pairs.map(pair =>
+              pair.includes('_') ? pair.replace('_', '/') : pair
+            )
+          : ['BTC/USDT'],
         // Ensure market_type is properly set (database field)
         market_type: strategyData.marketType || 'spot',
         // Also set marketType for UI components
@@ -487,6 +491,12 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
       // Create the strategy
       const newStrategy = await createStrategy(enrichedData);
+
+      // Check if newStrategy is null or undefined
+      if (!newStrategy) {
+        throw new Error('Failed to create strategy - no data returned');
+      }
+
       console.log('StrategyManager: Strategy created successfully:', newStrategy.id);
 
       // Close the modal

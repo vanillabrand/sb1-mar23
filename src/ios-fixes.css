@@ -6,8 +6,7 @@
 /* Fix for iOS Safari viewport height issues */
 .ios-device {
   height: 100%;
-  position: fixed;
-  overflow: hidden;
+  position: relative; /* Changed from fixed to relative */
   width: 100%;
 }
 
