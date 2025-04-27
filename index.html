@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -19,11 +19,34 @@
       body {
         background-color: #0a0a0c;
         margin: 0;
+        -webkit-text-size-adjust: 100%;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        overscroll-behavior-y: none;
+      }
+
+      /* iOS-specific fixes */
+      @supports (-webkit-touch-callout: none) {
+        html, body {
+          height: 100%;
+          overflow: hidden;
+        }
+        #root {
+          height: 100%;
+          overflow: auto;
+          -webkit-overflow-scrolling: touch;
+        }
+        input, textarea {
+          -webkit-appearance: none;
+          border-radius: 0;
+        }
       }
     </style>
   </head>
   <body class="bg-gunmetal-950">
     <div id="root"></div>
+    <!-- Safari/iOS polyfills -->
+    <script nomodule src="https://polyfill.io/v3/polyfill.min.js?features=IntersectionObserver,ResizeObserver,WebAnimations,Object.fromEntries,Array.prototype.at"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

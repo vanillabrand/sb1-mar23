@@ -14,6 +14,7 @@ import './index.css';
 import './styles/rainbow-effect.css'; // Import rainbow effect styles
 import './styles/mobile.css'; // Import mobile-specific styles
 import './styles/animations.css'; // Import animation styles
+import './ios-fixes.css'; // Import iOS-specific fixes
 
 // Removed test Supabase client import to avoid storage key conflicts
 
@@ -43,7 +44,7 @@ const initApp = async () => {
     // Only initialize if not already done
     if (!root) {
       root = createRoot(rootElement);
-      
+
       // Initialize log service first
       try {
         await logService.initialize();

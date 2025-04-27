@@ -1,0 +1,89 @@
+/**
+ * iOS-specific CSS fixes
+ * These styles will only apply to iOS devices
+ */
+
+/* Fix for iOS Safari viewport height issues */
+.ios-device {
+  height: 100%;
+  position: fixed;
+  overflow: hidden;
+  width: 100%;
+}
+
+.ios-device #root {
+  height: 100%;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Fix for iOS input styling */
+.ios-device input,
+.ios-device textarea,
+.ios-device select,
+.ios-device button {
+  -webkit-appearance: none;
+  border-radius: 0;
+}
+
+/* Fix for iOS button tap highlight */
+.ios-device button,
+.ios-device a {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Fix for iOS sticky positioning */
+.ios-device .sticky {
+  position: -webkit-sticky;
+  position: sticky;
+}
+
+/* Fix for iOS scrolling momentum */
+.ios-device .scroll-container {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+}
+
+/* Fix for iOS fixed positioning with keyboard open */
+.ios-device .fixed-bottom {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+}
+
+/* Fix for iOS notch areas */
+.ios-device .safe-area-inset-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+.ios-device .safe-area-inset-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Fix for iOS Safari 100vh issue */
+.ios-device .full-height {
+  height: 100%;
+  height: -webkit-fill-available;
+}
+
+/* Fix for iOS flexbox issues */
+.ios-device .flex-container {
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+}
+
+/* Fix for iOS Safari rendering issues with transforms */
+.ios-device .transform-fix {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* Fix for iOS Safari rendering issues with animations */
+.ios-device .animation-fix {
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
