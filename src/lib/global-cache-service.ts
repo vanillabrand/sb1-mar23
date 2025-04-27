@@ -135,7 +135,7 @@ class GlobalCacheService {
           // Return a synthetic fallback
           return this.createSyntheticMarketInsights();
         }),
-        this.refreshNews().catch(error => {
+        this.refreshAllNews().catch(error => {
           logService.log('error', 'Failed to initialize news cache', error, 'GlobalCacheService');
           // Continue without news data
           return [];
@@ -356,7 +356,39 @@ class GlobalCacheService {
   }
 
   /**
+   * Refresh the news cache using the new endpoint that fetches all news at once
+   */
+  private async refreshAllNews(): Promise<NewsItem[]> {
+    try {
+      logService.log('info', 'Refreshing news cache using new getAllNews method', null, 'GlobalCacheService');
+
+      // Clear all previous news articles
+      this.newsCache.clear();
+      logService.log('info', 'Cleared previous news cache', null, 'GlobalCacheService');
+
+      // Fetch all news at once using the new method
+      const allNews = await newsService.getAllNews();
+
+      // Cache the news with a special key
+      if (allNews && allNews.length > 0) {
+        this.newsCache.set('all_news', allNews);
+        this.newsLastUpdate = Date.now();
+
+        logService.log('info', `Cached ${allNews.length} news articles from Coindesk API`, null, 'GlobalCacheService');
+        return allNews;
+      } else {
+        logService.log('warn', 'No news found from Coindesk API', null, 'GlobalCacheService');
+        return [];
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to refresh news cache using new method', error, 'GlobalCacheService');
+      return [];
+    }
+  }
+
+  /**
    * Refresh the news cache for user strategies and default assets
+   * @deprecated Use refreshAllNews instead
    */
   private async refreshNews(): Promise<void> {
     try {
@@ -415,13 +447,30 @@ class GlobalCacheService {
 
   /**
    * Refresh portfolio data cache
+   * @param userId Optional user ID to filter data by
    */
-  private async refreshPortfolioData(): Promise<any> {
+  private async refreshPortfolioData(userId?: string): Promise<any> {
     try {
-      logService.log('info', 'Refreshing portfolio data cache', null, 'GlobalCacheService');
+      logService.log('info', 'Refreshing portfolio data cache', {
+        userId: userId || 'all users'
+      }, 'GlobalCacheService');
 
       // Import dynamically to avoid circular dependencies
       const { portfolioService } = await import('./portfolio-service');
+
+      // Get the authenticated user if no userId is provided
+      if (!userId) {
+        try {
+          const { supabase } = await import('./supabase');
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            userId = user.id;
+            logService.log('info', `Using authenticated user ID for portfolio data refresh: ${userId}`, null, 'GlobalCacheService');
+          }
+        } catch (authError) {
+          logService.log('warn', 'Failed to get authenticated user, refreshing for all users', authError, 'GlobalCacheService');
+        }
+      }
 
       // Fetch portfolio data for different timeframes
       const timeframes = ['1h', '1d', '1w', '1m'];
@@ -433,35 +482,49 @@ class GlobalCacheService {
             setTimeout(() => reject(new Error(`Portfolio data timeout for ${timeframe}`)), 10000);
           });
 
-          // Fetch portfolio data with timeout
-          const dataPromise = portfolioService.getPerformanceData(timeframe as any);
+          // Fetch portfolio data with timeout, passing the user ID
+          const dataPromise = portfolioService.getPerformanceData(timeframe as any, userId);
           const data = await Promise.race([dataPromise, timeoutPromise]);
 
-          // Cache the data
-          this.portfolioCache.set(`performance_${timeframe}`, data);
+          // Cache the data with a user-specific key
+          const cacheKey = `performance_${timeframe}_${userId || 'all'}`;
+          this.portfolioCache.set(cacheKey, data);
+
+          logService.log('info', `Refreshed portfolio data for timeframe ${timeframe}`, {
+            userId: userId || 'all users',
+            dataPoints: data?.length || 0
+          }, 'GlobalCacheService');
         } catch (tfError) {
           logService.log('warn', `Failed to refresh portfolio data for timeframe ${timeframe}`, tfError, 'GlobalCacheService');
           // Generate synthetic data as fallback
           const syntheticData = this.generateSyntheticPortfolioData(timeframe as any);
-          this.portfolioCache.set(`performance_${timeframe}`, syntheticData);
+          const cacheKey = `performance_${timeframe}_${userId || 'all'}`;
+          this.portfolioCache.set(cacheKey, syntheticData);
         }
       }
 
       // Also cache the portfolio summary
       try {
         // Import dynamically to avoid circular dependencies
-        const { getPortfolioSummary } = await import('./portfolio-summary');
+        const { portfolioService } = await import('./portfolio-service');
 
         // Set a timeout for portfolio summary fetch - 5 seconds
         const timeoutPromise = new Promise((_, reject) => {
           setTimeout(() => reject(new Error('Portfolio summary timeout')), 5000);
         });
 
-        // Fetch portfolio summary with timeout
-        const summaryPromise = getPortfolioSummary();
+        // Fetch portfolio summary with timeout, passing the user ID
+        const summaryPromise = portfolioService.getPortfolioSummary(userId);
         const summary = await Promise.race([summaryPromise, timeoutPromise]);
 
-        this.portfolioCache.set('portfolio_summary', summary);
+        // Cache the summary with a user-specific key
+        const summaryKey = `portfolio_summary_${userId || 'all'}`;
+        this.portfolioCache.set(summaryKey, summary);
+
+        logService.log('info', `Refreshed portfolio summary`, {
+          userId: userId || 'all users',
+          strategies: summary?.strategies?.length || 0
+        }, 'GlobalCacheService');
       } catch (summaryError) {
         logService.log('warn', 'Failed to refresh portfolio summary', summaryError, 'GlobalCacheService');
 
@@ -502,7 +565,13 @@ class GlobalCacheService {
           ]
         };
 
-        this.portfolioCache.set('portfolio_summary', fallbackSummary);
+        // Cache the fallback summary with a user-specific key
+        const summaryKey = `portfolio_summary_${userId || 'all'}`;
+        this.portfolioCache.set(summaryKey, fallbackSummary);
+
+        logService.log('info', `Using fallback portfolio summary data`, {
+          userId: userId || 'all users'
+        }, 'GlobalCacheService');
       }
 
       this.portfolioLastUpdate = Date.now();
@@ -587,9 +656,41 @@ class GlobalCacheService {
   }
 
   /**
+   * Get all news from the global cache
+   * @returns All news articles
+   */
+  async getAllNews(): Promise<NewsItem[]> {
+    try {
+      // Check if we have cached data
+      if (this.newsCache.has('all_news') && Date.now() - this.newsLastUpdate < this.NEWS_CACHE_DURATION) {
+        const cachedNews = this.newsCache.get('all_news') || [];
+        logService.log('info', `Using cached news data (${cachedNews.length} items)`, null, 'GlobalCacheService');
+        return cachedNews;
+      }
+
+      // If not in cache, fetch from news service
+      logService.log('info', 'Fetching fresh news data using new getAllNews method', null, 'GlobalCacheService');
+      const allNews = await newsService.getAllNews();
+
+      // Cache the news
+      if (allNews && allNews.length > 0) {
+        this.newsCache.set('all_news', allNews);
+        this.newsLastUpdate = Date.now();
+        logService.log('info', `Cached ${allNews.length} news articles from Coindesk API`, null, 'GlobalCacheService');
+      }
+
+      return allNews;
+    } catch (error) {
+      logService.log('error', 'Failed to get all news', error, 'GlobalCacheService');
+      return [];
+    }
+  }
+
+  /**
    * Get news for multiple assets from the global cache
    * @param assets List of assets to get news for
    * @returns Combined and deduplicated news for all specified assets
+   * @deprecated Use getAllNews instead
    */
   async getNewsForAssets(assets: string[] = []): Promise<NewsItem[]> {
     try {
@@ -703,13 +804,19 @@ class GlobalCacheService {
   /**
    * Set portfolio summary data in the global cache
    * @param summary The portfolio summary data to cache
+   * @param userId Optional user ID to associate with the summary
    */
-  setPortfolioSummary(summary: any): void {
+  setPortfolioSummary(summary: any, userId?: string): void {
     try {
-      const cacheKey = 'portfolio_summary';
+      // Create a cache key that includes the user ID
+      const cacheKey = `portfolio_summary_${userId || 'all'}`;
+
       this.portfolioCache.set(cacheKey, summary);
       this.portfolioLastUpdate = Date.now();
-      logService.log('info', 'Updated portfolio summary in global cache', null, 'GlobalCacheService');
+
+      logService.log('info', 'Updated portfolio summary in global cache', {
+        userId: userId || 'all users'
+      }, 'GlobalCacheService');
     } catch (error) {
       logService.log('error', 'Failed to set portfolio summary in cache', error, 'GlobalCacheService');
     }
@@ -717,13 +824,20 @@ class GlobalCacheService {
 
   /**
    * Get portfolio summary data from the global cache
+   * @param userId Optional user ID to filter data by
    * @returns Portfolio summary data
    */
-  async getPortfolioSummary(): Promise<any> {
+  async getPortfolioSummary(userId?: string): Promise<any> {
     try {
-      const cacheKey = 'portfolio_summary';
+      // Create a cache key that includes the user ID
+      const cacheKey = `portfolio_summary_${userId || 'all'}`;
 
-      // Check if we have cached data
+      logService.log('info', `Getting portfolio summary from cache`, {
+        userId: userId || 'all users',
+        cacheKey
+      }, 'GlobalCacheService');
+
+      // Check if we have cached data for this specific user
       if (this.portfolioCache.has(cacheKey)) {
         return this.portfolioCache.get(cacheKey);
       }
@@ -736,7 +850,7 @@ class GlobalCacheService {
       }, 100);
 
       // Import dynamically to avoid circular dependencies
-      const { getPortfolioSummary } = await import('./portfolio-summary');
+      const { portfolioService } = await import('./portfolio-service');
 
       // Fetch directly with a timeout - increased to 5 seconds
       const timeoutPromise = new Promise((_, reject) => {
@@ -744,7 +858,8 @@ class GlobalCacheService {
       });
 
       try {
-        const dataPromise = getPortfolioSummary();
+        // Pass the user ID to the portfolio service
+        const dataPromise = portfolioService.getPortfolioSummary(userId);
         const data = await Promise.race([dataPromise, timeoutPromise]);
 
         if (data) {
@@ -837,13 +952,20 @@ class GlobalCacheService {
   /**
    * Get portfolio performance data from the global cache
    * @param timeframe The timeframe to get data for ('1h', '1d', '1w', '1m')
+   * @param userId Optional user ID to filter data by
    * @returns Portfolio performance data for the specified timeframe
    */
-  async getPortfolioData(timeframe: string = '1d'): Promise<any> {
+  async getPortfolioData(timeframe: string = '1d', userId?: string): Promise<any> {
     try {
-      const cacheKey = `performance_${timeframe}`;
+      // Create a cache key that includes the user ID
+      const cacheKey = `performance_${timeframe}_${userId || 'all'}`;
 
-      // Check if we have cached data
+      logService.log('info', `Getting portfolio data from cache for timeframe: ${timeframe}`, {
+        userId: userId || 'all users',
+        cacheKey
+      }, 'GlobalCacheService');
+
+      // Check if we have cached data for this specific user
       if (this.portfolioCache.has(cacheKey)) {
         return this.portfolioCache.get(cacheKey);
       }
@@ -867,10 +989,11 @@ class GlobalCacheService {
           setTimeout(() => reject(new Error('Portfolio data timeout')), 5000);
         });
 
-        const dataPromise = portfolioService.getPerformanceData(timeframe as any);
+        // Pass the user ID to the portfolio service
+        const dataPromise = portfolioService.getPerformanceData(timeframe as any, userId);
         const data = await Promise.race([dataPromise, timeoutPromise]);
 
-        // Cache the result
+        // Cache the result with the user-specific key
         this.portfolioCache.set(cacheKey, data);
         return data;
       } catch (fetchError) {
@@ -941,49 +1064,20 @@ class GlobalCacheService {
 
   /**
    * Force a refresh of the news cache
-   * @param assets Optional list of assets to refresh news for
    * @returns Promise that resolves when the refresh is complete
    */
-  async forceRefreshNews(assets?: string[]): Promise<void> {
+  async forceRefreshNews(): Promise<void> {
     try {
-      logService.log('info', 'Forcing refresh of news cache', { assets: assets?.join(',') }, 'GlobalCacheService');
+      logService.log('info', 'Forcing refresh of news cache using new getAllNews method', null, 'GlobalCacheService');
 
-      if (assets && assets.length > 0) {
-        // Clear previous news for these specific assets
-        for (const asset of assets) {
-          const normalizedAsset = asset.replace(/[\/|_|\-].+$/, '').toUpperCase();
-          this.newsCache.delete(normalizedAsset);
-          logService.log('info', `Cleared news cache for ${normalizedAsset}`, null, 'GlobalCacheService');
-        }
+      // Clear all previous news
+      this.newsCache.clear();
+      logService.log('info', 'Cleared all news cache', null, 'GlobalCacheService');
 
-        // Fetch fresh news for each asset
-        for (const asset of assets) {
-          const normalizedAsset = asset.replace(/[\/|_|\-].+$/, '').toUpperCase();
+      // Refresh all news at once using the new method
+      const allNews = await this.refreshAllNews();
 
-          try {
-            // Fetch fresh news for this asset
-            const news = await newsService.getNewsForAsset(normalizedAsset);
-
-            // Only update the cache if we got news
-            if (news && news.length > 0) {
-              this.newsCache.set(normalizedAsset, news);
-              logService.log('info', `Refreshed news cache for ${normalizedAsset} with ${news.length} articles`, null, 'GlobalCacheService');
-            } else {
-              logService.log('info', `No news found for ${normalizedAsset}`, null, 'GlobalCacheService');
-            }
-          } catch (assetError) {
-            logService.log('warn', `Failed to refresh news for ${normalizedAsset}`, assetError, 'GlobalCacheService');
-          }
-        }
-
-        // Update the last update time
-        this.newsLastUpdate = Date.now();
-
-        logService.log('info', `News cache refreshed for specific assets: ${assets.join(', ')}`, null, 'GlobalCacheService');
-      } else {
-        // If no specific assets, refresh all news
-        await this.refreshNews();
-      }
+      logService.log('info', `News cache refreshed with ${allNews.length} articles`, null, 'GlobalCacheService');
     } catch (error) {
       logService.log('error', 'Failed to force refresh news cache', error, 'GlobalCacheService');
       throw error;

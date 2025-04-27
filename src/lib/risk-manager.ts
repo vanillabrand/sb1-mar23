@@ -8,7 +8,8 @@ export class RiskManager extends EventEmitter {
   private metrics: Map<string, RiskMetrics> = new Map();
   private readonly MAX_DRAWDOWN = 0.15; // 15%
   private readonly MAX_DAILY_LOSS = 0.10; // 10%
-  private readonly POSITION_SIZE_LIMIT = 0.20; // 20% of portfolio
+  // No position size limit
+  private readonly POSITION_SIZE_LIMIT = Number.MAX_VALUE; // Effectively no limit
 
   private constructor() {
     super();
@@ -126,7 +127,8 @@ export class RiskManager extends EventEmitter {
     return (
       (metrics.dailyPnL < -this.MAX_DAILY_LOSS ? 1 : 0) * weights.dailyPnL +
       (metrics.drawdown > this.MAX_DRAWDOWN ? 1 : 0) * weights.drawdown +
-      (metrics.exposureRatio > this.POSITION_SIZE_LIMIT ? 1 : 0) * weights.exposureRatio +
+      // No position size limit check in risk score calculation
+      0 * weights.exposureRatio +
       (metrics.volatility > 0.02 ? 1 : 0) * weights.volatility
     );
   }
@@ -135,7 +137,7 @@ export class RiskManager extends EventEmitter {
     return (
       metrics.drawdown > this.MAX_DRAWDOWN ||
       metrics.dailyPnL < -this.MAX_DAILY_LOSS ||
-      metrics.exposureRatio > this.POSITION_SIZE_LIMIT ||
+      // No position size limit check for risk alerts
       metrics.riskScore > 0.7
     );
   }
@@ -177,13 +179,8 @@ export class RiskManager extends EventEmitter {
         };
       }
 
-      // Check if the trade exceeds the maximum position size
-      if (tradeCost > budget.total * this.POSITION_SIZE_LIMIT) {
-        return {
-          approved: false,
-          reason: `Trade exceeds maximum position size: ${tradeCost} > ${budget.total * this.POSITION_SIZE_LIMIT}`
-        };
-      }
+      // No maximum position size check
+      // We've removed the position size limit as per requirements
 
       // Get risk metrics for this strategy if available
       const metrics = this.getRiskMetrics(strategyId);

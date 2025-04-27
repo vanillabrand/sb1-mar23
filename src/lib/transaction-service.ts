@@ -91,8 +91,20 @@ class TransactionService extends EventEmitter {
     }
   }
 
-  async getTransactionsForUser(startDate?: Date, endDate?: Date): Promise<Transaction[]> {
+  async getTransactionsForUser(startDate?: Date, endDate?: Date, userId?: string): Promise<Transaction[]> {
     try {
+      // If no userId is provided, get the current authenticated user
+      if (!userId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        userId = user?.id;
+
+        // If still no userId, log a warning and return empty array
+        if (!userId) {
+          logService.log('warn', 'No user ID provided and no authenticated user found', null, 'TransactionService');
+          return [];
+        }
+      }
+
       // Ensure valid date range
       const end = endDate ? new Date(endDate) : new Date();
       const start = startDate ? new Date(startDate) : new Date(end.getTime() - (30 * 24 * 60 * 60 * 1000)); // Default to last 30 days
@@ -102,11 +114,17 @@ class TransactionService extends EventEmitter {
         throw new Error('Invalid date range');
       }
 
+      logService.log('info', `Getting transactions for user ${userId}`, {
+        startDate: start.toISOString(),
+        endDate: end.toISOString()
+      }, 'TransactionService');
+
       // Try to get transactions from the transactions table first
       try {
         const { data: transactions, error } = await supabase
           .from('transactions')
           .select('*')
+          .eq('user_id', userId)
           .gte('created_at', start.toISOString())
           .lte('created_at', end.toISOString())
           .order('created_at', { ascending: false });
@@ -120,6 +138,7 @@ class TransactionService extends EventEmitter {
             const { data: historyTransactions, error: historyError } = await supabase
               .from('transaction_history')
               .select('*')
+              .eq('user_id', userId)
               .gte('created_at', start.toISOString())
               .lte('created_at', end.toISOString())
               .order('created_at', { ascending: false });
@@ -136,6 +155,7 @@ class TransactionService extends EventEmitter {
               }
             }
 
+            logService.log('info', `Retrieved ${historyTransactions?.length || 0} transactions from transaction_history for user ${userId}`, null, 'TransactionService');
             return historyTransactions || [];
           } else {
             logService.log('error', 'Supabase query error on transactions', error, 'TransactionService');
@@ -143,6 +163,7 @@ class TransactionService extends EventEmitter {
           }
         }
 
+        logService.log('info', `Retrieved ${transactions?.length || 0} transactions from transactions table for user ${userId}`, null, 'TransactionService');
         return transactions || [];
       } catch (queryError) {
         logService.log('error', 'Exception when querying transactions', queryError, 'TransactionService');

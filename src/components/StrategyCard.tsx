@@ -294,28 +294,60 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       setAvailableBalance(walletBalanceService.getAvailableBalance());
     };
 
-    // Subscribe to budget updates
+    // Create a debounced function to update the budget state
+    const debounceBudgetUpdate = (total: number) => {
+      // Use a timestamp to prevent multiple updates in the same render cycle
+      const now = Date.now();
+      const lastUpdate = (window as any).lastBudgetUpdate?.[strategy.id] || 0;
+
+      if (now - lastUpdate < 500) {
+        // Skip this update if we've updated recently
+        return;
+      }
+
+      // Store the last update time
+      if (!(window as any).lastBudgetUpdate) {
+        (window as any).lastBudgetUpdate = {};
+      }
+      (window as any).lastBudgetUpdate[strategy.id] = now;
+
+      // Update the state
+      setStrategyBudget(total);
+    };
+
+    // Subscribe to budget updates with debouncing
     const handleBudgetUpdate = (event: any) => {
       // Handle direct budget updates from trade service
       if (event.strategyId === strategy.id) {
         const budget = tradeService.getBudget(strategy.id);
         if (budget) {
-          setStrategyBudget(budget.total);
-          logService.log('info', `Budget updated via event for strategy ${strategy.id}`, { budget }, 'StrategyCard');
+          debounceBudgetUpdate(budget.total);
+
+          // Only log occasionally to reduce spam
+          if (Date.now() % 10 === 0) {
+            logService.log('info', `Budget updated via event for strategy ${strategy.id}`, { budget }, 'StrategyCard');
+          }
         }
       }
 
       // Handle global budget updates from TradeMonitor
       if (event.budgets && event.budgets[strategy.id]) {
-        logService.log('info', `Budget updated from global event for strategy ${strategy.id}`, { budget: event.budgets[strategy.id] }, 'StrategyCard');
+        // Only log occasionally to reduce spam
+        if (Date.now() % 10 === 0) {
+          logService.log('info', `Budget updated from global event for strategy ${strategy.id}`, { budget: event.budgets[strategy.id] }, 'StrategyCard');
+        }
       }
     };
 
-    // Subscribe to global budget updates
+    // Subscribe to global budget updates with debouncing
     const handleGlobalBudgetUpdate = (event: any) => {
       if (event.strategyId === strategy.id && event.budget) {
-        setStrategyBudget(event.budget.total);
-        logService.log('info', `Budget updated via global event for strategy ${strategy.id}`, { budget: event.budget }, 'StrategyCard');
+        debounceBudgetUpdate(event.budget.total);
+
+        // Only log occasionally to reduce spam
+        if (Date.now() % 10 === 0) {
+          logService.log('info', `Budget updated via global event for strategy ${strategy.id}`, { budget: event.budget }, 'StrategyCard');
+        }
       }
     };
 

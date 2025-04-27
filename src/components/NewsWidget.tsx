@@ -48,33 +48,31 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
       setError(null);
       if (!refreshing) setLoading(true);
 
-      let newsItems: any[] = [];
+      // Get all news at once using the new approach
+      logService.log('info', 'Fetching all news using new approach', null, 'NewsWidget');
 
-      // If specific assets are provided as props, use those
+      let newsItems: any[] = await globalCacheService.getAllNews();
+
+      // If we have specific assets to filter by, filter the news items
       if (assets.length > 0) {
-        logService.log('info', `Fetching news for specified assets: ${assets.join(', ')}`, null, 'NewsWidget');
-        newsItems = await globalCacheService.getNewsForAssets(assets);
-      } else {
-        // Otherwise, get news for all assets in user strategies
-        logService.log('info', 'Fetching news for user strategy assets', null, 'NewsWidget');
+        logService.log('info', `Filtering news for specified assets: ${assets.join(', ')}`, null, 'NewsWidget');
 
-        try {
-          // Import the news service dynamically to avoid circular dependencies
-          const { newsService } = await import('../lib/news-service');
+        // Filter news items that mention any of the specified assets
+        newsItems = newsItems.filter(item => {
+          // Check if any of the specified assets are mentioned in the news item
+          return assets.some(asset => {
+            const normalizedAsset = asset.replace(/[\/|_|\-].+$/, '').toUpperCase();
 
-          // Get news for all assets in user strategies
-          newsItems = await newsService.getNewsForUserStrategies();
+            // Check title, description, and relatedAssets
+            return (
+              (item.title && item.title.toUpperCase().includes(normalizedAsset)) ||
+              (item.description && item.description.toUpperCase().includes(normalizedAsset)) ||
+              (item.relatedAssets && item.relatedAssets.includes(normalizedAsset))
+            );
+          });
+        });
 
-          logService.log('info', `Fetched ${newsItems.length} news items for user strategy assets`, null, 'NewsWidget');
-        } catch (strategyError) {
-          logService.log('error', 'Error fetching news for user strategies', strategyError, 'NewsWidget');
-
-          // Fallback to default assets
-          const defaultAssets = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
-          logService.log('info', `Falling back to default assets: ${defaultAssets.join(', ')}`, null, 'NewsWidget');
-
-          newsItems = await globalCacheService.getNewsForAssets(defaultAssets);
-        }
+        logService.log('info', `Filtered to ${newsItems.length} news items for specified assets`, null, 'NewsWidget');
       }
 
       // Update state with the fetched news
@@ -123,76 +121,9 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
 
       logService.log('info', 'Manual refresh requested', null, 'NewsWidget');
 
-      // If specific assets are provided as props, use those
-      if (assets.length > 0) {
-        logService.log('info', `Refreshing news for specified assets: ${assets.join(', ')}`, null, 'NewsWidget');
-        // Force a refresh of the global cache for the specified assets
-        await globalCacheService.forceRefreshNews(assets);
-      } else {
-        try {
-          // Import services dynamically to avoid circular dependencies
-          const { newsService } = await import('../lib/news-service');
-          const { strategyService } = await import('../lib/strategy-service');
-
-          // Get all user strategies
-          const strategies = await strategyService.getAllStrategies();
-
-          // Extract unique asset symbols from all strategies
-          const assetSet = new Set<string>();
-
-          if (strategies && strategies.length > 0) {
-            strategies.forEach(strategy => {
-              // Extract trading pairs from various possible locations
-              let pairs: string[] = [];
-
-              if (strategy.selected_pairs && strategy.selected_pairs.length > 0) {
-                pairs = strategy.selected_pairs;
-              } else if (strategy.strategy_config?.assets && strategy.strategy_config.assets.length > 0) {
-                pairs = strategy.strategy_config.assets;
-              } else if (strategy.strategy_config?.config?.pairs && strategy.strategy_config.config.pairs.length > 0) {
-                pairs = strategy.strategy_config.config.pairs;
-              }
-
-              // Process each trading pair
-              pairs.forEach(pair => {
-                // Extract the base asset (e.g., 'BTC' from 'BTC/USDT')
-                const baseAsset = pair.split(/[\/\_\-]/)[0].toUpperCase();
-                if (baseAsset) assetSet.add(baseAsset);
-
-                // Also extract the quote asset if it's not a stablecoin
-                const parts = pair.split(/[\/\_\-]/);
-                if (parts.length > 1) {
-                  const quoteAsset = parts[1].toUpperCase();
-                  // Only add quote assets that aren't stablecoins
-                  if (quoteAsset && !['USDT', 'USDC', 'BUSD', 'DAI', 'USD'].includes(quoteAsset)) {
-                    assetSet.add(quoteAsset);
-                  }
-                }
-              });
-            });
-          }
-
-          // Convert Set to Array
-          const strategyAssets = Array.from(assetSet);
-
-          if (strategyAssets.length > 0) {
-            logService.log('info', `Refreshing news for user strategy assets: ${strategyAssets.join(', ')}`, null, 'NewsWidget');
-            await globalCacheService.forceRefreshNews(strategyAssets);
-          } else {
-            // Fallback to default assets
-            const defaultAssets = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
-            logService.log('info', `No user strategy assets found, refreshing news for default assets: ${defaultAssets.join(', ')}`, null, 'NewsWidget');
-            await globalCacheService.forceRefreshNews(defaultAssets);
-          }
-        } catch (strategyError) {
-          logService.log('error', 'Error getting user strategy assets for news refresh', strategyError, 'NewsWidget');
-
-          // Fallback to default assets
-          const defaultAssets = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP'];
-          logService.log('info', `Falling back to default assets: ${defaultAssets.join(', ')}`, null, 'NewsWidget');
-          await globalCacheService.forceRefreshNews(defaultAssets);
-        }
-      }
+      // Force a refresh of all news at once using the new approach
+      logService.log('info', 'Refreshing all news using new approach', null, 'NewsWidget');
+      await globalCacheService.forceRefreshNews();
 
       // Then fetch the updated news with force refresh flag
       await fetchNews(true);

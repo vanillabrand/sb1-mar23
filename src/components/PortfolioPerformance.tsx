@@ -45,10 +45,33 @@ export function PortfolioPerformance() {
   const [strategyMetrics, setStrategyMetrics] = useState<StrategyMetrics[]>([]);
   const [isLoadingMetrics, setIsLoadingMetrics] = useState<boolean>(false);
 
-  // Separate useEffect for initial data loading
+  // Separate useEffect for initial data loading and timeframe changes
   useEffect(() => {
+    logService.log('info', `Timeframe changed to ${timeframe}, reloading performance data`, null, 'PortfolioPerformance');
     loadPerformanceData();
     loadPortfolioSummary();
+
+    // Set default date range for the export modal based on the selected timeframe
+    const end = new Date();
+    let start = new Date();
+
+    switch (timeframe) {
+      case '1h':
+        start.setHours(start.getHours() - 1);
+        break;
+      case '1d':
+        start.setDate(start.getDate() - 1);
+        break;
+      case '1w':
+        start.setDate(start.getDate() - 7);
+        break;
+      case '1m':
+        start.setMonth(start.getMonth() - 1);
+        break;
+    }
+
+    setStartDate(start.toISOString().split('T')[0]);
+    setEndDate(end.toISOString().split('T')[0]);
   }, [timeframe]);
 
   // Initialize and subscribe to strategy metrics service
@@ -272,6 +295,17 @@ export function PortfolioPerformance() {
       setDownloadingCSV(true);
       setError(null);
 
+      // Get the authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        logService.log('warn', 'No authenticated user found when exporting CSV', null, 'PortfolioPerformance');
+        setError('You must be logged in to export transactions');
+        setDownloadingCSV(false);
+        return;
+      }
+
+      logService.log('info', `Exporting transactions CSV for authenticated user: ${user.id}`, null, 'PortfolioPerformance');
+
       // If modal is open, use the date range from the modal
       if (showTransactionModal && startDate && endDate) {
         // Validate date range
@@ -282,8 +316,8 @@ export function PortfolioPerformance() {
           throw new Error('Start date must be before end date');
         }
 
-        // Get CSV data from portfolio service
-        const csv = await portfolioService.exportTransactionsCSV(start, end, transactionType);
+        // Get CSV data from portfolio service for the authenticated user
+        const csv = await portfolioService.exportTransactionsCSV(start, end, transactionType, user.id);
 
         // Create download link
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -319,8 +353,8 @@ export function PortfolioPerformance() {
             break;
         }
 
-        // Get CSV data from portfolio service
-        const csv = await portfolioService.exportTransactionsCSV(start, end, 'all');
+        // Get CSV data from portfolio service for the authenticated user
+        const csv = await portfolioService.exportTransactionsCSV(start, end, 'all', user.id);
 
         // Create download link
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -351,17 +385,32 @@ export function PortfolioPerformance() {
       }
       setError(null);
 
+      // Get the authenticated user's session
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         // Handle unauthenticated state gracefully
         const sampleData = generateSamplePerformanceData(timeframe);
         setPerformanceData(sampleData);
         setLoading(false);
+        logService.log('warn', 'No authenticated user session found, using sample data', null, 'PortfolioPerformance');
         return;
       }
 
-      // Use the global cache service to get portfolio data
-      const data = await globalCacheService.getPortfolioData(timeframe);
+      // Get the authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        // Handle unauthenticated state gracefully
+        const sampleData = generateSamplePerformanceData(timeframe);
+        setPerformanceData(sampleData);
+        setLoading(false);
+        logService.log('warn', 'No authenticated user found, using sample data', null, 'PortfolioPerformance');
+        return;
+      }
+
+      logService.log('info', `Loading performance data for authenticated user: ${user.id}`, null, 'PortfolioPerformance');
+
+      // Use the global cache service to get portfolio data for the authenticated user
+      const data = await globalCacheService.getPortfolioData(timeframe, user.id);
 
       if (data && Array.isArray(data) && data.length > 0) {
         // Get portfolio summary to extract strategy data
@@ -414,7 +463,7 @@ export function PortfolioPerformance() {
    * Update portfolio summary with metrics data
    * @param metrics Array of strategy metrics
    */
-  const updatePortfolioSummaryWithMetrics = (metrics: StrategyMetrics[]) => {
+  const updatePortfolioSummaryWithMetrics = async (metrics: StrategyMetrics[]) => {
     if (!metrics || metrics.length === 0) return;
 
     try {
@@ -480,8 +529,17 @@ export function PortfolioPerformance() {
       // Update portfolio summary state
       setPortfolioSummary(summary);
 
-      // Update global cache
-      globalCacheService.setPortfolioSummary(summary);
+      // Get the authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Update global cache with user-specific data
+      if (user) {
+        globalCacheService.setPortfolioSummary(summary, user.id);
+        logService.log('info', `Updated portfolio summary in global cache for user: ${user.id}`, null, 'PortfolioPerformance');
+      } else {
+        globalCacheService.setPortfolioSummary(summary);
+        logService.log('warn', 'Updated portfolio summary in global cache without user ID', null, 'PortfolioPerformance');
+      }
 
       logService.log('info', 'Updated portfolio summary with metrics data', {
         strategies: summary.strategies.length,
@@ -495,7 +553,14 @@ export function PortfolioPerformance() {
 
   const loadPortfolioSummary = async () => {
     try {
-      logService.log('info', 'Loading portfolio summary data', null, 'PortfolioPerformance');
+      // Get the authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        logService.log('warn', 'No authenticated user found when loading portfolio summary', null, 'PortfolioPerformance');
+        return;
+      }
+
+      logService.log('info', `Loading portfolio summary data for authenticated user: ${user.id}`, null, 'PortfolioPerformance');
 
       // First, try to get data from the global cache
       const summary = await globalCacheService.getPortfolioSummary();
@@ -519,21 +584,23 @@ export function PortfolioPerformance() {
         }
       } else {
         // If not in cache, fetch directly from the database
-        // Get all strategies
+        // Get strategies for the authenticated user
         const { data: strategies, error: strategiesError } = await supabase
           .from('strategies')
-          .select('*');
+          .select('*')
+          .eq('user_id', user.id);
 
         if (strategiesError) {
-          logService.log('error', 'Failed to load strategies', strategiesError, 'PortfolioPerformance');
+          logService.log('error', `Failed to load strategies for user ${user.id}`, strategiesError, 'PortfolioPerformance');
         }
 
-        // Get all transactions
+        // Get transactions for the authenticated user
         let transactions = [];
         try {
           const { data, error } = await supabase
             .from('transactions')
             .select('*')
+            .eq('user_id', user.id)
             .order('created_at', { ascending: false });
 
           if (error) {
@@ -541,19 +608,22 @@ export function PortfolioPerformance() {
             if (error.code === '42P01') { // PostgreSQL code for 'relation does not exist'
               logService.log('warn', 'Transactions table does not exist yet. This is normal if you haven\'t created it.', null, 'PortfolioPerformance');
             } else {
-              logService.log('error', 'Failed to load transactions:', error, 'PortfolioPerformance');
+              logService.log('error', `Failed to load transactions for user ${user.id}:`, error, 'PortfolioPerformance');
             }
           } else {
             transactions = data || [];
+            logService.log('info', `Loaded ${transactions.length} transactions for user ${user.id}`, null, 'PortfolioPerformance');
           }
         } catch (err) {
-          logService.log('error', 'Exception when loading transactions:', err, 'PortfolioPerformance');
+          logService.log('error', `Exception when loading transactions for user ${user.id}:`, err, 'PortfolioPerformance');
         }
 
-        // Get all trades
+        // Get trades for the authenticated user's strategies
+        const strategyIds = strategies ? strategies.map(s => s.id) : [];
         const { data: trades, error: tradesError } = await supabase
           .from('trades')
-          .select('*');
+          .select('*')
+          .in('strategy_id', strategyIds.length > 0 ? strategyIds : ['no-strategies-found']);
 
         if (tradesError) {
           logService.log('error', 'Failed to load trades', tradesError, 'PortfolioPerformance');
@@ -829,15 +899,15 @@ export function PortfolioPerformance() {
           <h2 className="text-lg font-bold gradient-text">Portfolio Performance</h2>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex gap-0.5 bg-gunmetal-800 rounded-lg p-0.5">
+          <div className="flex gap-0.5 bg-gunmetal-800 rounded-lg p-0.5 shadow-md">
             {(['1h', '1d', '1w', '1m'] as const).map((tf) => (
               <button
                 key={tf}
                 onClick={() => setTimeframe(tf)}
-                className={`px-1 py-0.5 rounded text-xs ${
+                className={`px-2 py-1 rounded text-xs font-medium transition-all duration-200 ${
                   timeframe === tf
-                    ? 'bg-neon-raspberry text-white'
-                    : 'text-gray-400 hover:text-white'
+                    ? 'bg-neon-raspberry text-white shadow-inner'
+                    : 'text-gray-300 hover:text-white hover:bg-gunmetal-700'
                 }`}
               >
                 {tf}
@@ -845,18 +915,19 @@ export function PortfolioPerformance() {
             ))}
           </div>
 
-          {/* Download CSV Button */}
+          {/* Export Transactions Button */}
           <button
-            onClick={handleDownloadCSV}
-            className="flex items-center gap-1 px-2 py-1 bg-gunmetal-800 text-gray-200 rounded-lg hover:bg-gunmetal-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed text-xs"
+            onClick={() => setShowTransactionModal(true)}
+            className="flex items-center gap-1 px-3 py-1 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium shadow-md"
             disabled={downloadingCSV || performanceData.length === 0}
+            title="Export transactions as CSV for the selected timeframe"
           >
             {downloadingCSV ? (
               <Loader2 className="w-3 h-3 animate-spin" />
             ) : (
               <Download className="w-3 h-3" />
             )}
-            CSV
+            Export
           </button>
         </div>
       </div>
@@ -1117,16 +1188,7 @@ export function PortfolioPerformance() {
         </>
       )}
 
-      {/* Export Button - Moved to bottom left */}
-      <div className="mt-3">
-        <button
-          onClick={() => setShowTransactionModal(true)}
-          className="flex items-center gap-1 px-3 py-1.5 bg-gunmetal-800 text-gray-200 rounded-lg hover:text-neon-turquoise transition-colors text-xs"
-        >
-          <Download className="w-3 h-3" />
-          Export Transactions
-        </button>
-      </div>
+      {/* We've removed the duplicate Export Transactions button since we already have the CSV button at the top */}
 
       {/* Transaction Export Modal */}
       {showTransactionModal && (

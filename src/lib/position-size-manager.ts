@@ -11,14 +11,14 @@ class PositionSizeManager {
     try {
       // Get base position size from strategy config
       const baseSize = this.getBasePositionSize(strategy);
-      
+
       // Calculate adjustment factors
       const volatilityFactor = await this.calculateVolatilityAdjustment(marketData);
       const correlationFactor = await this.calculateCorrelationAdjustment(strategy, portfolioState);
       const marketRegimeFactor = await this.calculateMarketRegimeAdjustment(marketData);
 
       // Combine factors with weights
-      const adjustmentMultiplier = 
+      const adjustmentMultiplier =
         (volatilityFactor * this.VOLATILITY_WEIGHT) +
         (correlationFactor * this.CORRELATION_WEIGHT) +
         (marketRegimeFactor * this.MARKET_REGIME_WEIGHT);
@@ -47,7 +47,7 @@ class PositionSizeManager {
   private async calculateVolatilityAdjustment(marketData: MarketData): Promise<number> {
     const currentVolatility = await this.calculateRecentVolatility(marketData);
     const historicalVolatility = await this.calculateHistoricalVolatility(marketData);
-    
+
     // Reduce position size in high volatility environments
     return historicalVolatility / Math.max(currentVolatility, historicalVolatility);
   }
@@ -57,16 +57,16 @@ class PositionSizeManager {
     portfolioState: PortfolioState
   ): Promise<number> {
     const correlations = await this.calculatePortfolioCorrelations(strategy, portfolioState);
-    const averageCorrelation = correlations.reduce((sum, corr) => sum + Math.abs(corr), 0) / 
+    const averageCorrelation = correlations.reduce((sum, corr) => sum + Math.abs(corr), 0) /
                               Math.max(correlations.length, 1);
-    
+
     // Reduce position size when correlation with portfolio is high
     return 1 - (averageCorrelation * 0.5);
   }
 
   private async calculateMarketRegimeAdjustment(marketData: MarketData): Promise<number> {
     const regime = await marketRegimeDetector.detectRegime(marketData);
-    
+
     const regimeMultipliers = {
       'TRENDING': 1.2,
       'RANGING': 1.0,
@@ -82,9 +82,8 @@ class PositionSizeManager {
     strategy: Strategy,
     portfolioState: PortfolioState
   ): number {
-    const maxSize = strategy.strategy_config.trade_parameters.max_position_size;
-    const portfolioLimit = portfolioState.available_balance * 0.2; // Max 20% of portfolio
-    
-    return Math.min(size, maxSize, portfolioLimit);
+    // No maximum position size limit
+    // Return the size as is without applying any limits
+    return size;
   }
 }

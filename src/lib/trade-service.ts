@@ -601,16 +601,48 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
    * This method is used to ensure consistency across all components
    * @param strategyId The strategy ID
    * @param budget The updated budget
+   * @param skipEvents Optional flag to skip emitting events (to prevent loops)
    */
-  updateBudgetCache(strategyId: string, budget: StrategyBudget): void {
+  updateBudgetCache(strategyId: string, budget: StrategyBudget, skipEvents: boolean = false): void {
     if (!strategyId || !budget) {
       logService.log('warn', 'Invalid parameters for updateBudgetCache', { strategyId, budget }, 'TradeService');
       return;
     }
 
     try {
+      // Check if we're already processing a budget update for this strategy
+      const lastUpdate = this.budgetUpdatesInProgress.get(strategyId) || 0;
+      const now = Date.now();
+
+      // If we've updated this budget recently, throttle the update to prevent loops
+      if (now - lastUpdate < this.BUDGET_UPDATE_THROTTLE_MS) {
+        // Only log this occasionally to avoid log spam
+        if (now % 10 === 0) {
+          logService.log('debug', `Throttling budget update for strategy ${strategyId} to prevent loops`, null, 'TradeService');
+        }
+        return;
+      }
+
+      // Mark this strategy as having a budget update in progress
+      this.budgetUpdatesInProgress.set(strategyId, now);
+
       // Validate and fix budget values if needed
       const validatedBudget = this.validateAndFixBudget(budget);
+
+      // Get the current budget to check if anything has actually changed
+      const currentBudget = this.budgets.get(strategyId);
+
+      // Only proceed with the update if the budget has actually changed
+      const hasChanged = !currentBudget ||
+        currentBudget.total !== validatedBudget.total ||
+        currentBudget.allocated !== validatedBudget.allocated ||
+        currentBudget.available !== validatedBudget.available ||
+        currentBudget.maxPositionSize !== validatedBudget.maxPositionSize;
+
+      if (!hasChanged) {
+        // Budget hasn't changed, no need to update or emit events
+        return;
+      }
 
       // Update the budget in memory
       this.budgets.set(strategyId, validatedBudget);
@@ -635,18 +667,30 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
           });
       }
 
-      // Emit budget updated event
-      this.emit('budgetUpdated', { strategyId, budget: validatedBudget });
-      eventBus.emit('budget:updated', { strategyId, budget: validatedBudget });
-      eventBus.emit(`budget:updated:${strategyId}`, {
-        strategyId,
-        budget: validatedBudget,
-        timestamp: Date.now()
-      });
+      // Only emit events if not explicitly skipped
+      if (!skipEvents) {
+        // Emit budget updated event
+        this.emit('budgetUpdated', { strategyId, budget: validatedBudget });
+        eventBus.emit('budget:updated', { strategyId, budget: validatedBudget });
+        eventBus.emit(`budget:updated:${strategyId}`, {
+          strategyId,
+          budget: validatedBudget,
+          timestamp: now
+        });
+      }
     } catch (error) {
       logService.log('error', `Error updating budget cache for strategy ${strategyId}`, error, 'TradeService');
+    } finally {
+      // Clear the in-progress flag after a delay to allow other updates to be throttled
+      setTimeout(() => {
+        this.budgetUpdatesInProgress.delete(strategyId);
+      }, this.BUDGET_UPDATE_THROTTLE_MS);
     }
   }
+
+  // Track budget updates in progress to prevent infinite loops
+  private budgetUpdatesInProgress: Map<string, number> = new Map();
+  private readonly BUDGET_UPDATE_THROTTLE_MS = 500; // Throttle budget updates to once per 500ms per strategy
 
   /**
    * Validate and fix budget values to ensure they are consistent
@@ -658,16 +702,22 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
       // Create a deep copy to avoid modifying the original
       const fixedBudget = JSON.parse(JSON.stringify(budget));
 
-      // Log the original budget for debugging
-      logService.log('debug', 'Validating and fixing budget', {
-        original: budget,
-        hasNaN: {
-          total: isNaN(budget.total),
-          allocated: isNaN(budget.allocated),
-          available: isNaN(budget.available),
-          maxPositionSize: isNaN(budget.maxPositionSize)
-        }
-      }, 'TradeService');
+      // Only log at debug level if we're not in a loop
+      const strategyId = budget.strategy_id || '';
+      const lastUpdate = this.budgetUpdatesInProgress.get(strategyId) || 0;
+      const now = Date.now();
+
+      if (now - lastUpdate > this.BUDGET_UPDATE_THROTTLE_MS) {
+        logService.log('debug', 'Validating and fixing budget', {
+          original: budget,
+          hasNaN: {
+            total: isNaN(budget.total),
+            allocated: isNaN(budget.allocated),
+            available: isNaN(budget.available),
+            maxPositionSize: isNaN(budget.maxPositionSize)
+          }
+        }, 'TradeService');
+      }
 
       // Fix NaN and undefined values
       if (isNaN(fixedBudget.total) || fixedBudget.total === undefined) fixedBudget.total = 0;

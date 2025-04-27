@@ -90,16 +90,20 @@ class PortfolioService extends EventEmitter {
   /**
    * Get portfolio performance data for a specific timeframe
    * @param timeframe The timeframe to get data for ('1h', '1d', '1w', '1m')
+   * @param userId Optional user ID to filter transactions by
    * @returns Array of performance data points
    */
-  async getPerformanceData(timeframe: '1h' | '1d' | '1w' | '1m' = '1d'): Promise<PerformanceDataPoint[]> {
+  async getPerformanceData(
+    timeframe: '1h' | '1d' | '1w' | '1m' = '1d',
+    userId?: string
+  ): Promise<PerformanceDataPoint[]> {
     try {
       if (!this.initialized) {
         await this.initialize();
       }
 
       // Check if we have cached data that's still valid
-      const cacheKey = `performance_${timeframe}`;
+      const cacheKey = `performance_${timeframe}_${userId || 'all'}`;
       const lastUpdate = this.lastCacheUpdate.get(cacheKey) || 0;
       const now = Date.now();
 
@@ -128,8 +132,15 @@ class PortfolioService extends EventEmitter {
           startDate = new Date(endDate.getTime() - (24 * 60 * 60 * 1000));
       }
 
-      // Get all transactions within the date range
-      const transactions = await transactionService.getTransactionsForUser(startDate, endDate);
+      // Get all transactions within the date range for the specified user
+      const transactions = await transactionService.getTransactionsForUser(startDate, endDate, userId);
+
+      logService.log('info', `Getting performance data for timeframe: ${timeframe}`, {
+        userId: userId || 'all users',
+        transactionCount: transactions.length,
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString()
+      }, 'PortfolioService');
 
       if (transactions.length === 0) {
         return [];
@@ -295,16 +306,22 @@ class PortfolioService extends EventEmitter {
 
   /**
    * Get portfolio summary statistics
+   * @param userId Optional user ID to filter transactions by
    * @returns Portfolio summary
    */
-  async getPortfolioSummary(): Promise<PortfolioSummary | null> {
+  async getPortfolioSummary(userId?: string): Promise<PortfolioSummary | null> {
     try {
       if (!this.initialized) {
         await this.initialize();
       }
 
-      // Get all transactions
-      const transactions = await transactionService.getTransactionsForUser();
+      // Get all transactions for the specified user
+      const transactions = await transactionService.getTransactionsForUser(undefined, undefined, userId);
+
+      logService.log('info', `Getting portfolio summary`, {
+        userId: userId || 'all users',
+        transactionCount: transactions.length
+      }, 'PortfolioService');
 
       if (transactions.length === 0) {
         return null;
@@ -400,16 +417,25 @@ class PortfolioService extends EventEmitter {
    * @param startDate Start date for transactions
    * @param endDate End date for transactions
    * @param type Transaction type filter
+   * @param userId Optional user ID to filter transactions by
    * @returns CSV string
    */
   async exportTransactionsCSV(
     startDate: Date,
     endDate: Date,
-    type: 'all' | 'trade' | 'deposit' | 'withdrawal' = 'all'
+    type: 'all' | 'trade' | 'deposit' | 'withdrawal' = 'all',
+    userId?: string
   ): Promise<string> {
     try {
-      // Get transactions for the date range
-      let transactions = await transactionService.getTransactionsForUser(startDate, endDate);
+      // Get transactions for the date range and user
+      let transactions = await transactionService.getTransactionsForUser(startDate, endDate, userId);
+
+      logService.log('info', `Exporting ${transactions.length} transactions as CSV`, {
+        startDate: startDate.toISOString(),
+        endDate: endDate.toISOString(),
+        type,
+        userId: userId || 'not specified'
+      }, 'PortfolioService');
 
       // Filter by type if needed
       if (type !== 'all') {

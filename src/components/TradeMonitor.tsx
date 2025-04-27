@@ -920,9 +920,29 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setAvailableBalance(walletBalanceService.getAvailableBalance());
     };
 
-    // Subscribe to budget updates
+    // Track last budget update time to prevent loops
+    const budgetUpdateTimestamps = React.useRef<Record<string, number>>({});
+    const BUDGET_UPDATE_THROTTLE_MS = 500; // Throttle budget updates to once per 500ms per strategy
+
+    // Subscribe to budget updates with throttling to prevent infinite loops
     const handleBudgetUpdate = (data: any) => {
       if (data.strategyId && data.budget) {
+        const strategyId = data.strategyId;
+        const now = Date.now();
+        const lastUpdate = budgetUpdateTimestamps.current[strategyId] || 0;
+
+        // If we've updated this budget recently, throttle the update to prevent loops
+        if (now - lastUpdate < BUDGET_UPDATE_THROTTLE_MS) {
+          // Only log this occasionally to avoid log spam
+          if (now % 10 === 0) {
+            logService.log('debug', `Throttling budget update for strategy ${strategyId} to prevent loops`, null, 'TradeMonitor');
+          }
+          return;
+        }
+
+        // Mark this strategy as having a budget update in progress
+        budgetUpdateTimestamps.current[strategyId] = now;
+
         // Calculate percentages
         const budget = data.budget;
         const allocationPercentage = budget.total > 0 ?
@@ -938,28 +958,37 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           profit: budget.profit || 0
         };
 
+        // Update local state
         setBudgets(prev => ({
           ...prev,
-          [data.strategyId]: updatedBudget
+          [strategyId]: updatedBudget
         }));
 
-        // Also update the budget in the trade service to ensure consistency across all components
-        tradeService.updateBudgetCache(data.strategyId, updatedBudget);
+        // Update the budget in the trade service WITHOUT emitting events to prevent loops
+        tradeService.updateBudgetCache(strategyId, updatedBudget, true);
 
-        // Emit a global event to ensure all components are updated
-        eventBus.emit('budget:global:updated', {
-          strategyId: data.strategyId,
-          budget: updatedBudget,
-          timestamp: Date.now()
-        });
+        // Only emit global event occasionally to prevent loops
+        if (now - lastUpdate > 1000) { // Only emit once per second
+          eventBus.emit('budget:global:updated', {
+            strategyId: strategyId,
+            budget: updatedBudget,
+            timestamp: now
+          });
 
-        logService.log('info', `Budget updated for strategy ${data.strategyId}`, {
-          budget: updatedBudget,
-          available: updatedBudget.available,
-          allocated: updatedBudget.allocated,
-          total: updatedBudget.total,
-          profit: updatedBudget.profit
-        }, 'TradeMonitor');
+          // Log the update (but not too frequently)
+          logService.log('info', `Budget updated for strategy ${strategyId}`, {
+            budget: updatedBudget,
+            available: updatedBudget.available,
+            allocated: updatedBudget.allocated,
+            total: updatedBudget.total,
+            profit: updatedBudget.profit
+          }, 'TradeMonitor');
+        }
+
+        // Clear the timestamp after a delay to allow future updates
+        setTimeout(() => {
+          delete budgetUpdateTimestamps.current[strategyId];
+        }, BUDGET_UPDATE_THROTTLE_MS);
       }
     };
 
@@ -1644,37 +1673,38 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     // Calculate profit/loss
     const profitLoss = trade.profit ? Number(trade.profit.toFixed(2)) : 0;
 
+    // Use the trade service's method to update the budget
+    // This is more reliable and prevents circular updates
+    tradeService.releaseBudgetFromTrade(
+      strategyId,
+      tradeValue,
+      profitLoss,
+      trade.id,
+      trade.status
+    ).then(() => {
+      // Get the updated budget from trade service
+      const updatedBudget = tradeService.getBudget(strategyId);
+      if (updatedBudget) {
+        // Update local state without triggering additional events
+        setBudgets(prev => ({
+          ...prev,
+          [strategyId]: {
+            ...updatedBudget,
+            // Calculate percentages
+            allocationPercentage: updatedBudget.total > 0 ?
+              Number(((updatedBudget.allocated / updatedBudget.total) * 100).toFixed(1)) : 0,
+            profitPercentage: updatedBudget.total > 0 && updatedBudget.profit !== undefined ?
+              Number(((updatedBudget.profit / updatedBudget.total) * 100).toFixed(1)) : 0
+          }
+        }));
+      }
+    }).catch(error => {
+      logService.log('error', `Failed to update budget for strategy ${strategyId}`, error, 'TradeMonitor');
+    });
+
+    // Log the update but don't emit additional events - the trade service will handle that
     logService.log('info', `Updating budget after trade closure for strategy ${strategyId}`,
       { tradeId: trade.id, tradeValue, profitLoss }, 'TradeMonitor');
-
-    // Update budget
-    const updatedBudget: StrategyBudget = {
-      ...currentBudget,
-      available: Number((currentBudget.available + tradeValue + profitLoss).toFixed(2)),
-      allocated: Number((Math.max(0, currentBudget.allocated - tradeValue)).toFixed(2)),
-      profit: Number(((currentBudget.profit || 0) + profitLoss).toFixed(2)),
-      lastUpdated: Date.now()
-    };
-
-    // Calculate percentages
-    updatedBudget.allocationPercentage = updatedBudget.total > 0 ?
-      Number(((updatedBudget.allocated / updatedBudget.total) * 100).toFixed(1)) : 0;
-    updatedBudget.profitPercentage = updatedBudget.total > 0 && updatedBudget.profit !== undefined ?
-      Number(((updatedBudget.profit / updatedBudget.total) * 100).toFixed(1)) : 0;
-
-    // Update budgets state
-    setBudgets(prev => ({
-      ...prev,
-      [strategyId]: updatedBudget
-    }));
-
-    // Emit event to update other components
-    eventBus.emit('budget:updated', {
-      strategyId,
-      budget: updatedBudget,
-      trade: trade,
-      tradeValue: tradeValue
-    });
   };
 
   // Calculate trade statistics

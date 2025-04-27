@@ -244,6 +244,17 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         }));
       }
 
+      // Refresh news data on login
+      try {
+        logService.log('info', 'Refreshing news data on login', null, 'AuthProvider');
+        const { globalCacheService } = await import('../lib/global-cache-service');
+        await globalCacheService.forceRefreshNews();
+        logService.log('info', 'News data refreshed successfully on login', null, 'AuthProvider');
+      } catch (newsError) {
+        logService.log('warn', 'Failed to refresh news data on login', newsError, 'AuthProvider');
+        // Continue with login process even if news refresh fails
+      }
+
       // Explicitly update the user state
       setUser(data.user);
 

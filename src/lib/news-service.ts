@@ -23,6 +23,12 @@ class NewsService extends EventEmitter {
     return NewsService.instance;
   }
 
+  /**
+   * Get news for a specific asset
+   * @param asset The asset to get news for
+   * @returns Array of news items
+   * @deprecated Use getAllNews instead
+   */
   async getNewsForAsset(asset: string): Promise<NewsItem[]> {
     // Normalize the asset name by removing trading pair suffixes
     // Examples: BTC/USDT -> BTC, ETH_USDT -> ETH, SOL -> SOL
@@ -73,6 +79,12 @@ class NewsService extends EventEmitter {
     return normalizedAsset;
   }
 
+  /**
+   * Get news for multiple assets
+   * @param assets List of assets to get news for
+   * @returns Combined and deduplicated news for all specified assets
+   * @deprecated Use getAllNews instead
+   */
   async getNewsForAssets(assets: string[]): Promise<NewsItem[]> {
     if (!assets || assets.length === 0) {
       assets = this.DEFAULT_ASSETS;
@@ -100,6 +112,41 @@ class NewsService extends EventEmitter {
 
     // Remove duplicates and sort by published date (newest first)
     return this.deduplicateAndSortNews(allNews);
+  }
+
+  /**
+   * Get all news at once using the new endpoint
+   * @returns Array of news items
+   */
+  async getAllNews(): Promise<NewsItem[]> {
+    // Check cache first using a special key for all news
+    const cachedNews = this.newsCache.get('all_news');
+    const lastFetch = this.lastFetchTime.get('all_news') || 0;
+
+    // If we have cached news and it's not expired, return it
+    if (cachedNews && Date.now() - lastFetch < this.CACHE_DURATION) {
+      logService.log('info', `Using cached news for all assets (${cachedNews.length} items)`, null, 'NewsService');
+      return cachedNews;
+    }
+
+    try {
+      logService.log('info', 'Fetching fresh news for all assets using new endpoint', null, 'NewsService');
+      const news = await this.fetchAllNews();
+
+      // Only cache if we got some news
+      if (news && news.length > 0) {
+        this.newsCache.set('all_news', news);
+        this.lastFetchTime.set('all_news', Date.now());
+        logService.log('info', `Cached ${news.length} news items for all assets`, null, 'NewsService');
+      } else {
+        logService.log('warn', 'No news found for all assets', null, 'NewsService');
+      }
+
+      return news;
+    } catch (error) {
+      logService.log('warn', 'Error fetching news for all assets:', error, 'NewsService');
+      return cachedNews || [];
+    }
   }
 
   /**
@@ -200,6 +247,120 @@ class NewsService extends EventEmitter {
     return uniqueNews.sort((a, b) =>
       new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
     );
+  }
+
+  /**
+   * Fetch all news at once using the new endpoint
+   * @returns Array of news items
+   */
+  private async fetchAllNews(): Promise<NewsItem[]> {
+    try {
+      // Use the API key from environment variables
+      const apiKey = import.meta.env.VITE_NEWS_API_KEY || '162901f50202da15ee2a054fde27015c1f5b1a113a424f0935a5161627a3cc9e';
+
+      logService.log('info', `Fetching all news through proxy service with API key: ${apiKey.substring(0, 10)}...`, null, 'NewsService');
+
+      try {
+        // Use the proxy service to fetch all news at once
+        const response = await proxyService.fetchAllNews(apiKey);
+
+        // Handle the response based on its format
+        if (response && response.data && Array.isArray(response.data.results)) {
+          // This is the expected format from the CoinDesk API v2 search endpoint
+          const newsItems = response.data.results.map(item => ({
+            id: item.id || `${item.title}-${Date.now()}`,
+            title: item.title || item.headline || '',
+            description: item.description || item.excerpt || item.summary || '',
+            url: item.url || 'https://www.coindesk.com/',
+            source: 'Coindesk',
+            imageUrl: item.thumbnail?.url || item.leadImage?.url || item.image?.url || item.imageUrl,
+            publishedAt: new Date(item.publishedAt || item.published_at || Date.now()).toISOString(),
+            relatedAssets: this.extractAssetMentions(item.title + ' ' + (item.description || item.excerpt || item.summary || '')),
+            sentiment: this.analyzeSentiment(item.title + ' ' + (item.description || item.excerpt || item.summary || ''))
+          }));
+
+          return newsItems;
+        }
+        // Handle the response - check for articles array (fallback format)
+        else if (response && Array.isArray(response.articles)) {
+          const newsItems = response.articles.map(item => ({
+            id: item.id || `${item.title}-${Date.now()}`,
+            title: item.title || '',
+            description: item.description || item.content || '',
+            url: item.url || 'https://www.coindesk.com/',
+            source: item.source?.name || 'Coindesk',
+            imageUrl: item.urlToImage || item.image,
+            publishedAt: new Date(item.publishedAt || Date.now()).toISOString(),
+            relatedAssets: this.extractAssetMentions(item.title + ' ' + (item.description || item.content || '')),
+            sentiment: this.analyzeSentiment(item.title + ' ' + (item.description || item.content || ''))
+          }));
+
+          return newsItems;
+        }
+        // Handle array response directly (some API versions return an array)
+        else if (response && Array.isArray(response)) {
+          const newsItems = response.map(item => ({
+            id: item.id || `${item.title}-${Date.now()}`,
+            title: item.title || '',
+            description: item.description || item.content || item.excerpt || '',
+            url: item.url || 'https://www.coindesk.com/',
+            source: item.source?.name || 'Coindesk',
+            imageUrl: item.urlToImage || item.image || item.thumbnail?.url || item.leadImage?.url,
+            publishedAt: new Date(item.publishedAt || Date.now()).toISOString(),
+            relatedAssets: this.extractAssetMentions(item.title + ' ' + (item.description || item.content || item.excerpt || '')),
+            sentiment: this.analyzeSentiment(item.title + ' ' + (item.description || item.content || item.excerpt || ''))
+          }));
+
+          return newsItems;
+        }
+
+        logService.log('warn', 'Unexpected response format from news API', response, 'NewsService');
+        return [];
+      } catch (fetchError) {
+        logService.log('warn', 'API request failed for all news', fetchError, 'NewsService');
+        return [];
+      }
+    } catch (error) {
+      logService.log('error', 'Error fetching all news', error, 'NewsService');
+      return [];
+    }
+  }
+
+  /**
+   * Extract asset mentions from text
+   * @param text The text to analyze
+   * @returns Array of asset symbols mentioned in the text
+   */
+  private extractAssetMentions(text: string): string[] {
+    const assets = new Set<string>();
+
+    // Common cryptocurrency symbols to look for
+    const commonAssets = [
+      'BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'ADA', 'DOGE', 'DOT', 'AVAX', 'MATIC',
+      'Bitcoin', 'Ethereum', 'Solana', 'Binance', 'Ripple', 'Cardano', 'Dogecoin', 'Polkadot', 'Avalanche', 'Polygon'
+    ];
+
+    // Check for each asset in the text
+    for (const asset of commonAssets) {
+      if (text.includes(asset)) {
+        // Convert full names to symbols
+        switch (asset) {
+          case 'Bitcoin': assets.add('BTC'); break;
+          case 'Ethereum': assets.add('ETH'); break;
+          case 'Solana': assets.add('SOL'); break;
+          case 'Binance': assets.add('BNB'); break;
+          case 'Ripple': assets.add('XRP'); break;
+          case 'Cardano': assets.add('ADA'); break;
+          case 'Dogecoin': assets.add('DOGE'); break;
+          case 'Polkadot': assets.add('DOT'); break;
+          case 'Avalanche': assets.add('AVAX'); break;
+          case 'Polygon': assets.add('MATIC'); break;
+          default: assets.add(asset);
+        }
+      }
+    }
+
+    return Array.from(assets);
   }
 
   private async fetchNewsForAsset(asset: string): Promise<NewsItem[]> {

@@ -69,6 +69,7 @@ class ProxyService {
    * @param asset The asset to fetch news for
    * @param apiKey The API key for the news service
    * @returns The news data
+   * @deprecated Use fetchAllNews instead
    */
   async fetchNews(asset: string, apiKey: string): Promise<any> {
     try {
@@ -99,6 +100,45 @@ class ProxyService {
       return response;
     } catch (error) {
       logService.log('error', `Failed to fetch news for ${asset} through proxy`, error, 'ProxyService');
+      // Return empty array instead of throwing to prevent UI errors
+      return { articles: [], source: 'error' };
+    }
+  }
+
+  /**
+   * Fetch all news data through the proxy using the new endpoint
+   * @param apiKey The API key for the news service
+   * @returns The news data
+   */
+  async fetchAllNews(apiKey: string): Promise<any> {
+    try {
+      // Use the new endpoint that fetches all news at once
+      const endpoint = `coindesk-all-news?apiKey=${encodeURIComponent(apiKey)}`;
+
+      logService.log('info', `Fetching all news using endpoint: ${endpoint}`, null, 'ProxyService');
+
+      // Add custom headers for the request
+      const options: RequestInit = {
+        headers: {
+          'x-api-key': apiKey,
+          'X-API-KEY': apiKey,
+          'api-key': apiKey,
+          'API-KEY': apiKey
+        },
+        // Add timeout to prevent hanging requests
+        signal: AbortSignal.timeout(15000) // 15 second timeout for all news
+      };
+
+      const response = await this.fetchFromProxy(endpoint, options);
+
+      // Log if we're getting fallback data
+      if (response && response.source === 'fallback') {
+        logService.log('info', `Received fallback news data for all news`, null, 'ProxyService');
+      }
+
+      return response;
+    } catch (error) {
+      logService.log('error', `Failed to fetch all news through proxy`, error, 'ProxyService');
       // Return empty array instead of throwing to prevent UI errors
       return { articles: [], source: 'error' };
     }

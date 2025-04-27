@@ -1398,9 +1398,8 @@ class DemoTradeGenerator extends EventEmitter {
     const baseSize = availableBudget * riskMultiplier;
     const confidenceAdjustedSize = baseSize * confidence;
 
-    // Ensure position size doesn't exceed max allowed
-    const maxPositionSize = strategy.strategy_config?.trade_parameters?.position_size || 0.1;
-    const finalSize = Math.min(confidenceAdjustedSize, availableBudget * maxPositionSize);
+    // No maximum position size restriction
+    const finalSize = confidenceAdjustedSize;
 
     // Calculate actual position size in asset units
     let positionSize = finalSize / currentPrice;

@@ -1382,20 +1382,21 @@ Return ONLY a JSON object with this structure:
         confidence * 0.9 // Slightly reduce confidence for live mode to be more conservative
       );
 
-      // Get max position size from strategy config or use default
-      const configMaxPositionSize = strategy.strategy_config?.trade_parameters?.position_size;
-      const maxPositionSize = configMaxPositionSize !== undefined ? configMaxPositionSize : 0.1;
-
-      // Ensure position size doesn't exceed max allowed from strategy config
-      const maxAllowedSize = availableBudget * maxPositionSize / currentPrice;
-      const finalPositionSize = Math.min(positionSize, maxAllowedSize);
+      // No maximum position size restriction
+      // Use the position size calculated by the risk management service directly
+      const finalPositionSize = positionSize;
 
       // Round position size appropriately based on price
       const roundedSize = this.roundPositionSize(finalPositionSize, currentPrice);
 
+      logService.log('debug', `Position size calculation (no maximum limit):`, {
+        riskManagedSize: positionSize,
+        finalPositionSize,
+        roundedSize
+      }, 'TradeGenerator');
+
       logService.log('debug', `Live mode position size calculation:`, {
         riskManagedSize: positionSize,
-        maxAllowedSize,
         finalPositionSize,
         roundedSize
       }, 'TradeGenerator');

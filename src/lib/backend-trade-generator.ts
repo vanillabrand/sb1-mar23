@@ -735,9 +735,8 @@ class BackendTradeGenerator extends EventEmitter {
     const baseSize = availableBudget * riskMultiplier;
     const confidenceAdjustedSize = baseSize * confidence;
 
-    // Ensure position size doesn't exceed max allowed
-    const maxPositionSize = riskManagement.maxPositionSizePercentage || 0.5; // Default to 50% max
-    const finalSize = Math.min(confidenceAdjustedSize, availableBudget * maxPositionSize);
+    // No maximum position size restriction
+    const finalSize = confidenceAdjustedSize;
 
     // Calculate actual position size in asset units
     const positionSize = finalSize / currentPrice;

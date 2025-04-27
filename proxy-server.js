@@ -1425,6 +1425,108 @@ Return ONLY a JSON object with this structure:
   }
 });
 
+// Add a handler for the coindesk-all-news endpoint
+app.get('/api/coindesk-all-news', async (req, res) => {
+  try {
+    const apiKey = req.query.apiKey;
+
+    if (!apiKey) {
+      return res.status(400).json({ error: 'API key is required' });
+    }
+
+    console.log(`Fetching all news with API key ${apiKey.substring(0, 5)}...`);
+
+    // Use the new endpoint that fetches all news at once
+    const url = 'https://data-api.coindesk.com/news/v1/article/list?lang=EN&limit=10';
+
+    console.log(`Requesting all news from: ${url}`);
+
+    const response = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'x-api-key': apiKey,
+        'api-key': apiKey,
+        'X-API-KEY': apiKey,
+        'API-KEY': apiKey
+      },
+      timeout: 15000 // 15 second timeout
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(`Failed to fetch all news: ${response.status}`, errorText);
+      throw new Error(`API error: ${response.status} - ${errorText}`);
+    }
+
+    const data = await response.json();
+
+    // Transform the Coindesk API response to match the expected format
+    const transformedData = {
+      status: 'ok',
+      articles: []
+    };
+
+    // Log the structure of the response to help debug
+    console.log(`CoinDesk API response structure: ${Object.keys(data).join(', ')}`);
+
+    // Check for v1 API format (article/list endpoint)
+    if (data && data.data && Array.isArray(data.data.results)) {
+      console.log(`Found v1 API format with ${data.data.results.length} results`);
+      transformedData.articles = data.data.results.map(item => ({
+        id: item.id || `${Date.now()}-${Math.random()}`,
+        title: item.title || 'No Title',
+        description: item.description || item.excerpt || item.summary || '',
+        content: item.content || item.description || '',
+        url: item.url || 'https://www.coindesk.com/',
+        urlToImage: item.thumbnail?.url || item.leadImage?.url || item.image?.url || '',
+        publishedAt: item.publishedAt || item.published_at || new Date().toISOString(),
+        source: { name: 'Coindesk' }
+      }));
+    }
+    // Handle any other format
+    else if (data && Array.isArray(data.results)) {
+      console.log(`Found array results format with ${data.results.length} items`);
+      transformedData.articles = data.results.map(item => ({
+        id: item.id || `${Date.now()}-${Math.random()}`,
+        title: item.title || 'No Title',
+        description: item.description || item.excerpt || item.summary || '',
+        content: item.content || item.description || '',
+        url: item.url || 'https://www.coindesk.com/',
+        urlToImage: item.thumbnail?.url || item.leadImage?.url || item.image?.url || '',
+        publishedAt: item.publishedAt || item.published_at || new Date().toISOString(),
+        source: { name: 'Coindesk' }
+      }));
+    }
+    // Handle direct array format
+    else if (data && Array.isArray(data)) {
+      console.log(`Found direct array format with ${data.length} items`);
+      transformedData.articles = data.map(item => ({
+        id: item.id || `${Date.now()}-${Math.random()}`,
+        title: item.title || 'No Title',
+        description: item.description || item.excerpt || item.summary || '',
+        content: item.content || item.description || '',
+        url: item.url || 'https://www.coindesk.com/',
+        urlToImage: item.thumbnail?.url || item.leadImage?.url || item.image?.url || '',
+        publishedAt: item.publishedAt || item.published_at || new Date().toISOString(),
+        source: { name: 'Coindesk' }
+      }));
+    }
+
+    console.log(`Successfully fetched ${transformedData.articles.length} news articles`);
+    res.json(transformedData);
+  } catch (error) {
+    console.error('Error fetching all news:', error);
+
+    // Generate synthetic news data as a fallback
+    const syntheticArticles = generateSyntheticNewsArticles('crypto');
+    console.log(`Generated ${syntheticArticles.length} synthetic news articles`);
+
+    // Return synthetic articles instead of empty array to provide a better user experience
+    res.json({ status: 'ok', articles: syntheticArticles });
+  }
+});
+
 // Add a handler for the coindesk-news endpoint
 app.get('/api/coindesk-news', async (req, res) => {
   // Define asset outside the try block so it's available in the catch block
