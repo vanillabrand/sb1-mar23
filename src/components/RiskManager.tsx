@@ -76,15 +76,29 @@ const RiskManager = () => {
       // Get active strategies
       const activeStrategies = strategies.filter(s => s.status === 'active');
 
+      // If no active strategies, just set empty data and return early
+      // We'll show the NoActiveStrategiesModal instead of empty charts
       if (activeStrategies.length === 0) {
-        setRiskMetrics(defaultRiskMetrics);
+        setRiskMetrics({
+          portfolioRisk: 0,
+          maxDrawdown: 0,
+          valueAtRisk: 0,
+          totalExposure: 0,
+          volatility: 0
+        });
         setDrawdownHistory([]);
         setAssetVolatility([]);
+        setMarketConditions({
+          volatilityIndex: 0,
+          marketSentiment: 'neutral',
+          trendStrength: 0,
+          liquidityScore: 0
+        });
         setLoading(false);
         return;
       }
 
-      // Calculate real-time market conditions
+      // Only calculate market conditions if we have active strategies
       const marketData = await Promise.all([
         analyticsService.getMarketSentiment(),
         analyticsService.getVolatilityIndex(),
@@ -121,20 +135,35 @@ const RiskManager = () => {
   }, [strategies]);
 
   useEffect(() => {
+    // Initial load of risk data
     loadRiskData();
 
-    // More frequent updates for critical metrics
-    const fastInterval = setInterval(() => {
-      calculateAssetVolatility(strategies.filter(s => s.status === 'active'))
-        .then(setAssetVolatility);
-    }, 15000); // Every 15 seconds
+    // Get active strategies
+    const activeStrategies = strategies.filter(s => s.status === 'active');
+    const hasActiveStrategies = activeStrategies.length > 0;
 
-    // Regular updates for complete risk assessment
-    const regularInterval = setInterval(loadRiskData, 60000); // Every minute
+    // Only set up intervals if we have active strategies
+    let fastInterval: NodeJS.Timeout | null = null;
+    let regularInterval: NodeJS.Timeout | null = null;
+
+    if (hasActiveStrategies) {
+      // More frequent updates for critical metrics
+      fastInterval = setInterval(() => {
+        calculateAssetVolatility(activeStrategies)
+          .then(setAssetVolatility)
+          .catch(error => {
+            logService.log('error', 'Error updating asset volatility:', error, 'RiskManager');
+          });
+      }, 15000); // Every 15 seconds
+
+      // Regular updates for complete risk assessment
+      regularInterval = setInterval(loadRiskData, 60000); // Every minute
+    }
 
     return () => {
-      clearInterval(fastInterval);
-      clearInterval(regularInterval);
+      // Clean up intervals on component unmount
+      if (fastInterval) clearInterval(fastInterval);
+      if (regularInterval) clearInterval(regularInterval);
     };
   }, [loadRiskData, strategies]);
 
@@ -344,6 +373,26 @@ const RiskManager = () => {
     }
     return null;
   };
+
+  // Get active strategies
+  const activeStrategies = strategies.filter(s => s.status === 'active');
+  const hasActiveStrategies = activeStrategies.length > 0;
+
+  // If no active strategies, show the modal
+  if (!hasActiveStrategies && !loading) {
+    // Import the NoActiveStrategiesModal component
+    const { NoActiveStrategiesModal } = require('./NoActiveStrategiesModal');
+
+    return (
+      <div className="p-8">
+        <div className="flex items-center justify-between mb-8">
+          <h1 className="text-3xl font-bold gradient-text">Risk Manager</h1>
+        </div>
+
+        <NoActiveStrategiesModal />
+      </div>
+    );
+  }
 
   return (
     <div className="p-8 space-y-6">

@@ -1,6 +1,7 @@
 import { EventEmitter } from './event-emitter';
 import { supabase } from './supabase';
 import { marketService } from './market-service';
+import { marketDataService } from './market-data-service';
 import { logService } from './log-service';
 
 class StrategyMonitor extends EventEmitter {
@@ -40,9 +41,27 @@ class StrategyMonitor extends EventEmitter {
   }
 
   private async subscribeToMarkets(strategy: any): Promise<void> {
-    const symbols = this.extractSymbols(strategy);
-    for (const symbol of symbols) {
-      await marketService.subscribeToMarket(symbol);
+    try {
+      const symbols = this.extractSymbols(strategy);
+      logService.log('info', `Subscribing to markets for strategy ${strategy.id}`, { symbols }, 'StrategyMonitor');
+
+      // Use marketDataService.startTracking instead of marketService.subscribeToMarket
+      for (const symbol of symbols) {
+        try {
+          // Use high priority for active strategy symbols
+          await marketDataService.startTracking(symbol, 'high');
+          logService.log('debug', `Subscribed to market data for ${symbol}`, null, 'StrategyMonitor');
+        } catch (error) {
+          logService.log('warn', `Failed to subscribe to market data for ${symbol}`, error, 'StrategyMonitor');
+          // Continue with other symbols even if one fails
+        }
+      }
+
+      // Also start monitoring the strategy in marketService
+      await marketService.startStrategyMonitoring(strategy);
+    } catch (error) {
+      logService.log('error', `Failed to subscribe to markets for strategy ${strategy.id}`, error, 'StrategyMonitor');
+      throw error;
     }
   }
 

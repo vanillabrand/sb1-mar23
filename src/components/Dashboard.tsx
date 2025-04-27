@@ -17,6 +17,7 @@ import {
   StrategyStatus,
   AIMarketInsight,
   PortfolioPerformance,
+  PortfolioPerformancePanel,
   RiskExposure,
   EmergencyStopButton,
   NewsWidget,
@@ -705,7 +706,7 @@ export function Dashboard({ strategies: initialStrategies, monitoringStatuses: i
           </AnimatedPanel>
 
           <AnimatedPanel index={3} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg w-full">
-            <PortfolioPerformance />
+            <PortfolioPerformancePanel />
           </AnimatedPanel>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3 md:gap-4">

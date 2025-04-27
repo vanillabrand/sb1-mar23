@@ -1778,14 +1778,66 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       logService.log('info', `Budget set for strategy ${strategy.id}`, { budget }, 'TradeMonitor');
 
       // 2. Get the latest strategy data to ensure we have the most up-to-date information
-      const { data: latestStrategy, error: fetchError } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('id', strategy.id)
-        .single();
+      try {
+        const { data: latestStrategy, error: fetchError } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('id', strategy.id)
+          .single();
 
-      if (fetchError || !latestStrategy) {
-        throw new Error(`Failed to fetch latest strategy data: ${fetchError?.message || 'No data returned'}`);
+        if (fetchError) {
+          // If we get a content type error, try refreshing the session
+          if (fetchError.message?.includes('Content-Type not acceptable') ||
+              fetchError.code === 'PGRST102') {
+            logService.log('warn', 'Content-Type error when fetching strategy, attempting to refresh session',
+              fetchError, 'TradeMonitor');
+
+            // Import the refreshSession function and try to refresh the session
+            let refreshed = false;
+            try {
+              const { refreshSession } = await import('../lib/supabase');
+
+              // Try to refresh the session
+              refreshed = await refreshSession();
+            } catch (importError) {
+              logService.log('error', 'Failed to import refreshSession function',
+                importError, 'TradeMonitor');
+              throw new Error(`Failed to import refreshSession: ${importError.message}`);
+            }
+
+            if (refreshed) {
+              logService.log('info', 'Session refreshed successfully, retrying fetch', null, 'TradeMonitor');
+
+              // Retry the fetch
+              const { data: retryStrategy, error: retryError } = await supabase
+                .from('strategies')
+                .select('*')
+                .eq('id', strategy.id)
+                .single();
+
+              if (retryError) {
+                throw new Error(`Failed to fetch strategy after session refresh: ${retryError.message}`);
+              }
+
+              if (!retryStrategy) {
+                throw new Error('No strategy data returned after session refresh');
+              }
+
+              // Use the retry data
+              logService.log('info', 'Successfully fetched strategy after session refresh', null, 'TradeMonitor');
+            } else {
+              throw new Error(`Failed to refresh session: ${fetchError.message}`);
+            }
+          } else {
+            throw new Error(`Failed to fetch latest strategy data: ${fetchError.message}`);
+          }
+        } else if (!latestStrategy) {
+          throw new Error('No strategy data returned');
+        }
+      } catch (fetchError) {
+        logService.log('warn', `Error fetching latest strategy data, continuing with activation`,
+          fetchError, 'TradeMonitor');
+        // Continue with activation despite this error
       }
 
       // 3. Optimistically update the UI before the backend confirms the change
@@ -1801,15 +1853,70 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       });
 
       // 4. Activate the strategy in the database
-      const updatedStrategy = await strategyService.activateStrategy(strategy.id);
-      logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'TradeMonitor');
-
-      // 5. Start monitoring the strategy - wrap in try/catch to continue even if this fails
       try {
-        await marketService.startStrategyMonitoring(updatedStrategy);
-        logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'TradeMonitor');
-      } catch (monitorError) {
-        logService.log('warn', `Error starting market monitoring for strategy ${strategy.id}, continuing with activation`, monitorError, 'TradeMonitor');
+        const updatedStrategy = await strategyService.activateStrategy(strategy.id);
+        logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'TradeMonitor');
+
+        // 5. Start monitoring the strategy - wrap in try/catch to continue even if this fails
+        try {
+          await marketService.startStrategyMonitoring(updatedStrategy);
+          logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'TradeMonitor');
+        } catch (monitorError) {
+          logService.log('warn', `Error starting market monitoring for strategy ${strategy.id}, continuing with activation`,
+            monitorError, 'TradeMonitor');
+        }
+      } catch (activationError) {
+        // If we get a content type error, try refreshing the session and retry
+        if (activationError.message?.includes('Content-Type not acceptable') ||
+            (activationError.code && activationError.code === 'PGRST102')) {
+          logService.log('warn', 'Content-Type error when activating strategy, attempting to refresh session',
+            activationError, 'TradeMonitor');
+
+          // Import the refreshSession function and try to refresh the session
+          let refreshed = false;
+          try {
+            const { refreshSession } = await import('../lib/supabase');
+
+            // Try to refresh the session
+            refreshed = await refreshSession();
+          } catch (importError) {
+            logService.log('error', 'Failed to import refreshSession function',
+              importError, 'TradeMonitor');
+            // Continue with activation despite this error - the UI is already updated
+          }
+          if (refreshed) {
+            logService.log('info', 'Session refreshed successfully, retrying activation', null, 'TradeMonitor');
+
+            // Retry the activation
+            try {
+              const updatedStrategy = await strategyService.activateStrategy(strategy.id);
+              logService.log('info', `Strategy ${strategy.id} activated in database after session refresh`,
+                null, 'TradeMonitor');
+
+              // Start monitoring the strategy
+              try {
+                await marketService.startStrategyMonitoring(updatedStrategy);
+                logService.log('info', `Started monitoring for strategy ${strategy.id} after session refresh`,
+                  null, 'TradeMonitor');
+              } catch (monitorError) {
+                logService.log('warn', `Error starting market monitoring for strategy ${strategy.id} after session refresh, continuing with activation`,
+                  monitorError, 'TradeMonitor');
+              }
+            } catch (retryError) {
+              logService.log('error', `Failed to activate strategy after session refresh`,
+                retryError, 'TradeMonitor');
+              // Continue with activation despite this error - the UI is already updated
+            }
+          } else {
+            logService.log('error', `Failed to refresh session for strategy activation`,
+              activationError, 'TradeMonitor');
+            // Continue with activation despite this error - the UI is already updated
+          }
+        } else {
+          logService.log('warn', `Error activating strategy in database, continuing with UI update only`,
+            activationError, 'TradeMonitor');
+          // Continue with activation despite this error - the UI is already updated
+        }
       }
 
       // IMPORTANT: Do NOT refresh the strategy list here - we've already updated the UI optimistically
@@ -1820,12 +1927,14 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
         if (!connected) {
           // If connection failed, log a warning but continue
-          logService.log('warn', `Failed to connect strategy ${strategy.id} to trading engine, will retry later`, null, 'TradeMonitor');
+          logService.log('warn', `Failed to connect strategy ${strategy.id} to trading engine, will retry later`,
+            null, 'TradeMonitor');
         } else {
           logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'TradeMonitor');
         }
       } catch (engineError) {
-        logService.log('warn', `Error connecting strategy ${strategy.id} to trading engine, will retry later`, engineError, 'TradeMonitor');
+        logService.log('warn', `Error connecting strategy ${strategy.id} to trading engine, will retry later`,
+          engineError, 'TradeMonitor');
       }
 
       // 7. Subscribe to the strategy's trades via WebSocket without refreshing the UI

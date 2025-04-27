@@ -14,6 +14,7 @@ export { NetworkErrorProvider } from './NetworkErrorProvider';
 export { StrategyStatus } from './StrategyStatus';
 export { AIMarketInsight } from './AIMarketInsight';
 export { PortfolioPerformance } from './PortfolioPerformance';
+export { PortfolioPerformancePanel } from './PortfolioPerformancePanel';
 export { RiskExposure } from './RiskExposure';
 export { StrategyStats } from './StrategyStats';
 export { EmergencyStopButton } from './EmergencyStopButton';

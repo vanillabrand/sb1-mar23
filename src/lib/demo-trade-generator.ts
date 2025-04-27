@@ -377,8 +377,24 @@ class DemoTradeGenerator extends EventEmitter {
 
       // Get budget for this strategy
       const budget = await tradeService.getBudget(strategy.id);
-      if (!budget || budget.available <= 0) {
-        logService.log('debug', `No available budget for strategy ${strategy.id}`, null, 'DemoTradeGenerator');
+
+      // Strict budget check - ensure we have a valid budget with positive available funds
+      if (!budget) {
+        logService.log('debug', `No budget found for strategy ${strategy.id}`, null, 'DemoTradeGenerator');
+        return;
+      }
+
+      // Ensure budget has positive available funds and is properly formatted
+      if (isNaN(budget.available) || budget.available <= 0) {
+        logService.log('debug', `No available budget for strategy ${strategy.id}: ${budget.available}`,
+          { budget }, 'DemoTradeGenerator');
+        return;
+      }
+
+      // Ensure minimum available budget for trade generation (at least $5)
+      if (budget.available < 5) {
+        logService.log('debug', `Available budget too low for strategy ${strategy.id}: ${budget.available}`,
+          { budget }, 'DemoTradeGenerator');
         return;
       }
 
@@ -453,10 +469,23 @@ class DemoTradeGenerator extends EventEmitter {
             positionSize = Math.min(positionSize, maxPositionSize);
           }
 
-          // Skip if position size is too small
-          if (positionSize < 0.0001) {
-            logService.log('debug', `Position size too small for ${symbol} in strategy ${strategy.id}`, null, 'DemoTradeGenerator');
-            continue;
+          // Calculate trade value in USDT
+          const tradeValue = positionSize * currentPrice;
+
+          // Skip if position size is too small or trade value is less than minimum
+          const MIN_TRADE_VALUE = 5; // Minimum $5 trade as per exchange requirements
+
+          if (positionSize < 0.0001 || tradeValue < MIN_TRADE_VALUE) {
+            // If we have enough budget, adjust to minimum trade value
+            if (remainingBudget >= MIN_TRADE_VALUE && currentPrice > 0) {
+              positionSize = MIN_TRADE_VALUE / currentPrice;
+              logService.log('info', `Adjusted position size to meet minimum $5 requirement for ${symbol}`,
+                { originalValue: tradeValue, newValue: MIN_TRADE_VALUE, newPositionSize: positionSize }, 'DemoTradeGenerator');
+            } else {
+              logService.log('debug', `Position size too small for ${symbol} in strategy ${strategy.id}`,
+                { positionSize, tradeValue, minimumRequired: MIN_TRADE_VALUE }, 'DemoTradeGenerator');
+              continue;
+            }
           }
 
           // Calculate the cost of this trade
@@ -1175,32 +1204,51 @@ class DemoTradeGenerator extends EventEmitter {
         return null;
       }
 
-      if (!currentPrice || currentPrice <= 0) {
+      if (!currentPrice || currentPrice <= 0 || isNaN(currentPrice)) {
         logService.log('error', `Invalid price for trade creation: ${currentPrice}`, { symbol, strategyId: strategy.id }, 'DemoTradeGenerator');
         return null;
       }
 
-      if (!positionSize || positionSize <= 0) {
+      if (!positionSize || positionSize <= 0 || isNaN(positionSize)) {
         logService.log('error', `Invalid position size for trade creation: ${positionSize}`, { symbol, strategyId: strategy.id }, 'DemoTradeGenerator');
         return null;
       }
 
+      // Calculate trade cost with validation to prevent NaN
+      const tradeCost = Number((positionSize * currentPrice).toFixed(2));
+
+      if (isNaN(tradeCost) || tradeCost <= 0) {
+        logService.log('error', `Invalid trade cost calculated: ${tradeCost}`,
+          { symbol, strategyId: strategy.id, positionSize, currentPrice }, 'DemoTradeGenerator');
+        return null;
+      }
+
+      // Get market type from strategy or default to spot
+      const marketType = strategy.market_type ||
+                        strategy.marketType ||
+                        strategy.strategy_config?.marketType ||
+                        strategy.strategy_config?.market_type ||
+                        'spot';
+
+      // Check budget availability before attempting to reserve
+      const budget = await tradeService.getBudget(strategy.id);
+      if (!budget || budget.available < tradeCost) {
+        logService.log('warn', `Insufficient budget for trade: ${tradeCost} (available: ${budget?.available || 0})`,
+          { symbol, strategyId: strategy.id, marketType }, 'DemoTradeGenerator');
+        return null; // Don't create the trade if we can't afford it
+      }
+
       // Reserve budget for this trade
-      const tradeCost = positionSize * currentPrice;
-      const budgetReserved = await tradeService.reserveBudgetForTrade(strategy.id, tradeCost);
+      const budgetReserved = await tradeService.reserveBudgetForTrade(strategy.id, tradeCost, undefined, marketType);
 
       if (!budgetReserved) {
-        logService.log('warn', `Failed to reserve budget for trade: ${tradeCost}`, { symbol, strategyId: strategy.id }, 'DemoTradeGenerator');
-        // Continue anyway in demo mode
+        logService.log('warn', `Failed to reserve budget for trade: ${tradeCost}`,
+          { symbol, strategyId: strategy.id, available: budget?.available, marketType }, 'DemoTradeGenerator');
+        return null; // Don't create the trade if we can't reserve the budget
       }
 
       // Create trade directly in the database
-      // Get the market type from the strategy
-      const marketType = strategy.marketType ||
-                        strategy.market_type ||
-                        (strategy.strategy_config?.marketType) ||
-                        (strategy.strategy_config?.market_type) ||
-                        'spot';
+      // Market type was already determined above
 
       // Store trade details in metadata since some fields aren't in the database schema
       const tradeMetadata = {
@@ -1213,6 +1261,7 @@ class DemoTradeGenerator extends EventEmitter {
         stop_loss: stopLoss,
         take_profit: takeProfit,
         trailing_stop: 0.01,
+        tradeCost: tradeCost, // Store the trade cost for budget reconciliation
         entry_condition: `Price crossed ${direction === 'Long' ? 'above' : 'below'} ${currentPrice}`,
         exit_condition: `${direction === 'Long' ? 'Take profit at ' + takeProfit + ' or stop loss at ' + stopLoss : 'Take profit at ' + takeProfit + ' or stop loss at ' + stopLoss}`,
         entryConditions: entryConditions || [
@@ -1227,7 +1276,8 @@ class DemoTradeGenerator extends EventEmitter {
                  marketType === 'margin' ? '3x' : undefined,
         marginType: marketType === 'futures' || marketType === 'margin' ? 'cross' : undefined,
         tradeGeneratedAt: new Date().toISOString(),
-        riskLevel: strategy.riskLevel
+        riskLevel: strategy.riskLevel,
+        allocated_budget: tradeCost // Store allocated budget for easier reconciliation
       };
 
       // Generate a unique ID for this trade
@@ -1353,7 +1403,21 @@ class DemoTradeGenerator extends EventEmitter {
     const finalSize = Math.min(confidenceAdjustedSize, availableBudget * maxPositionSize);
 
     // Calculate actual position size in asset units
-    const positionSize = finalSize / currentPrice;
+    let positionSize = finalSize / currentPrice;
+
+    // Calculate trade value in USDT
+    const tradeValue = positionSize * currentPrice;
+
+    // Enforce minimum trade value of $5
+    const MIN_TRADE_VALUE = 5; // Minimum $5 trade as per exchange requirements
+
+    if (tradeValue < MIN_TRADE_VALUE && currentPrice > 0) {
+      // Adjust amount to meet minimum trade value
+      positionSize = MIN_TRADE_VALUE / currentPrice;
+
+      logService.log('info', `Adjusted position size to meet minimum $5 requirement`,
+        { originalValue: tradeValue, newValue: MIN_TRADE_VALUE, newPositionSize: positionSize }, 'DemoTradeGenerator');
+    }
 
     // Round to 8 decimal places for crypto
     return Math.floor(positionSize * 1e8) / 1e8;

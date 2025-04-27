@@ -258,6 +258,14 @@ export interface IndicatorResult {
   };
 }
 
+export interface MarketTypeBalance {
+  total: number;
+  allocated: number;
+  available: number;
+  profit: number;
+  trades: number; // Number of trades in this market type
+}
+
 export interface StrategyBudget {
   total: number;
   allocated: number;
@@ -269,6 +277,13 @@ export interface StrategyBudget {
   profitPercentage?: number;
   market_type?: MarketType; // Database column name
   marketType?: MarketType; // For backward compatibility
+
+  // Market type specific balances
+  marketTypeBalances?: {
+    spot?: MarketTypeBalance;
+    margin?: MarketTypeBalance;
+    futures?: MarketTypeBalance;
+  };
 }
 
 export type ExchangeId = 'binance' | 'bitmart' | 'kucoin' | 'coinbase' | 'kraken' | string;

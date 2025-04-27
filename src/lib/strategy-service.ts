@@ -540,21 +540,30 @@ class StrategyService {
       currentStrategy.selected_pairs = tradingPairs;
       currentStrategy.strategy_config.assets = tradingPairs;
       currentStrategy.strategy_config.config.pairs = tradingPairs;
-      currentStrategy.market_type = marketType;
-      currentStrategy.marketType = marketType;
+
+      // Determine the market type to use, ensuring consistency
+      const strategyMarketType = currentStrategy.market_type || currentStrategy.marketType || 'spot';
+
+      // Update both properties for consistency
+      currentStrategy.market_type = strategyMarketType;
+      currentStrategy.marketType = strategyMarketType;
 
       updateNeeded = true; // Always update to ensure consistency
 
-      // Update the strategy with active status, trading pairs, and market type
-      // Only use market_type for the database column, not marketType
       const updateData = {
         status: 'active',
         updated_at: new Date().toISOString(),
         deactivated_at: null, // Clear deactivated_at when activating
-        selected_pairs: currentStrategy.selected_pairs,
-        strategy_config: currentStrategy.strategy_config,
-        market_type: currentStrategy.market_type || currentStrategy.marketType || 'spot'
+        selected_pairs: currentStrategy.selected_pairs || [],
+        strategy_config: currentStrategy.strategy_config || {},
+        market_type: strategyMarketType // Use market_type for database column
       };
+
+      // Log the market type being used
+      logService.log('info', `Activating strategy with market type: ${strategyMarketType}`, {
+        strategyId: id,
+        originalMarketType: currentStrategy.market_type || currentStrategy.marketType
+      }, 'StrategyService');
 
       const { data, error } = await supabase
         .from('strategies')

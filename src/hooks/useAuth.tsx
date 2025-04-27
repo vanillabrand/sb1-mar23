@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { type User, type AuthError } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { supabase, refreshSession } from '../lib/supabase';
 import { toast } from 'react-hot-toast';
 import { logService } from '../lib/log-service';
 import { userProfileService } from '../lib/user-profile-service';
@@ -107,33 +107,40 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
           } else if (cachedUser) {
             // If we have a cached user but no session, try to refresh the session
             try {
-              const { data, error } = await supabase.auth.refreshSession();
-              if (error) {
-                console.error('useAuth: Failed to refresh session:', error);
+              logService.log('info', 'Attempting to refresh session with cached user', { userId: cachedUser.id }, 'AuthProvider');
+              const success = await refreshSession();
+
+              if (!success) {
+                logService.log('warn', 'Failed to refresh session with cached user', null, 'AuthProvider');
                 // Clear cached user if refresh fails
                 localStorage.removeItem('sb-user');
                 setUser(null);
-              } else if (data.session) {
-                console.log('useAuth: Session refreshed successfully:', data.session);
-                setUser(data.session.user);
+              } else {
+                // Get the updated session after refresh
+                const { data: { session } } = await supabase.auth.getSession();
+                if (session?.user) {
+                  logService.log('info', 'Session refreshed successfully', { userId: session.user.id }, 'AuthProvider');
+                  setUser(session.user);
 
-                // Initialize user profile service
-                userProfileService.initialize(data.session.user.id);
+                  // Initialize user profile service
+                  userProfileService.initialize(session.user.id);
 
-                // Initialize exchange service
-                await exchangeService.initialize();
+                  // Initialize exchange service
+                  await exchangeService.initialize();
+                }
               }
             } catch (refreshError) {
-              console.error('useAuth: Error refreshing session:', refreshError);
+              logService.log('error', 'Exception refreshing session', refreshError, 'AuthProvider');
               localStorage.removeItem('sb-user');
               setUser(null);
             }
           }
         }
 
-        console.log('useAuth: Setting up auth state change listener');
+        logService.log('info', 'Setting up auth state change listener', null, 'AuthProvider');
         const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-          console.log('useAuth: Auth state changed:', { event, user: session?.user });
+          logService.log('info', 'Auth state changed', { event, userId: session?.user?.id }, 'AuthProvider');
+
           if (mounted) {
             const currentUser = session?.user ?? null;
 
@@ -141,9 +148,9 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
               setUser(currentUser);
               // Cache the user in localStorage
               localStorage.setItem('sb-user', JSON.stringify(currentUser));
-              console.log('useAuth: User state updated after auth change:', currentUser);
+              logService.log('info', 'User state updated after auth change', { userId: currentUser.id }, 'AuthProvider');
 
-              // Initialize user profile service when user logs in
+              // Initialize user profile service when user logs in or token is refreshed
               if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
                 try {
                   // Initialize user profile service
@@ -152,6 +159,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
                   // Create user profile if it doesn't exist
                   const profile = await userProfileService.getUserProfile();
                   if (!profile) {
+                    logService.log('info', 'Creating new user profile', { userId: currentUser.id }, 'AuthProvider');
                     await userProfileService.saveUserProfile({
                       email: currentUser.email,
                       auto_reconnect: true
@@ -161,14 +169,23 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
                   // Initialize exchange service
                   await exchangeService.initialize();
                 } catch (profileError) {
-                  console.error('Failed to initialize user profile:', profileError);
-                  logService.error('Failed to initialize user profile', profileError, 'AuthProvider');
+                  logService.log('error', 'Failed to initialize user profile', profileError, 'AuthProvider');
+
+                  // Try to refresh the session if we get an auth error
+                  if (profileError.message?.includes('API key') ||
+                      profileError.message?.includes('Unauthorized') ||
+                      profileError.message?.includes('JWT')) {
+                    logService.log('info', 'Attempting to refresh session after auth error', null, 'AuthProvider');
+                    await refreshSession();
+                  }
                 }
               }
             } else if (event === 'SIGNED_OUT') {
               // Clear cached user on sign out
               localStorage.removeItem('sb-user');
+              localStorage.removeItem('sb-auth-token');
               setUser(null);
+              logService.log('info', 'User signed out', null, 'AuthProvider');
             }
 
             setLoading(false);
@@ -207,19 +224,31 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
 
   const signIn = async (email: string, password: string) => {
     try {
-      console.log('useAuth: Attempting to sign in with Supabase');
+      logService.log('info', 'Attempting to sign in with Supabase', { email }, 'AuthProvider');
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-      console.log('useAuth: Sign in response:', { data, error });
 
       if (error) {
-        console.error('useAuth: Sign in error:', error);
+        logService.log('error', 'Sign in error', error, 'AuthProvider');
         throw error;
       }
 
-      console.log('useAuth: Sign in successful, user:', data.user);
+      logService.log('info', 'Sign in successful', { userId: data.user.id }, 'AuthProvider');
+
+      // Store the session token in localStorage
+      if (data.session) {
+        // The token is already stored by Supabase, but we'll ensure it's properly set
+        localStorage.setItem('sb-auth-token', JSON.stringify({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+          expires_at: data.session.expires_at
+        }));
+      }
 
       // Explicitly update the user state
       setUser(data.user);
+
+      // Cache the user in localStorage
+      localStorage.setItem('sb-user', JSON.stringify(data.user));
 
       // Initialize user profile service when user logs in
       try {
@@ -229,6 +258,7 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         // Create user profile if it doesn't exist
         const profile = await userProfileService.getUserProfile();
         if (!profile) {
+          logService.log('info', 'Creating new user profile', { userId: data.user.id }, 'AuthProvider');
           await userProfileService.saveUserProfile({
             email: data.user.email,
             auto_reconnect: true
@@ -238,13 +268,20 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
         // Initialize exchange service
         await exchangeService.initialize();
       } catch (profileError) {
-        console.error('Failed to initialize user profile:', profileError);
-        logService.error('Failed to initialize user profile', profileError, 'AuthContext');
+        logService.log('error', 'Failed to initialize user profile', profileError, 'AuthProvider');
+
+        // Try to refresh the session if we get an auth error
+        if (profileError.message?.includes('API key') ||
+            profileError.message?.includes('Unauthorized') ||
+            profileError.message?.includes('JWT')) {
+          logService.log('info', 'Attempting to refresh session after auth error', null, 'AuthProvider');
+          await refreshSession();
+        }
       }
 
       toast.success('Successfully signed in!');
     } catch (error) {
-      console.error('useAuth: Error in signIn method:', error);
+      logService.log('error', 'Error in signIn method', error, 'AuthProvider');
       const authError = error as AuthError;
       setError(authError);
       toast.error(authError.message);

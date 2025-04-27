@@ -26,6 +26,7 @@ import AvailableBalanceDisplay from './AvailableBalanceDisplay';
 import { BudgetDebugger } from './BudgetDebugger';
 import BudgetHistoryChart from './BudgetHistoryChart';
 import BudgetAlertsList from './BudgetAlertsList';
+import { TradeBudgetPanel } from './TradeBudgetPanel';
 import BudgetValidationStatus from './BudgetValidationStatus';
 import TradeExecutionMetrics from './TradeExecutionMetrics';
 import type { RiskLevel, Strategy, StrategyBudget, Trade, MarketType } from '../lib/types';
@@ -1355,104 +1356,45 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <DollarSign className="w-4 h-4" />
                 Trading Budget
               </h4>
-              {/* Always show budget */}
-                <div className="bg-gradient-to-r from-gunmetal-800 to-gunmetal-900 p-4 rounded-lg border border-gunmetal-700/50 shadow-inner animate-fadeIn">
-                  {budget ? (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-sm text-gray-400">Total Budget</span>
-                            <span className="text-md font-bold text-neon-yellow">${budget.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-400">Available</span>
-                            <div className="flex items-center">
-                              <span className="text-md font-bold text-neon-turquoise">${budget.available.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              {budget.allocationPercentage !== undefined && (
-                                <span className="text-xs text-gray-400 ml-1">({(100 - budget.allocationPercentage).toFixed(1)}%)</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                        <div>
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="text-sm text-gray-400">Allocated</span>
-                            <div className="flex items-center">
-                              <span className="text-md font-bold text-neon-orange">${budget.allocated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                              {budget.allocationPercentage !== undefined && (
-                                <span className="text-xs text-gray-400 ml-1">({budget.allocationPercentage.toFixed(1)}%)</span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span className="text-sm text-gray-400">Profit/Loss</span>
-                            <div className="flex items-center">
-                              <span className={`text-md font-bold ${budget.profit >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                                ${budget.profit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                              </span>
-                              {budget.profitPercentage !== undefined && (
-                                <span className={`text-xs ml-1 ${budget.profit >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
-                                  ({budget.profit >= 0 ? '+' : ''}{budget.profitPercentage.toFixed(2)}%)
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
 
-                      {/* Budget progress bar */}
-                      {budget.total > 0 && (
-                        <div className="mt-2">
-                          <div className="h-2 w-full bg-gunmetal-700 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-neon-orange to-neon-yellow rounded-full"
-                              style={{ width: `${Math.min(100, budget.allocationPercentage || 0)}%` }}
-                            />
-                          </div>
-                          <div className="flex justify-between text-xs text-gray-400 mt-1">
-                            <span>Allocation</span>
-                            <span>{budget.allocationPercentage?.toFixed(1) || 0}%</span>
-                          </div>
-                        </div>
-                      )}
+              {/* Use the new TradeBudgetPanel component */}
+              <TradeBudgetPanel
+                strategyId={strategy.id}
+                trades={strategyTrades}
+                className="animate-fadeIn"
+              />
 
-                      {/* Budget Validation Status */}
-                      <div className="mt-4 p-3 bg-gunmetal-800 rounded-lg">
-                        <BudgetValidationStatus strategyId={strategy.id} />
-                      </div>
-
-                      {/* Trade Execution Metrics */}
-                      <div className="mt-4">
-                        <TradeExecutionMetrics strategyId={strategy.id} />
-                      </div>
-
-                      {/* Budget History Chart */}
-                      <div className="mt-4">
-                        <div className="text-sm font-medium text-gray-300 mb-2">Budget History</div>
-                        <BudgetHistoryChart strategyId={strategy.id} days={7} height={150} showLegend={false} />
-                      </div>
-
-                      {/* Budget Alerts */}
-                      <div className="mt-4">
-                        <div className="text-sm font-medium text-gray-300 mb-2">Budget Alerts</div>
-                        <BudgetAlertsList strategyId={strategy.id} limit={3} />
-                      </div>
-
-                      {/* Add Budget Debugger in development mode */}
-                      {import.meta.env.DEV && (
-                        <div className="mt-4">
-                          <BudgetDebugger strategyId={strategy.id} />
-                        </div>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-400">Budget</span>
-                      <span className="text-lg font-bold text-neon-yellow">${strategyBudget.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    </div>
-                  )}
+              {/* Additional budget information */}
+              <div className="mt-4 space-y-4">
+                {/* Budget Validation Status */}
+                <div className="p-3 bg-gunmetal-800 rounded-lg">
+                  <BudgetValidationStatus strategyId={strategy.id} />
                 </div>
+
+                {/* Trade Execution Metrics */}
+                <div>
+                  <TradeExecutionMetrics strategyId={strategy.id} />
+                </div>
+
+                {/* Budget History Chart */}
+                <div>
+                  <div className="text-sm font-medium text-gray-300 mb-2">Budget History</div>
+                  <BudgetHistoryChart strategyId={strategy.id} days={7} height={150} showLegend={false} />
+                </div>
+
+                {/* Budget Alerts */}
+                <div>
+                  <div className="text-sm font-medium text-gray-300 mb-2">Budget Alerts</div>
+                  <BudgetAlertsList strategyId={strategy.id} limit={3} />
+                </div>
+
+                {/* Add Budget Debugger in development mode */}
+                {import.meta.env.DEV && (
+                  <div>
+                    <BudgetDebugger strategyId={strategy.id} />
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Trade Generation Status */}

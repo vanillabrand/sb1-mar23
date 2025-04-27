@@ -1009,35 +1009,109 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   };
 
   const activateStrategyWithBudget = async (strategy: Strategy, budget: any) => {
+    let activationStage = 'initialization';
+    let updatedStrategy = null;
+
     try {
+      logService.log('info', `Starting strategy activation process for ${strategy.id}`,
+        { strategyId: strategy.id, budget }, 'StrategyManager');
+
       // 1. Activate strategy in database
-      const updatedStrategy = await strategyService.activateStrategy(strategy.id);
+      activationStage = 'database_activation';
+      updatedStrategy = await strategyService.activateStrategy(strategy.id);
+      logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'StrategyManager');
 
       // 2. Start market monitoring
-      await marketService.startStrategyMonitoring(updatedStrategy);
+      activationStage = 'market_monitoring';
+      try {
+        await marketService.startStrategyMonitoring(updatedStrategy);
+        logService.log('info', `Market monitoring started for strategy ${strategy.id}`, null, 'StrategyManager');
+      } catch (marketError) {
+        logService.log('warn', `Failed to start market monitoring for strategy ${strategy.id}, continuing activation`,
+          marketError, 'StrategyManager');
+        // Continue with activation despite this error
+      }
 
       // 3. Add strategy to trade generator
-      await tradeGenerator.addStrategy(updatedStrategy);
+      activationStage = 'trade_generator';
+      try {
+        await tradeGenerator.addStrategy(updatedStrategy);
+        logService.log('info', `Strategy ${strategy.id} added to trade generator`, null, 'StrategyManager');
+      } catch (generatorError) {
+        logService.log('warn', `Failed to add strategy ${strategy.id} to trade generator, continuing activation`,
+          generatorError, 'StrategyManager');
+        // Continue with activation despite this error
+      }
 
       // 4. Initialize strategy monitoring
-      await strategyMonitor.addStrategy(updatedStrategy);
+      activationStage = 'strategy_monitoring';
+      try {
+        await strategyMonitor.addStrategy(updatedStrategy);
+        logService.log('info', `Strategy monitoring initialized for strategy ${strategy.id}`, null, 'StrategyManager');
+      } catch (monitorError) {
+        logService.log('warn', `Failed to initialize strategy monitoring for ${strategy.id}, continuing activation`,
+          monitorError, 'StrategyManager');
+        // Continue with activation despite this error
+      }
 
       // 5. Start trade engine monitoring
-      await tradeEngine.addStrategy(updatedStrategy);
+      activationStage = 'trade_engine';
+      try {
+        await tradeEngine.addStrategy(updatedStrategy);
+        logService.log('info', `Trade engine monitoring started for strategy ${strategy.id}`, null, 'StrategyManager');
+      } catch (engineError) {
+        logService.log('warn', `Failed to start trade engine monitoring for ${strategy.id}, continuing activation`,
+          engineError, 'StrategyManager');
+        // Continue with activation despite this error
+      }
 
       // 6. Connect to trading engine to start generating trades
-      await tradeService.connectStrategyToTradingEngine(strategy.id);
+      activationStage = 'trading_engine_connection';
+      try {
+        await tradeService.connectStrategyToTradingEngine(strategy.id);
+        logService.log('info', `Strategy ${strategy.id} connected to trading engine`, null, 'StrategyManager');
+      } catch (connectionError) {
+        logService.log('warn', `Failed to connect strategy ${strategy.id} to trading engine, continuing activation`,
+          connectionError, 'StrategyManager');
+        // Continue with activation despite this error
+      }
 
       // 7. Refresh data
+      activationStage = 'data_refresh';
       await handleRefresh();
 
       // 8. Refresh wallet balances
-      await walletBalanceService.refreshBalances();
+      activationStage = 'wallet_refresh';
+      try {
+        await walletBalanceService.refreshBalances();
+      } catch (walletError) {
+        logService.log('warn', `Failed to refresh wallet balances, continuing activation`,
+          walletError, 'StrategyManager');
+        // Continue with activation despite this error
+      }
 
-      logService.log('info', `Strategy ${strategy.id} activated with budget`,
+      logService.log('info', `Strategy ${strategy.id} activated with budget successfully`,
         { strategy, budget }, 'StrategyManager');
 
     } catch (error) {
+      logService.log('error', `Strategy activation failed at stage: ${activationStage}`,
+        { strategyId: strategy.id, error }, 'StrategyManager');
+
+      // If we've already activated the strategy in the database but a later step failed,
+      // try to deactivate it to maintain consistency
+      if (activationStage !== 'initialization' && activationStage !== 'database_activation' && updatedStrategy) {
+        try {
+          logService.log('info', `Attempting to deactivate strategy ${strategy.id} after activation failure`,
+            null, 'StrategyManager');
+          await strategyService.deactivateStrategy(strategy.id);
+          logService.log('info', `Successfully deactivated strategy ${strategy.id} after activation failure`,
+            null, 'StrategyManager');
+        } catch (deactivationError) {
+          logService.log('error', `Failed to deactivate strategy ${strategy.id} after activation failure`,
+            deactivationError, 'StrategyManager');
+        }
+      }
+
       throw error;
     }
   };

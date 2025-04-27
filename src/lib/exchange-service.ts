@@ -2045,14 +2045,42 @@ class ExchangeService extends EventEmitter {
     let price = 100; // Starting price
 
     // Extract base asset from symbol for price adjustment
-    const baseAsset = symbol.split('/')[0];
+    const baseAsset = symbol.split('/')[0].toUpperCase();
 
-    // Set a more realistic starting price based on the asset
-    if (baseAsset === 'BTC') price = 50000;
-    else if (baseAsset === 'ETH') price = 3000;
-    else if (baseAsset === 'SOL') price = 100;
-    else if (baseAsset === 'BNB') price = 500;
-    else if (baseAsset === 'XRP') price = 0.5;
+    // Use the same price logic as createMockTicker for consistency
+    switch (baseAsset) {
+      case 'BTC': price = 50000 + (Math.random() * 2000 - 1000); break;
+      case 'ETH': price = 3000 + (Math.random() * 100 - 50); break;
+      case 'SOL': price = 100 + (Math.random() * 10 - 5); break;
+      case 'BNB': price = 500 + (Math.random() * 20 - 10); break;
+      case 'ADA': price = 0.8 + (Math.random() * 0.08 - 0.04); break;
+      case 'XRP': price = 0.5 + (Math.random() * 0.05 - 0.025); break;
+      case 'DOT': price = 15 + (Math.random() * 1.5 - 0.75); break;
+      case 'DOGE': price = 0.1 + (Math.random() * 0.01 - 0.005); break;
+      case 'AVAX': price = 35 + (Math.random() * 3.5 - 1.75); break;
+      case 'MATIC': price = 1.2 + (Math.random() * 0.12 - 0.06); break;
+      case 'LINK': price = 20 + (Math.random() * 2 - 1); break;
+      case 'UNI': price = 10 + (Math.random() * 1 - 0.5); break;
+      case 'ATOM': price = 12 + (Math.random() * 1.2 - 0.6); break;
+      case 'LTC': price = 80 + (Math.random() * 8 - 4); break;
+      case 'BCH': price = 250 + (Math.random() * 25 - 12.5); break;
+      case 'ALGO': price = 0.3 + (Math.random() * 0.03 - 0.015); break;
+      case 'XLM': price = 0.15 + (Math.random() * 0.015 - 0.0075); break;
+      case 'FIL': price = 5 + (Math.random() * 0.5 - 0.25); break;
+      case 'TRX': price = 0.08 + (Math.random() * 0.008 - 0.004); break;
+      case 'ETC': price = 25 + (Math.random() * 2.5 - 1.25); break;
+      case 'XMR': price = 150 + (Math.random() * 15 - 7.5); break;
+      case 'NEAR': price = 5 + (Math.random() * 0.5 - 0.25); break;
+      case 'AAVE': price = 100 + (Math.random() * 10 - 5); break;
+      case 'CRO': price = 0.1 + (Math.random() * 0.01 - 0.005); break;
+      case 'VET': price = 0.03 + (Math.random() * 0.003 - 0.0015); break;
+      case 'ICP': price = 10 + (Math.random() * 1 - 0.5); break;
+      case 'FTM': price = 0.5 + (Math.random() * 0.05 - 0.025); break;
+      case 'SAND': price = 0.7 + (Math.random() * 0.07 - 0.035); break;
+      case 'MANA': price = 0.6 + (Math.random() * 0.06 - 0.03); break;
+      case 'THETA': price = 1.5 + (Math.random() * 0.15 - 0.075); break;
+      default: price = 10 + (Math.random() * 1 - 0.5); // Default for unknown assets
+    }
 
     for (let i = 0; i < limit; i++) {
       // Generate a realistic price movement
@@ -2136,23 +2164,71 @@ class ExchangeService extends EventEmitter {
     }
   }
 
-  private createMockTicker(symbol: string): any {
-    // Create a realistic mock ticker
-    const basePrice = symbol.includes('BTC') ? 50000 : symbol.includes('ETH') ? 3000 : 1;
+  // Made public so it can be used by other components
+  createMockTicker(symbol: string): any {
+    // Normalize the symbol format
+    const normalizedSymbol = symbol.includes('_') ? symbol.replace('_', '/') : symbol;
+
+    // Extract the base asset (first part before the slash or underscore)
+    const baseAsset = normalizedSymbol.split('/')[0];
     const now = Date.now();
+
+    // Set realistic base prices for different cryptocurrencies
+    let basePrice: number;
+    switch (baseAsset.toUpperCase()) {
+      case 'BTC': basePrice = 50000 + (Math.random() * 2000 - 1000); break;
+      case 'ETH': basePrice = 3000 + (Math.random() * 100 - 50); break;
+      case 'SOL': basePrice = 100 + (Math.random() * 10 - 5); break;
+      case 'BNB': basePrice = 500 + (Math.random() * 20 - 10); break;
+      case 'ADA': basePrice = 0.8 + (Math.random() * 0.08 - 0.04); break;
+      case 'XRP': basePrice = 0.5 + (Math.random() * 0.05 - 0.025); break;
+      case 'DOT': basePrice = 15 + (Math.random() * 1.5 - 0.75); break;
+      case 'DOGE': basePrice = 0.1 + (Math.random() * 0.01 - 0.005); break;
+      case 'AVAX': basePrice = 35 + (Math.random() * 3.5 - 1.75); break;
+      case 'MATIC': basePrice = 1.2 + (Math.random() * 0.12 - 0.06); break;
+      case 'LINK': basePrice = 20 + (Math.random() * 2 - 1); break;
+      case 'UNI': basePrice = 10 + (Math.random() * 1 - 0.5); break;
+      case 'ATOM': basePrice = 12 + (Math.random() * 1.2 - 0.6); break;
+      case 'LTC': basePrice = 80 + (Math.random() * 8 - 4); break;
+      case 'BCH': basePrice = 250 + (Math.random() * 25 - 12.5); break;
+      case 'ALGO': basePrice = 0.3 + (Math.random() * 0.03 - 0.015); break;
+      case 'XLM': basePrice = 0.15 + (Math.random() * 0.015 - 0.0075); break;
+      case 'FIL': basePrice = 5 + (Math.random() * 0.5 - 0.25); break;
+      case 'TRX': basePrice = 0.08 + (Math.random() * 0.008 - 0.004); break;
+      case 'ETC': basePrice = 25 + (Math.random() * 2.5 - 1.25); break;
+      case 'XMR': basePrice = 150 + (Math.random() * 15 - 7.5); break;
+      case 'NEAR': basePrice = 5 + (Math.random() * 0.5 - 0.25); break;
+      case 'AAVE': basePrice = 100 + (Math.random() * 10 - 5); break;
+      case 'CRO': basePrice = 0.1 + (Math.random() * 0.01 - 0.005); break;
+      case 'VET': basePrice = 0.03 + (Math.random() * 0.003 - 0.0015); break;
+      case 'ICP': basePrice = 10 + (Math.random() * 1 - 0.5); break;
+      case 'FTM': basePrice = 0.5 + (Math.random() * 0.05 - 0.025); break;
+      case 'SAND': basePrice = 0.7 + (Math.random() * 0.07 - 0.035); break;
+      case 'MANA': basePrice = 0.6 + (Math.random() * 0.06 - 0.03); break;
+      case 'THETA': basePrice = 1.5 + (Math.random() * 0.15 - 0.075); break;
+      default: basePrice = 10 + (Math.random() * 1 - 0.5); // Default for unknown assets
+    }
 
     // Add some randomness to make it look realistic
     const variance = basePrice * 0.001; // 0.1% variance
     const last = basePrice + (Math.random() * variance * 2 - variance);
 
+    // Create a realistic ticker with appropriate values
     return {
-      symbol,
+      symbol: normalizedSymbol,
       bid: last * 0.999,
       ask: last * 1.001,
       last,
       bidVolume: 10 + Math.random() * 20,
       askVolume: 10 + Math.random() * 20,
-      timestamp: now
+      timestamp: now,
+      high: last * 1.02,  // 2% higher than last
+      low: last * 0.98,   // 2% lower than last
+      open: last * (1 + (Math.random() * 0.04 - 0.02)), // +/- 2% from last
+      close: last,
+      volume: basePrice * 1000 * (Math.random() + 0.5), // Volume proportional to price
+      change: last * (Math.random() * 0.04 - 0.02), // +/- 2% change
+      percentage: (Math.random() * 4 - 2) // +/- 2% percentage change
     };
   }
 

@@ -573,17 +573,36 @@ class UnifiedTradeService extends EventEmitter {
    * Emit events for a newly created trade
    */
   private emitTradeEvents(trade: any): void {
-    // Emit general trade created event
-    eventBus.emit('trade:created', { trade });
+    if (!trade) {
+      logService.log('warn', 'Attempted to emit trade events with null trade', null, 'UnifiedTradeService');
+      return;
+    }
 
-    // Emit strategy-specific event
-    eventBus.emit(`trade:created:${trade.strategy_id}`, {
-      strategyId: trade.strategy_id,
-      trade
-    });
+    try {
+      // Emit internal event first
+      this.emit('tradeCreated', { trade });
 
-    // Emit internal event
-    this.emit('tradeCreated', { trade });
+      // Emit general trade created event
+      eventBus.emit('trade:created', { trade });
+
+      // Emit strategy-specific event if strategy_id exists
+      if (trade.strategy_id) {
+        eventBus.emit(`trade:created:${trade.strategy_id}`, {
+          strategyId: trade.strategy_id,
+          trade
+        });
+      } else {
+        logService.log('warn', 'Trade missing strategy_id, cannot emit strategy-specific event',
+          { tradeId: trade.id }, 'UnifiedTradeService');
+      }
+
+      logService.log('debug', `Emitted trade events for trade ${trade.id}`,
+        { strategyId: trade.strategy_id }, 'UnifiedTradeService');
+    } catch (error) {
+      logService.log('error', `Failed to emit trade events for trade ${trade.id}`,
+        error, 'UnifiedTradeService');
+      // Don't rethrow the error to prevent cascading failures
+    }
   }
 
   /**
@@ -595,12 +614,128 @@ class UnifiedTradeService extends EventEmitter {
 
     logService.log('debug', `Handling trade created event for ${trade.id}`, { trade }, 'UnifiedTradeService');
 
-    // Update budget allocation
-    const tradeCost = trade.quantity * trade.price;
-    tradeService.reserveBudgetForTrade(trade.strategy_id, tradeCost, trade.id);
+    try {
+      // Validate strategy ID
+      if (!trade.strategy_id) {
+        logService.log('error', `Missing strategy ID for trade ${trade.id}`, { trade }, 'UnifiedTradeService');
+        return;
+      }
 
-    // Update wallet balances
-    walletBalanceService.updateBalances();
+      // Get market type from trade data
+      let marketType = 'spot'; // Default to spot
+      if (trade.market_type) {
+        marketType = trade.market_type;
+      } else if (trade.metadata?.marketType) {
+        marketType = trade.metadata.marketType;
+      }
+
+      // Calculate trade cost with proper fallbacks
+      const price = trade.entry_price || trade.entryPrice || trade.price || 0;
+      const quantity = trade.amount || trade.quantity || trade.size || 0;
+
+      if (!price || !quantity || isNaN(price) || isNaN(quantity)) {
+        logService.log('warn', `Invalid trade data for cost calculation: price=${price}, quantity=${quantity}`,
+          { trade }, 'UnifiedTradeService');
+
+        // Check if we can get a valid budget from the trade metadata
+        if (trade.metadata?.tradeCost && !isNaN(trade.metadata.tradeCost)) {
+          const metadataCost = Number(trade.metadata.tradeCost);
+          logService.log('info', `Using trade cost from metadata: ${metadataCost}`,
+            { trade, metadataCost }, 'UnifiedTradeService');
+
+          // Reserve budget using the metadata cost
+          const reserved = tradeService.reserveBudgetForTrade(trade.strategy_id, metadataCost, trade.id, marketType);
+          if (!reserved) {
+            logService.log('warn', `Failed to reserve budget from metadata cost for trade ${trade.id}`,
+              { trade, metadataCost, marketType }, 'UnifiedTradeService');
+          }
+        }
+        return;
+      }
+
+      // Format the trade cost to 2 decimal places to avoid floating point issues
+      const tradeCost = Number((price * quantity).toFixed(2));
+
+      if (isNaN(tradeCost) || tradeCost <= 0) {
+        logService.log('warn', `Invalid trade cost calculated: ${tradeCost}`,
+          { trade, price, quantity }, 'UnifiedTradeService');
+        return;
+      }
+
+      // Log the trade cost for debugging
+      logService.log('info', `Calculated trade cost for ${trade.id}: ${tradeCost} in ${marketType} market`,
+        { trade, price, quantity, tradeCost, marketType }, 'UnifiedTradeService');
+
+      // Check budget availability before attempting to reserve
+      const budget = tradeService.getBudget(trade.strategy_id);
+      if (!budget || budget.available < tradeCost) {
+        logService.log('warn', `Insufficient budget for trade ${trade.id}: ${tradeCost} (available: ${budget?.available || 0})`,
+          { trade, tradeCost, budget, marketType }, 'UnifiedTradeService');
+
+        // If this is a demo trade, we might want to update the budget to accommodate it
+        if (demoService.isInDemoMode()) {
+          logService.log('info', `In demo mode, attempting to adjust budget for trade ${trade.id}`,
+            { trade, tradeCost, marketType }, 'UnifiedTradeService');
+
+          // Try to update the budget to accommodate the trade
+          if (budget) {
+            const updatedBudget = {
+              ...budget,
+              total: Number((budget.total + tradeCost).toFixed(2)),
+              available: Number((budget.available + tradeCost).toFixed(2)),
+              lastUpdated: Date.now()
+            };
+
+            // Initialize market type balances if they don't exist
+            if (!updatedBudget.marketTypeBalances) {
+              updatedBudget.marketTypeBalances = {
+                spot: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 },
+                margin: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 },
+                futures: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 }
+              };
+            }
+
+            // Ensure the market type exists in the balances
+            if (!updatedBudget.marketTypeBalances[marketType]) {
+              updatedBudget.marketTypeBalances[marketType] = {
+                total: 0,
+                allocated: 0,
+                available: 0,
+                profit: 0,
+                trades: 0
+              };
+            }
+
+            // Update the market type balance
+            updatedBudget.marketTypeBalances[marketType].total = Number((updatedBudget.marketTypeBalances[marketType].total + tradeCost).toFixed(2));
+            updatedBudget.marketTypeBalances[marketType].available = Number((updatedBudget.marketTypeBalances[marketType].available + tradeCost).toFixed(2));
+
+            tradeService.updateBudgetCache(trade.strategy_id, updatedBudget);
+            logService.log('info', `Adjusted budget in demo mode for trade ${trade.id} in ${marketType} market`,
+              { trade, tradeCost, updatedBudget, marketType }, 'UnifiedTradeService');
+          }
+        }
+        return;
+      }
+
+      // Update budget allocation
+      const reserved = tradeService.reserveBudgetForTrade(trade.strategy_id, tradeCost, trade.id, marketType);
+
+      if (!reserved) {
+        logService.log('warn', `Failed to reserve budget for trade ${trade.id} in ${marketType} market`,
+          { trade, tradeCost, marketType }, 'UnifiedTradeService');
+      } else {
+        logService.log('info', `Reserved ${tradeCost} for strategy ${trade.strategy_id} (trade: ${trade.id}) in ${marketType} market`,
+          { trade, tradeCost, marketType }, 'UnifiedTradeService');
+      }
+
+      // Update wallet balances
+      walletBalanceService.refreshBalances().catch(error => {
+        logService.log('warn', 'Failed to refresh wallet balances after trade creation', error, 'UnifiedTradeService');
+      });
+    } catch (error) {
+      logService.log('error', `Error handling trade created event for ${trade.id}`, error, 'UnifiedTradeService');
+    }
   }
 
   /**
@@ -622,8 +757,109 @@ class UnifiedTradeService extends EventEmitter {
 
     logService.log('debug', `Handling trade closed event for ${trade.id}`, { trade }, 'UnifiedTradeService');
 
-    // Update wallet balances
-    walletBalanceService.updateBalances();
+    try {
+      // Get market type from trade data
+      let marketType = 'spot'; // Default to spot
+      if (trade.market_type) {
+        marketType = trade.market_type;
+      } else if (trade.metadata?.marketType) {
+        marketType = trade.metadata.marketType;
+      }
+
+      // Calculate trade cost and profit/loss
+      const entryPrice = trade.entry_price || trade.entryPrice || trade.price || 0;
+      const exitPrice = trade.exit_price || trade.exitPrice || 0;
+      const quantity = trade.amount || trade.quantity || trade.size || 0;
+
+      if (!entryPrice || !quantity) {
+        logService.log('warn', `Invalid trade data for profit calculation: entryPrice=${entryPrice}, quantity=${quantity}`,
+          { trade, marketType }, 'UnifiedTradeService');
+        return;
+      }
+
+      const tradeCost = entryPrice * quantity;
+      let profit = 0;
+
+      // Calculate profit/loss if we have an exit price
+      if (exitPrice > 0) {
+        // Calculate profit based on trade side (buy/sell)
+        profit = trade.side === 'buy'
+          ? (exitPrice - entryPrice) * quantity
+          : (entryPrice - exitPrice) * quantity;
+      } else if (trade.profit !== undefined) {
+        // Use the profit value directly if available
+        profit = trade.profit;
+      }
+
+      // Format values to 2 decimal places
+      const formattedTradeCost = Number(tradeCost.toFixed(2));
+      const formattedProfit = Number(profit.toFixed(2));
+
+      // Log the trade profit for debugging
+      logService.log('info', `Calculated profit for closed trade ${trade.id}: ${formattedProfit} in ${marketType} market`,
+        { trade, entryPrice, exitPrice, quantity, tradeCost: formattedTradeCost, profit: formattedProfit, marketType }, 'UnifiedTradeService');
+
+      // Release budget and apply profit
+      tradeService.releaseBudgetFromTrade(trade.strategy_id, formattedTradeCost, formattedProfit, trade.id, 'closed', marketType)
+        .then(() => {
+          logService.log('info', `Released budget with profit ${formattedProfit} for trade ${trade.id} in ${marketType} market`,
+            { trade, tradeCost: formattedTradeCost, profit: formattedProfit, marketType }, 'UnifiedTradeService');
+        })
+        .catch(error => {
+          logService.log('error', `Failed to release budget for trade ${trade.id}`,
+            error, 'UnifiedTradeService');
+        });
+
+      // Update wallet balances
+      walletBalanceService.refreshBalances().catch(error => {
+        logService.log('warn', 'Failed to refresh wallet balances after trade closure', error, 'UnifiedTradeService');
+      });
+
+      // Emit trade profit event
+      eventBus.emit('trade:profit', {
+        tradeId: trade.id,
+        strategyId: trade.strategy_id,
+        profit: formattedProfit,
+        entryPrice,
+        exitPrice,
+        quantity,
+        marketType
+      });
+
+      // Emit strategy-specific profit event
+      eventBus.emit(`trade:profit:${trade.strategy_id}`, {
+        tradeId: trade.id,
+        strategyId: trade.strategy_id,
+        profit: formattedProfit,
+        entryPrice,
+        exitPrice,
+        quantity,
+        marketType
+      });
+
+      // Emit market-type specific profit event
+      eventBus.emit(`trade:profit:${marketType}`, {
+        tradeId: trade.id,
+        strategyId: trade.strategy_id,
+        profit: formattedProfit,
+        entryPrice,
+        exitPrice,
+        quantity,
+        marketType
+      });
+
+      // Emit combined event for portfolio performance tracking
+      eventBus.emit('portfolio:performance:update', {
+        tradeId: trade.id,
+        strategyId: trade.strategy_id,
+        profit: formattedProfit,
+        tradeCost: formattedTradeCost,
+        marketType,
+        timestamp: Date.now()
+      });
+    } catch (error) {
+      logService.log('error', `Error handling trade closed event for ${trade.id}`, error, 'UnifiedTradeService');
+    }
   }
 
   /**

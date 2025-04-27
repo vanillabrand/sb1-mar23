@@ -4,6 +4,7 @@ import { RiskMetricsCard } from './RiskMetricsCard';
 import { AssetRiskTable } from './AssetRiskTable';
 import { RiskHeatmap } from './RiskHeatmap';
 import { PortfolioRiskChart } from './PortfolioRiskChart';
+import { NoActiveStrategiesModal } from './NoActiveStrategiesModal';
 import { supabase } from '../lib/supabase';
 import { demoService } from '../lib/demo-service';
 import { marketAnalyzer } from '../lib/market-analyzer';
@@ -378,10 +379,10 @@ export const RiskManagerPage: React.FC = () => {
             <Shield className="w-6 h-6 text-neon-pink mr-2" />
             <h1 className="text-2xl font-bold gradient-text">Risk Manager</h1>
           </div>
-          {activeStrategies.length > 0 && (
+          {!loading && !error && activeStrategies.length > 0 && (
             <button
               onClick={refreshRiskData}
-              disabled={refreshing || loading}
+              disabled={refreshing}
               className="flex items-center px-3 py-1.5 rounded-md bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors"
             >
               {refreshing ? (
@@ -396,7 +397,9 @@ export const RiskManagerPage: React.FC = () => {
           )}
         </div>
         <p className="text-gray-400 mt-2">
-          Monitor and manage risk across your active trading strategies
+          {!loading && !error && activeStrategies.length === 0
+            ? "Activate strategies to start monitoring portfolio risk"
+            : "Monitor and manage risk across your active trading strategies"}
         </p>
       </div>
 
@@ -409,150 +412,135 @@ export const RiskManagerPage: React.FC = () => {
         <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-6">
           <p className="text-red-400">{error}</p>
         </div>
+      ) : activeStrategies.length === 0 ? (
+        // Show only the NoActiveStrategiesModal when there are no active strategies
+        <NoActiveStrategiesModal className="mt-8" />
       ) : (
         <>
           {/* Portfolio Risk Overview */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold gradient-text mb-4">Portfolio Risk Overview</h2>
-            {activeStrategies.length === 0 ? (
-              <div className="panel-metallic rounded-xl p-6 text-center">
-                <div className="flex flex-col items-center justify-center">
-                  <AlertTriangle className="w-10 h-10 text-neon-yellow mb-4" />
-                  <p className="text-gray-300 text-lg mb-2">No active strategies found</p>
-                  <p className="text-gray-400">Please activate a strategy to start viewing risk analytics</p>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                <RiskMetricsCard
-                  title="Total Risk Exposure"
-                  value={`${portfolioRisk.totalRisk.toFixed(1)}%`}
-                  icon={<AlertTriangle className="w-5 h-5" />}
-                  color={portfolioRisk.totalRisk > 70 ? 'red' : portfolioRisk.totalRisk > 40 ? 'yellow' : 'green'}
-                  description="Overall portfolio risk level"
-                />
-                <RiskMetricsCard
-                  title="Max Drawdown"
-                  value={`${portfolioRisk.maxDrawdown.toFixed(1)}%`}
-                  icon={<TrendingUp className="w-5 h-5" />}
-                  color={portfolioRisk.maxDrawdown > 15 ? 'red' : portfolioRisk.maxDrawdown > 8 ? 'yellow' : 'green'}
-                  description="Maximum potential loss"
-                />
-                <RiskMetricsCard
-                  title="Volatility Score"
-                  value={`${portfolioRisk.volatilityScore.toFixed(1)}`}
-                  icon={<Activity className="w-5 h-5" />}
-                  color={portfolioRisk.volatilityScore > 70 ? 'red' : portfolioRisk.volatilityScore > 40 ? 'yellow' : 'green'}
-                  description="Market price fluctuation"
-                />
-                <RiskMetricsCard
-                  title="Correlation Score"
-                  value={`${portfolioRisk.correlationScore.toFixed(1)}`}
-                  icon={<BarChart2 className="w-5 h-5" />}
-                  color={portfolioRisk.correlationScore > 70 ? 'red' : portfolioRisk.correlationScore > 40 ? 'yellow' : 'green'}
-                  description="Asset correlation level"
-                />
-              </div>
-            )}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <RiskMetricsCard
+                title="Total Risk Exposure"
+                value={`${portfolioRisk.totalRisk.toFixed(1)}%`}
+                icon={<AlertTriangle className="w-5 h-5" />}
+                color={portfolioRisk.totalRisk > 70 ? 'red' : portfolioRisk.totalRisk > 40 ? 'yellow' : 'green'}
+                description="Overall portfolio risk level"
+              />
+              <RiskMetricsCard
+                title="Max Drawdown"
+                value={`${portfolioRisk.maxDrawdown.toFixed(1)}%`}
+                icon={<TrendingUp className="w-5 h-5" />}
+                color={portfolioRisk.maxDrawdown > 15 ? 'red' : portfolioRisk.maxDrawdown > 8 ? 'yellow' : 'green'}
+                description="Maximum potential loss"
+              />
+              <RiskMetricsCard
+                title="Volatility Score"
+                value={`${portfolioRisk.volatilityScore.toFixed(1)}`}
+                icon={<Activity className="w-5 h-5" />}
+                color={portfolioRisk.volatilityScore > 70 ? 'red' : portfolioRisk.volatilityScore > 40 ? 'yellow' : 'green'}
+                description="Market price fluctuation"
+              />
+              <RiskMetricsCard
+                title="Correlation Score"
+                value={`${portfolioRisk.correlationScore.toFixed(1)}`}
+                icon={<BarChart2 className="w-5 h-5" />}
+                color={portfolioRisk.correlationScore > 70 ? 'red' : portfolioRisk.correlationScore > 40 ? 'yellow' : 'green'}
+                description="Asset correlation level"
+              />
+            </div>
           </div>
 
           {/* Risk Visualization */}
-          {activeStrategies.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-              <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
-                <h3 className="text-lg font-semibold gradient-text mb-4">Portfolio Risk Distribution</h3>
-                <PortfolioRiskChart
-                  strategies={activeStrategies as any}
-                  marketAnalyses={marketAnalyses}
-                />
-              </div>
-              <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
-                <h3 className="text-lg font-semibold gradient-text mb-4">Asset Risk Heatmap</h3>
-                <RiskHeatmap assetRisks={assetRisks} />
-              </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+            <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+              <h3 className="text-lg font-semibold gradient-text mb-4">Portfolio Risk Distribution</h3>
+              <PortfolioRiskChart
+                strategies={activeStrategies as any}
+                marketAnalyses={marketAnalyses}
+              />
             </div>
-          )}
+            <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+              <h3 className="text-lg font-semibold gradient-text mb-4">Asset Risk Heatmap</h3>
+              <RiskHeatmap assetRisks={assetRisks} />
+            </div>
+          </div>
 
           {/* Active Strategies Risk Management */}
           <div className="mb-8">
             <h2 className="text-xl font-semibold gradient-text mb-4">Active Strategies Risk Management</h2>
-            {activeStrategies.length === 0 ? (
-              <div className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 text-center">
-                <p className="text-gray-400">No active strategies found. Activate a strategy to manage its risk.</p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {activeStrategies.map((strategy) => (
-                  <div
-                    key={strategy.id}
-                    className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6"
-                  >
-                    <div className="flex flex-col md:flex-row md:items-center justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-semibold gradient-text">{strategy.title}</h3>
-                        <div className="flex items-center mt-1">
-                          <span className="text-sm text-gray-400 mr-3">
-                            {strategy.market_type || 'spot'}
-                          </span>
-                          <span className={`text-sm px-2 py-0.5 rounded ${
-                            strategy.risk_level === 'Ultra Low' || strategy.risk_level === 'Low'
-                              ? 'bg-green-900/30 text-green-400'
-                              : strategy.risk_level === 'Medium'
-                              ? 'bg-yellow-900/30 text-yellow-400'
-                              : 'bg-red-900/30 text-red-400'
-                          }`}>
-                            {strategy.risk_level}
-                          </span>
-                        </div>
+            <div className="space-y-4">
+              {activeStrategies.map((strategy) => (
+                <div
+                  key={strategy.id}
+                  className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6"
+                >
+                  <div className="flex flex-col md:flex-row md:items-center justify-between mb-4">
+                    <div>
+                      <h3 className="text-lg font-semibold gradient-text">{strategy.title}</h3>
+                      <div className="flex items-center mt-1">
+                        <span className="text-sm text-gray-400 mr-3">
+                          {strategy.market_type || 'spot'}
+                        </span>
+                        <span className={`text-sm px-2 py-0.5 rounded ${
+                          strategy.risk_level === 'Ultra Low' || strategy.risk_level === 'Low'
+                            ? 'bg-green-900/30 text-green-400'
+                            : strategy.risk_level === 'Medium'
+                            ? 'bg-yellow-900/30 text-yellow-400'
+                            : 'bg-red-900/30 text-red-400'
+                        }`}>
+                          {strategy.risk_level}
+                        </span>
                       </div>
                     </div>
-
-                    {/* Strategy Risk Parameters */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                      <div className="bg-gunmetal-800/50 p-3 rounded-lg">
-                        <div className="text-xs text-gray-500 mb-1">Max Position Size</div>
-                        <div className="text-white font-medium flex items-center">
-                          10.0%
-                        </div>
-                      </div>
-                      <div className="bg-gunmetal-800/50 p-3 rounded-lg">
-                        <div className="text-xs text-gray-500 mb-1">Stop Loss</div>
-                        <div className="text-white font-medium flex items-center">
-                          2.0%
-                        </div>
-                      </div>
-                      <div className="bg-gunmetal-800/50 p-3 rounded-lg">
-                        <div className="text-xs text-gray-500 mb-1">Take Profit</div>
-                        <div className="text-white font-medium flex items-center">
-                          4.0%
-                        </div>
-                      </div>
-                      <div className="bg-gunmetal-800/50 p-3 rounded-lg">
-                        <div className="text-xs text-gray-500 mb-1">Max Risk Per Trade</div>
-                        <div className="text-white font-medium flex items-center">
-                          1.0%
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Trading Pairs Risk Analysis */}
-                    {strategy.selected_pairs && strategy.selected_pairs.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-300 mb-2">Trading Pairs Risk Analysis</h4>
-                        <div className="overflow-x-auto">
-                          <AssetRiskTable
-                            assets={strategy.selected_pairs.map(pair => ({
-                              symbol: pair,
-                              analysis: marketAnalyses[pair] || null
-                            }))}
-                          />
-                        </div>
-                      </div>
-                    )}
                   </div>
-                ))}
-              </div>
-            )}
+
+                  {/* Strategy Risk Parameters */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div className="bg-gunmetal-800/50 p-3 rounded-lg">
+                      <div className="text-xs text-gray-500 mb-1">Max Position Size</div>
+                      <div className="text-white font-medium flex items-center">
+                        10.0%
+                      </div>
+                    </div>
+                    <div className="bg-gunmetal-800/50 p-3 rounded-lg">
+                      <div className="text-xs text-gray-500 mb-1">Stop Loss</div>
+                      <div className="text-white font-medium flex items-center">
+                        2.0%
+                      </div>
+                    </div>
+                    <div className="bg-gunmetal-800/50 p-3 rounded-lg">
+                      <div className="text-xs text-gray-500 mb-1">Take Profit</div>
+                      <div className="text-white font-medium flex items-center">
+                        4.0%
+                      </div>
+                    </div>
+                    <div className="bg-gunmetal-800/50 p-3 rounded-lg">
+                      <div className="text-xs text-gray-500 mb-1">Max Risk Per Trade</div>
+                      <div className="text-white font-medium flex items-center">
+                        1.0%
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Trading Pairs Risk Analysis */}
+                  {strategy.selected_pairs && strategy.selected_pairs.length > 0 && (
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-300 mb-2">Trading Pairs Risk Analysis</h4>
+                      <div className="overflow-x-auto">
+                        <AssetRiskTable
+                          assets={strategy.selected_pairs.map(pair => ({
+                            symbol: pair,
+                            analysis: marketAnalyses[pair] || null
+                          }))}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </>
       )}

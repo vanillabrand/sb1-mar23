@@ -122,14 +122,39 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
       return true;
     }
 
+    // Check for NaN values
+    if (isNaN(budget.total) || isNaN(budget.allocated) || isNaN(budget.available) || isNaN(budget.maxPositionSize)) {
+      logService.log('error', 'Budget contains NaN values', { budget }, 'TradeService');
+      return false;
+    }
+
+    // Check for negative values
+    if (budget.total < 0 || budget.allocated < 0 || budget.available < 0 || budget.maxPositionSize < 0) {
+      logService.log('error', 'Budget contains negative values', { budget }, 'TradeService');
+      return false;
+    }
+
     // Normal budget validation
-    return (
+    const isValid = (
       budget.total > 0 &&
       budget.allocated >= 0 &&
       budget.available >= 0 &&
       budget.maxPositionSize > 0 &&
       budget.allocated + budget.available <= budget.total
     );
+
+    if (!isValid) {
+      logService.log('error', 'Budget validation failed', {
+        budget,
+        totalPositive: budget.total > 0,
+        allocatedNonNegative: budget.allocated >= 0,
+        availableNonNegative: budget.available >= 0,
+        maxPositionSizePositive: budget.maxPositionSize > 0,
+        sumCheck: budget.allocated + budget.available <= budget.total
+      }, 'TradeService');
+    }
+
+    return isValid;
   }
 
   // Retrieve the budget for a given strategy.
@@ -162,7 +187,8 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
   }
 
   // Reserve a portion of the available budget for a trade.
-  reserveBudgetForTrade(strategyId: string, amount: number, tradeId?: string): boolean {
+  reserveBudgetForTrade(strategyId: string, amount: number, tradeId?: string, marketType: string = 'spot'): boolean {
+    // Get the budget for this strategy
     const budget = this.budgets.get(strategyId);
     if (!budget) {
       logService.log('warn', `No budget found for strategy ${strategyId}`, null, 'TradeService');
@@ -182,37 +208,133 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
       }
     }
 
-    // Check if we have enough available budget
-    if (budget.available < amount) {
-      logService.log('warn', `Insufficient budget for trade: ${amount} (available: ${budget.available})`,
-        { tradeId, strategyId, amount, available: budget.available }, 'TradeService');
-      return false;
-    }
-
     // Format the amount to 2 decimal places to avoid floating point issues
     const formattedAmount = Number(amount.toFixed(2));
 
-    // Update the budget
+    // Ensure budget values are valid numbers
+    if (isNaN(budget.available) || isNaN(budget.allocated) || isNaN(budget.total)) {
+      logService.log('error', `Invalid budget values for strategy ${strategyId}`,
+        { budget, tradeId, strategyId }, 'TradeService');
+
+      // Try to fix the budget
+      budget.available = Number((budget.available || 0).toFixed(2));
+      budget.allocated = Number((budget.allocated || 0).toFixed(2));
+      budget.total = Number((budget.total || 0).toFixed(2));
+
+      // If we still have invalid values, fail the reservation
+      if (isNaN(budget.available) || isNaN(budget.allocated) || isNaN(budget.total)) {
+        return false;
+      }
+    }
+
+    // Check if we have enough available budget
+    if (budget.available < formattedAmount) {
+      logService.log('warn', `Insufficient budget for trade: ${formattedAmount} (available: ${budget.available})`,
+        { tradeId, strategyId, amount: formattedAmount, available: budget.available }, 'TradeService');
+      return false;
+    }
+
+    // Update the overall budget
     budget.available = Number((budget.available - formattedAmount).toFixed(2));
     budget.allocated = Number((budget.allocated + formattedAmount).toFixed(2));
 
     // Ensure we don't have negative values due to rounding
     if (budget.available < 0) budget.available = 0;
 
+    // Ensure allocated doesn't exceed total
+    if (budget.allocated > budget.total) {
+      logService.log('warn', `Allocated budget (${budget.allocated}) exceeds total (${budget.total}) for strategy ${strategyId}`,
+        { budget, tradeId, strategyId }, 'TradeService');
+      budget.allocated = budget.total;
+    }
+
+    // Initialize market type balances if they don't exist
+    if (!budget.marketTypeBalances) {
+      budget.marketTypeBalances = {
+        spot: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 },
+        margin: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 },
+        futures: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 }
+      };
+
+      // Set the current market type to have the full budget
+      const currentMarketType = budget.marketType || marketType || 'spot';
+      budget.marketTypeBalances[currentMarketType] = {
+        total: budget.total,
+        allocated: 0,
+        available: budget.total,
+        profit: 0,
+        trades: 0
+      };
+    }
+
+    // Ensure the market type exists in the balances
+    if (!budget.marketTypeBalances[marketType]) {
+      budget.marketTypeBalances[marketType] = {
+        total: 0,
+        allocated: 0,
+        available: 0,
+        profit: 0,
+        trades: 0
+      };
+    }
+
+    // Update the market type specific balance
+    const marketTypeBalance = budget.marketTypeBalances[marketType];
+
+    // If this is the first trade for this market type, allocate some budget to it
+    if (marketTypeBalance.total === 0) {
+      // Allocate a portion of the total budget to this market type
+      const marketTypeTotal = Math.min(budget.total * 0.3, formattedAmount * 2); // 30% of total or 2x the trade amount, whichever is smaller
+      marketTypeBalance.total = Number(marketTypeTotal.toFixed(2));
+      marketTypeBalance.available = Number((marketTypeTotal - formattedAmount).toFixed(2));
+    } else {
+      // Update existing market type balance
+      marketTypeBalance.available = Number((marketTypeBalance.available - formattedAmount).toFixed(2));
+
+      // Ensure we don't have negative values
+      if (marketTypeBalance.available < 0) {
+        // If available goes negative, increase the total for this market type
+        const additionalFunds = Math.abs(marketTypeBalance.available) + formattedAmount;
+        marketTypeBalance.total = Number((marketTypeBalance.total + additionalFunds).toFixed(2));
+        marketTypeBalance.available = Number(formattedAmount.toFixed(2));
+      }
+    }
+
+    marketTypeBalance.allocated = Number((marketTypeBalance.allocated + formattedAmount).toFixed(2));
+    marketTypeBalance.trades++;
+
     // Save the updated budget
     this.budgets.set(strategyId, budget);
     this.saveBudgets();
 
     // Emit budget updated event
-    this.emit('budgetUpdated', { strategyId, budget, tradeId });
-    logService.log('info', `Reserved ${formattedAmount} for strategy ${strategyId}${tradeId ? ` (trade: ${tradeId})` : ''}`,
-      { budget, tradeId }, 'TradeService');
+    this.emit('budgetUpdated', { strategyId, budget, tradeId, marketType });
+    logService.log('info', `Reserved ${formattedAmount} for strategy ${strategyId} in ${marketType} market${tradeId ? ` (trade: ${tradeId})` : ''}`,
+      { budget, tradeId, marketType }, 'TradeService');
     return true;
   }
 
   // Release reserved budget from a trade, applying any profit gained.
-  async releaseBudgetFromTrade(strategyId: string, amount: number, profit: number = 0, tradeId?: string, tradeStatus?: string): Promise<void> {
+  async releaseBudgetFromTrade(strategyId: string, amount: number, profit: number = 0, tradeId?: string, tradeStatus?: string, marketType: string = 'spot'): Promise<void> {
     try {
+      // Validate inputs
+      if (!strategyId) {
+        logService.log('error', 'Missing strategy ID for budget release', { tradeId }, 'TradeService');
+        return;
+      }
+
+      // Validate amount and profit
+      if (isNaN(amount)) {
+        logService.log('warn', `Invalid amount for budget release: ${amount} (NaN)`, { tradeId, strategyId }, 'TradeService');
+        amount = 0; // Use 0 as fallback to avoid NaN propagation
+      }
+
+      if (isNaN(profit)) {
+        logService.log('warn', `Invalid profit for budget release: ${profit} (NaN)`, { tradeId, strategyId }, 'TradeService');
+        profit = 0; // Use 0 as fallback to avoid NaN propagation
+      }
+
+      // Get the budget
       const budget = this.budgets.get(strategyId);
       if (!budget) {
         // If budget doesn't exist in memory, try to load it from database
@@ -236,51 +358,164 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
         return;
       }
 
+      // Ensure budget values are valid numbers
+      if (isNaN(updatedBudget.available) || isNaN(updatedBudget.allocated) || isNaN(updatedBudget.total)) {
+        logService.log('error', `Invalid budget values for strategy ${strategyId}`,
+          { budget: updatedBudget, tradeId, strategyId }, 'TradeService');
+
+        // Try to fix the budget
+        updatedBudget.available = Number((updatedBudget.available || 0).toFixed(2));
+        updatedBudget.allocated = Number((updatedBudget.allocated || 0).toFixed(2));
+        updatedBudget.total = Number((updatedBudget.total || 0).toFixed(2));
+
+        // If we still have invalid values, fail the release
+        if (isNaN(updatedBudget.available) || isNaN(updatedBudget.allocated) || isNaN(updatedBudget.total)) {
+          logService.log('error', `Cannot fix invalid budget values for strategy ${strategyId}`,
+            { budget: updatedBudget, tradeId, strategyId }, 'TradeService');
+          return;
+        }
+      }
+
       // Validate the amount is positive and reasonable
-      if (!amount || amount <= 0) {
+      if (amount <= 0) {
         logService.log('warn', `Invalid amount for budget release: ${amount}`, { tradeId, strategyId }, 'TradeService');
-        return;
+        amount = 0; // Use 0 to avoid negative values
       }
 
       // Format the values to 2 decimal places to avoid floating point issues
       const formattedAmount = Number(amount.toFixed(2));
       const formattedProfit = Number(profit.toFixed(2));
 
-      // If tradeId is provided but tradeStatus is not, try to get the status from the database
-      if (tradeId && !tradeStatus) {
+      // If tradeId is provided but tradeStatus is not, try to get the status and market type from the database
+      if (tradeId && (!tradeStatus || !marketType)) {
         try {
           const { data: trade, error } = await supabase
             .from('trades')
-            .select('status')
+            .select('status, market_type, metadata')
             .eq('id', tradeId)
             .single();
 
           if (!error && trade) {
-            tradeStatus = trade.status;
-            logService.log('info', `Retrieved trade status for ${tradeId}: ${tradeStatus}`, null, 'TradeService');
+            if (!tradeStatus) {
+              tradeStatus = trade.status;
+              logService.log('info', `Retrieved trade status for ${tradeId}: ${tradeStatus}`, null, 'TradeService');
+            }
+
+            // Get market type from trade data
+            if (!marketType || marketType === 'spot') {
+              if (trade.market_type) {
+                marketType = trade.market_type;
+              } else if (trade.metadata?.marketType) {
+                marketType = trade.metadata.marketType;
+              }
+              logService.log('info', `Retrieved market type for ${tradeId}: ${marketType}`, null, 'TradeService');
+            }
           }
         } catch (fetchError) {
-          logService.log('warn', `Failed to fetch trade status: ${fetchError.message}`, { tradeId }, 'TradeService');
+          logService.log('warn', `Failed to fetch trade data: ${fetchError.message}`, { tradeId }, 'TradeService');
           // Continue with default behavior
         }
       }
 
+      // Initialize market type balances if they don't exist
+      if (!updatedBudget.marketTypeBalances) {
+        updatedBudget.marketTypeBalances = {
+          spot: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 },
+          margin: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 },
+          futures: { total: 0, allocated: 0, available: 0, profit: 0, trades: 0 }
+        };
+
+        // Set the current market type to have the full budget
+        const currentMarketType = updatedBudget.marketType || marketType || 'spot';
+        updatedBudget.marketTypeBalances[currentMarketType] = {
+          total: updatedBudget.total,
+          allocated: updatedBudget.allocated,
+          available: updatedBudget.available,
+          profit: updatedBudget.profit || 0,
+          trades: 1
+        };
+      }
+
+      // Ensure the market type exists in the balances
+      if (!updatedBudget.marketTypeBalances[marketType]) {
+        updatedBudget.marketTypeBalances[marketType] = {
+          total: formattedAmount,
+          allocated: formattedAmount,
+          available: 0,
+          profit: 0,
+          trades: 1
+        };
+      }
+
+      // Log the budget before update for debugging
+      logService.log('debug', `Budget before release for strategy ${strategyId}`,
+        {
+          budget: updatedBudget,
+          tradeId,
+          amount: formattedAmount,
+          profit: formattedProfit,
+          tradeStatus,
+          marketType
+        }, 'TradeService');
+
       // Update budget based on trade status
       if (tradeStatus === 'cancelled' || tradeStatus === 'rejected') {
         // For cancelled/rejected trades, just return the allocated amount to available
-        updatedBudget.allocated = Number((updatedBudget.allocated - formattedAmount).toFixed(2));
-        updatedBudget.available = Number((updatedBudget.available + formattedAmount).toFixed(2));
+        // Ensure we don't subtract more than what's allocated
+        const amountToRelease = Math.min(formattedAmount, updatedBudget.allocated);
+        updatedBudget.allocated = Number((updatedBudget.allocated - amountToRelease).toFixed(2));
+        updatedBudget.available = Number((updatedBudget.available + amountToRelease).toFixed(2));
         // No change to total budget
+
+        // Update market type balance
+        const marketTypeBalance = updatedBudget.marketTypeBalances[marketType];
+        const marketTypeAmountToRelease = Math.min(formattedAmount, marketTypeBalance.allocated);
+        marketTypeBalance.allocated = Number((marketTypeBalance.allocated - marketTypeAmountToRelease).toFixed(2));
+        marketTypeBalance.available = Number((marketTypeBalance.available + marketTypeAmountToRelease).toFixed(2));
+        if (marketTypeBalance.trades > 0) marketTypeBalance.trades--;
+
+        logService.log('info', `Released ${amountToRelease} for cancelled/rejected trade ${tradeId} in ${marketType} market`,
+          { allocated: updatedBudget.allocated, available: updatedBudget.available, marketTypeBalance }, 'TradeService');
       } else if (tradeStatus === 'closed') {
         // For closed trades, return allocated amount plus profit
-        updatedBudget.allocated = Number((updatedBudget.allocated - formattedAmount).toFixed(2));
-        updatedBudget.available = Number((updatedBudget.available + formattedAmount + formattedProfit).toFixed(2));
+        // Ensure we don't subtract more than what's allocated
+        const amountToRelease = Math.min(formattedAmount, updatedBudget.allocated);
+        updatedBudget.allocated = Number((updatedBudget.allocated - amountToRelease).toFixed(2));
+        updatedBudget.available = Number((updatedBudget.available + amountToRelease + formattedProfit).toFixed(2));
         updatedBudget.total = Number((updatedBudget.total + formattedProfit).toFixed(2));
+        updatedBudget.profit = Number(((updatedBudget.profit || 0) + formattedProfit).toFixed(2));
+
+        // Update market type balance
+        const marketTypeBalance = updatedBudget.marketTypeBalances[marketType];
+        const marketTypeAmountToRelease = Math.min(formattedAmount, marketTypeBalance.allocated);
+        marketTypeBalance.allocated = Number((marketTypeBalance.allocated - marketTypeAmountToRelease).toFixed(2));
+        marketTypeBalance.available = Number((marketTypeBalance.available + marketTypeAmountToRelease + formattedProfit).toFixed(2));
+        marketTypeBalance.total = Number((marketTypeBalance.total + formattedProfit).toFixed(2));
+        marketTypeBalance.profit = Number((marketTypeBalance.profit + formattedProfit).toFixed(2));
+        if (marketTypeBalance.trades > 0) marketTypeBalance.trades--;
+
+        logService.log('info', `Released ${amountToRelease} with profit ${formattedProfit} for closed trade ${tradeId} in ${marketType} market`,
+          { allocated: updatedBudget.allocated, available: updatedBudget.available, total: updatedBudget.total, marketTypeBalance }, 'TradeService');
       } else {
         // Default behavior for other statuses
-        updatedBudget.allocated = Number((updatedBudget.allocated - formattedAmount).toFixed(2));
-        updatedBudget.available = Number((updatedBudget.available + formattedAmount + formattedProfit).toFixed(2));
+        // Ensure we don't subtract more than what's allocated
+        const amountToRelease = Math.min(formattedAmount, updatedBudget.allocated);
+        updatedBudget.allocated = Number((updatedBudget.allocated - amountToRelease).toFixed(2));
+        updatedBudget.available = Number((updatedBudget.available + amountToRelease + formattedProfit).toFixed(2));
         updatedBudget.total = Number((updatedBudget.total + formattedProfit).toFixed(2));
+        updatedBudget.profit = Number(((updatedBudget.profit || 0) + formattedProfit).toFixed(2));
+
+        // Update market type balance
+        const marketTypeBalance = updatedBudget.marketTypeBalances[marketType];
+        const marketTypeAmountToRelease = Math.min(formattedAmount, marketTypeBalance.allocated);
+        marketTypeBalance.allocated = Number((marketTypeBalance.allocated - marketTypeAmountToRelease).toFixed(2));
+        marketTypeBalance.available = Number((marketTypeBalance.available + marketTypeAmountToRelease + formattedProfit).toFixed(2));
+        marketTypeBalance.total = Number((marketTypeBalance.total + formattedProfit).toFixed(2));
+        marketTypeBalance.profit = Number((marketTypeBalance.profit + formattedProfit).toFixed(2));
+        if (marketTypeBalance.trades > 0) marketTypeBalance.trades--;
+
+        logService.log('info', `Released ${amountToRelease} with profit ${formattedProfit} for trade ${tradeId} with status ${tradeStatus || 'unknown'} in ${marketType} market`,
+          { allocated: updatedBudget.allocated, available: updatedBudget.available, total: updatedBudget.total, marketTypeBalance }, 'TradeService');
       }
 
       // Ensure we don't have negative values due to rounding or calculation errors
@@ -374,48 +609,218 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     }
 
     try {
+      // Validate and fix budget values if needed
+      const validatedBudget = this.validateAndFixBudget(budget);
+
       // Update the budget in memory
-      this.budgets.set(strategyId, budget);
+      this.budgets.set(strategyId, validatedBudget);
 
       // Save to localStorage
       this.saveBudgets();
 
       // Log the update
       logService.log('info', `Budget cache updated for strategy ${strategyId}`, {
-        budget,
-        available: budget.available,
-        allocated: budget.allocated,
-        total: budget.total,
-        profit: budget.profit || 0
+        budget: validatedBudget,
+        available: validatedBudget.available,
+        allocated: validatedBudget.allocated,
+        total: validatedBudget.total,
+        profit: validatedBudget.profit || 0
       }, 'TradeService');
 
       // Update the budget in the database if not in demo mode
       if (!this.isDemo) {
-        this.saveBudgetToDatabase(strategyId, budget)
+        this.saveBudgetToDatabase(strategyId, validatedBudget)
           .catch(error => {
             logService.log('warn', `Failed to save updated budget to database for strategy ${strategyId}`, error, 'TradeService');
           });
       }
+
+      // Emit budget updated event
+      this.emit('budgetUpdated', { strategyId, budget: validatedBudget });
+      eventBus.emit('budget:updated', { strategyId, budget: validatedBudget });
+      eventBus.emit(`budget:updated:${strategyId}`, {
+        strategyId,
+        budget: validatedBudget,
+        timestamp: Date.now()
+      });
     } catch (error) {
       logService.log('error', `Error updating budget cache for strategy ${strategyId}`, error, 'TradeService');
     }
   }
 
+  /**
+   * Validate and fix budget values to ensure they are consistent
+   * @param budget The budget to validate and fix
+   * @returns The validated and fixed budget
+   */
+  private validateAndFixBudget(budget: StrategyBudget): StrategyBudget {
+    try {
+      // Create a deep copy to avoid modifying the original
+      const fixedBudget = JSON.parse(JSON.stringify(budget));
+
+      // Log the original budget for debugging
+      logService.log('debug', 'Validating and fixing budget', {
+        original: budget,
+        hasNaN: {
+          total: isNaN(budget.total),
+          allocated: isNaN(budget.allocated),
+          available: isNaN(budget.available),
+          maxPositionSize: isNaN(budget.maxPositionSize)
+        }
+      }, 'TradeService');
+
+      // Fix NaN and undefined values
+      if (isNaN(fixedBudget.total) || fixedBudget.total === undefined) fixedBudget.total = 0;
+      if (isNaN(fixedBudget.allocated) || fixedBudget.allocated === undefined) fixedBudget.allocated = 0;
+      if (isNaN(fixedBudget.available) || fixedBudget.available === undefined) fixedBudget.available = 0;
+      if (isNaN(fixedBudget.maxPositionSize) || fixedBudget.maxPositionSize === undefined) fixedBudget.maxPositionSize = 0.1;
+
+      // Convert string values to numbers if needed
+      fixedBudget.total = typeof fixedBudget.total === 'string' ? parseFloat(fixedBudget.total) : fixedBudget.total;
+      fixedBudget.allocated = typeof fixedBudget.allocated === 'string' ? parseFloat(fixedBudget.allocated) : fixedBudget.allocated;
+      fixedBudget.available = typeof fixedBudget.available === 'string' ? parseFloat(fixedBudget.available) : fixedBudget.available;
+      fixedBudget.maxPositionSize = typeof fixedBudget.maxPositionSize === 'string' ? parseFloat(fixedBudget.maxPositionSize) : fixedBudget.maxPositionSize;
+
+      // Check again for NaN after conversion
+      if (isNaN(fixedBudget.total)) fixedBudget.total = 0;
+      if (isNaN(fixedBudget.allocated)) fixedBudget.allocated = 0;
+      if (isNaN(fixedBudget.available)) fixedBudget.available = 0;
+      if (isNaN(fixedBudget.maxPositionSize)) fixedBudget.maxPositionSize = 0.1;
+
+      // Format to 2 decimal places
+      fixedBudget.total = Number(Number(fixedBudget.total).toFixed(2));
+      fixedBudget.allocated = Number(Number(fixedBudget.allocated).toFixed(2));
+      fixedBudget.available = Number(Number(fixedBudget.available).toFixed(2));
+      fixedBudget.maxPositionSize = Number(Number(fixedBudget.maxPositionSize).toFixed(2));
+
+      // Ensure non-negative values
+      if (fixedBudget.total < 0) fixedBudget.total = 0;
+      if (fixedBudget.allocated < 0) fixedBudget.allocated = 0;
+      if (fixedBudget.available < 0) fixedBudget.available = 0;
+      if (fixedBudget.maxPositionSize < 0) fixedBudget.maxPositionSize = 0.1;
+
+      // Ensure consistency between total, allocated, and available
+      const sum = fixedBudget.allocated + fixedBudget.available;
+
+      // If total is 0 but we have allocated funds, set a reasonable total
+      if (fixedBudget.total === 0 && fixedBudget.allocated > 0) {
+        fixedBudget.total = fixedBudget.allocated;
+        fixedBudget.available = 0;
+        logService.log('warn', 'Fixed budget inconsistency: total was 0 but allocated funds exist',
+          { original: budget, fixed: fixedBudget }, 'TradeService');
+      }
+      // If sum exceeds total, adjust available to maintain consistency
+      else if (sum > fixedBudget.total) {
+        fixedBudget.available = Math.max(0, fixedBudget.total - fixedBudget.allocated);
+        logService.log('warn', 'Fixed budget inconsistency: sum of allocated and available exceeded total',
+          { original: budget, fixed: fixedBudget }, 'TradeService');
+      }
+      // If sum is less than total and total is positive, adjust available to match total
+      else if (sum < fixedBudget.total && fixedBudget.total > 0) {
+        fixedBudget.available = Number((fixedBudget.total - fixedBudget.allocated).toFixed(2));
+        logService.log('warn', 'Fixed budget inconsistency: sum of allocated and available was less than total',
+          { original: budget, fixed: fixedBudget }, 'TradeService');
+      }
+
+      // If we have a demo mode with no budget, set a default
+      if (this.isDemo && fixedBudget.total === 0) {
+        fixedBudget.total = 10000;
+        fixedBudget.available = 10000;
+        fixedBudget.allocated = 0;
+        fixedBudget.maxPositionSize = 0.2;
+        logService.log('info', 'Created default demo budget', { fixed: fixedBudget }, 'TradeService');
+      }
+
+      // Update timestamp
+      fixedBudget.lastUpdated = Date.now();
+
+      // Log the fixed budget
+      logService.log('debug', 'Budget validation complete', {
+        original: budget,
+        fixed: fixedBudget,
+        changes: {
+          total: budget.total !== fixedBudget.total,
+          allocated: budget.allocated !== fixedBudget.allocated,
+          available: budget.available !== fixedBudget.available,
+          maxPositionSize: budget.maxPositionSize !== fixedBudget.maxPositionSize
+        }
+      }, 'TradeService');
+
+      return fixedBudget;
+    } catch (error) {
+      // If anything goes wrong, return a safe default budget
+      logService.log('error', 'Error validating budget, returning safe default', { error, budget }, 'TradeService');
+
+      return {
+        total: 10000,
+        allocated: 0,
+        available: 10000,
+        maxPositionSize: 0.1,
+        lastUpdated: Date.now(),
+        marketType: budget.marketType || 'spot',
+        market_type: budget.market_type || 'spot',
+        marketTypeBalances: {
+          spot: { allocated: 0, available: 10000, trades: 0 },
+          margin: { allocated: 0, available: 0, trades: 0 },
+          futures: { allocated: 0, available: 0, trades: 0 }
+        }
+      };
+    }
+  }
+
   // Create and return a default budget for a new strategy.
-  createDefaultBudget(): StrategyBudget {
+  createDefaultBudget(marketType: string = 'spot'): StrategyBudget {
     // In demo mode, use a larger budget to allow for multiple trades
     const isDemoMode = this.isDemo;
     const budgetAmount = isDemoMode ? 50000 : this.DEFAULT_BUDGET;
 
     // Log the budget creation
-    logService.log('info', `Creating default budget in ${isDemoMode ? 'demo' : 'live'} mode: ${budgetAmount}`, null, 'TradeService');
+    logService.log('info', `Creating default budget in ${isDemoMode ? 'demo' : 'live'} mode: ${budgetAmount} for market type ${marketType}`,
+      { marketType }, 'TradeService');
+
+    // Create default market type balances
+    const marketTypeBalances: any = {
+      spot: {
+        total: 0,
+        allocated: 0,
+        available: 0,
+        profit: 0,
+        trades: 0
+      },
+      margin: {
+        total: 0,
+        allocated: 0,
+        available: 0,
+        profit: 0,
+        trades: 0
+      },
+      futures: {
+        total: 0,
+        allocated: 0,
+        available: 0,
+        profit: 0,
+        trades: 0
+      }
+    };
+
+    // Set the specified market type to have the full budget
+    marketTypeBalances[marketType] = {
+      total: Number(budgetAmount.toFixed(2)),
+      allocated: 0,
+      available: Number(budgetAmount.toFixed(2)),
+      profit: 0,
+      trades: 0
+    };
 
     return {
       total: Number(budgetAmount.toFixed(2)),
       allocated: 0,
       available: Number(budgetAmount.toFixed(2)),
       maxPositionSize: Number((isDemoMode ? 0.2 : 0.1).toFixed(2)), // 20% max position in demo mode vs 10% in live
-      lastUpdated: Date.now()
+      lastUpdated: Date.now(),
+      marketType: marketType as MarketType,
+      market_type: marketType as MarketType,
+      marketTypeBalances
     };
   }
 

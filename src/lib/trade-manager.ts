@@ -256,15 +256,21 @@ class TradeManager extends EventEmitter {
       const tradeCost = tradeAmount * tradePrice;
       const MIN_TRADE_VALUE = 5; // Minimum $5 trade as per exchange requirements
 
-      if (tradeCost < MIN_TRADE_VALUE && tradeCost > 0) {
-        // Adjust amount to meet minimum trade value
-        tradeAmount = MIN_TRADE_VALUE / tradePrice;
-        // Round to 6 decimal places for crypto
-        tradeAmount = Math.round(tradeAmount * 1000000) / 1000000;
-        options.amount = tradeAmount;
+      if (tradeCost < MIN_TRADE_VALUE) {
+        // If trade cost is too small, adjust amount to meet minimum trade value
+        if (tradeCost > 0) {
+          // Adjust amount to meet minimum trade value
+          tradeAmount = MIN_TRADE_VALUE / tradePrice;
+          // Round to 6 decimal places for crypto
+          tradeAmount = Math.round(tradeAmount * 1000000) / 1000000;
+          options.amount = tradeAmount;
 
-        logService.log('info', `Adjusted trade amount to meet minimum $5 requirement: ${tradeAmount} ${options.symbol}`,
-          { originalCost: tradeCost, newCost: MIN_TRADE_VALUE }, 'TradeManager');
+          logService.log('info', `Adjusted trade amount to meet minimum $5 requirement: ${tradeAmount} ${options.symbol}`,
+            { originalCost: tradeCost, newCost: MIN_TRADE_VALUE }, 'TradeManager');
+        } else {
+          // If trade cost is zero or negative, reject the trade
+          throw new Error(`Trade value must be at least $${MIN_TRADE_VALUE}. Current value: $${tradeCost.toFixed(2)}`);
+        }
       }
 
       if (tradeCost > 0) {
