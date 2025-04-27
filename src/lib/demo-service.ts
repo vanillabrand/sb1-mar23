@@ -1,5 +1,5 @@
-// Import ccxt directly to avoid circular dependency
-import ccxt from 'ccxt';
+// Import ccxt from our browser-compatible wrapper
+import ccxt from './ccxt-entry';
 import { logService } from './log-service';
 import { v4 as uuidv4 } from 'uuid';
 import { config } from './config';

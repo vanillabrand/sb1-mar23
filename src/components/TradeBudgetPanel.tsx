@@ -18,8 +18,28 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
   const [totalAllocated, setTotalAllocated] = useState(0);
   const [totalProfit, setTotalProfit] = useState(0);
 
-  // Calculate trade costs and profits
+  // Calculate trade costs and profits with memoization
+  const lastTradesRef = useRef<any[]>([]);
+  const lastCalculationTimeRef = useRef<number>(0);
+
   useEffect(() => {
+    // Skip calculation if trades haven't changed
+    const tradesChanged = !trades ||
+      trades.length !== lastTradesRef.current.length ||
+      JSON.stringify(trades.map(t => t.id)) !== JSON.stringify(lastTradesRef.current.map(t => t.id));
+
+    // Throttle calculations to once every 2 seconds unless trades have changed
+    const now = Date.now();
+    const THROTTLE_MS = 2000;
+    if (!tradesChanged && now - lastCalculationTimeRef.current < THROTTLE_MS) {
+      return;
+    }
+
+    // Update refs
+    lastTradesRef.current = trades || [];
+    lastCalculationTimeRef.current = now;
+
+    // Handle empty trades case
     if (!trades || trades.length === 0) {
       setTradeCosts({});
       setTradeProfits({});
@@ -34,12 +54,14 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
       let allocatedSum = 0;
       let profitSum = 0;
 
-      trades.forEach(trade => {
+      // Use a more efficient loop
+      for (let i = 0; i < trades.length; i++) {
+        const trade = trades[i];
+
         try {
           // Validate trade data
           if (!trade || !trade.id) {
-            logService.log('warn', 'Invalid trade data in TradeBudgetPanel', { trade }, 'TradeBudgetPanel');
-            return; // Skip this trade
+            continue; // Skip this trade
           }
 
           // Calculate trade cost with validation
@@ -48,9 +70,6 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
 
           // Skip invalid values
           if (isNaN(price) || isNaN(amount) || price <= 0 || amount <= 0) {
-            logService.log('warn', `Invalid price or amount for trade ${trade.id}`,
-              { trade, price, amount }, 'TradeBudgetPanel');
-
             // Try to get cost from metadata if available
             if (trade.metadata?.tradeCost && !isNaN(parseFloat(trade.metadata.tradeCost))) {
               const metadataCost = parseFloat(trade.metadata.tradeCost);
@@ -60,14 +79,11 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
               if (trade.status === 'open' || trade.status === 'pending' || trade.status === 'executed') {
                 allocatedSum += metadataCost;
               }
-
-              logService.log('info', `Using trade cost from metadata for trade ${trade.id}: ${metadataCost}`,
-                { trade, metadataCost }, 'TradeBudgetPanel');
             } else {
               // Use a default value of 0 to avoid NaN
               costs[trade.id] = 0;
             }
-            return; // Skip profit calculation for this trade
+            continue; // Skip profit calculation for this trade
           }
 
           // Calculate and store the cost
@@ -100,11 +116,10 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
             }
           }
         } catch (tradeError) {
-          logService.log('error', `Error processing trade ${trade?.id || 'unknown'}`,
-            tradeError, 'TradeBudgetPanel');
           // Continue with next trade
+          continue;
         }
-      });
+      }
 
       // Format final values to avoid NaN
       const finalAllocated = isNaN(allocatedSum) ? 0 : Number(allocatedSum.toFixed(2));
@@ -115,9 +130,11 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
       setTotalAllocated(finalAllocated);
       setTotalProfit(finalProfit);
 
-      // Log for debugging
-      logService.log('debug', `Calculated trade costs and profits for strategy ${strategyId}`,
-        { costs, profits, totalAllocated: finalAllocated, totalProfit: finalProfit }, 'TradeBudgetPanel');
+      // Log for debugging - only log when values actually change
+      if (finalAllocated !== totalAllocated || finalProfit !== totalProfit) {
+        logService.log('debug', `Calculated trade costs and profits for strategy ${strategyId}`,
+          { totalAllocated: finalAllocated, totalProfit: finalProfit }, 'TradeBudgetPanel');
+      }
     } catch (error) {
       logService.log('error', `Error calculating trade costs for strategy ${strategyId}`, error, 'TradeBudgetPanel');
       // Set default values to avoid UI issues
@@ -126,7 +143,7 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
       setTotalAllocated(0);
       setTotalProfit(0);
     }
-  }, [trades, strategyId]);
+  }, [trades, strategyId, totalAllocated, totalProfit]);
 
   // Get budget and subscribe to updates with debouncing
   useEffect(() => {
@@ -202,11 +219,11 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
   }, [strategyId]);
 
   // Reconcile budget with actual trade costs - with throttling
+  const lastReconciliationRef = useRef<number>(0);
+
   useEffect(() => {
     if (!budget || !trades) return;
 
-    // Use a ref to track the last reconciliation time
-    const lastReconciliationRef = React.useRef<number>(0);
     const now = Date.now();
 
     // Throttle reconciliations to once every 5 seconds
@@ -274,8 +291,8 @@ export const TradeBudgetPanel: React.FC<TradeBudgetPanelProps> = ({ strategyId, 
             lastUpdated: Date.now()
           };
 
-          // Update the budget cache - use a throttled update
-          tradeService.updateBudgetCache(strategyId, updatedBudget);
+          // Update the budget cache - use the throttled method
+          tradeService.throttledUpdateBudgetCache(strategyId, updatedBudget);
 
           logService.log('info', `Reconciled budget for strategy ${strategyId}`,
             { updatedBudget }, 'TradeBudgetPanel');

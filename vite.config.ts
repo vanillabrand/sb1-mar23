@@ -26,7 +26,7 @@ export default defineConfig(({ command, mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
         // Replace the entire CCXT library with our browser-compatible wrapper
-        'ccxt': path.resolve(__dirname, './src/lib/ccxt-browser-wrapper.js'),
+        'ccxt': path.resolve(__dirname, './src/lib/ccxt-entry.js'),
         // Other aliases for specific modules
         'qs': path.resolve(__dirname, './src/lib/qs-browser-shim.js'),
         'node_modules/qs': path.resolve(__dirname, './src/lib/qs-browser-shim.js')
@@ -66,7 +66,8 @@ export default defineConfig(({ command, mode }) => {
         external: [
           'http', 'https', 'url', 'assert', 'stream', 'tty', 'util', 'os', 'zlib',
           'events', 'net', 'tls', 'crypto', 'fs', 'path', 'querystring',
-          'ccxt', 'node:stream', 'node:util', 'node:buffer', 'node:*'
+          'node:stream', 'node:util', 'node:buffer', 'node:*'
+          // Removed 'ccxt' from external to ensure it's bundled
         ]
       },
       // Reduce chunk size warnings threshold
@@ -75,7 +76,8 @@ export default defineConfig(({ command, mode }) => {
     // Optimize dependencies
     optimizeDeps: {
       include: ['react', 'react-dom', 'react-router-dom', 'chart.js', 'framer-motion'],
-      exclude: ['ccxt']
+      // Don't exclude ccxt anymore
+      exclude: []
     },
     // Enable gzip compression
     preview: {

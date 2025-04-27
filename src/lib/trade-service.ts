@@ -688,6 +688,58 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     }
   }
 
+  // Pending budget updates for throttled updates
+  private pendingBudgetUpdates: Map<string, { budget: StrategyBudget, timestamp: number }> = new Map();
+  private throttledUpdateTimeouts: Map<string, NodeJS.Timeout> = new Map();
+
+  /**
+   * Throttled version of updateBudgetCache that batches updates
+   * This is useful for components that need to update budgets frequently
+   * @param strategyId The strategy ID
+   * @param budget The updated budget
+   * @param skipEvents Optional flag to skip emitting events
+   */
+  throttledUpdateBudgetCache(strategyId: string, budget: StrategyBudget, skipEvents: boolean = false): void {
+    if (!strategyId || !budget) {
+      return;
+    }
+
+    // Store the latest budget update
+    this.pendingBudgetUpdates.set(strategyId, {
+      budget,
+      timestamp: Date.now()
+    });
+
+    // Clear any existing timeout
+    const existingTimeout = this.throttledUpdateTimeouts.get(strategyId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    // Set a new timeout to process the update
+    const timeout = setTimeout(() => {
+      try {
+        // Get the latest pending update
+        const pendingUpdate = this.pendingBudgetUpdates.get(strategyId);
+        if (pendingUpdate) {
+          // Process the update
+          this.updateBudgetCache(strategyId, pendingUpdate.budget, skipEvents);
+
+          // Clear the pending update
+          this.pendingBudgetUpdates.delete(strategyId);
+        }
+      } catch (error) {
+        logService.log('error', `Error in throttled budget update for strategy ${strategyId}`, error, 'TradeService');
+      } finally {
+        // Clear the timeout reference
+        this.throttledUpdateTimeouts.delete(strategyId);
+      }
+    }, 2000); // 2 second throttle
+
+    // Store the timeout reference
+    this.throttledUpdateTimeouts.set(strategyId, timeout);
+  }
+
   // Track budget updates in progress to prevent infinite loops
   private budgetUpdatesInProgress: Map<string, number> = new Map();
   private readonly BUDGET_UPDATE_THROTTLE_MS = 500; // Throttle budget updates to once per 500ms per strategy

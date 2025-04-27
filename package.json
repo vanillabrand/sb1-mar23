@@ -7,9 +7,11 @@
     "proxy": "cross-env PROXY_PORT=3001 node proxy-server.js",
     "frontend": "vite",
     "build": "tsc && vite build",
+    "build:prod": "vite build",
     "preview": "vite preview",
     "start": "concurrently \"npm run proxy\" \"npm run dev\"",
     "start:custom": "node start-servers.js",
+    "start:prod": "node start-prod.js",
     "start:pm2": "pm2 start ecosystem.config.js",
     "stop:pm2": "pm2 stop all"
   },
@@ -62,6 +64,7 @@
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
+    "@types/jest": "^29.5.14",
     "@types/node": "^20.17.28",
     "@types/papaparse": "^5.3.14",
     "@types/react": "^18.2.56",

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { BarChart3, ChevronLeft, ChevronRight, RefreshCw, TrendingUp, TrendingDown, Clock, DollarSign, BarChart2, Activity } from 'lucide-react';
 import { logService } from '../lib/log-service';
-import ccxt from 'ccxt';
+import ccxt from '../lib/ccxt-entry';
 
 // List of asset pairs to display
 const ASSET_PAIRS = [

@@ -1,4 +1,4 @@
-import ccxt from 'ccxt';
+import ccxt from './ccxt-entry';
 import type { Exchange } from './types';
 
 export function getExchangeConfigurations(): Exchange[] {

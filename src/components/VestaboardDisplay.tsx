@@ -3,8 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FlipTile } from './FlipTile';
 import { BarChart3, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
 import { logService } from '../lib/log-service';
-// Import directly to avoid circular dependency
-import ccxt from 'ccxt';
+// Import from our browser-compatible wrapper
+import ccxt from '../lib/ccxt-entry';
 import { FlipDisplay } from './FlipDisplay';
 
 // CSS classes for pulsing animations
