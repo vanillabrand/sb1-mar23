@@ -1,0 +1,31 @@
+[build]
+  command = "./netlify-build.sh"
+  publish = "dist"
+  functions = "netlify/functions"
+
+# Redirect all API requests to the appropriate Netlify Function
+[[redirects]]
+  from = "/.netlify/functions/*"
+  to = "/.netlify/functions/:splat"
+  status = 200
+
+# Handle SPA routing - redirect all paths to index.html
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# Set security headers
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-XSS-Protection = "1; mode=block"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Content-Security-Policy = "default-src 'self'; connect-src 'self' https://gsuiserbzoebcdptglzm.supabase.co https://api.deepseek.com https://data-api.coindesk.com https://testnet.binance.vision https://testnet.binancefuture.com wss://testnet.binancefuture.com; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;"
+
+# Environment variable configuration
+[build.environment]
+  NODE_VERSION = "18"
+  NPM_VERSION = "9"

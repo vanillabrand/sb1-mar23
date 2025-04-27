@@ -1,0 +1,9 @@
+{
+  "name": "netlify-functions",
+  "version": "1.0.0",
+  "description": "Netlify Functions for the trading application",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "crypto": "^1.0.1"
+  }
+}

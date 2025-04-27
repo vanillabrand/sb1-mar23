@@ -13,7 +13,11 @@
     "start:custom": "node start-servers.js",
     "start:prod": "node start-prod.js",
     "start:pm2": "pm2 start ecosystem.config.js",
-    "stop:pm2": "pm2 stop all"
+    "stop:pm2": "pm2 stop all",
+    "netlify:install": "node install-netlify-deps.js",
+    "netlify:dev": "netlify dev",
+    "netlify:build": "npm run build:prod && npm run netlify:install",
+    "netlify:deploy": "netlify deploy --prod"
   },
   "dependencies": {
     "@bitmartexchange/bitmart-node-sdk-api": "^2.3.0",

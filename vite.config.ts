@@ -44,6 +44,12 @@ export default defineConfig(({ command, mode }) => {
           target: env.PROXY_SERVER_URL || 'http://localhost:3001',
           ws: true,
           changeOrigin: true
+        },
+        // For local development with Netlify Functions
+        '/.netlify/functions': {
+          target: 'http://localhost:8888',
+          changeOrigin: true,
+          secure: false
         }
       },
       host: '0.0.0.0' // Allow connections from all network interfaces
