@@ -1366,19 +1366,19 @@ class ExchangeService extends EventEmitter {
       // Fetch spot balances
       if (this.activeExchange.spotSupported) {
         const spotBalance = await ccxtInstance.fetchBalance({ type: 'spot' });
-        balances.spot = this.normalizeBalance(spotBalance);
+        balances.spot = this.normalizeBalanceToUSDT(spotBalance, 'spot');
       }
 
       // Fetch margin balances
       if (this.activeExchange.marginSupported) {
         const marginBalance = await ccxtInstance.fetchBalance({ type: 'margin' });
-        balances.margin = this.normalizeBalance(marginBalance);
+        balances.margin = this.normalizeBalanceToUSDT(marginBalance, 'margin');
       }
 
       // Fetch futures balances
       if (this.activeExchange.futuresSupported) {
         const futuresBalance = await ccxtInstance.fetchBalance({ type: 'future' });
-        balances.futures = this.normalizeBalance(futuresBalance);
+        balances.futures = this.normalizeBalanceToUSDT(futuresBalance, 'futures');
       }
 
       return balances;
@@ -1388,13 +1388,201 @@ class ExchangeService extends EventEmitter {
     }
   }
 
-  private normalizeBalance(ccxtBalance: any): WalletBalance {
-    return {
-      total: parseFloat(ccxtBalance.total.USDT || 0),
-      free: parseFloat(ccxtBalance.free.USDT || 0),
-      used: parseFloat(ccxtBalance.used.USDT || 0),
-      currency: 'USDT' // Default to USDT
-    };
+  /**
+   * Normalize balance to USDT
+   * If the balance is not in USDT, convert it using exchange rates
+   */
+  private normalizeBalanceToUSDT(ccxtBalance: any, marketType: string): WalletBalance {
+    try {
+      // If USDT balance exists, use it directly
+      if (ccxtBalance.total.USDT !== undefined) {
+        return {
+          total: parseFloat(ccxtBalance.total.USDT || 0),
+          free: parseFloat(ccxtBalance.free.USDT || 0),
+          used: parseFloat(ccxtBalance.used.USDT || 0),
+          currency: 'USDT'
+        };
+      }
+
+      // If USDT balance doesn't exist, try to convert from other currencies
+      let totalUSDT = 0;
+      let freeUSDT = 0;
+      let usedUSDT = 0;
+
+      // Log all available currencies for debugging
+      logService.log('debug', `Available currencies in ${marketType} balance:`,
+        { currencies: Object.keys(ccxtBalance.total) }, 'ExchangeService');
+
+      // Process each currency and convert to USDT
+      for (const currency of Object.keys(ccxtBalance.total)) {
+        if (ccxtBalance.total[currency] > 0) {
+          try {
+            // Skip currencies with zero balance
+            if (ccxtBalance.total[currency] <= 0) continue;
+
+            // Try to get the exchange rate to USDT
+            const rate = this.getExchangeRateSync(currency, 'USDT');
+
+            if (rate > 0) {
+              totalUSDT += ccxtBalance.total[currency] * rate;
+              freeUSDT += (ccxtBalance.free[currency] || 0) * rate;
+              usedUSDT += (ccxtBalance.used[currency] || 0) * rate;
+
+              logService.log('debug', `Converted ${currency} to USDT for ${marketType}`,
+                { currency, rate, amount: ccxtBalance.total[currency], valueUSDT: ccxtBalance.total[currency] * rate },
+                'ExchangeService');
+            }
+          } catch (error) {
+            logService.log('warn', `Failed to convert ${currency} to USDT for ${marketType}`,
+              error, 'ExchangeService');
+          }
+        }
+      }
+
+      // Return the converted balance
+      return {
+        total: parseFloat(totalUSDT.toFixed(2)),
+        free: parseFloat(freeUSDT.toFixed(2)),
+        used: parseFloat(usedUSDT.toFixed(2)),
+        currency: 'USDT'
+      };
+    } catch (error) {
+      logService.log('error', `Failed to normalize ${marketType} balance to USDT`, error, 'ExchangeService');
+
+      // Return a default balance
+      return {
+        total: 0,
+        free: 0,
+        used: 0,
+        currency: 'USDT'
+      };
+    }
+  }
+
+  /**
+   * Get exchange rate synchronously from cache or estimate
+   * @param fromCurrency The source currency
+   * @param toCurrency The target currency (usually USDT)
+   * @returns The exchange rate or 0 if not available
+   */
+  private getExchangeRateSync(fromCurrency: string, toCurrency: string): number {
+    try {
+      // If same currency, rate is 1
+      if (fromCurrency === toCurrency) return 1;
+
+      // Try to get from cache first
+      const cacheKey = `rate:${fromCurrency}:${toCurrency}`;
+      const cachedRate = cacheService.get(cacheKey, 'exchange-rates');
+
+      if (cachedRate !== null && cachedRate !== undefined) {
+        return parseFloat(cachedRate);
+      }
+
+      // For common currencies, use estimated rates if not in cache
+      const estimatedRates: Record<string, number> = {
+        'BTC': 65000,
+        'ETH': 3500,
+        'BNB': 600,
+        'SOL': 150,
+        'ADA': 0.5,
+        'XRP': 0.6,
+        'DOT': 7,
+        'DOGE': 0.15,
+        'SHIB': 0.00002,
+        'AVAX': 35,
+        'MATIC': 0.8,
+        'LINK': 15,
+        'UNI': 10,
+        'ATOM': 8,
+        'LTC': 80,
+        'ALGO': 0.2,
+        'USDC': 1,
+        'BUSD': 1,
+        'DAI': 1,
+        'TUSD': 1,
+        'USDT': 1
+      };
+
+      // If we have an estimated rate, use it
+      if (estimatedRates[fromCurrency]) {
+        // Cache the estimated rate
+        cacheService.set(cacheKey, estimatedRates[fromCurrency].toString(), 'exchange-rates', 3600); // Cache for 1 hour
+        return estimatedRates[fromCurrency];
+      }
+
+      // If no estimated rate, return 0
+      return 0;
+    } catch (error) {
+      logService.log('error', `Failed to get exchange rate for ${fromCurrency} to ${toCurrency}`,
+        error, 'ExchangeService');
+      return 0;
+    }
+  }
+
+  /**
+   * Get exchange rate asynchronously
+   * Tries to fetch the current rate from the exchange, falls back to cached or estimated rates
+   * @param fromCurrency The source currency
+   * @param toCurrency The target currency (usually USDT)
+   * @returns The exchange rate or 0 if not available
+   */
+  async getExchangeRate(fromCurrency: string, toCurrency: string): Promise<number> {
+    try {
+      // If same currency, rate is 1
+      if (fromCurrency === toCurrency) return 1;
+
+      // Try to get from cache first
+      const cacheKey = `rate:${fromCurrency}:${toCurrency}`;
+      const cachedRate = cacheService.get(cacheKey, 'exchange-rates');
+
+      if (cachedRate !== null && cachedRate !== undefined) {
+        return parseFloat(cachedRate);
+      }
+
+      // Try to fetch from exchange
+      if (this.activeExchange && this.exchangeInstances.has(this.activeExchange.id)) {
+        try {
+          const ccxtInstance = this.exchangeInstances.get(this.activeExchange.id);
+          const symbol = `${fromCurrency}/${toCurrency}`;
+
+          // Try to fetch ticker
+          const ticker = await ccxtInstance.fetchTicker(symbol);
+
+          if (ticker && ticker.last > 0) {
+            // Cache the rate
+            cacheService.set(cacheKey, ticker.last.toString(), 'exchange-rates', 3600); // Cache for 1 hour
+            return ticker.last;
+          }
+        } catch (fetchError) {
+          // If fetch fails, try the reverse pair
+          try {
+            const ccxtInstance = this.exchangeInstances.get(this.activeExchange.id);
+            const reverseSymbol = `${toCurrency}/${fromCurrency}`;
+
+            // Try to fetch ticker for reverse pair
+            const reverseTicker = await ccxtInstance.fetchTicker(reverseSymbol);
+
+            if (reverseTicker && reverseTicker.last > 0) {
+              const rate = 1 / reverseTicker.last;
+              // Cache the rate
+              cacheService.set(cacheKey, rate.toString(), 'exchange-rates', 3600); // Cache for 1 hour
+              return rate;
+            }
+          } catch (reverseError) {
+            // If both fail, fall back to estimated rates
+            logService.log('debug', `Failed to fetch exchange rate for ${fromCurrency}/${toCurrency} and reverse pair`,
+              { fetchError, reverseError }, 'ExchangeService');
+          }
+        }
+      }
+
+      // Fall back to estimated rates
+      return this.getExchangeRateSync(fromCurrency, toCurrency);
+    } catch (error) {
+      logService.log('error', `Failed to get exchange rate for ${fromCurrency} to ${toCurrency}`,
+        error, 'ExchangeService');
+      return this.getExchangeRateSync(fromCurrency, toCurrency);
+    }
   }
 
   private encryptCredentials(credentials: ExchangeCredentials): string {

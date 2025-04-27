@@ -109,26 +109,81 @@ class WalletBalanceService extends EventEmitter {
 
   /**
    * Fetch balances for different market types (spot, margin, futures)
+   * Ensures all balances are converted to USDT
    */
   private async fetchMarketTypeBalances(): Promise<void> {
     try {
       // Fetch all wallet balances from exchange service
       const marketBalances = await exchangeService.fetchAllWalletBalances();
 
-      // Store each market type balance
+      // Store each market type balance, ensuring currency is USDT
       if (marketBalances.spot) {
-        this.marketTypeBalances.set('spot', marketBalances.spot);
+        const spotBalance = { ...marketBalances.spot };
+
+        // Ensure currency is USDT
+        spotBalance.currency = 'USDT';
+
+        // If the balance is not already in USDT, convert it
+        if (spotBalance.currency !== 'USDT' && spotBalance.total > 0) {
+          try {
+            // Try to convert to USDT using exchange rates
+            const convertedBalance = await this.convertBalanceToUSDT(spotBalance, 'spot');
+            this.marketTypeBalances.set('spot', convertedBalance);
+          } catch (conversionError) {
+            logService.log('warn', 'Failed to convert spot balance to USDT', conversionError, 'WalletBalanceService');
+            // Still set the balance, but mark it as USDT
+            this.marketTypeBalances.set('spot', spotBalance);
+          }
+        } else {
+          this.marketTypeBalances.set('spot', spotBalance);
+        }
       }
 
       if (marketBalances.margin) {
-        this.marketTypeBalances.set('margin', marketBalances.margin);
+        const marginBalance = { ...marketBalances.margin };
+
+        // Ensure currency is USDT
+        marginBalance.currency = 'USDT';
+
+        // If the balance is not already in USDT, convert it
+        if (marginBalance.currency !== 'USDT' && marginBalance.total > 0) {
+          try {
+            // Try to convert to USDT using exchange rates
+            const convertedBalance = await this.convertBalanceToUSDT(marginBalance, 'margin');
+            this.marketTypeBalances.set('margin', convertedBalance);
+          } catch (conversionError) {
+            logService.log('warn', 'Failed to convert margin balance to USDT', conversionError, 'WalletBalanceService');
+            // Still set the balance, but mark it as USDT
+            this.marketTypeBalances.set('margin', marginBalance);
+          }
+        } else {
+          this.marketTypeBalances.set('margin', marginBalance);
+        }
       }
 
       if (marketBalances.futures) {
-        this.marketTypeBalances.set('futures', marketBalances.futures);
+        const futuresBalance = { ...marketBalances.futures };
+
+        // Ensure currency is USDT
+        futuresBalance.currency = 'USDT';
+
+        // If the balance is not already in USDT, convert it
+        if (futuresBalance.currency !== 'USDT' && futuresBalance.total > 0) {
+          try {
+            // Try to convert to USDT using exchange rates
+            const convertedBalance = await this.convertBalanceToUSDT(futuresBalance, 'futures');
+            this.marketTypeBalances.set('futures', convertedBalance);
+          } catch (conversionError) {
+            logService.log('warn', 'Failed to convert futures balance to USDT', conversionError, 'WalletBalanceService');
+            // Still set the balance, but mark it as USDT
+            this.marketTypeBalances.set('futures', futuresBalance);
+          }
+        } else {
+          this.marketTypeBalances.set('futures', futuresBalance);
+        }
       }
 
-      logService.log('info', 'Market type balances fetched successfully',
+      logService.log('info', 'Market type balances fetched and converted to USDT successfully',
         { marketBalances: Object.fromEntries(this.marketTypeBalances) }, 'WalletBalanceService');
     } catch (error) {
       logService.log('error', 'Failed to fetch market type balances', error, 'WalletBalanceService');
@@ -139,10 +194,54 @@ class WalletBalanceService extends EventEmitter {
   }
 
   /**
+   * Convert a balance to USDT
+   * @param balance The balance to convert
+   * @param marketType The market type (spot, margin, futures)
+   * @returns The converted balance in USDT
+   */
+  private async convertBalanceToUSDT(balance: WalletBalance, marketType: MarketType): Promise<WalletBalance> {
+    try {
+      // If already in USDT, return as is
+      if (balance.currency === 'USDT') {
+        return balance;
+      }
+
+      // Try to get the exchange rate from the exchange service
+      const exchangeRate = await exchangeService.getExchangeRate(balance.currency, 'USDT');
+
+      if (!exchangeRate || exchangeRate <= 0) {
+        throw new Error(`Invalid exchange rate for ${balance.currency}/USDT: ${exchangeRate}`);
+      }
+
+      // Convert the balance to USDT
+      const convertedBalance: WalletBalance = {
+        free: balance.free * exchangeRate,
+        used: balance.used * exchangeRate,
+        total: balance.total * exchangeRate,
+        currency: 'USDT'
+      };
+
+      logService.log('info', `Converted ${marketType} balance from ${balance.currency} to USDT`,
+        { originalBalance: balance, convertedBalance, exchangeRate }, 'WalletBalanceService');
+
+      return convertedBalance;
+    } catch (error) {
+      logService.log('error', `Failed to convert ${marketType} balance to USDT`, error, 'WalletBalanceService');
+
+      // Return the original balance but mark it as USDT
+      return {
+        ...balance,
+        currency: 'USDT'
+      };
+    }
+  }
+
+  /**
    * Generate mock balances for different market types
+   * All balances are in USDT
    */
   private generateMockMarketTypeBalances(): void {
-    // Create mock balances for each market type
+    // Create mock balances for each market type in USDT
     this.marketTypeBalances.set('spot', {
       free: 10000,
       used: 2000,
@@ -164,7 +263,7 @@ class WalletBalanceService extends EventEmitter {
       currency: 'USDT'
     });
 
-    logService.log('info', 'Generated mock market type balances',
+    logService.log('info', 'Generated mock market type balances in USDT',
       { marketBalances: Object.fromEntries(this.marketTypeBalances) }, 'WalletBalanceService');
   }
 

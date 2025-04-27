@@ -1183,25 +1183,59 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Leverage</p>
-                    <p className="text-sm text-white">{((strategy as any).strategy_config?.trade_parameters?.leverage ||
-                                                       (strategy as any).strategy_config?.leverage || 1)}x</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get leverage from various possible locations in the strategy config
+                        const leverage = (strategy as any).strategy_config?.trade_parameters?.leverage ||
+                                        (strategy as any).strategy_config?.leverage ||
+                                        1;
+                        // Ensure it's a valid number
+                        return isNaN(leverage) ? '1x' : `${leverage}x`;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Position Size</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.trade_parameters?.position_size ||
-                                                       (strategy as any).strategy_config?.riskManagement?.maxPositionSize ||
-                                                       (strategy as any).strategy_config?.positionSize || 0.1) * 100).toFixed(0)}%</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get position size from various possible locations in the strategy config
+                        const positionSize = (strategy as any).strategy_config?.trade_parameters?.position_size ||
+                                            (strategy as any).strategy_config?.riskManagement?.maxPositionSize ||
+                                            (strategy as any).strategy_config?.positionSize ||
+                                            0.1;
+                        // Convert to percentage and ensure it's a valid number
+                        const positionSizePercent = positionSize * 100;
+                        return isNaN(positionSizePercent) ? '10%' : `${positionSizePercent.toFixed(0)}%`;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Confidence Threshold</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.trade_parameters?.confidence_factor ||
-                                                       (strategy as any).strategy_config?.validation?.minConfidence ||
-                                                       (strategy as any).strategy_config?.confidenceThreshold || 0.7) * 100).toFixed(0)}%</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get confidence threshold from various possible locations in the strategy config
+                        const confidenceThreshold = (strategy as any).strategy_config?.trade_parameters?.confidence_factor ||
+                                                   (strategy as any).strategy_config?.validation?.minConfidence ||
+                                                   (strategy as any).strategy_config?.confidenceThreshold ||
+                                                   0.7;
+                        // Convert to percentage and ensure it's a valid number
+                        const confidenceThresholdPercent = confidenceThreshold * 100;
+                        return isNaN(confidenceThresholdPercent) ? '70%' : `${confidenceThresholdPercent.toFixed(0)}%`;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Timeframe</p>
-                    <p className="text-sm text-white">{(strategy as any).strategy_config?.timeframes?.execution ||
-                                                      (strategy as any).strategy_config?.timeframe || '1h'}</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get timeframe from various possible locations in the strategy config
+                        const timeframe = (strategy as any).strategy_config?.timeframes?.execution ||
+                                         (strategy as any).strategy_config?.timeframe ||
+                                         '1h';
+                        // Ensure it's a valid timeframe
+                        return timeframe || '1h';
+                      })()}
+                    </p>
                   </div>
                 </div>
             </div>
@@ -1216,18 +1250,45 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Stop Loss</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.stop_loss ||
-                                                       (strategy as any).strategy_config?.stopLoss || 0.03) * 100).toFixed(1)}%</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get stop loss from various possible locations in the strategy config
+                        const stopLoss = (strategy as any).strategy_config?.risk_management?.stop_loss ||
+                                        (strategy as any).strategy_config?.stopLoss ||
+                                        0.03;
+                        // Convert to percentage and ensure it's a valid number
+                        const stopLossPercent = stopLoss * 100;
+                        return isNaN(stopLossPercent) ? '3.0%' : `${stopLossPercent.toFixed(1)}%`;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Take Profit</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.take_profit ||
-                                                       (strategy as any).strategy_config?.takeProfit || 0.09) * 100).toFixed(1)}%</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get take profit from various possible locations in the strategy config
+                        const takeProfit = (strategy as any).strategy_config?.risk_management?.take_profit ||
+                                          (strategy as any).strategy_config?.takeProfit ||
+                                          0.09;
+                        // Convert to percentage and ensure it's a valid number
+                        const takeProfitPercent = takeProfit * 100;
+                        return isNaN(takeProfitPercent) ? '9.0%' : `${takeProfitPercent.toFixed(1)}%`;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Trailing Stop</p>
-                    <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.trailing_stop_loss ||
-                                                       (strategy as any).strategy_config?.trailingStop || 0.02) * 100).toFixed(1)}%</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get trailing stop from various possible locations in the strategy config
+                        const trailingStop = (strategy as any).strategy_config?.risk_management?.trailing_stop_loss ||
+                                            (strategy as any).strategy_config?.trailingStop ||
+                                            0.02;
+                        // Convert to percentage and ensure it's a valid number
+                        const trailingStopPercent = trailingStop * 100;
+                        return isNaN(trailingStopPercent) ? '2.0%' : `${trailingStopPercent.toFixed(1)}%`;
+                      })()}
+                    </p>
                   </div>
                 </div>
             </div>
@@ -1246,47 +1307,127 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                   <div>
                     <p className="text-xs text-gray-500">Current Value</p>
-                    <p className="text-sm text-white">${metrics?.currentValue?.toFixed(2) || (strategy as any).metrics?.equity?.toFixed(2) || '0.00'}</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get current value from metrics or strategy
+                        const currentValue = metrics?.currentValue || (strategy as any).metrics?.equity || 0;
+                        // Format with 2 decimal places and handle NaN
+                        return `$${isNaN(currentValue) ? '0.00' : Number(currentValue).toFixed(2)}`;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Profit/Loss</p>
-                    <p className={`text-sm ${(metrics?.totalChange >= 0 || (strategy as any).metrics?.pnl >= 0) ? 'text-green-400' : 'text-red-400'}`}>
-                      {metrics?.totalChange !== undefined ? (metrics.totalChange >= 0 ? '+' : '') + metrics.totalChange.toFixed(2) :
-                       (strategy as any).metrics?.pnl !== undefined ? ((strategy as any).metrics.pnl >= 0 ? '+' : '') + (strategy as any).metrics.pnl.toFixed(2) : '+0.00'}
-                      ({metrics?.percentChange !== undefined ? metrics.percentChange.toFixed(2) :
-                        (strategy as any).performance !== undefined ? (strategy as any).performance.toFixed(2) : '0.00'}%)
+                    <p className={`text-sm ${(() => {
+                      // Determine if profit is positive or negative
+                      const totalChange = metrics?.totalChange || (strategy as any).metrics?.pnl || 0;
+                      return isNaN(totalChange) || totalChange >= 0 ? 'text-green-400' : 'text-red-400';
+                    })()}`}>
+                      {(() => {
+                        // Get total change from metrics or strategy
+                        const totalChange = metrics?.totalChange || (strategy as any).metrics?.pnl || 0;
+                        // Format with sign and 2 decimal places, handle NaN
+                        const formattedChange = isNaN(totalChange) ? '+0.00' :
+                          (totalChange >= 0 ? '+' : '') + Number(totalChange).toFixed(2);
+
+                        // Get percent change from metrics or strategy
+                        const percentChange = metrics?.percentChange || (strategy as any).performance || 0;
+                        // Format with 2 decimal places, handle NaN
+                        const formattedPercent = isNaN(percentChange) ? '0.00' : Number(percentChange).toFixed(2);
+
+                        return `${formattedChange} (${formattedPercent}%)`;
+                      })()}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Win Rate</p>
-                    <p className="text-sm text-white">{metrics?.winRate !== undefined ? metrics.winRate.toFixed(1) :
-                      (strategy as any).metrics?.winRate !== undefined ? ((strategy as any).metrics.winRate * 100).toFixed(1) : '0.0'}%</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get win rate from metrics or strategy
+                        let winRate = metrics?.winRate;
+                        if (winRate === undefined && (strategy as any).metrics?.winRate !== undefined) {
+                          // Convert from decimal to percentage if needed
+                          winRate = (strategy as any).metrics.winRate * 100;
+                        } else {
+                          winRate = winRate || 0;
+                        }
+                        // Format with 1 decimal place and handle NaN
+                        return `${isNaN(winRate) ? '0.0' : Number(winRate).toFixed(1)}%`;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Total Trades</p>
-                    <p className="text-sm text-white">{metrics?.totalTrades || (strategy as any).trades?.total || 0}</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get total trades from metrics or strategy
+                        const totalTrades = metrics?.totalTrades || (strategy as any).trades?.total || 0;
+                        // Handle NaN
+                        return isNaN(totalTrades) ? '0' : totalTrades;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Active Trades</p>
-                    <p className="text-sm text-white">{metrics?.activeTrades || (strategy as any).trades?.active || 0}</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get active trades from metrics or strategy
+                        const activeTrades = metrics?.activeTrades || (strategy as any).trades?.active || 0;
+                        // Handle NaN
+                        return isNaN(activeTrades) ? '0' : activeTrades;
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Avg Trade Profit</p>
-                    <p className={`text-sm ${(metrics?.avgTradeProfit >= 0 || (strategy as any).metrics?.averageProfit >= 0) ? 'text-green-400' : 'text-red-400'}`}>
-                      {metrics?.avgTradeProfit !== undefined ? (metrics.avgTradeProfit >= 0 ? '+' : '') + metrics.avgTradeProfit.toFixed(2) :
-                       (strategy as any).metrics?.averageProfit !== undefined ? ((strategy as any).metrics.averageProfit >= 0 ? '+' : '') + (strategy as any).metrics.averageProfit.toFixed(2) : '+0.00'}
+                    <p className={`text-sm ${(() => {
+                      // Determine if avg profit is positive or negative
+                      const avgProfit = metrics?.avgTradeProfit || (strategy as any).metrics?.averageProfit || 0;
+                      return isNaN(avgProfit) || avgProfit >= 0 ? 'text-green-400' : 'text-red-400';
+                    })()}`}>
+                      {(() => {
+                        // Get avg trade profit from metrics or strategy
+                        const avgProfit = metrics?.avgTradeProfit || (strategy as any).metrics?.averageProfit || 0;
+                        // Format with sign and 2 decimal places, handle NaN
+                        return isNaN(avgProfit) ? '+0.00' :
+                          (avgProfit >= 0 ? '+' : '') + Number(avgProfit).toFixed(2);
+                      })()}
                     </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Avg Duration</p>
-                    <p className="text-sm text-white">{metrics?.avgTradeDuration ?
-                      (metrics.avgTradeDuration > 60 ? (metrics.avgTradeDuration / 60).toFixed(1) + 'h' : metrics.avgTradeDuration.toFixed(0) + 'm') :
-                      (strategy as any).trades?.avgDuration ?
-                      ((strategy as any).trades.avgDuration > 60 ? ((strategy as any).trades.avgDuration / 60).toFixed(1) + 'h' : (strategy as any).trades.avgDuration.toFixed(0) + 'm') : '0m'}</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get avg duration from metrics or strategy
+                        let avgDuration = metrics?.avgTradeDuration;
+                        if (avgDuration === undefined && (strategy as any).trades?.avgDuration !== undefined) {
+                          avgDuration = (strategy as any).trades.avgDuration;
+                        } else {
+                          avgDuration = avgDuration || 0;
+                        }
+
+                        // Handle NaN
+                        if (isNaN(avgDuration)) return '0m';
+
+                        // Format as hours or minutes
+                        if (avgDuration > 60) {
+                          return `${(avgDuration / 60).toFixed(1)}h`;
+                        } else {
+                          return `${Math.floor(avgDuration)}m`;
+                        }
+                      })()}
+                    </p>
                   </div>
                   <div>
                     <p className="text-xs text-gray-500">Portfolio Contribution</p>
-                    <p className="text-sm text-white">{metrics?.contribution?.toFixed(1) || (strategy as any).metrics?.contribution?.toFixed(1) || '0.0'}%</p>
+                    <p className="text-sm text-white">
+                      {(() => {
+                        // Get portfolio contribution from metrics or strategy
+                        const contribution = metrics?.contribution || (strategy as any).metrics?.contribution || 0;
+                        // Format with 1 decimal place and handle NaN
+                        return `${isNaN(contribution) ? '0.0' : Number(contribution).toFixed(1)}%`;
+                      })()}
+                    </p>
                   </div>
                 </div>
               ) : (
@@ -1305,21 +1446,52 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 animate-fadeIn">
                 <div>
                   <p className="text-xs text-gray-500">Max Drawdown</p>
-                  <p className="text-sm text-white">{(((strategy as any).strategy_config?.risk_management?.max_drawdown ||
-                                                     (strategy as any).strategy_config?.maxDrawdown || 0.15) * 100).toFixed(1)}%</p>
+                  <p className="text-sm text-white">
+                    {(() => {
+                      // Get max drawdown from various possible locations in the strategy config
+                      const maxDrawdown = (strategy as any).strategy_config?.risk_management?.max_drawdown ||
+                                         (strategy as any).strategy_config?.maxDrawdown ||
+                                         0.15;
+                      // Convert to percentage and ensure it's a valid number
+                      const maxDrawdownPercent = maxDrawdown * 100;
+                      return isNaN(maxDrawdownPercent) ? '15.0%' : `${maxDrawdownPercent.toFixed(1)}%`;
+                    })()}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Max Open Trades</p>
-                  <p className="text-sm text-white">Unlimited</p>
+                  <p className="text-sm text-white">
+                    {(() => {
+                      // Get max open trades from strategy config
+                      const maxOpenTrades = (strategy as any).strategy_config?.risk_management?.max_open_trades ||
+                                           (strategy as any).strategy_config?.maxOpenTrades;
+                      // Return "Unlimited" if not set or invalid
+                      return maxOpenTrades && !isNaN(maxOpenTrades) ? maxOpenTrades : 'Unlimited';
+                    })()}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Trade Frequency</p>
-                  <p className="text-sm text-white">Unlimited</p>
+                  <p className="text-sm text-white">
+                    {(() => {
+                      // Get trade frequency from strategy config
+                      const tradeFrequency = (strategy as any).strategy_config?.risk_management?.trade_frequency ||
+                                            (strategy as any).strategy_config?.tradeFrequency;
+                      // Return "Unlimited" if not set or invalid
+                      return tradeFrequency && !isNaN(tradeFrequency) ? tradeFrequency : 'Unlimited';
+                    })()}
+                  </p>
                 </div>
                 <div>
                   <p className="text-xs text-gray-500">Budget Allocation</p>
-                  <p className="text-sm text-white">${metrics?.budget?.allocated?.toFixed(2) ||
-                                                     (strategy as any).metrics?.equity?.toFixed(2) || '0.00'}</p>
+                  <p className="text-sm text-white">
+                    {(() => {
+                      // Get budget allocation from metrics or strategy
+                      const budgetAllocation = metrics?.budget?.allocated || (strategy as any).metrics?.equity || 0;
+                      // Format with 2 decimal places and handle NaN
+                      return `$${isNaN(budgetAllocation) ? '0.00' : Number(budgetAllocation).toFixed(2)}`;
+                    })()}
+                  </p>
                 </div>
               </div>
             </div>
