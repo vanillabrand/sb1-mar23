@@ -50,8 +50,36 @@ export function useStrategies() {
 
   const createStrategy = useCallback(async (data: CreateStrategyData): Promise<Strategy> => {
     try {
+      // Log the data we're trying to create
+      console.log('useStrategies: Creating strategy with data:', {
+        title: data.title,
+        name: data.name,
+        risk_level: data.risk_level,
+        riskLevel: data.riskLevel,
+        selected_pairs: data.selected_pairs?.length || 0,
+        marketType: data.marketType,
+        market_type: data.market_type
+      });
+
+      // Create the strategy
       const strategy = await strategySync.createStrategy(data);
-      await refreshStrategies(); // Refresh the list after creating
+
+      // Validate the returned strategy
+      if (!strategy || !strategy.id) {
+        const error = new Error('Failed to create strategy - no valid strategy data returned');
+        logService.log('error', error.message, { data }, 'useStrategies');
+        throw error;
+      }
+
+      // Log success
+      console.log('useStrategies: Strategy created successfully:', strategy.id);
+
+      // Emit an event to notify other components
+      eventBus.emit('strategy:created', strategy);
+
+      // Refresh the list after creating
+      await refreshStrategies();
+
       return strategy as unknown as Strategy;
     } catch (error) {
       logService.log('error', 'Failed to create strategy:', error, 'useStrategies');

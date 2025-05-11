@@ -65,11 +65,19 @@ export class WebSocketService extends EventEmitter {
         this.reconnect();
       } else {
         // Send a ping to verify the connection
-        this.send({
-          type: 'ping',
-          timestamp: Date.now(),
-          isVisibilityCheck: true
-        }).catch(() => {
+        // For Binance TestNet, we need to include an id field
+        const visibilityPingMessage = demoService.isDemoMode() ?
+          {
+            id: `visibility-ping-${Date.now()}`, // Add required id field for Binance TestNet
+            method: "ping"                       // Use method instead of type for Binance
+          } :
+          {
+            type: 'ping',
+            timestamp: Date.now(),
+            isVisibilityCheck: true
+          };
+
+        this.send(visibilityPingMessage).catch(() => {
           logService.log('warn', 'Failed to send ping after visibility change, reconnecting...', null, 'WebSocketService');
           this.reconnect();
         });
@@ -121,21 +129,32 @@ export class WebSocketService extends EventEmitter {
 
   async connect(config: WebSocketConfig): Promise<void> {
     try {
+      // Check if we already have a connection
       if (this.socket) {
+        // If the socket is already open, just return
+        if (this.socket.readyState === WebSocket.OPEN) {
+          logService.log('info', 'WebSocket already connected, reusing connection', null, 'WebSocketService');
+          return;
+        }
+
+        // Otherwise, disconnect first
         await this.disconnect();
       }
 
       // Use secure WebSocket if on HTTPS
       const wsUrl = config.url || this.getWebSocketUrl();
 
+      logService.log('info', `Connecting to WebSocket at ${wsUrl}`, null, 'WebSocketService');
+
+      // Create a new socket with improved configuration
       this.socket = new ReconnectingWebSocket(wsUrl, [], {
         WebSocket: WebSocket,
-        connectionTimeout: 10000, // Increase timeout to 10 seconds
+        connectionTimeout: 5000, // Reduced from 10000 to 5000 ms to fail faster
         maxRetries: this.MAX_RECONNECT_ATTEMPTS,
-        maxReconnectionDelay: 10000,
+        maxReconnectionDelay: 5000, // Reduced from 10000 to 5000 ms
         minReconnectionDelay: 1000,
-        // Add debug logging
-        debug: true, // Always enable debug logging
+        reconnectionDelayGrowFactor: 1.3, // Add exponential backoff
+        debug: false, // Disable debug logging in production
       });
 
       // Store the URL for future reference
@@ -145,21 +164,38 @@ export class WebSocketService extends EventEmitter {
         localStorage.setItem('proxyPort', portMatch[1]);
       }
 
+      // Set up event listeners before waiting for connection
       this.setupEventListeners();
-      await this.waitForConnection();
 
-      // Start the ping interval
-      this.startPingInterval();
+      // Wait for connection with timeout handling
+      try {
+        await this.waitForConnection();
 
-      if (config.subscriptions) {
-        await this.subscribe(config.subscriptions);
+        // Start the ping interval if connection was successful
+        this.startPingInterval();
+
+        if (config.subscriptions) {
+          await this.subscribe(config.subscriptions);
+        }
+
+        logService.log('info', 'WebSocket connected successfully', { url: wsUrl }, 'WebSocketService');
+      } catch (connectionError) {
+        // If connection times out, we'll still continue but log the error
+        logService.log('warn', 'WebSocket connection issue, continuing anyway', connectionError, 'WebSocketService');
+
+        // Start ping interval anyway to ensure it's running
+        this.startPingInterval();
+
+        // Schedule a reconnection attempt after the app has loaded
+        setTimeout(() => {
+          logService.log('info', 'Attempting delayed WebSocket reconnection', null, 'WebSocketService');
+          this.reconnect().catch(error => {
+            logService.log('warn', 'Delayed WebSocket reconnection failed', error, 'WebSocketService');
+          });
+        }, 10000); // Try to reconnect 10 seconds after app load
       }
-
-      logService.log('info', 'WebSocket connected',
-        { url: wsUrl }, 'WebSocketService');
     } catch (error) {
-      logService.log('error', 'Failed to establish WebSocket connection',
-        error, 'WebSocketService');
+      logService.log('error', 'Failed to establish WebSocket connection', error, 'WebSocketService');
 
       // Try a different port if connection fails
       if (!config.url) {
@@ -175,7 +211,8 @@ export class WebSocketService extends EventEmitter {
         }
       }
 
-      throw error;
+      // Don't throw error - allow app to continue without WebSocket
+      logService.log('warn', 'Continuing without WebSocket connection', null, 'WebSocketService');
     }
   }
 
@@ -250,11 +287,27 @@ export class WebSocketService extends EventEmitter {
         return;
       }
 
+      // Reduce timeout from 10s to 5s to prevent app initialization from hanging too long
       const timeout = setTimeout(() => {
         // Instead of rejecting, we'll resolve with a warning
         logService.log('warn', 'WebSocket connection timeout, continuing anyway', null, 'WebSocketService');
+
+        // Stop the ping interval if it was started
+        this.stopPingInterval();
+
+        // Start the ping interval anyway to ensure it's running
+        this.startPingInterval();
+
+        // Schedule a reconnection attempt after the app has loaded
+        setTimeout(() => {
+          logService.log('info', 'Attempting delayed WebSocket reconnection after timeout', null, 'WebSocketService');
+          this.reconnect().catch(error => {
+            logService.log('warn', 'Delayed WebSocket reconnection failed', error, 'WebSocketService');
+          });
+        }, 10000); // Try to reconnect 10 seconds after app load
+
         resolve(); // Resolve instead of reject to allow the application to continue
-      }, 10000);
+      }, 5000); // Reduced from 10000 to 5000 ms
 
       const handleConnection = () => {
         clearTimeout(timeout);
@@ -645,7 +698,17 @@ export class WebSocketService extends EventEmitter {
 
     // Start a new ping interval
     this.pingInterval = setInterval(() => {
-      if (this.isConnected && this.socket?.readyState === WebSocket.OPEN) {
+      try {
+        // Check if we have a socket and it's open
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+          // If socket is not open but we think we're connected, try to reconnect
+          if (this.isConnected) {
+            logService.log('warn', 'Socket not open but marked as connected, reconnecting...', null, 'WebSocketService');
+            this.reconnect();
+          }
+          return;
+        }
+
         // Check if we've received a pong since the last ping timeout check
         const now = Date.now();
         const timeSinceLastPong = now - this.lastPongReceived;
@@ -660,11 +723,39 @@ export class WebSocketService extends EventEmitter {
         }
 
         // Send a ping message
-        this.send({
-          type: 'ping',
-          timestamp: now
-        }).catch(error => {
+        // For Binance TestNet, we need to include an id field
+        const pingMessage = demoService.isDemoMode() ?
+          {
+            id: `ping-${Date.now()}`, // Add required id field for Binance TestNet
+            method: "ping"            // Use method instead of type for Binance
+          } :
+          {
+            type: 'ping',
+            timestamp: now
+          };
+
+        // Send ping and handle errors
+        this.send(pingMessage).catch(error => {
           logService.log('error', 'Failed to send ping message', error, 'WebSocketService');
+
+          // If we can't send a ping, the connection might be dead
+          // Check if the socket is still open
+          if (this.socket?.readyState === WebSocket.OPEN) {
+            // Try one more time with a simpler message
+            const simplePingMessage = demoService.isDemoMode() ?
+              { id: `simple-ping-${Date.now()}`, method: "ping" } :
+              { type: 'ping' };
+
+            this.send(simplePingMessage).catch(() => {
+              // If this also fails, force reconnection
+              logService.log('warn', 'Simple ping also failed, reconnecting...', null, 'WebSocketService');
+              this.reconnect();
+            });
+          } else {
+            // Socket is not open, force reconnection
+            logService.log('warn', 'Socket not open after ping failure, reconnecting...', null, 'WebSocketService');
+            this.reconnect();
+          }
         });
 
         // Set a timeout to check if we receive a pong
@@ -673,27 +764,47 @@ export class WebSocketService extends EventEmitter {
         }
 
         this.pingTimeoutTimer = setTimeout(() => {
-          const timeSincePing = Date.now() - now;
-          logService.log('warn', `No pong received within timeout (${Math.round(timeSincePing / 1000)}s), checking connection...`, null, 'WebSocketService');
+          try {
+            const timeSincePing = Date.now() - now;
+            logService.log('warn', `No pong received within timeout (${Math.round(timeSincePing / 1000)}s), checking connection...`, null, 'WebSocketService');
 
-          // Check if the connection is still alive
-          if (this.socket?.readyState === WebSocket.OPEN) {
-            // Send another ping to verify connection
-            this.send({
-              type: 'ping',
-              timestamp: Date.now(),
-              isVerification: true
-            }).catch(() => {
-              // If this fails, force reconnection
-              logService.log('warn', 'Verification ping failed, reconnecting...', null, 'WebSocketService');
+            // Check if the connection is still alive
+            if (this.socket?.readyState === WebSocket.OPEN) {
+              // Send another ping to verify connection
+              // For Binance TestNet, we need to include an id field
+              const verificationPingMessage = demoService.isDemoMode() ?
+                {
+                  id: `verify-ping-${Date.now()}`, // Add required id field for Binance TestNet
+                  method: "ping"                   // Use method instead of type for Binance
+                } :
+                {
+                  type: 'ping',
+                  timestamp: Date.now(),
+                  isVerification: true
+                };
+
+              this.send(verificationPingMessage).catch(() => {
+                // If this fails, force reconnection
+                logService.log('warn', 'Verification ping failed, reconnecting...', null, 'WebSocketService');
+                this.reconnect();
+              });
+            } else {
+              // Socket is not open, force reconnection
+              logService.log('warn', 'Socket not open during ping timeout check, reconnecting...', null, 'WebSocketService');
               this.reconnect();
-            });
-          } else {
-            // Socket is not open, force reconnection
-            logService.log('warn', 'Socket not open, reconnecting...', null, 'WebSocketService');
+            }
+          } catch (timeoutError) {
+            // If anything goes wrong in the timeout handler, log and reconnect
+            logService.log('error', 'Error in ping timeout handler', timeoutError, 'WebSocketService');
             this.reconnect();
           }
         }, this.PING_INTERVAL * 1.5); // Wait 1.5x the ping interval for a pong
+      } catch (pingError) {
+        // If anything goes wrong in the ping interval, log and try to recover
+        logService.log('error', 'Error in ping interval', pingError, 'WebSocketService');
+
+        // Try to reconnect if there was an error
+        setTimeout(() => this.reconnect(), 1000);
       }
     }, this.PING_INTERVAL);
 

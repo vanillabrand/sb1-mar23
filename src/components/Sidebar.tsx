@@ -384,7 +384,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
   };
 
   return (
-    <div className={`${isMobile ? 'w-full shadow-md z-50 mobile-top-nav' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'} ${isPanelHighlighted ? 'panel-highlight' : ''}`}>
+    <div className={`${isMobile ? 'w-full shadow-md z-40 mobile-top-nav' : 'w-64 h-screen'} ${isMobile ? 'topnav-metallic' : 'sidebar-metallic'} flex ${isMobile ? 'flex-col' : 'flex-col'} ${isPanelHighlighted ? 'panel-highlight' : ''}`}
+      style={{
+        position: isMobile ? 'relative' : 'sticky',
+        top: 0,
+        left: 0,
+        height: isMobile ? 'auto' : '100vh',
+        maxHeight: isMobile ? (isMobileMenuOpen ? '100vh' : '60px') : '100vh',
+        overflow: 'hidden',
+        transition: 'max-height 0.3s ease-in-out'
+      }}>
       {/* Logo and Header - Always visible and fully interactive */}
       <div
         className={`${isMobile ? 'w-full px-4 py-0 relative' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-center h-full' : ''}`}
@@ -401,7 +410,20 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
           </div>
         </div>
 
-        {/* Mobile Menu Toggle Button removed as requested */}
+        {/* Mobile Menu Toggle Button */}
+        {isMobile && (
+          <button
+            onClick={toggleMobileMenu}
+            className="absolute right-4 top-1/2 transform -translate-y-1/2 p-2 rounded-md bg-gunmetal-800 hover:bg-gunmetal-700 transition-colors"
+            aria-label="Toggle menu"
+          >
+            <div className="w-5 h-5 flex flex-col justify-between items-center">
+              <span className={`w-full h-0.5 bg-gray-300 rounded-full transform transition-transform ${isMobileMenuOpen ? 'rotate-45 translate-y-1.5' : ''}`}></span>
+              <span className={`w-full h-0.5 bg-gray-300 rounded-full transition-opacity ${isMobileMenuOpen ? 'opacity-0' : 'opacity-100'}`}></span>
+              <span className={`w-full h-0.5 bg-gray-300 rounded-full transform transition-transform ${isMobileMenuOpen ? '-rotate-45 -translate-y-1.5' : ''}`}></span>
+            </div>
+          </button>
+        )}
       </div>
 
       {/* Connection Status Indicator - Conditionally rendered based on mobile state */}

@@ -952,6 +952,8 @@ Please provide a complete strategy in JSON format with the following structure:
     };
   }
 
+
+
   /**
    * Generates a strategy based on the provided description, risk level, and assets
    */
@@ -1003,7 +1005,7 @@ Please provide a complete strategy in JSON format with the following structure:
         logService.log('warn', 'Failed to generate strategy with DeepSeek, falling back to rule-based', error, 'AIService');
 
         // Fallback to rule-based strategy
-        const strategy = await this.generateRuleBasedStrategy(description, riskLevel, assets);
+        const strategy = await this.generateRuleBasedStrategy(description, riskLevel, assets, detectedMarketType);
 
         // Ensure the market type is set correctly
         if (detectedMarketType) {
@@ -1025,6 +1027,479 @@ Please provide a complete strategy in JSON format with the following structure:
    * @param riskLevels Array of risk levels to generate strategies for
    * @returns Array of strategy objects
    */
+  /**
+   * Generate trades for a strategy using DeepSeek AI
+   * @param strategy The strategy to generate trades for
+   * @param budget The budget available for trading
+   * @returns Array of generated trades
+   */
+  async generateTradesForStrategy(strategy: any, budget: any): Promise<any[]> {
+    try {
+      logService.log('info', `Generating trades for strategy ${strategy.id}`, {
+        strategyName: strategy.name,
+        marketType: strategy.market_type || strategy.marketType,
+        budget: budget?.available || 0
+      }, 'AIService');
+
+      // Check if we have a valid strategy
+      if (!strategy || !strategy.id) {
+        logService.log('error', 'Invalid strategy provided for trade generation', { strategy }, 'AIService');
+        return [];
+      }
+
+      // Check if we have a valid budget
+      if (!budget || budget.available <= 0) {
+        logService.log('info', `No available budget for strategy ${strategy.id}, skipping trade generation`, { budget }, 'AIService');
+        return [];
+      }
+
+      // Get the strategy's assets
+      const assets = strategy.assets || strategy.selected_pairs || ['BTC/USDT'];
+
+      // Get the strategy's risk level
+      const riskLevel = strategy.risk_level || strategy.riskLevel || 'Medium';
+
+      // Get the strategy's market type
+      const marketType = strategy.market_type || strategy.marketType || 'spot';
+
+      // Get market data for the assets
+      const marketData = await this.getMarketData(assets);
+
+      // Analyze market conditions for each asset
+      const trades = [];
+
+      for (const asset of assets) {
+        try {
+          // Get market data for this asset
+          const assetData = marketData.find(data => data.asset === asset) || marketData[0];
+
+          // Analyze market conditions
+          const analysis = await this.analyzeMarketConditions(asset, riskLevel, [assetData], {
+            strategyId: strategy.id,
+            strategyName: strategy.name,
+            marketType: marketType,
+            attempt: 1
+          });
+
+          // Check if we should trade
+          if (!analysis.shouldTrade) {
+            logService.log('info', `Market conditions not favorable for trading ${asset}`, {
+              strategyId: strategy.id,
+              asset
+            }, 'AIService');
+            continue;
+          }
+
+          // Get the trades from the analysis
+          const assetTrades = analysis.trades || [];
+
+          // Process each trade
+          for (const trade of assetTrades) {
+            // Calculate trade amount based on budget and position size
+            const positionSize = strategy.riskManagement?.positionSize || '10%';
+            const positionSizePercent = parseFloat(positionSize) / 100;
+
+            // Get current price
+            const currentPrice = assetData.currentPrice || 0;
+
+            // Calculate trade amount
+            const tradeAmount = (budget.available * positionSizePercent) / currentPrice;
+
+            // Format the trade
+            const formattedTrade = {
+              symbol: asset,
+              side: trade.direction === 'Long' ? 'buy' : 'sell',
+              type: 'market',
+              amount: tradeAmount,
+              price: currentPrice,
+              stop_loss: trade.stopLossPercent,
+              take_profit: trade.takeProfitPercent,
+              trailing_stop: trade.trailingStop,
+              market_type: marketType,
+              leverage: trade.leverage,
+              marginType: trade.marginType,
+              entry_conditions: [
+                `Price: ${currentPrice}`,
+                `Direction: ${trade.direction}`,
+                `Confidence: ${trade.confidence}`
+              ],
+              exit_conditions: [
+                `Stop Loss: ${trade.stopLossPercent * 100}%`,
+                `Take Profit: ${trade.takeProfitPercent * 100}%`,
+                `Trailing Stop: ${trade.trailingStop * 100}%`
+              ],
+              reason: trade.rationale || 'AI generated trade'
+            };
+
+            trades.push(formattedTrade);
+
+            logService.log('info', `Generated trade for ${asset}`, {
+              strategyId: strategy.id,
+              asset,
+              side: formattedTrade.side,
+              amount: formattedTrade.amount,
+              price: formattedTrade.price
+            }, 'AIService');
+          }
+        } catch (error) {
+          logService.log('error', `Failed to generate trades for asset ${asset}`, error, 'AIService');
+        }
+      }
+
+      return trades;
+    } catch (error) {
+      logService.log('error', `Failed to generate trades for strategy ${strategy?.id}`, error, 'AIService');
+      return [];
+    }
+  }
+
+  /**
+   * Check if a trade should be closed
+   * @param trade The trade to check
+   * @returns True if the trade should be closed, false otherwise
+   */
+  async shouldCloseTrade(trade: any): Promise<boolean> {
+    try {
+      if (!trade || !trade.id) {
+        logService.log('error', 'Invalid trade provided for close check', { trade }, 'AIService');
+        return false;
+      }
+
+      // Get the trade's symbol
+      const symbol = trade.symbol;
+
+      // Get the trade's entry price
+      const entryPrice = trade.price || trade.entry_price || 0;
+
+      // Get the trade's side
+      const side = trade.side || 'buy';
+
+      // Get the trade's stop loss and take profit
+      const stopLoss = trade.stop_loss || trade.metadata?.stop_loss;
+      const takeProfit = trade.take_profit || trade.metadata?.take_profit;
+
+      // Get current market data
+      const marketData = await this.getMarketData([symbol]);
+
+      // Get current price
+      const currentPrice = marketData[0]?.currentPrice || 0;
+
+      // Calculate profit/loss percentage
+      let profitPercent = 0;
+
+      if (side === 'buy') {
+        profitPercent = (currentPrice - entryPrice) / entryPrice;
+      } else {
+        profitPercent = (entryPrice - currentPrice) / entryPrice;
+      }
+
+      // Check if we should close the trade
+      let shouldClose = false;
+
+      // Check stop loss
+      if (stopLoss && side === 'buy' && profitPercent <= stopLoss) {
+        shouldClose = true;
+        logService.log('info', `Trade ${trade.id} hit stop loss`, {
+          symbol,
+          entryPrice,
+          currentPrice,
+          profitPercent,
+          stopLoss
+        }, 'AIService');
+      }
+
+      // Check take profit
+      if (takeProfit && side === 'buy' && profitPercent >= takeProfit) {
+        shouldClose = true;
+        logService.log('info', `Trade ${trade.id} hit take profit`, {
+          symbol,
+          entryPrice,
+          currentPrice,
+          profitPercent,
+          takeProfit
+        }, 'AIService');
+      }
+
+      // Check stop loss for short positions
+      if (stopLoss && side === 'sell' && profitPercent <= stopLoss) {
+        shouldClose = true;
+        logService.log('info', `Trade ${trade.id} hit stop loss (short)`, {
+          symbol,
+          entryPrice,
+          currentPrice,
+          profitPercent,
+          stopLoss
+        }, 'AIService');
+      }
+
+      // Check take profit for short positions
+      if (takeProfit && side === 'sell' && profitPercent >= takeProfit) {
+        shouldClose = true;
+        logService.log('info', `Trade ${trade.id} hit take profit (short)`, {
+          symbol,
+          entryPrice,
+          currentPrice,
+          profitPercent,
+          takeProfit
+        }, 'AIService');
+      }
+
+      // Also randomly close some trades to simulate market conditions
+      // This is just for demo purposes
+      if (Math.random() < 0.05) { // 5% chance to close
+        shouldClose = true;
+        logService.log('info', `Trade ${trade.id} closed randomly`, {
+          symbol,
+          entryPrice,
+          currentPrice,
+          profitPercent
+        }, 'AIService');
+      }
+
+      return shouldClose;
+    } catch (error) {
+      logService.log('error', `Failed to check if trade ${trade?.id} should be closed`, error, 'AIService');
+      return false;
+    }
+  }
+
+  /**
+   * Internal method to generate detailed strategies for a specific risk level
+   * @param riskLevel The risk level to generate strategies for
+   * @param assets Array of asset pairs to generate strategies for
+   * @param marketData Market data for the assets
+   * @returns Array of strategy objects
+   */
+  private async generateDetailedStrategiesInternal(riskLevel: string, assets: string[], marketData: any[]): Promise<any[]> {
+    try {
+      this.emit('progress', { step: `Generating ${riskLevel} risk strategies...`, progress: 30 });
+
+      // Generate strategies for different market types
+      const strategies = [];
+
+      // Generate spot strategy
+      try {
+        const spotStrategy = this.generateStrategyForMarketType('spot', riskLevel, assets, marketData);
+        strategies.push(spotStrategy);
+      } catch (spotError) {
+        logService.log('warn', `Failed to generate spot strategy for risk level ${riskLevel}`, spotError, 'AIService');
+      }
+
+      // Generate margin strategy
+      try {
+        const marginStrategy = this.generateStrategyForMarketType('margin', riskLevel, assets, marketData);
+        strategies.push(marginStrategy);
+      } catch (marginError) {
+        logService.log('warn', `Failed to generate margin strategy for risk level ${riskLevel}`, marginError, 'AIService');
+      }
+
+      // Generate futures strategy
+      try {
+        const futuresStrategy = this.generateStrategyForMarketType('futures', riskLevel, assets, marketData);
+        strategies.push(futuresStrategy);
+      } catch (futuresError) {
+        logService.log('warn', `Failed to generate futures strategy for risk level ${riskLevel}`, futuresError, 'AIService');
+      }
+
+      return strategies;
+    } catch (error) {
+      logService.log('error', `Failed to generate detailed strategies for risk level ${riskLevel}`, error, 'AIService');
+      return [];
+    }
+  }
+
+  /**
+   * Generate a rule-based strategy as a fallback when DeepSeek fails
+   * @param description The strategy description
+   * @param riskLevel The risk level to generate a strategy for
+   * @param assets Array of asset pairs to generate strategies for
+   * @param marketType Optional market type to use
+   * @returns Strategy object
+   */
+  private async generateRuleBasedStrategy(description: string, riskLevel: string, assets: string[], marketType?: MarketType): Promise<any> {
+    try {
+      this.emit('progress', { step: 'Generating rule-based strategy...', progress: 50 });
+
+      // Determine market type if not provided
+      const detectedMarketType = marketType || detectMarketType(description);
+
+      // Get market data for the assets
+      const marketData = await this.getMarketData(assets);
+
+      // Generate a strategy for the detected market type
+      return this.generateStrategyForMarketType(detectedMarketType, riskLevel, assets, marketData);
+    } catch (error) {
+      logService.log('error', 'Failed to generate rule-based strategy', error, 'AIService');
+
+      // Create a very basic strategy as a last resort
+      return {
+        id: uuidv4(),
+        name: `${riskLevel} Risk Strategy`,
+        description: description || `A ${riskLevel.toLowerCase()} risk trading strategy.`,
+        riskLevel: riskLevel,
+        risk_level: riskLevel,
+        marketType: marketType || 'spot',
+        market_type: marketType || 'spot',
+        assets: assets,
+        selected_pairs: assets,
+        timeframe: '1h',
+        entryConditions: ['Price above moving average'],
+        exitConditions: ['Take profit at 10%', 'Stop loss at 5%'],
+        riskManagement: {
+          stopLoss: '5%',
+          takeProfit: '10%',
+          positionSize: '10%'
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: 'inactive'
+      };
+    }
+  }
+
+  /**
+   * Generate a strategy for a specific market type
+   * @param marketType The market type to generate a strategy for
+   * @param riskLevel The risk level to generate a strategy for
+   * @param assets Array of asset pairs to generate strategies for
+   * @param marketData Market data for the assets
+   * @returns Strategy object
+   */
+  private generateStrategyForMarketType(marketType: MarketType, riskLevel: string, assets: string[], marketData: any[]): any {
+    // Generate a unique ID for the strategy
+    const id = uuidv4();
+
+    // Create strategy name
+    const name = `${riskLevel} Risk ${marketType.charAt(0).toUpperCase() + marketType.slice(1)} Strategy`;
+
+    // Create strategy description
+    const description = `A ${riskLevel.toLowerCase()} risk ${marketType} trading strategy for ${assets.join(', ')}.`;
+
+    // Create entry conditions based on risk level and market type
+    const entryConditions = [];
+
+    if (riskLevel === 'Low') {
+      entryConditions.push('Strong uptrend confirmed by multiple indicators');
+      entryConditions.push('Volume increasing');
+      entryConditions.push('Low volatility');
+    } else if (riskLevel === 'Medium') {
+      entryConditions.push('Uptrend or consolidation pattern');
+      entryConditions.push('Support level confirmed');
+      entryConditions.push('Moderate volume');
+    } else { // High risk
+      entryConditions.push('Potential trend reversal');
+      entryConditions.push('Oversold conditions');
+      entryConditions.push('High volume spike');
+    }
+
+    // Add market-specific entry conditions
+    if (marketType === 'futures') {
+      entryConditions.push('Futures premium within acceptable range');
+      entryConditions.push('Funding rate favorable');
+    } else if (marketType === 'margin') {
+      entryConditions.push('Borrowing rate favorable');
+      entryConditions.push('Sufficient liquidity');
+    }
+
+    // Create exit conditions based on risk level and market type
+    const exitConditions = [];
+
+    if (riskLevel === 'Low') {
+      exitConditions.push('Take profit at 5%');
+      exitConditions.push('Stop loss at 2%');
+      exitConditions.push('Trailing stop at 1%');
+    } else if (riskLevel === 'Medium') {
+      exitConditions.push('Take profit at 10%');
+      exitConditions.push('Stop loss at 5%');
+      exitConditions.push('Trailing stop at 2%');
+    } else { // High risk
+      exitConditions.push('Take profit at 20%');
+      exitConditions.push('Stop loss at 10%');
+      exitConditions.push('Trailing stop at 5%');
+    }
+
+    // Add market-specific exit conditions
+    if (marketType === 'futures') {
+      exitConditions.push('Exit if funding rate becomes unfavorable');
+      exitConditions.push('Exit if futures premium exceeds threshold');
+    } else if (marketType === 'margin') {
+      exitConditions.push('Exit if borrowing rate increases significantly');
+      exitConditions.push('Exit if liquidity decreases');
+    }
+
+    // Create risk management based on risk level and market type
+    const riskManagement: any = {};
+
+    if (riskLevel === 'Low') {
+      riskManagement.stopLoss = '2%';
+      riskManagement.takeProfit = '5%';
+      riskManagement.trailingStop = '1%';
+      riskManagement.positionSize = '5%';
+      riskManagement.maxOpenPositions = 3;
+    } else if (riskLevel === 'Medium') {
+      riskManagement.stopLoss = '5%';
+      riskManagement.takeProfit = '10%';
+      riskManagement.trailingStop = '2%';
+      riskManagement.positionSize = '10%';
+      riskManagement.maxOpenPositions = 5;
+    } else { // High risk
+      riskManagement.stopLoss = '10%';
+      riskManagement.takeProfit = '20%';
+      riskManagement.trailingStop = '5%';
+      riskManagement.positionSize = '20%';
+      riskManagement.maxOpenPositions = 10;
+    }
+
+    // Add market-specific risk management
+    if (marketType === 'futures') {
+      riskManagement.leverage = riskLevel === 'Low' ? '2x' :
+                              riskLevel === 'Medium' ? '5x' : '10x';
+      riskManagement.marginType = riskLevel === 'Low' ? 'cross' : 'isolated';
+    } else if (marketType === 'margin') {
+      riskManagement.borrowAmount = riskLevel === 'Low' ? '20%' :
+                                  riskLevel === 'Medium' ? '50%' : '80%';
+    }
+
+    // Calculate metrics
+    const winRate = riskLevel === 'Low' ? 0.7 :
+                  riskLevel === 'Medium' ? 0.6 : 0.5;
+
+    const potentialProfit = riskLevel === 'Low' ? 5 :
+                          riskLevel === 'Medium' ? 10 : 20;
+
+    const metrics = {
+      winRate: winRate,
+      potentialProfit: potentialProfit,
+      averageProfit: potentialProfit * winRate
+    };
+
+    // Create the strategy
+    return {
+      id,
+      name,
+      description,
+      riskLevel,
+      risk_level: riskLevel,
+      marketType,
+      market_type: marketType,
+      assets,
+      selected_pairs: assets,
+      timeframe: '1h',
+      entryConditions,
+      exitConditions,
+      riskManagement,
+      metrics,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      status: 'inactive',
+      strategy_config: {
+        riskManagement,
+        metrics,
+        takeProfit: parseFloat(riskManagement.takeProfit) || potentialProfit
+      }
+    };
+  }
+
   async generateDetailedStrategies(assets: string[], riskLevels: string[]): Promise<any[]> {
     try {
       this.emit('progress', { step: 'Generating detailed strategies...', progress: 10 });

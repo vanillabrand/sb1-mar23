@@ -20,6 +20,7 @@ import { ccxtService } from './ccxt-service';
 import { createBrowserCompatibleExchange } from './ccxt-browser-shim';
 import { config } from './config';
 import { demoService } from './demo-service';
+import { demoExchangeService } from './demo-exchange-service';
 
 class ExchangeService extends EventEmitter {
   private static instance: ExchangeService;
@@ -374,27 +375,28 @@ class ExchangeService extends EventEmitter {
 
       // If in demo mode, use the demo exchange
       if (isDemo) {
-        logService.log('info', 'Connecting to demo exchange', { exchangeId: exchange.id }, 'ExchangeService');
+        logService.log('info', 'Connecting to demo exchange', { exchangeId: 'demo-exchange' }, 'ExchangeService');
 
-        // Create a demo exchange instance
-        const demoExchange = {
-          id: 'demo-exchange',
-          name: 'Demo Exchange',
-          credentials: {
-            apiKey: 'demo-api-key',
-            secret: 'demo-secret'
-          },
-          testnet: true
-        };
+        // Initialize the demo exchange service
+        await demoExchangeService.initialize();
 
+        // Get the demo exchange info
+        const demoExchange = demoExchangeService.getExchangeInfo();
+
+        // Set as active exchange
         this.activeExchange = demoExchange as Exchange;
         localStorage.setItem('activeExchange', JSON.stringify(demoExchange));
+
+        // Save to user profile for cross-device persistence
+        await userProfileService.saveActiveExchange(demoExchange as Exchange);
+        await userProfileService.updateConnectionStatus('connected');
 
         // Initialize demo WebSocket
         await this.initializeWebSockets();
 
         // Emit connected event
         this.emit('exchange:connected', demoExchange);
+        eventBus.emit('exchange:connected', { exchange: demoExchange });
         return;
       }
 
@@ -413,25 +415,39 @@ class ExchangeService extends EventEmitter {
         logService.log('warn', `Connecting to potentially unsupported exchange: ${exchangeId}`, null, 'ExchangeService');
       }
 
-      // Initialize CCXT exchange instance if not already created
-      if (!this.exchangeInstances.has(exchangeId)) {
-        const credentials = exchange.credentials;
-        if (!credentials) {
-          throw new Error('Exchange credentials not found');
+      // Always create a fresh exchange instance to ensure we have the latest configuration
+      const credentials = exchange.credentials;
+      if (!credentials) {
+        throw new Error('Exchange credentials not found');
+      }
+
+      logService.log('info', `Creating new exchange instance for ${exchangeId}`, {
+        hasApiKey: !!credentials.apiKey,
+        hasSecret: !!credentials.secret,
+        testnet: !!exchange.testnet
+      }, 'ExchangeService');
+
+      try {
+        // Clear any existing instance
+        if (this.exchangeInstances.has(exchangeId)) {
+          logService.log('info', `Removing existing exchange instance for ${exchangeId}`, null, 'ExchangeService');
+          this.exchangeInstances.delete(exchangeId);
         }
 
-        logService.log('info', `Creating new exchange instance for ${exchangeId}`, {
-          hasApiKey: !!credentials.apiKey,
-          hasSecret: !!credentials.secret,
-          testnet: !!exchange.testnet
-        }, 'ExchangeService');
-
+        // Create a new instance with the current credentials
         const ccxtInstance = await ccxtService.createExchange(
           exchangeId as ExchangeId,
           credentials,
           exchange.testnet
         );
+
+        // Store the new instance
         this.exchangeInstances.set(exchangeId, ccxtInstance);
+
+        logService.log('info', `Successfully created exchange instance for ${exchangeId}`, null, 'ExchangeService');
+      } catch (createError) {
+        logService.log('error', `Failed to create exchange instance for ${exchangeId}`, createError, 'ExchangeService');
+        throw new Error(`Failed to create exchange instance for ${exchangeId}: ${createError instanceof Error ? createError.message : 'Unknown error'}`);
       }
 
       const ccxtInstance = this.exchangeInstances.get(exchangeId);
@@ -926,26 +942,47 @@ class ExchangeService extends EventEmitter {
       if (config.name.toLowerCase() === 'kraken') {
         logService.log('info', 'Using special handling for Kraken connection test', null, 'ExchangeService');
 
+        // Import the Kraken Direct API
+        const { krakenDirectApi } = await import('./kraken-direct-api');
+
         // For Kraken, try a simpler API call first (Time API) which doesn't require authentication
         try {
           logService.log('info', 'Testing Kraken connection with Time API', null, 'ExchangeService');
-          const timeResponse = await testInstance.fetchTime();
+
+          // Use the direct API instead of CCXT for more reliable testing
+          const timeResponse = await krakenDirectApi.getServerTime();
           logService.log('info', 'Successfully connected to Kraken Time API', { timeResponse }, 'ExchangeService');
 
-          // Now try a simple authenticated call
-          try {
-            logService.log('info', 'Testing Kraken authenticated API', null, 'ExchangeService');
-            // Try to get account balance which requires authentication
-            await testInstance.fetchBalance();
-            logService.log('info', 'Successfully authenticated with Kraken', null, 'ExchangeService');
+          // Now try a simple authenticated call using the direct API
+          if (config.apiKey && config.secret) {
+            try {
+              logService.log('info', 'Testing Kraken authenticated API', null, 'ExchangeService');
 
-            // If we get here, both tests passed
-            logService.log('info', 'Kraken connection test successful', null, 'ExchangeService');
+              // Try to get account balance which requires authentication
+              const balanceResponse = await krakenDirectApi.privateRequest(
+                'Balance',
+                {},
+                config.apiKey,
+                config.secret
+              );
+
+              logService.log('info', 'Successfully authenticated with Kraken', {
+                hasBalance: !!balanceResponse,
+                balanceKeys: balanceResponse ? Object.keys(balanceResponse) : []
+              }, 'ExchangeService');
+
+              // If we get here, both tests passed
+              logService.log('info', 'Kraken connection test successful', null, 'ExchangeService');
+              return;
+            } catch (authError) {
+              // If authentication fails but basic connection works, it's likely an API key issue
+              logService.log('error', 'Kraken authentication failed', authError, 'ExchangeService');
+              throw new Error(`Kraken authentication failed. Please check your API key and secret: ${authError instanceof Error ? authError.message : 'Unknown error'}`);
+            }
+          } else {
+            // If no API credentials provided, just return success for the public API test
+            logService.log('info', 'Kraken public API test successful, but no API credentials provided for authentication test', null, 'ExchangeService');
             return;
-          } catch (authError) {
-            // If authentication fails but basic connection works, it's likely an API key issue
-            logService.log('error', 'Kraken authentication failed', authError, 'ExchangeService');
-            throw new Error(`Kraken authentication failed. Please check your API key and secret: ${authError instanceof Error ? authError.message : 'Unknown error'}`);
           }
         } catch (timeError) {
           // If even the Time API fails, it's likely a connection issue
@@ -954,48 +991,153 @@ class ExchangeService extends EventEmitter {
         }
       }
 
-      // For other exchanges, use the standard test procedure
+      // For other exchanges, use the standard test procedure with exchange-specific handling
       // Test basic API functionality with better error handling and retry logic
-      let retries = config.name.toLowerCase() === 'kraken' ? 5 : 3;
+      const exchangeName = config.name.toLowerCase();
+
+      // Set exchange-specific retry counts and delays
+      let retries = 3; // Default retry count
+      let retryDelay = 1000; // Default retry delay in ms
+
+      // Adjust based on exchange
+      switch (exchangeName) {
+        case 'kraken':
+          retries = 5;
+          retryDelay = 2000;
+          break;
+        case 'binance':
+          retries = 3;
+          retryDelay = 1000;
+          break;
+        case 'bybit':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        case 'bitmart':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        case 'okx':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        case 'coinbase':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        default:
+          retries = 3;
+          retryDelay = 1000;
+      }
+
+      logService.log('info', `Using ${retries} retries with ${retryDelay}ms delay for ${exchangeName}`, null, 'ExchangeService');
+
+      // Try to load markets with retry logic
       let marketsLoaded = false;
+      let lastError = null;
 
       while (retries > 0 && !marketsLoaded) {
         try {
+          logService.log('info', `Attempting to load markets for ${exchangeName} (attempt ${4-retries}/3)`, null, 'ExchangeService');
           await testInstance.loadMarkets();
           marketsLoaded = true;
-          logService.log('info', 'Successfully loaded markets', null, 'ExchangeService');
+          logService.log('info', `Successfully loaded markets for ${exchangeName}`, null, 'ExchangeService');
         } catch (marketError) {
+          lastError = marketError;
           retries--;
+
           if (retries === 0) {
-            logService.log('error', 'Failed to load markets after multiple attempts', marketError, 'ExchangeService');
-            throw new Error(`Failed to load markets: ${marketError instanceof Error ? marketError.message : 'Unknown error'}`);
+            logService.log('error', `Failed to load markets for ${exchangeName} after multiple attempts`, marketError, 'ExchangeService');
+
+            // Provide exchange-specific error messages
+            if (exchangeName === 'kraken' && marketError instanceof Error && marketError.message.includes('Rate limit')) {
+              throw new Error(`Kraken rate limit exceeded. Please wait a few minutes and try again.`);
+            } else if (exchangeName === 'binance' && marketError instanceof Error && marketError.message.includes('IP')) {
+              throw new Error(`Binance API access restricted. Please ensure your IP is whitelisted in your Binance API settings.`);
+            } else {
+              throw new Error(`Failed to load markets for ${exchangeName}: ${marketError instanceof Error ? marketError.message : 'Unknown error'}`);
+            }
           }
-          logService.log('warn', `Failed to load markets, retrying (${retries} attempts left)`, marketError, 'ExchangeService');
-          // Wait longer between retries for Kraken
-          const retryDelay = config.name.toLowerCase() === 'kraken' ? 2000 : 1000;
+
+          logService.log('warn', `Failed to load markets for ${exchangeName}, retrying (${retries} attempts left)`, marketError, 'ExchangeService');
           await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
       }
 
+      // Reset retries based on exchange for balance fetching
+      switch (exchangeName) {
+        case 'kraken':
+          retries = 5;
+          retryDelay = 2000;
+          break;
+        case 'binance':
+          retries = 3;
+          retryDelay = 1000;
+          break;
+        case 'bybit':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        case 'bitmart':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        case 'okx':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        case 'coinbase':
+          retries = 4;
+          retryDelay = 1500;
+          break;
+        default:
+          retries = 3;
+          retryDelay = 1000;
+      }
+
       // Try to fetch balance with retry logic
-      retries = config.name.toLowerCase() === 'kraken' ? 5 : 3;
       let balanceLoaded = false;
+      let lastBalanceError = null;
 
       while (retries > 0 && !balanceLoaded) {
         try {
+          logService.log('info', `Attempting to fetch balance for ${exchangeName} (attempt ${4-retries}/3)`, null, 'ExchangeService');
           await testInstance.fetchBalance();
           balanceLoaded = true;
-          logService.log('info', 'Successfully fetched balance', null, 'ExchangeService');
+          logService.log('info', `Successfully fetched balance for ${exchangeName}`, null, 'ExchangeService');
         } catch (balanceError) {
+          lastBalanceError = balanceError;
           retries--;
+
           if (retries === 0) {
-            // If balance fetch fails, it might be due to API permissions
-            logService.log('error', 'Failed to fetch balance after multiple attempts', balanceError, 'ExchangeService');
-            throw new Error(`Failed to fetch balance. Please ensure your API key has 'Read' permissions: ${balanceError instanceof Error ? balanceError.message : 'Unknown error'}`);
+            // If balance fetch fails, provide exchange-specific error messages
+            logService.log('error', `Failed to fetch balance for ${exchangeName} after multiple attempts`, balanceError, 'ExchangeService');
+
+            if (balanceError instanceof Error) {
+              const errorMsg = balanceError.message;
+
+              if (errorMsg.includes('permission') || errorMsg.includes('permissions') ||
+                  errorMsg.includes('access denied') || errorMsg.includes('not authorized')) {
+                throw new Error(`Your ${exchangeName} API key doesn't have the required permissions. Please ensure it has 'Read' access at minimum.`);
+              } else if (errorMsg.includes('IP') || errorMsg.includes('whitelist')) {
+                throw new Error(`Your IP address is not whitelisted for this ${exchangeName} API key. Please update your API key settings.`);
+              } else if (errorMsg.includes('signature') || errorMsg.includes('Signature')) {
+                throw new Error(`Invalid API signature for ${exchangeName}. Please check your API secret.`);
+              } else if (errorMsg.includes('key') || errorMsg.includes('Key')) {
+                throw new Error(`Invalid API key for ${exchangeName}. Please check your API key.`);
+              } else if (errorMsg.includes('timeout') || errorMsg.includes('ETIMEDOUT')) {
+                throw new Error(`Connection to ${exchangeName} timed out. Please check your internet connection and try again.`);
+              } else if (exchangeName === 'kraken' && errorMsg.includes('nonce')) {
+                throw new Error(`Kraken nonce error. Please wait a few seconds and try again.`);
+              } else {
+                throw new Error(`Failed to fetch balance from ${exchangeName}: ${errorMsg}`);
+              }
+            } else {
+              throw new Error(`Failed to fetch balance from ${exchangeName}. Please ensure your API key has 'Read' permissions.`);
+            }
           }
-          logService.log('warn', `Failed to fetch balance, retrying (${retries} attempts left)`, balanceError, 'ExchangeService');
-          // Wait longer between retries for Kraken
-          const retryDelay = config.name.toLowerCase() === 'kraken' ? 2000 : 1000;
+
+          logService.log('warn', `Failed to fetch balance for ${exchangeName}, retrying (${retries} attempts left)`, balanceError, 'ExchangeService');
           await new Promise(resolve => setTimeout(resolve, retryDelay));
         }
       }
@@ -1352,6 +1494,26 @@ class ExchangeService extends EventEmitter {
     margin?: WalletBalance;
     futures?: WalletBalance;
   }> {
+    // Check if we're in demo mode
+    const isDemo = demoService.isInDemoMode();
+
+    if (isDemo || this.demoMode) {
+      logService.log('info', 'Using demo exchange service for wallet balances', null, 'ExchangeService');
+
+      try {
+        // Use demo exchange service to fetch balances
+        return await demoExchangeService.fetchAllWalletBalances();
+      } catch (demoError) {
+        logService.log('warn', 'Failed to fetch wallet balances from demo exchange service, using mock balances', demoError, 'ExchangeService');
+        // Return mock balances
+        return {
+          spot: this.createMockWalletBalance(10000, 0),
+          margin: this.createMockWalletBalance(5000, 0),
+          futures: this.createMockWalletBalance(5000, 0)
+        };
+      }
+    }
+
     if (!this.activeExchange) {
       throw new Error('No active exchange');
     }
@@ -2322,8 +2484,16 @@ class ExchangeService extends EventEmitter {
 
   async fetchTicker(symbol: string): Promise<any> {
     try {
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
+      if (isDemo) {
+        // Use demo exchange service
+        return await demoExchangeService.fetchTicker(symbol);
+      }
+
       if (!this.activeExchange) {
-        // Return mock data in demo mode
+        // Return mock data if no active exchange
         return this.createMockTicker(symbol);
       }
 
@@ -2463,19 +2633,37 @@ class ExchangeService extends EventEmitter {
       // Log the request
       logService.log('info', `Fetching market price for ${normalizedSymbol}`, null, 'ExchangeService');
 
-      // If in demo mode, return mock data
-      if (this.demoMode) {
-        logService.log('info', `Using mock price data for ${normalizedSymbol} (demo mode)`, null, 'ExchangeService');
-        const mockTicker = this.createMockTicker(normalizedSymbol);
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
 
-        // Cache the mock ticker
-        cacheService.set(cacheKey, mockTicker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
+      if (isDemo || this.demoMode) {
+        logService.log('info', `Using demo exchange service for ${normalizedSymbol}`, null, 'ExchangeService');
 
-        return {
-          symbol: normalizedSymbol,
-          price: mockTicker.last,
-          timestamp: mockTicker.timestamp
-        };
+        try {
+          // Use demo exchange service
+          const price = await demoExchangeService.fetchPrice(normalizedSymbol);
+
+          // Cache the price
+          cacheService.set(cacheKey, {
+            symbol: price.symbol,
+            last: price.price,
+            timestamp: price.timestamp
+          }, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
+
+          return price;
+        } catch (demoError) {
+          logService.log('warn', `Failed to fetch price from demo exchange service for ${normalizedSymbol}, falling back to mock data`, demoError, 'ExchangeService');
+          const mockTicker = this.createMockTicker(normalizedSymbol);
+
+          // Cache the mock ticker
+          cacheService.set(cacheKey, mockTicker, this.MARKET_DATA_CACHE_NAMESPACE, this.TICKER_CACHE_TTL);
+
+          return {
+            symbol: normalizedSymbol,
+            price: mockTicker.last,
+            timestamp: mockTicker.timestamp
+          };
+        }
       }
 
       // Ensure we have an active exchange
@@ -2631,8 +2819,31 @@ class ExchangeService extends EventEmitter {
    */
   async fetchOrderStatus(orderId: string): Promise<any> {
     try {
-      // In demo mode or no active exchange, return mock status immediately
-      if (this.demoMode || !this.activeExchange) {
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
+      if (isDemo || this.demoMode) {
+        logService.log('debug', `Using demo exchange service for order status ${orderId}`, null, 'ExchangeService');
+
+        try {
+          // Check if we have this order in our active orders
+          const activeOrder = this.activeOrders.get(orderId);
+
+          if (activeOrder && activeOrder.symbol) {
+            // Use demo exchange service to fetch the order
+            return await demoExchangeService.fetchOrder(orderId, activeOrder.symbol);
+          }
+
+          // If we don't have the order in our active orders, try to fetch it without a symbol
+          return await demoExchangeService.fetchOrder(orderId);
+        } catch (demoError) {
+          logService.log('debug', `Failed to fetch order status from demo exchange service for ${orderId}, using mock status`, demoError, 'ExchangeService');
+          return this.createMockOrderStatus(orderId);
+        }
+      }
+
+      // If no active exchange, return mock status
+      if (!this.activeExchange) {
         return this.createMockOrderStatus(orderId);
       }
 
@@ -2844,10 +3055,57 @@ class ExchangeService extends EventEmitter {
   }
 
   /**
+   * Check if the exchange is connected
+   * @returns True if connected, false otherwise
+   */
+  async isConnected(): Promise<boolean> {
+    try {
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
+      if (isDemo) {
+        // In demo mode, check if the demo exchange service is initialized
+        return demoExchangeService.isConnected();
+      }
+
+      // Check if we have an active exchange
+      if (!this.activeExchange) {
+        return false;
+      }
+
+      // Check if we have an exchange instance
+      const exchange = this.exchangeInstances.get(this.activeExchange.id);
+      if (!exchange) {
+        return false;
+      }
+
+      // Check if we can fetch the time from the exchange
+      try {
+        await exchange.fetchTime();
+        return true;
+      } catch (error) {
+        logService.log('warn', 'Failed to fetch time from exchange', error, 'ExchangeService');
+        return false;
+      }
+    } catch (error) {
+      logService.log('error', 'Failed to check if exchange is connected', error, 'ExchangeService');
+      return false;
+    }
+  }
+
+  /**
    * Check the health of the exchange connection
    */
   async checkHealth(): Promise<{ ok: boolean; degraded?: boolean; message?: string }> {
     try {
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
+      if (isDemo) {
+        // In demo mode, use the demo exchange service
+        return demoExchangeService.checkHealth();
+      }
+
       // First try a simple ping without using CCXT
       const pingResponse = await fetch(`${config.binanceTestnetApiUrl}/api/v3/ping`, {
         method: 'GET',
@@ -3152,10 +3410,38 @@ class ExchangeService extends EventEmitter {
         price: options.entry_price || options.price
       }, 'ExchangeService');
 
-      // If in demo mode, return mock order
-      if (this.demoMode) {
-        logService.log('info', `Using mock order for ${normalizedSymbol} (demo mode)`, null, 'ExchangeService');
-        return this.createMockOrder(normalizedSymbol, options);
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
+      if (isDemo || this.demoMode) {
+        logService.log('info', `Using demo exchange service for ${normalizedSymbol}`, null, 'ExchangeService');
+
+        try {
+          // Use demo exchange service to create the order
+          const orderType = options.type || 'market';
+          const price = options.entry_price || options.price;
+
+          const order = await demoExchangeService.createOrder(
+            normalizedSymbol,
+            orderType,
+            options.side,
+            options.amount,
+            price
+          );
+
+          // Track the order
+          this.activeOrders.set(order.id, {
+            ...order,
+            stopLoss: options.stop_loss,
+            takeProfit: options.take_profit,
+            trailingStop: options.trailing_stop
+          });
+
+          return order;
+        } catch (demoError) {
+          logService.log('warn', `Failed to create order with demo exchange service for ${normalizedSymbol}, falling back to mock order`, demoError, 'ExchangeService');
+          return this.createMockOrder(normalizedSymbol, options);
+        }
       }
 
       // Ensure we have an active exchange

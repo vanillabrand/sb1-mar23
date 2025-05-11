@@ -3,6 +3,7 @@ import path from 'path';
 import react from '@vitejs/plugin-react';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import ccxtFixPlugin from './src/lib/vite-plugin-ccxt-fix';
+import chartsFixPlugin from './src/lib/vite-plugin-charts-fix';
 
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
@@ -21,6 +22,8 @@ export default defineConfig(({ command, mode }) => {
       }),
       // Custom plugin to fix CCXT static dependencies
       ccxtFixPlugin(),
+      // Custom plugin to fix chart library circular dependencies
+      chartsFixPlugin(),
     ],
     resolve: {
       alias: {
@@ -61,11 +64,34 @@ export default defineConfig(({ command, mode }) => {
       // Chunk size optimization
       rollupOptions: {
         output: {
-          manualChunks: {
-            vendor: ['react', 'react-dom', 'react-router-dom'],
-            charts: ['chart.js', 'react-chartjs-2', 'recharts'],
-            ui: ['framer-motion', 'lucide-react', 'react-hot-toast'],
-            three: ['three', '@react-three/fiber', '@react-three/drei']
+          manualChunks: (id) => {
+            // Create more granular chunks for better loading
+            if (id.includes('node_modules')) {
+              if (id.includes('react') || id.includes('scheduler') || id.includes('prop-types')) {
+                return 'vendor-react';
+              }
+              // Split chart libraries into separate chunks to avoid circular dependencies
+              if (id.includes('chart.js')) {
+                return 'vendor-chartjs';
+              }
+              if (id.includes('recharts')) {
+                return 'vendor-recharts';
+              }
+              if (id.includes('react-chartjs-2')) {
+                return 'vendor-react-chartjs';
+              }
+              if (id.includes('three') || id.includes('@react-three')) {
+                return 'vendor-three';
+              }
+              if (id.includes('framer-motion') || id.includes('lucide-react') || id.includes('react-hot-toast')) {
+                return 'vendor-ui';
+              }
+              if (id.includes('supabase')) {
+                return 'vendor-supabase';
+              }
+              // Default vendor chunk for other node_modules
+              return 'vendor';
+            }
           }
         },
         // Handle Node.js built-in modules and problematic libraries
@@ -77,18 +103,62 @@ export default defineConfig(({ command, mode }) => {
         ]
       },
       // Reduce chunk size warnings threshold
-      chunkSizeWarningLimit: 1000
+      chunkSizeWarningLimit: 2000,
+      // Ensure proper browser compatibility
+      target: 'es2015',
+      // Improve CSS handling
+      cssCodeSplit: true,
+      // Ensure proper asset handling
+      assetsInlineLimit: 4096
     },
     // Optimize dependencies
     optimizeDeps: {
-      include: ['react', 'react-dom', 'react-router-dom', 'chart.js', 'framer-motion'],
+      include: [
+        'react',
+        'react-dom',
+        'react-router-dom',
+        'chart.js',
+        'framer-motion',
+        '@supabase/supabase-js',
+        'three',
+        '@react-three/fiber',
+        'lucide-react',
+        'react-hot-toast',
+        'recharts'
+      ],
       // Don't exclude ccxt anymore
-      exclude: []
+      exclude: [],
+      // Force optimization of these dependencies
+      force: true,
+      // Ensure proper handling of ESM/CJS interop
+      esbuildOptions: {
+        target: 'es2020',
+        supported: {
+          bigint: true
+        },
+        define: {
+          global: 'globalThis'
+        }
+      }
     },
     // Enable gzip compression
     preview: {
       port: 5173,
-      host: '0.0.0.0'
+      host: '0.0.0.0',
+      // Add proxy configuration for preview server
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3001',
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path
+        },
+        '/ws': {
+          target: 'http://localhost:3001',
+          ws: true,
+          changeOrigin: true
+        }
+      }
     }
   };
 });

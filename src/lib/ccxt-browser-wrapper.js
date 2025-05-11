@@ -3,6 +3,22 @@
  * It intercepts CCXT calls and provides mock implementations or proxies to our backend.
  */
 
+// Check if we're in production mode
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Helper function for safer logging
+const safeLog = (message, data = null) => {
+  try {
+    if (data) {
+      console.log(message, data);
+    } else {
+      console.log(message);
+    }
+  } catch (e) {
+    // Ignore logging errors in production
+  }
+};
+
 // Mock CCXT exchange class
 class MockExchange {
   constructor(config = {}) {
@@ -17,25 +33,33 @@ class MockExchange {
     this.currencies = {};
     this.options = config.options || {};
 
-    // Log initialization
-    console.log(`[CCXT Browser Wrapper] Created mock exchange: ${this.id}`);
+    // Log initialization (only in development)
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] Created mock exchange: ${this.id}`);
+    }
   }
 
   // Mock API methods
   async fetchMarkets() {
-    console.log(`[CCXT Browser Wrapper] fetchMarkets called for ${this.id}`);
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] fetchMarkets called for ${this.id}`);
+    }
     return [];
   }
 
   async loadMarkets() {
-    console.log(`[CCXT Browser Wrapper] loadMarkets called for ${this.id}`);
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] loadMarkets called for ${this.id}`);
+    }
     this.markets = {};
     this.symbols = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'];
     return this.markets;
   }
 
   async fetchBalance() {
-    console.log(`[CCXT Browser Wrapper] fetchBalance called for ${this.id}`);
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] fetchBalance called for ${this.id}`);
+    }
     return {
       info: {},
       free: { BTC: 1.0, USDT: 10000.0, ETH: 10.0 },
@@ -45,7 +69,9 @@ class MockExchange {
   }
 
   async fetchTicker(symbol) {
-    console.log(`[CCXT Browser Wrapper] fetchTicker called for ${symbol} on ${this.id}`);
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] fetchTicker called for ${symbol} on ${this.id}`);
+    }
     return {
       symbol,
       timestamp: Date.now(),
@@ -65,7 +91,9 @@ class MockExchange {
   }
 
   async fetchTickers(symbols) {
-    console.log(`[CCXT Browser Wrapper] fetchTickers called for ${symbols.join(', ')} on ${this.id}`);
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] fetchTickers called for ${symbols.join(', ')} on ${this.id}`);
+    }
     const result = {};
     for (const symbol of symbols) {
       result[symbol] = await this.fetchTicker(symbol);
@@ -78,7 +106,9 @@ class MockExchange {
   }
 
   async createOrder(symbol, type, side, amount, price = undefined, params = {}) {
-    console.log(`[CCXT Browser Wrapper] createOrder called: ${side} ${amount} ${symbol} @ ${price || 'market price'}`);
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] createOrder called: ${side} ${amount} ${symbol} @ ${price || 'market price'}`);
+    }
     return {
       id: `mock-order-${Date.now()}`,
       symbol,
@@ -94,7 +124,9 @@ class MockExchange {
   }
 
   async cancelOrder(id, symbol = undefined, params = {}) {
-    console.log(`[CCXT Browser Wrapper] cancelOrder called for order ${id}`);
+    if (!isProduction) {
+      safeLog(`[CCXT Browser Wrapper] cancelOrder called for order ${id}`);
+    }
     return {
       id,
       symbol,

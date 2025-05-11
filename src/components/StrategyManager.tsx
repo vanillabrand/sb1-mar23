@@ -462,6 +462,8 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     }
   }, [refreshStrategies, isRefreshing]);
 
+
+
   const handleStrategyCreate = async (strategyData: CreateStrategyData) => {
     if (!user) {
       throw new Error('Authentication required');
@@ -470,13 +472,23 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     try {
       setIsRefreshing(true);
 
+      // Properly capitalize the strategy title
+      const capitalizedTitle = strategyData.title
+        ? strategyData.title.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+        : 'New Strategy';
+
       // Ensure all required fields are properly set
       const enrichedData = {
         ...strategyData,
+        title: capitalizedTitle, // Use capitalized title
+        name: strategyData.name || capitalizedTitle, // Use capitalized title as fallback for name
         type: strategyData.type || 'custom', // Ensure type is set
         user_id: user.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        // Ensure risk_level is properly set (both camelCase and snake_case versions)
+        risk_level: strategyData.risk_level || 'Medium',
+        riskLevel: strategyData.risk_level || 'Medium',
         // Ensure selected_pairs is properly set and formatted correctly
         selected_pairs: Array.isArray(strategyData.selected_pairs)
           ? strategyData.selected_pairs.map(pair =>
@@ -489,8 +501,51 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         marketType: strategyData.marketType || 'spot'
       };
 
+      console.log('StrategyManager: Creating strategy with enriched data:', enrichedData);
+
       // Create the strategy
-      const newStrategy = await createStrategy(enrichedData);
+      console.log('StrategyManager: Calling createStrategy with enriched data');
+      let newStrategy;
+
+      try {
+        // Create a minimal strategy object with only essential fields
+        const minimalStrategy = {
+          id: uuidv4(),
+          name: capitalizedTitle,
+          title: capitalizedTitle,
+          description: enrichedData.description || '',
+          user_id: user.id,
+          status: 'inactive',
+          risk_level: enrichedData.risk_level || 'Medium',
+          market_type: enrichedData.marketType || enrichedData.market_type || 'spot',
+          selected_pairs: Array.isArray(enrichedData.selected_pairs) && enrichedData.selected_pairs.length > 0
+            ? enrichedData.selected_pairs
+            : ['BTC/USDT'],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          type: 'custom'
+        };
+
+        console.log('StrategyManager: Creating minimal strategy:', minimalStrategy);
+
+        // Direct creation with supabase
+        const { data: directStrategy, error } = await supabase
+          .from('strategies')
+          .insert(minimalStrategy)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('StrategyManager: Error with direct creation:', error);
+          throw error;
+        }
+
+        newStrategy = directStrategy;
+        console.log('StrategyManager: Strategy created successfully with direct creation:', newStrategy?.id);
+      } catch (createError) {
+        console.error('StrategyManager: All strategy creation attempts failed:', createError);
+        throw new Error('Failed to create strategy after multiple attempts');
+      }
 
       // Check if newStrategy is null or undefined
       if (!newStrategy) {

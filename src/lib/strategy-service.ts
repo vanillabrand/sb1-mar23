@@ -7,6 +7,7 @@ import { globalCacheService } from './global-cache-service';
 import { StrategyManager } from './strategy-manager';
 import { riskManagementService } from './risk-management-service';
 import { detectMarketType, normalizeMarketType } from './market-type-detection';
+import { strategySync } from './strategy-sync';
 import type { Strategy, CreateStrategyData, StrategyBudget, MarketType } from './types';
 
 class StrategyService {
@@ -128,7 +129,9 @@ class StrategyService {
         selected_pairs: selectedPairs,
         strategy_config: {
           ...(data.strategy_config || {}),
-          assets: selectedPairs // Ensure assets are also set in strategy_config
+          assets: selectedPairs, // Ensure assets are also set in strategy_config
+          indicators: Array.isArray(data.strategy_config?.indicators) ?
+            data.strategy_config.indicators : [] // Ensure indicators is always an array
         },
         market_type: marketType,
         marketType: marketType // Also set marketType for UI components
@@ -139,32 +142,103 @@ class StrategyService {
         id: strategy.id,
         name: strategy.name,
         title: strategy.title,
-        userId: session.user.id
+        userId: session.user.id,
+        marketType: strategy.marketType,
+        market_type: strategy.market_type,
+        selected_pairs: strategy.selected_pairs,
+        strategy_config: strategy.strategy_config
       }, 'StrategyService');
 
-      const { data: createdStrategy, error } = await supabase
-        .from('strategies')
-        .insert(strategy)
-        .select()
-        .single();
-
-      if (error) {
-        logService.log('error', 'Database error creating strategy', {
-          error,
-          userId: session.user.id,
-          strategyData: strategy
+      try {
+        // Log the strategy data for debugging
+        logService.log('info', 'Creating strategy with data', {
+          id: strategy.id,
+          name: strategy.name || strategy.title,
+          title: strategy.title || strategy.name,
+          market_type: strategy.market_type || strategy.marketType,
+          selected_pairs: strategy.selected_pairs
         }, 'StrategyService');
-        throw error;
-      }
 
-      if (!createdStrategy) {
-        throw new Error('Failed to create strategy - no data returned');
+        // Ensure all required fields are set
+        const completeStrategy = {
+          ...strategy,
+          id: strategy.id || uuidv4(),
+          name: strategy.name || strategy.title || 'New Strategy',
+          title: strategy.title || strategy.name || 'New Strategy',
+          description: strategy.description || '',
+          user_id: session.user.id,
+          created_at: strategy.created_at || new Date().toISOString(),
+          updated_at: strategy.updated_at || new Date().toISOString(),
+          status: strategy.status || 'inactive',
+          market_type: strategy.market_type || strategy.marketType || 'spot',
+          selected_pairs: Array.isArray(strategy.selected_pairs) && strategy.selected_pairs.length > 0
+            ? strategy.selected_pairs
+            : ['BTC/USDT'],
+          risk_level: strategy.risk_level || 'Medium',
+          type: strategy.type || 'custom'
+        };
+
+        // Insert the strategy directly
+        const { data: createdStrategy, error } = await supabase
+          .from('strategies')
+          .insert(completeStrategy)
+          .select()
+          .single();
+
+        if (error) {
+          logService.log('error', 'Failed to create strategy', {
+            error,
+            strategy: completeStrategy
+          }, 'StrategyService');
+          throw error;
+        }
+
+        if (!createdStrategy) {
+          throw new Error('Failed to create strategy - no data returned');
+        }
+
+        logService.log('info', 'Successfully created strategy', {
+          strategyId: createdStrategy.id
+        }, 'StrategyService');
+
+        return createdStrategy;
+      } catch (insertError) {
+        logService.log('error', 'Failed to create strategy after multiple attempts', insertError, 'StrategyService');
+        throw new Error(`Failed to create strategy: ${insertError.message}`);
       }
 
       // Refresh news and market insights cache in the background to include the new strategy's assets
-      this.refreshCachesForNewStrategy(createdStrategy).catch(error => {
-        logService.log('warn', 'Failed to refresh caches for new strategy', error, 'StrategyService');
-      });
+      if (createdStrategy) {
+        this.refreshCachesForNewStrategy(createdStrategy).catch(error => {
+          logService.log('warn', 'Failed to refresh caches for new strategy', error, 'StrategyService');
+        });
+      }
+
+      // Add the strategy to the strategy sync cache
+      if (createdStrategy && strategySync && typeof strategySync.addStrategyToCache === 'function') {
+        try {
+          strategySync.addStrategyToCache(createdStrategy);
+        } catch (syncError) {
+          logService.log('warn', 'Failed to add strategy to sync cache', syncError, 'StrategyService');
+        }
+      }
+
+      // Emit events to update all components
+      if (createdStrategy) {
+        try {
+          eventBus.emit('strategy:created', createdStrategy);
+          eventBus.emit('strategy:created', { strategy: createdStrategy }); // Also emit with object wrapper for compatibility
+
+          // Also dispatch a DOM event for components that don't use the event bus
+          if (typeof document !== 'undefined') {
+            document.dispatchEvent(new CustomEvent('strategy:created', {
+              detail: { strategy: createdStrategy }
+            }));
+          }
+        } catch (eventError) {
+          logService.log('warn', 'Failed to emit strategy created events', eventError, 'StrategyService');
+        }
+      }
 
       return createdStrategy;
     } catch (error) {
@@ -292,14 +366,20 @@ class StrategyService {
         if (safeUpdates.strategy_config) {
           safeUpdates.strategy_config = {
             ...safeUpdates.strategy_config,
-            assets: safeUpdates.selected_pairs
+            assets: safeUpdates.selected_pairs,
+            // Ensure indicators is always an array
+            indicators: Array.isArray(safeUpdates.strategy_config.indicators) ?
+              safeUpdates.strategy_config.indicators : []
           };
         } else {
           // If strategy_config doesn't exist in updates, get it from current strategy
           const currentConfig = currentStrategy.strategy_config || {};
           safeUpdates.strategy_config = {
             ...currentConfig,
-            assets: safeUpdates.selected_pairs
+            assets: safeUpdates.selected_pairs,
+            // Ensure indicators is always an array
+            indicators: Array.isArray(currentConfig.indicators) ?
+              currentConfig.indicators : []
           };
         }
       }
@@ -540,6 +620,12 @@ class StrategyService {
       currentStrategy.selected_pairs = tradingPairs;
       currentStrategy.strategy_config.assets = tradingPairs;
       currentStrategy.strategy_config.config.pairs = tradingPairs;
+
+      // Ensure indicators is always an array
+      if (!Array.isArray(currentStrategy.strategy_config.indicators)) {
+        currentStrategy.strategy_config.indicators = [];
+        logService.log('debug', `Initialized empty indicators array for strategy ${id}`, null, 'StrategyService');
+      }
 
       // Determine the market type to use, ensuring consistency
       const strategyMarketType = currentStrategy.market_type || currentStrategy.marketType || 'spot';

@@ -89,32 +89,59 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
       setIsSubmitting(true);
       setError(null);
 
+      // Properly capitalize the strategy title
+      // This will capitalize the first letter of each word
+      const capitalizedTitle = formData.title
+        .split(' ')
+        .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(' ');
+
+      // Create a new form data object with the capitalized title
+      const updatedFormData = {
+        ...formData,
+        title: capitalizedTitle
+      };
+
       // Log the form data to verify fields
       console.log('CreateStrategyModal: Submitting form data:', {
-        title: formData.title,
-        description: formData.description,
-        risk_level: formData.risk_level,
-        selected_pairs: formData.selected_pairs,
-        marketType: formData.marketType,
-        pairs_count: formData.selected_pairs.length
+        title: updatedFormData.title,
+        description: updatedFormData.description,
+        risk_level: updatedFormData.risk_level,
+        selected_pairs: updatedFormData.selected_pairs,
+        marketType: updatedFormData.marketType,
+        pairs_count: updatedFormData.selected_pairs.length
       });
 
       // Format selected pairs to ensure they use the correct format (BTC/USDT instead of BTC_USDT)
-      const formattedPairs = formData.selected_pairs.map(pair =>
+      const formattedPairs = updatedFormData.selected_pairs.map(pair =>
         pair.includes('_') ? pair.replace('_', '/') : pair
       );
 
-      // Create a copy of the form data with both market_type and marketType fields
+      // Create a copy of the form data with all required fields properly set
       const enrichedData = {
-        ...formData,
+        ...updatedFormData,
+        // Ensure title and name are set
+        title: updatedFormData.title,
+        name: updatedFormData.title,
         // Ensure market_type is set for database field
-        market_type: formData.marketType,
+        market_type: updatedFormData.marketType,
+        marketType: updatedFormData.marketType,
+        // Ensure risk_level is set in both formats
+        risk_level: updatedFormData.risk_level,
+        riskLevel: updatedFormData.risk_level,
         // Ensure selected_pairs is properly formatted
-        selected_pairs: formattedPairs
+        selected_pairs: formattedPairs,
+        // Ensure status is set
+        status: 'inactive',
+        // Ensure type is set
+        type: 'custom',
+        // Add timestamps
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
       };
 
       console.log('CreateStrategyModal: Submitting enriched data:', {
-        title: enrichedData.title,
+        title: enrichedData.title, // This should now be properly capitalized
         description: enrichedData.description,
         risk_level: enrichedData.risk_level,
         selected_pairs: enrichedData.selected_pairs,

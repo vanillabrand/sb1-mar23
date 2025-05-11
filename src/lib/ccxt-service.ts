@@ -70,30 +70,61 @@ export class CCXTService extends EventEmitter {
 
   async createExchange(exchangeId: string, credentials?: any, useTestnet: boolean = false): Promise<any> {
     try {
+      // Log the exchange creation attempt
+      logService.log('info', `Creating exchange instance for ${exchangeId}`, {
+        hasCredentials: !!credentials,
+        useTestnet
+      }, 'CCXTService');
+
       const config: any = {
         enableRateLimit: true,
-        timeout: 30000,
+        timeout: 45000, // Increase timeout to 45 seconds for better reliability
+        verbose: false, // Disable verbose mode in production
+        // Add proxy support for all exchanges
+        proxy: `${window.location.protocol}//${window.location.host}/api/${exchangeId.toLowerCase()}`,
       };
 
+      // Configure TestNet URLs if needed
       if (useTestnet) {
-        config.urls = {
-          api: this.TESTNET_URLS[exchangeId]?.rest,
-          ws: this.TESTNET_URLS[exchangeId]?.ws
-        };
+        // Check if we have TestNet URLs for this exchange
+        if (this.TESTNET_URLS[exchangeId]) {
+          config.urls = {
+            api: this.TESTNET_URLS[exchangeId]?.rest,
+            ws: this.TESTNET_URLS[exchangeId]?.ws
+          };
+
+          logService.log('info', `Using TestNet URLs for ${exchangeId}`, {
+            rest: this.TESTNET_URLS[exchangeId]?.rest,
+            ws: this.TESTNET_URLS[exchangeId]?.ws
+          }, 'CCXTService');
+        } else {
+          logService.log('warn', `No TestNet URLs found for ${exchangeId}, using production URLs`, null, 'CCXTService');
+        }
       }
 
+      // Add credentials if provided
       if (credentials?.apiKey) {
         config.apiKey = credentials.apiKey;
         config.secret = credentials.secret;
 
         // Add passphrase/memo for exchanges that require it
         if (credentials.memo) {
+          // Handle exchange-specific credential formats
           if (exchangeId === 'okx' || exchangeId === 'bitget') {
             config.password = credentials.memo;
+            logService.log('info', `Added password for ${exchangeId}`, null, 'CCXTService');
           } else if (exchangeId === 'kucoin') {
             config.password = credentials.memo;
+            logService.log('info', `Added password for ${exchangeId}`, null, 'CCXTService');
+          } else if (exchangeId === 'coinbase') {
+            config.password = credentials.memo;
+            logService.log('info', `Added password for ${exchangeId}`, null, 'CCXTService');
+          } else if (exchangeId === 'kraken') {
+            // Kraken doesn't use a password/memo field in CCXT
+            logService.log('info', `Memo provided for Kraken but not used in CCXT config`, null, 'CCXTService');
           } else {
             config.memo = credentials.memo;
+            logService.log('info', `Added memo for ${exchangeId}`, null, 'CCXTService');
           }
         }
       }
@@ -203,30 +234,82 @@ export class CCXTService extends EventEmitter {
         };
       }
 
-      // Use our browser-compatible exchange wrapper
-      const exchange = new ccxt[exchangeId](config);
-
-      // Set up proper error handling
-      exchange.verbose = true; // Enable detailed error logging
-
-      // Exchange-specific post-initialization
+      // Exchange-specific configurations
       if (exchangeId === 'kraken') {
-        // Log that we're using Kraken
-        logService.log('info', 'Created Kraken exchange instance', {
-          hasApiKey: !!credentials?.apiKey,
-          hasSecret: !!credentials?.secret,
-          timeout: config.timeout
-        }, 'CCXTService');
-      } else {
-        // Log for other exchanges
-        logService.log('info', `Created ${exchangeId} exchange instance`, {
+        // Kraken specific settings
+        config.rateLimit = 3000; // Kraken has stricter rate limits
+
+        // Add additional Kraken-specific options
+        config.options = {
+          ...config.options,
+          // Ensure we're using the correct API version
+          version: '0',
+          // Add additional Kraken-specific options
+          exchangeType: 'spot',
+          adjustForTimeDifference: true
+        };
+      } else if (exchangeId === 'binance') {
+        // Binance specific settings
+        config.options = {
+          ...config.options,
+          adjustForTimeDifference: true,
+          recvWindow: 60000, // Increase receive window for Binance
+          defaultType: useTestnet ? 'spot' : 'spot', // Default to spot market
+          warnOnFetchOpenOrdersWithoutSymbol: false,
+        };
+      } else if (exchangeId === 'bybit') {
+        // Bybit specific settings
+        config.options = {
+          ...config.options,
+          defaultType: 'spot',
+          recvWindow: 60000,
+        };
+      } else if (exchangeId === 'bitmart') {
+        // BitMart specific settings
+        config.options = {
+          ...config.options,
+          recvWindow: 60000,
+        };
+      } else if (exchangeId === 'okx') {
+        // OKX specific settings
+        config.options = {
+          ...config.options,
+          adjustForTimeDifference: true,
+        };
+      } else if (exchangeId === 'coinbase') {
+        // Coinbase specific settings
+        config.options = {
+          ...config.options,
+          adjustForTimeDifference: true,
+        };
+      }
+
+      // Log the final configuration (without sensitive data)
+      const configForLogging = { ...config };
+      delete configForLogging.apiKey;
+      delete configForLogging.secret;
+      delete configForLogging.password;
+      logService.log('info', `Exchange configuration for ${exchangeId}`, configForLogging, 'CCXTService');
+
+      try {
+        // Use our browser-compatible exchange wrapper
+        const exchange = new ccxt[exchangeId](config);
+
+        // Set up proper error handling
+        exchange.verbose = false; // Disable verbose mode in production
+
+        // Log successful creation
+        logService.log('info', `Successfully created ${exchangeId} exchange instance`, {
           hasApiKey: !!credentials?.apiKey,
           hasSecret: !!credentials?.secret,
           testnet: useTestnet
         }, 'CCXTService');
-      }
 
-      return exchange;
+        return exchange;
+      } catch (createError) {
+        logService.log('error', `Failed to create ${exchangeId} exchange instance`, createError, 'CCXTService');
+        throw new Error(`Failed to create ${exchangeId} exchange instance: ${createError instanceof Error ? createError.message : 'Unknown error'}`);
+      }
     } catch (error) {
       logService.log('error', `Failed to create exchange ${exchangeId}`, error, 'CCXTService');
       throw error;

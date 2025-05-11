@@ -349,13 +349,18 @@ class StrategySync extends EventEmitter {
       // Generate a UUID for the strategy
       const strategyId = uuidv4();
 
+      // Make sure title is properly capitalized
+      const capitalizedTitle = data.title
+        ? data.title.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
+        : 'New Strategy';
+
       // Ensure we have all required fields with proper defaults
       const strategyData = {
         id: strategyId, // Explicitly set ID to avoid null ID issues
         ...data,
         user_id: session.user.id,
-        title: data.title || 'New Strategy',
-        name: data.name || data.title || 'New Strategy', // Use title as fallback for name
+        title: capitalizedTitle, // Use capitalized title
+        name: data.name || capitalizedTitle, // Use capitalized title as fallback for name
         description: data.description || '',
         type: data.type || 'custom',
         created_at: new Date().toISOString(),
@@ -371,12 +376,27 @@ class StrategySync extends EventEmitter {
         strategy_config: data.strategy_config || {},
       };
 
-      // Set risk_level for database compatibility
-      strategyData.riskLevel = data.riskLevel || 'Medium';
-      strategyData.risk_level = data.riskLevel || data.risk_level || 'Medium';
+      // Set risk_level for database compatibility - ensure both camelCase and snake_case versions
+      const riskLevel = data.riskLevel || data.risk_level || 'Medium';
+      strategyData.riskLevel = riskLevel;
+      strategyData.risk_level = riskLevel;
 
       // Log the data we're trying to insert
       console.log('Creating strategy with data:', strategyData);
+
+      // Log detailed information about the strategy data for debugging
+      logService.log('info', 'Creating strategy with detailed data', {
+        id: strategyData.id,
+        user_id: strategyData.user_id,
+        title: strategyData.title,
+        name: strategyData.name,
+        risk_level: strategyData.risk_level,
+        riskLevel: strategyData.riskLevel,
+        type: strategyData.type,
+        status: strategyData.status,
+        selected_pairs_count: strategyData.selected_pairs?.length || 0,
+        has_strategy_config: !!strategyData.strategy_config
+      }, 'StrategySync');
 
       // Try to create the strategy
       const { data: strategy, error } = await supabase
@@ -386,10 +406,16 @@ class StrategySync extends EventEmitter {
         .single();
 
       if (error) {
+        // Log detailed error information
         logService.log('error', 'Failed to create strategy in database', {
-          error,
+          error_code: error.code,
+          error_message: error.message,
+          error_details: error.details,
+          error_hint: error.hint,
           userId: session.user.id,
-          data
+          strategy_id: strategyId,
+          title: strategyData.title,
+          name: strategyData.name
         }, 'StrategySync');
 
         // Log the specific error for debugging
@@ -402,12 +428,13 @@ class StrategySync extends EventEmitter {
         const minimalData = {
             id: strategyId, // Keep the same ID
             user_id: session.user.id,
-            title: data.title || 'New Strategy',
-            name: data.name || data.title || 'New Strategy', // Use title as fallback for name
+            title: capitalizedTitle, // Use the same capitalized title
+            name: data.name || capitalizedTitle, // Use capitalized title as fallback for name
             description: data.description || '',
             type: data.type || 'custom',
             status: data.status || 'inactive',
-            risk_level: data.riskLevel || 'Medium',
+            risk_level: riskLevel, // Use the same risk level
+            riskLevel: riskLevel, // Include both versions for compatibility
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString()
           };
@@ -431,9 +458,24 @@ class StrategySync extends EventEmitter {
 
       if (!strategy) {
         // If no strategy was returned but no error occurred, create a fallback strategy object
+        // Make sure all required fields are explicitly set
         const fallbackStrategy = {
-          ...strategyData,
           id: strategyId,
+          user_id: session.user.id,
+          title: capitalizedTitle,
+          name: data.name || capitalizedTitle,
+          description: data.description || '',
+          type: data.type || 'custom',
+          status: data.status || 'inactive',
+          risk_level: riskLevel,
+          riskLevel: riskLevel,
+          selected_pairs: Array.isArray(data.selected_pairs)
+            ? data.selected_pairs.map(pair =>
+                pair.includes('_') ? pair.replace('_', '/') : pair
+              )
+            : ['BTC/USDT'],
+          strategy_config: data.strategy_config || {},
+          performance: 0,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString()
         } as Strategy;

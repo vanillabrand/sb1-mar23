@@ -1,6 +1,6 @@
 import React, { useState, Suspense } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, LazyMotion, domAnimation } from 'framer-motion';
 import PageTransition from './PageTransition';
 import { useAuth } from '../hooks/useAuth';
 import { AuthGuard } from './AuthGuard';
@@ -51,40 +51,50 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
   // If user is not authenticated, show public routes
   if (!user) {
     return (
-      <AnimatePresence mode="wait">
-        <Routes location={location} key={location.pathname}>
-          <Route path="/" element={
-            <PageTransition>
-              <Hero />
-            </PageTransition>
-          } />
-          <Route path="/test-page" element={
-            <PageTransition>
-              <Suspense fallback={<div>Loading test page...</div>}>
-                <TestPage />
-              </Suspense>
-            </PageTransition>
-          } />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </AnimatePresence>
+      <LazyMotion features={domAnimation}>
+        <AnimatePresence mode="wait">
+          <Routes location={location} key={location.pathname}>
+            <Route path="/" element={
+              <PageTransition>
+                <Hero />
+              </PageTransition>
+            } />
+            <Route path="/test-page" element={
+              <PageTransition>
+                <Suspense fallback={<div>Loading test page...</div>}>
+                  <TestPage />
+                </Suspense>
+              </PageTransition>
+            } />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </AnimatePresence>
+      </LazyMotion>
     );
   }
 
   // If user is authenticated, show protected routes with sidebar
   return (
-    <div className="flex flex-col md:flex-row h-screen full-height bg-black" style={{ minHeight: '100%' }}>
+    <div className="flex flex-col md:flex-row h-screen full-height bg-black" style={{ minHeight: '100%', width: '100%', overflow: 'hidden' }}>
       <Sidebar isOpen={isSidebarOpen} onToggle={handleMenuToggle} hasBottomNav={isMobile} />
-      <main className={`flex-1 overflow-auto bg-black pt-0 md:pt-0 ${isMobile ? 'has-bottom-nav' : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
-        <AnimatePresence mode="wait">
-          <Routes location={location} key={location.pathname}>
-            <Route path="/" element={
-              <AuthGuard>
-                <PageTransition>
-                  <Dashboard strategies={[]} monitoringStatuses={{}} />
-                </PageTransition>
-              </AuthGuard>
-            } />
+      <main className={`flex-1 overflow-auto bg-black pt-0 md:pt-0 ${isMobile ? 'has-bottom-nav' : ''}`}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100%',
+          position: 'relative',
+          zIndex: 1 // Ensure main content is above sidebar on mobile
+        }}>
+        <LazyMotion features={domAnimation}>
+          <AnimatePresence mode="wait">
+            <Routes location={location} key={location.pathname}>
+              <Route path="/" element={
+                <AuthGuard>
+                  <PageTransition>
+                    <Dashboard strategies={[]} monitoringStatuses={{}} />
+                  </PageTransition>
+                </AuthGuard>
+              } />
             <Route path="/dashboard" element={
               <AuthGuard>
                 <PageTransition>
@@ -150,8 +160,9 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
             } />
 
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </AnimatePresence>
+            </Routes>
+          </AnimatePresence>
+        </LazyMotion>
 
         {/* Mobile Bottom Navigation - Always rendered but only visible on mobile */}
         <MobileBottomNav onMenuToggle={handleMenuToggle} />

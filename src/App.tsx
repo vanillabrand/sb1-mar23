@@ -52,7 +52,39 @@ function App() {
           await new Promise(resolve => setTimeout(resolve, 500));
         }
 
-        await initializeApp();
+        // Set a maximum timeout for initialization to prevent the preloader from getting stuck
+        // Reduce timeout from 10s to 7s for better user experience
+        const initializationTimeout = setTimeout(() => {
+          console.warn('App initialization timed out, proceeding anyway');
+          setIsInitializing(false);
+
+          // Schedule a background initialization attempt after the app has loaded
+          setTimeout(() => {
+            console.log('Attempting background initialization after timeout');
+            initializeApp().catch(error => {
+              console.warn('Background initialization failed:', error);
+            });
+          }, 5000); // Try again 5 seconds after showing the app
+        }, 7000); // 7 seconds maximum wait time (reduced from 10s)
+
+        try {
+          await initializeApp();
+          // Clear the timeout if initialization completes successfully
+          clearTimeout(initializationTimeout);
+        } catch (initError) {
+          console.error('App initialization failed:', initError);
+          // Clear the timeout if initialization fails
+          clearTimeout(initializationTimeout);
+          // Continue anyway to prevent the preloader from getting stuck
+
+          // Schedule a background initialization attempt after the app has loaded
+          setTimeout(() => {
+            console.log('Attempting background initialization after error');
+            initializeApp().catch(error => {
+              console.warn('Background initialization failed:', error);
+            });
+          }, 5000); // Try again 5 seconds after showing the app
+        }
 
         // Browser-specific initialization
         // Add appropriate classes to body for CSS targeting
@@ -102,6 +134,19 @@ function App() {
 
     if (isInitializing) {
       initialLoad();
+
+      // Add event listener for manual continue button in Preloader
+      const handleManualContinue = () => {
+        console.log('Manual continue triggered');
+        setIsInitializing(false);
+      };
+
+      window.addEventListener('manual-continue', handleManualContinue);
+
+      // Clean up event listener
+      return () => {
+        window.removeEventListener('manual-continue', handleManualContinue);
+      };
     }
 
     // Add a visibility change handler to check WebSocket connection when tab becomes visible again
@@ -202,7 +247,8 @@ function App() {
     return <Preloader />;
   }
 
-  return <AppContent isReady={!isInitializing} />;
+  // Show main content when initialization is complete
+  return <AppContent isReady={true} />;
 }
 
 export default App;

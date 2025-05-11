@@ -1406,24 +1406,96 @@ class TradeManager extends EventEmitter {
     }
   }
 
-  private async handleTradeError(tradeId: string, error: any, options?: TradeOptions): Promise<void> {
-    logService.log('error', `Trade execution failed for ${tradeId}`,
-      error, 'TradeManager');
-
-    // Emit trade error event
-    this.emit('tradeError', { tradeId, error });
-    eventBus.emit('trade:error', { tradeId, error });
-
-    // Record the failed operation for later retry if we have options
-    if (options) {
-      try {
-        await this.recordFailedOperation(error, {
-          ...options,
-          trade_id: tradeId
-        });
-      } catch (recordError) {
-        logService.log('error', `Failed to record failed operation for trade ${tradeId}`, recordError, 'TradeManager');
-      }
+  private async handleTradeError(tradeId: string, error: any, options: TradeOptions): Promise<void> {
+    // Categorize errors for user-friendly messages
+    let userMessage = 'An unknown error occurred while executing your trade.';
+    let errorCategory = 'unknown';
+    let severity = 'error';
+    let recoverable = false;
+    
+    const errorMsg = error?.message || String(error);
+    
+    if (errorMsg.includes('insufficient balance') || errorMsg.includes('not enough balance')) {
+      userMessage = 'You don\'t have enough funds to place this trade.';
+      errorCategory = 'insufficient_funds';
+      severity = 'warning';
+    } else if (errorMsg.includes('Risk validation failed') || errorMsg.includes('exceeds risk limit')) {
+      userMessage = 'This trade exceeds your risk parameters.';
+      errorCategory = 'risk_limit';
+      severity = 'warning';
+    } else if (errorMsg.includes('Exchange unavailable') || errorMsg.includes('service unavailable')) {
+      userMessage = 'The exchange is currently unavailable. Please try again later.';
+      errorCategory = 'exchange_error';
+      recoverable = true;
+    } else if (errorMsg.includes('Circuit breaker') || errorMsg.includes('rate limit')) {
+      userMessage = 'Trading has been temporarily paused due to multiple failures.';
+      errorCategory = 'circuit_breaker';
+      recoverable = true;
+      severity = 'warning';
+    } else if (errorMsg.includes('minimum notional')) {
+      userMessage = 'Trade amount is too small for this market.';
+      errorCategory = 'min_notional';
+      severity = 'warning';
+    } else if (errorMsg.includes('market closed') || errorMsg.includes('not trading')) {
+      userMessage = 'This market is currently closed or not available for trading.';
+      errorCategory = 'market_closed';
+      severity = 'warning';
+    }
+    
+    // Log the error with detailed information
+    this.logService.log(severity, `Trade execution failed: ${errorMsg}`, {
+      tradeId,
+      errorCategory,
+      userMessage,
+      options,
+      recoverable
+    });
+    
+    // Update trade status in database if needed
+    try {
+      await this.supabase
+        .from('strategy_trades')
+        .update({ 
+          status: 'failed',
+          error_message: userMessage,
+          error_category: errorCategory,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', tradeId);
+    } catch (dbError) {
+      this.logService.error('Failed to update trade status in database', dbError);
+    }
+    
+    // Emit user-friendly error event
+    this.eventBus.emit('trade:error', {
+      tradeId,
+      errorCategory,
+      message: userMessage,
+      severity,
+      recoverable,
+      timestamp: Date.now(),
+      strategyId: options.strategy_id,
+      symbol: options.symbol
+    });
+    
+    // Record the error for analytics
+    this.analyticsService.recordError('trade_execution', errorCategory, {
+      tradeId,
+      symbol: options.symbol,
+      strategyId: options.strategy_id,
+      severity,
+      recoverable
+    });
+    
+    // If recoverable, schedule retry
+    if (recoverable && this.retryService) {
+      this.retryService.scheduleRetry({
+        type: 'trade',
+        id: tradeId,
+        options,
+        attempt: 1,
+        maxAttempts: 3
+      });
     }
   }
 

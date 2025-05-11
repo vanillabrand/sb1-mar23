@@ -1,30 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-} from 'chart.js';
 import { budgetHistoryService } from '../lib/budget-history-service';
 import { logService } from '../lib/log-service';
-
-// Register ChartJS components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-);
+// Import from our centralized chart initialization module
+import { ChartJSLine as Line } from '../lib/chart-init';
 
 interface BudgetHistoryChartProps {
   strategyId: string;
@@ -48,16 +26,16 @@ const BudgetHistoryChart: React.FC<BudgetHistoryChartProps> = ({
       try {
         setLoading(true);
         setError(null);
-        
+
         const data = await budgetHistoryService.getBudgetHistorySummary(strategyId, days);
         setHistoryData(data);
-        
-        logService.log('info', `Loaded budget history data for strategy ${strategyId}`, 
+
+        logService.log('info', `Loaded budget history data for strategy ${strategyId}`,
           { entries: data.length }, 'BudgetHistoryChart');
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Unknown error';
         setError(`Failed to load budget history: ${errorMessage}`);
-        logService.log('error', `Failed to load budget history for strategy ${strategyId}`, 
+        logService.log('error', `Failed to load budget history for strategy ${strategyId}`,
           err, 'BudgetHistoryChart');
       } finally {
         setLoading(false);
@@ -65,16 +43,16 @@ const BudgetHistoryChart: React.FC<BudgetHistoryChartProps> = ({
     };
 
     fetchHistoryData();
-    
+
     // Subscribe to budget history updates
     const handleHistoryUpdate = (data: any) => {
       if (data.strategyId === strategyId) {
         fetchHistoryData();
       }
     };
-    
+
     window.addEventListener('budget:historyUpdated', handleHistoryUpdate as EventListener);
-    
+
     return () => {
       window.removeEventListener('budget:historyUpdated', handleHistoryUpdate as EventListener);
     };
@@ -142,8 +120,8 @@ const BudgetHistoryChart: React.FC<BudgetHistoryChartProps> = ({
               label += ': ';
             }
             if (context.parsed.y !== null) {
-              label += new Intl.NumberFormat('en-US', { 
-                style: 'currency', 
+              label += new Intl.NumberFormat('en-US', {
+                style: 'currency',
                 currency: 'USD',
                 minimumFractionDigits: 2
               }).format(context.parsed.y);

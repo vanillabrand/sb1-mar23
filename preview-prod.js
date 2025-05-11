@@ -47,6 +47,12 @@ if (!fs.existsSync(path.join(__dirname, '.env.production'))) {
   log('Warning: .env.production file not found. Some features may not work correctly.', colors.yellow);
 }
 
+// Check if dist directory exists
+if (!fs.existsSync(path.join(__dirname, 'dist'))) {
+  log('Error: dist directory not found. Please run "npm run build:production" first.', colors.red);
+  process.exit(1);
+}
+
 // Start the proxy server
 log('Starting proxy server...', colors.cyan);
 const proxyServer = spawn('node', ['proxy-server.js'], {
@@ -75,20 +81,13 @@ proxyServer.stderr.on('data', (data) => {
 
 // Wait for proxy server to start
 setTimeout(() => {
-  // Check if dist directory exists
-  if (!fs.existsSync(path.join(__dirname, 'dist'))) {
-    log('Error: dist directory not found. Please run "npm run build:production" first.', colors.red);
-    proxyServer.kill();
-    process.exit(1);
-  }
-
-  // Start the preview server using our custom preview script
+  // Start the preview server with a direct command to vite
   log('Starting preview server...', colors.cyan);
   const previewServer = spawn('npx', ['vite', 'preview', '--port', '5173', '--host'], {
     stdio: 'pipe',
     cwd: __dirname,
-    env: {
-      ...process.env,
+    env: { 
+      ...process.env, 
       NODE_ENV: 'production',
       VITE_DEMO_MODE: process.env.VITE_DEMO_MODE || 'true'
     }

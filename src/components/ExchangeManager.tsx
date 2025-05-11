@@ -221,6 +221,37 @@ export function ExchangeManager({
       setError(null);
       setSuccess(null);
 
+      // First test the connection to make sure it works for all exchanges
+      try {
+        // Show a connecting message
+        setSuccess(`Testing connection to ${exchange.name}...`);
+
+        // Log the connection attempt
+        logService.log('info', `Testing connection to ${exchange.name}`, {
+          exchangeId: exchange.id,
+          testnet: exchange.testnet
+        }, 'ExchangeManager');
+
+        // Test the connection using the exchange service
+        await exchangeService.testConnection({
+          name: exchange.name.toLowerCase(),
+          apiKey: exchange.credentials?.apiKey || '',
+          secret: exchange.credentials?.secret || '',
+          memo: exchange.memo || '',
+          testnet: exchange.testnet || false,
+          useUSDX: exchange.use_usdx || false
+        });
+
+        setSuccess(`${exchange.name} connection test successful, connecting...`);
+        logService.log('info', `Connection test successful for ${exchange.name}`, null, 'ExchangeManager');
+      } catch (testError) {
+        const errorMessage = testError instanceof Error ? testError.message : `Failed to connect to ${exchange.name}`;
+        setError(`${exchange.name} connection test failed: ${errorMessage}`);
+        setIsConnecting(false);
+        logService.log('error', `Connection test failed for ${exchange.name}`, testError, 'ExchangeManager');
+        return;
+      }
+
       // Disconnect from current exchange if connected
       if (activeExchange) {
         await exchangeService.disconnect();

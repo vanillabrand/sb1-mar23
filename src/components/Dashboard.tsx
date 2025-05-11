@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Clock, Calendar } from 'lucide-react';
-import { NetworkStatus, StrategyStatus, AIMarketInsight, PortfolioPerformancePanel, AssetDisplayPanel, AssetDistribution, AnimatedPanel, WorldClock, DefconMonitor } from './index';
+import { NetworkStatus, StrategyStatus, AIMarketInsight, PortfolioPerformancePanel, AssetDisplayPanel, AssetDistribution, AnimatedPanel, WorldClock, DefconMonitor, NewsWidget } from './index';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type { Strategy } from '../lib/types';
 
@@ -93,7 +93,11 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
             <AIMarketInsight assets={new Set(allAssets)} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={3} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg w-full">
+          <AnimatedPanel index={3} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+            <NewsWidget assets={allAssets} limit={4} />
+          </AnimatedPanel>
+
+          <AnimatedPanel index={4} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg w-full">
             <PortfolioPerformancePanel />
           </AnimatedPanel>
         </div>
@@ -134,7 +138,7 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
             <AssetDisplayPanel />
           </AnimatedPanel>
 
-          <AnimatedPanel index={10} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={9} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
             <AssetDistribution assets={new Set(allAssets)} />
           </AnimatedPanel>
         </div>

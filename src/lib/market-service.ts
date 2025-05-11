@@ -112,19 +112,33 @@ class MarketService extends EventEmitter {
     try {
       // Check if strategy has indicators in its strategy_config
       const strategyConfig = strategy.strategy_config || {};
-      const indicators = strategyConfig.indicators ? await Promise.all(
-        strategyConfig.indicators.map((config: any) => {
-          // Safely handle indicator calculation
-          try {
-            // Dynamically import to avoid circular dependencies
-            const { indicatorService } = require('./indicator-service');
-            return indicatorService.calculateIndicator(config, data?.recentTrades || []);
-          } catch (error) {
-            logService.log('warn', `Failed to calculate indicator`, error, 'MarketService');
-            return { name: config?.type || 'unknown', value: 0, timestamp: Date.now() };
-          }
-        })
-      ) : [];
+      let indicators = [];
+
+      // Safely check if indicators is an array before trying to map over it
+      if (strategyConfig.indicators && Array.isArray(strategyConfig.indicators)) {
+        try {
+          indicators = await Promise.all(
+            strategyConfig.indicators.map((config: any) => {
+              // Safely handle indicator calculation
+              try {
+                // Dynamically import to avoid circular dependencies
+                const { indicatorService } = require('./indicator-service');
+                return indicatorService.calculateIndicator(config, data?.recentTrades || []);
+              } catch (error) {
+                logService.log('warn', `Failed to calculate indicator`, error, 'MarketService');
+                return { name: config?.type || 'unknown', value: 0, timestamp: Date.now() };
+              }
+            })
+          );
+        } catch (error) {
+          logService.log('error', 'Error processing indicators array', error, 'MarketService');
+          // Continue with empty indicators array
+        }
+      } else {
+        logService.log('debug', `Strategy ${strategy.id} has no indicators or indicators is not an array`,
+          { hasIndicators: !!strategyConfig.indicators, isArray: Array.isArray(strategyConfig.indicators) },
+          'MarketService');
+      }
 
       // Create a safe result object with default values
       const result = {

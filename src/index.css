@@ -500,6 +500,20 @@
   animation: glow 2s ease-in-out infinite alternate;
 }
 
+/* Progress animation for preloader */
+.animate-progress {
+  animation: progress 1.5s ease-in-out infinite;
+}
+
+@keyframes progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
 .animate-float {
   animation: float 3s ease-in-out infinite;
 }

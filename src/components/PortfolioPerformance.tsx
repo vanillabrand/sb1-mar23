@@ -17,6 +17,7 @@ import { portfolioService } from '../lib/portfolio-service';
 import { eventBus } from '../lib/event-bus';
 import { walletBalanceService } from '../lib/wallet-balance-service';
 import { strategyMetricsService, StrategyMetrics } from '../lib/strategy-metrics-service';
+// Import from our centralized chart initialization module
 import {
   Area,
   CartesianGrid,
@@ -24,12 +25,12 @@ import {
   Tooltip,
   XAxis,
   YAxis,
-  Legend,
+  RechartsLegend as Legend, // Use RechartsLegend as Legend
   ComposedChart,
   Cell,
   PieChart,
   Pie
-} from 'recharts';
+} from '../lib/chart-init';
 
 export function PortfolioPerformance() {
   const [performanceData, setPerformanceData] = useState<any[]>([]);

@@ -1,33 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Line } from 'react-chartjs-2';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-} from 'chart.js';
 import { TrendingUp, TrendingDown, PieChart, BarChart3, Activity } from 'lucide-react';
 import { portfolioPerformanceService } from '../lib/portfolio-performance-service';
 import { eventBus } from '../lib/event-bus';
 import { logService } from '../lib/log-service';
 import { demoService } from '../lib/demo-service';
-
-// Register ChartJS components
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-);
+// Import from our centralized chart initialization module
+import { ChartJSLine as Line } from '../lib/chart-init';
 
 interface PortfolioPerformancePanelProps {
   className?: string;

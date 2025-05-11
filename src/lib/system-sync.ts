@@ -82,11 +82,42 @@ class SystemSync {
       // Connect to the WebSocket server
       const { websocketService } = await import('./websocket-service');
 
-      if (!websocketService.getConnectionStatus()) {
+      // Check if we're on Safari or iOS
+      const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent) ||
+        (navigator.userAgent.includes('AppleWebKit') && !navigator.userAgent.includes('Chrome'));
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+
+      // If already connected, just return
+      if (websocketService.getConnectionStatus()) {
+        logService.log('info', 'WebSocket already connected, skipping initialization', null, 'SystemSync');
+        return;
+      }
+
+      // For mobile devices, use a shorter timeout
+      const timeoutDuration = isMobile ? 3000 : 5000;
+
+      logService.log('info', `Initializing WebSocket with ${timeoutDuration}ms timeout`,
+        { isSafari, isIOS, isMobile }, 'SystemSync');
+
+      // Use a timeout for WebSocket connection to prevent hanging
+      try {
+        // Don't use Promise.race - let the websocketService handle its own timeout
+        // This prevents double error handling and makes the code cleaner
         await websocketService.connect({});
         logService.log('info', 'WebSocket connection established', null, 'SystemSync');
-      } else {
-        logService.log('info', 'WebSocket already connected', null, 'SystemSync');
+      } catch (connectionError) {
+        // For all devices, don't let WebSocket issues block initialization
+        logService.log('warn', 'WebSocket connection failed, continuing anyway', connectionError, 'SystemSync');
+
+        // Schedule a reconnection attempt after the app has loaded
+        setTimeout(() => {
+          logService.log('info', 'Attempting delayed WebSocket reconnection', null, 'SystemSync');
+          this.checkWebSocketConnection().catch(error => {
+            logService.log('warn', 'Delayed WebSocket reconnection failed', error, 'SystemSync');
+          });
+        }, 10000); // Try to reconnect 10 seconds after app load
       }
 
       return;
@@ -109,11 +140,20 @@ class SystemSync {
         await websocketService.reconnect();
       } else {
         // Send a ping to verify the connection
-        await websocketService.send({
-          type: 'ping',
-          timestamp: Date.now(),
-          isConnectionCheck: true
-        });
+        // For Binance TestNet, we need to include an id field
+        const { demoService } = await import('./demo-service');
+        const connectionPingMessage = demoService.isDemoMode() ?
+          {
+            id: `system-ping-${Date.now()}`, // Add required id field for Binance TestNet
+            method: "ping"                   // Use method instead of type for Binance
+          } :
+          {
+            type: 'ping',
+            timestamp: Date.now(),
+            isConnectionCheck: true
+          };
+
+        await websocketService.send(connectionPingMessage);
         logService.log('debug', 'WebSocket connection verified', null, 'SystemSync');
       }
     } catch (error) {

@@ -65,24 +65,45 @@ class KrakenDirectApi {
         queryParams.append(key, String(value));
       });
 
-      // Make the request
-      const response = await fetch(`${url}?${queryParams.toString()}`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'User-Agent': 'GiGAntic Trading Bot'
+      // Add a timeout to the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+
+      try {
+        // Make the request
+        const response = await fetch(`${url}?${queryParams.toString()}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'User-Agent': 'GiGAntic Trading Bot'
+          },
+          signal: controller.signal
+        });
+
+        // Parse the response
+        const data = await response.json();
+
+        // Clear the timeout
+        clearTimeout(timeoutId);
+
+        // Check for errors
+        if (data.error && data.error.length > 0) {
+          throw new Error(`Kraken API error: ${data.error.join(', ')}`);
         }
-      });
 
-      // Parse the response
-      const data = await response.json();
+        return data.result;
+      } catch (fetchError) {
+        // Clear the timeout
+        clearTimeout(timeoutId);
 
-      // Check for errors
-      if (data.error && data.error.length > 0) {
-        throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+        // Check if it's an abort error (timeout)
+        if (fetchError.name === 'AbortError') {
+          throw new Error(`Kraken API request timed out: ${method}`);
+        }
+
+        // Rethrow other errors
+        throw fetchError;
       }
-
-      return data.result;
     } catch (error) {
       logService.log('error', `Failed to make public request to Kraken API: ${method}`, error, 'KrakenDirectApi');
       throw error;
@@ -145,27 +166,48 @@ class KrakenDirectApi {
         formData.append(key, String(value));
       });
 
-      // Make the request
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'API-Key': apiKey,
-          'API-Sign': signature,
-          'User-Agent': 'GiGAntic Trading Bot'
-        },
-        body: formData
-      });
+      // Add a timeout to the fetch request
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout for private API calls
 
-      // Parse the response
-      const data = await response.json();
+      try {
+        // Make the request
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'API-Key': apiKey,
+            'API-Sign': signature,
+            'User-Agent': 'GiGAntic Trading Bot'
+          },
+          body: formData,
+          signal: controller.signal
+        });
 
-      // Check for errors
-      if (data.error && data.error.length > 0) {
-        throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+        // Parse the response
+        const data = await response.json();
+
+        // Clear the timeout
+        clearTimeout(timeoutId);
+
+        // Check for errors
+        if (data.error && data.error.length > 0) {
+          throw new Error(`Kraken API error: ${data.error.join(', ')}`);
+        }
+
+        return data.result;
+      } catch (fetchError) {
+        // Clear the timeout
+        clearTimeout(timeoutId);
+
+        // Check if it's an abort error (timeout)
+        if (fetchError.name === 'AbortError') {
+          throw new Error(`Kraken API request timed out: ${method}`);
+        }
+
+        // Rethrow other errors
+        throw fetchError;
       }
-
-      return data.result;
     } catch (error) {
       logService.log('error', `Failed to make private request to Kraken API: ${method}`, error, 'KrakenDirectApi');
       throw error;

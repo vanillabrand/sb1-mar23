@@ -1,5 +1,5 @@
 import React, { ReactNode, useMemo } from 'react';
-import { motion, Variants } from 'framer-motion';
+import { motion, Variants, LazyMotion, domAnimation } from 'framer-motion';
 import { useLocation } from 'react-router-dom';
 import { SMOOTH_EASE } from '../lib/animation-utils';
 
@@ -158,15 +158,23 @@ const PageTransition: React.FC<PageTransitionProps> = ({
   }, [location.pathname]);
 
   return (
-    <motion.div
-      className={className}
-      initial="hidden"
-      animate="visible"
-      exit="exit"
-      variants={variants}
-    >
-      {children}
-    </motion.div>
+    <LazyMotion features={domAnimation}>
+      <motion.div
+        className={`w-full h-full flex-1 ${className}`}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        variants={variants}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          width: '100%',
+          minHeight: '100%'
+        }}
+      >
+        {children}
+      </motion.div>
+    </LazyMotion>
   );
 };
 

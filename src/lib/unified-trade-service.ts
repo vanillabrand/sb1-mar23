@@ -5,10 +5,12 @@ import { logService } from './log-service';
 import { eventBus } from './event-bus';
 import { demoService } from './demo-service';
 import { exchangeService } from './exchange-service';
+import { demoExchangeService } from './demo-exchange-service';
 import { tradeService } from './trade-service';
 import { tradeManager } from './trade-manager';
 import { riskManagementService } from './risk-management-service';
 import { walletBalanceService } from './wallet-balance-service';
+import { strategySync } from './strategy-sync';
 
 /**
  * Trade options interface
@@ -102,10 +104,24 @@ class UnifiedTradeService extends EventEmitter {
     try {
       logService.log('info', 'Initializing unified trade service', null, 'UnifiedTradeService');
 
-      // Subscribe to relevant events
-      eventBus.subscribe('trade:created', this.handleTradeCreated.bind(this));
+      // Subscribe to relevant events with async wrapper for async handlers
+      eventBus.subscribe('trade:created', async (event) => {
+        try {
+          await this.handleTradeCreated(event);
+        } catch (error) {
+          logService.log('error', 'Error in trade:created event handler', error, 'UnifiedTradeService');
+        }
+      });
+
       eventBus.subscribe('trade:updated', this.handleTradeUpdated.bind(this));
-      eventBus.subscribe('trade:closed', this.handleTradeClosed.bind(this));
+
+      eventBus.subscribe('trade:closed', async (event) => {
+        try {
+          await this.handleTradeClosed(event);
+        } catch (error) {
+          logService.log('error', 'Error in trade:closed event handler', error, 'UnifiedTradeService');
+        }
+      });
 
       this.initialized = true;
       logService.log('info', 'Unified trade service initialized', null, 'UnifiedTradeService');
@@ -130,7 +146,28 @@ class UnifiedTradeService extends EventEmitter {
     const strategyId = tradeOptions.strategy_id || tradeOptions.strategyId;
     const symbol = tradeOptions.symbol;
     const side = tradeOptions.side;
-    let amount = tradeOptions.amount || tradeOptions.quantity; // Changed from const to let since it might be adjusted later
+
+    // Handle quantity/amount, ensuring it's a number and not a Promise
+    let amount;
+    try {
+      amount = tradeOptions.amount || tradeOptions.quantity;
+
+      // If amount is a Promise, resolve it
+      if (amount instanceof Promise) {
+        logService.log('debug', `Amount is a Promise, resolving it for ${symbol}`, null, 'UnifiedTradeService');
+        amount = await amount;
+      }
+
+      // Ensure amount is a valid number
+      if (typeof amount !== 'number' || isNaN(amount) || amount <= 0) {
+        logService.log('warn', `Invalid amount for ${symbol}: ${amount}, using default`, null, 'UnifiedTradeService');
+        amount = 0.001; // Use a small default value
+      }
+    } catch (error) {
+      logService.log('error', `Error processing amount for ${symbol}`, error, 'UnifiedTradeService');
+      amount = 0.001; // Use a small default value
+    }
+
     const price = tradeOptions.price || tradeOptions.entry_price || tradeOptions.entryPrice;
     const marketType = tradeOptions.marketType || tradeOptions.market_type || 'spot';
 
@@ -291,9 +328,14 @@ class UnifiedTradeService extends EventEmitter {
             if (isNaN(fixedPrice) || fixedPrice <= 0) {
               // Try to get a valid price from market data
               try {
-                const marketData = await exchangeService.getMarketPrice(symbol);
+                // Use the appropriate exchange service based on demo mode
+                const isDemo = demoService.isInDemoMode();
+                const exchange = isDemo ? demoExchangeService : exchangeService;
+
+                // Get the market price
+                const marketData = await exchange.fetchMarketPrice(symbol);
                 fixedPrice = marketData.price || 100; // Use market price or default
-                logService.log('info', `Using market price ${fixedPrice} for ${symbol}`, null, 'UnifiedTradeService');
+                logService.log('info', `Using market price ${fixedPrice} for ${symbol} (${isDemo ? 'demo' : 'live'} mode)`, null, 'UnifiedTradeService');
               } catch (priceError) {
                 fixedPrice = 100; // Default fallback price
                 logService.log('warn', `Using default price ${fixedPrice} for ${symbol}`, priceError, 'UnifiedTradeService');
@@ -608,7 +650,7 @@ class UnifiedTradeService extends EventEmitter {
   /**
    * Handle trade created event
    */
-  private handleTradeCreated(event: any): void {
+  private async handleTradeCreated(event: any): Promise<void> {
     const trade = event.trade;
     if (!trade) return;
 
@@ -631,7 +673,27 @@ class UnifiedTradeService extends EventEmitter {
 
       // Calculate trade cost with proper fallbacks
       const price = trade.entry_price || trade.entryPrice || trade.price || 0;
-      const quantity = trade.amount || trade.quantity || trade.size || 0;
+      let quantity;
+
+      try {
+        // Get quantity with fallbacks
+        quantity = trade.amount || trade.quantity || trade.size || 0;
+
+        // If quantity is a Promise, resolve it
+        if (quantity instanceof Promise) {
+          logService.log('debug', `Quantity is a Promise in handleTradeCreated for trade ${trade.id}`, null, 'UnifiedTradeService');
+          quantity = await quantity;
+        }
+
+        // Ensure quantity is a valid number
+        if (typeof quantity !== 'number' || isNaN(quantity) || quantity <= 0) {
+          logService.log('warn', `Invalid quantity in handleTradeCreated for trade ${trade.id}: ${quantity}, using default`, null, 'UnifiedTradeService');
+          quantity = 0.001; // Use a small default value
+        }
+      } catch (error) {
+        logService.log('error', `Error processing quantity in handleTradeCreated for trade ${trade.id}`, error, 'UnifiedTradeService');
+        quantity = 0.001; // Use a small default value
+      }
 
       if (!price || !quantity || isNaN(price) || isNaN(quantity)) {
         logService.log('warn', `Invalid trade data for cost calculation: price=${price}, quantity=${quantity}`,
@@ -751,7 +813,7 @@ class UnifiedTradeService extends EventEmitter {
   /**
    * Handle trade closed event
    */
-  private handleTradeClosed(event: any): void {
+  private async handleTradeClosed(event: any): Promise<void> {
     const trade = event.trade;
     if (!trade) return;
 
@@ -769,7 +831,27 @@ class UnifiedTradeService extends EventEmitter {
       // Calculate trade cost and profit/loss
       const entryPrice = trade.entry_price || trade.entryPrice || trade.price || 0;
       const exitPrice = trade.exit_price || trade.exitPrice || 0;
-      const quantity = trade.amount || trade.quantity || trade.size || 0;
+
+      let quantity;
+      try {
+        // Get quantity with fallbacks
+        quantity = trade.amount || trade.quantity || trade.size || 0;
+
+        // If quantity is a Promise, resolve it
+        if (quantity instanceof Promise) {
+          logService.log('debug', `Quantity is a Promise in handleTradeClosed for trade ${trade.id}`, null, 'UnifiedTradeService');
+          quantity = await quantity;
+        }
+
+        // Ensure quantity is a valid number
+        if (typeof quantity !== 'number' || isNaN(quantity) || quantity <= 0) {
+          logService.log('warn', `Invalid quantity in handleTradeClosed for trade ${trade.id}: ${quantity}, using default`, null, 'UnifiedTradeService');
+          quantity = 0.001; // Use a small default value
+        }
+      } catch (error) {
+        logService.log('error', `Error processing quantity in handleTradeClosed for trade ${trade.id}`, error, 'UnifiedTradeService');
+        quantity = 0.001; // Use a small default value
+      }
 
       if (!entryPrice || !quantity) {
         logService.log('warn', `Invalid trade data for profit calculation: entryPrice=${entryPrice}, quantity=${quantity}`,
@@ -867,10 +949,10 @@ class UnifiedTradeService extends EventEmitter {
    */
   cleanup(): void {
     try {
-      // Unsubscribe from events
-      eventBus.unsubscribe('trade:created', this.handleTradeCreated.bind(this));
-      eventBus.unsubscribe('trade:updated', this.handleTradeUpdated.bind(this));
-      eventBus.unsubscribe('trade:closed', this.handleTradeClosed.bind(this));
+      // Unsubscribe from events - we need to unsubscribe all handlers for these events
+      eventBus.unsubscribeAll('trade:created');
+      eventBus.unsubscribeAll('trade:updated');
+      eventBus.unsubscribeAll('trade:closed');
 
       // Reset initialization flag
       this.initialized = false;

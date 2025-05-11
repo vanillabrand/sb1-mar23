@@ -253,13 +253,26 @@ class TradeGenerator extends EventEmitter {
             });
 
             // Calculate position size using the budget we already retrieved
+            let positionSize;
+            try {
+              positionSize = await this.calculatePositionSize(
+                strategy,
+                budget.available,
+                currentPrice,
+                signal.confidence
+              );
 
-            let positionSize = this.calculatePositionSize(
-              strategy,
-              budget.available,
-              currentPrice,
-              signal.confidence
-            );
+              // Ensure positionSize is a number, not a Promise
+              if (positionSize instanceof Promise) {
+                positionSize = await positionSize;
+              }
+
+              logService.log('debug', `Calculated position size for ${symbol}: ${positionSize}`, null, 'TradeGenerator');
+            } catch (error) {
+              logService.log('error', `Error calculating position size for ${symbol}`, error, 'TradeGenerator');
+              // Use a safe default value
+              positionSize = 0.001;
+            }
 
             // Check if position size is too small
             let positionValue = positionSize * currentPrice;

@@ -29,6 +29,8 @@ import BudgetAlertsList from './BudgetAlertsList';
 import { TradeBudgetPanel } from './TradeBudgetPanel';
 import BudgetValidationStatus from './BudgetValidationStatus';
 import TradeExecutionMetrics from './TradeExecutionMetrics';
+import { StrategyActivationWizard } from './StrategyActivationWizard';
+import { ErrorDisplay } from './ErrorDisplay';
 import type { RiskLevel, Strategy, StrategyBudget, Trade, MarketType } from '../lib/types';
 import { standardizeAssetPairFormat } from '../lib/format-utils';
 
@@ -96,6 +98,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showBudgetAdjustmentModal, setShowBudgetAdjustmentModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showActivationWizard, setShowActivationWizard] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [strategyBudget, setStrategyBudget] = useState<number>(0);
   const [availableBalance, setAvailableBalance] = useState<number>(0);
@@ -607,25 +610,14 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       setIsActivating(true);
       setError(null);
 
-      if (onActivate) {
-        // Use the provided onActivate callback
-        const activationResult = await onActivate(strategy);
+      // Show the new activation wizard instead of the budget modal
+      logService.log('info', `Showing activation wizard for strategy ${strategy.id}`, null, 'StrategyCard');
+      setShowActivationWizard(true);
+      setIsActivating(false);
+      return;
 
-        // If activation failed or was cancelled (e.g., budget modal shown), don't update UI
-        if (activationResult === false) {
-          logService.log('info', `Strategy ${strategy.id} activation not completed`, null, 'StrategyCard');
-          setIsActivating(false);
-          return;
-        }
-      } else {
-        // Fallback to the original implementation
-        // Always show budget modal when activating a strategy
-        logService.log('info', `Showing budget modal for strategy ${strategy.id}`, null, 'StrategyCard');
-        setSelectedStrategy(strategy);
-        setShowBudgetModal(true);
-        setIsActivating(false);
-        return;
-      }
+      // The wizard will handle the activation process
+      // The code below is kept for reference but will not be executed
 
       // Refresh data
       if (onRefresh) {

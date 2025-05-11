@@ -167,6 +167,81 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     return new Map(this.budgets);
   }
 
+  /**
+   * Validate a budget object
+   * @param budget The budget to validate
+   * @returns True if the budget is valid, false otherwise
+   */
+  private validateBudget(budget: StrategyBudget): boolean {
+    if (!budget) return false;
+
+    try {
+      // Check required fields
+      if (typeof budget.total !== 'number' || isNaN(budget.total)) return false;
+      if (typeof budget.allocated !== 'number' || isNaN(budget.allocated)) return false;
+      if (typeof budget.available !== 'number' || isNaN(budget.available)) return false;
+
+      // Check that available + allocated = total (with small rounding error tolerance)
+      const sum = budget.available + budget.allocated;
+      const diff = Math.abs(sum - budget.total);
+      if (diff > 0.01) {
+        logService.log('warn', `Budget validation failed: available (${budget.available}) + allocated (${budget.allocated}) != total (${budget.total})`,
+          { diff, budget }, 'TradeService');
+        return false;
+      }
+
+      // Check that values are not negative
+      if (budget.total < 0 || budget.allocated < 0 || budget.available < 0) {
+        logService.log('warn', 'Budget validation failed: negative values', { budget }, 'TradeService');
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      logService.log('error', 'Error validating budget', error, 'TradeService');
+      return false;
+    }
+  }
+
+  updateBudgetCache(strategyId: string, budget: StrategyBudget): void {
+    if (!strategyId || !budget) {
+      logService.log('error', 'Invalid parameters for updateBudgetCache', { strategyId, budget }, 'TradeService');
+      return;
+    }
+
+    try {
+      // Format budget values to 2 decimal places
+      const formattedBudget = {
+        ...budget,
+        total: Number(budget.total.toFixed(2)),
+        allocated: Number(budget.allocated.toFixed(2)),
+        available: Number(budget.available.toFixed(2)),
+        maxPositionSize: budget.maxPositionSize ? Number(budget.maxPositionSize.toFixed(2)) : budget.total * 0.1,
+        lastUpdated: Date.now() // Add timestamp
+      };
+
+      // Validate the budget
+      if (!this.validateBudget(formattedBudget)) {
+        logService.log('error', 'Invalid budget in updateBudgetCache', { budget: formattedBudget }, 'TradeService');
+        return;
+      }
+
+      // Update the budget in memory
+      this.budgets.set(strategyId, formattedBudget);
+
+      // Save to localStorage
+      this.saveBudgets();
+
+      // Emit events
+      this.emit('budgetUpdated', { strategyId, budget: formattedBudget });
+      eventBus.emit('budget:updated', { strategyId, budget: formattedBudget });
+
+      logService.log('info', `Budget cache updated for strategy ${strategyId}`, { budget: formattedBudget }, 'TradeService');
+    } catch (error) {
+      logService.log('error', `Failed to update budget cache for strategy ${strategyId}`, error, 'TradeService');
+    }
+  }
+
   // Calculate the total available budget after subtracting allocated funds.
   calculateAvailableBudget(): number {
     // Sum the total budgets of all strategies.
@@ -571,6 +646,36 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
         { budget: updatedBudget, tradeId, tradeStatus }, 'TradeService');
     } catch (error) {
       logService.log('error', `Error in releaseBudgetFromTrade for strategy ${strategyId}`, error, 'TradeService');
+    }
+  }
+
+  /**
+   * Update budget with profit/loss from a trade
+   * @param strategyId The ID of the strategy
+   * @param profit The profit/loss amount
+   * @param tradeId The ID of the trade
+   * @param status The status of the trade
+   * @returns True if successful, false otherwise
+   */
+  async updateBudgetWithProfit(
+    strategyId: string,
+    profit: number,
+    tradeId: string,
+    status: string = 'closed'
+  ): Promise<boolean> {
+    try {
+      // Format the profit to 2 decimal places
+      const formattedProfit = Number(profit.toFixed(2));
+
+      // Call releaseBudgetFromTrade with 0 amount and the profit
+      await this.releaseBudgetFromTrade(strategyId, 0, formattedProfit, tradeId, status);
+
+      logService.log('info', `Updated budget for strategy ${strategyId} with profit ${formattedProfit}`,
+        { tradeId, status }, 'TradeService');
+      return true;
+    } catch (error) {
+      logService.log('error', `Failed to update budget with profit for strategy ${strategyId}`, error, 'TradeService');
+      return false;
     }
   }
 
@@ -1734,6 +1839,363 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
       const defaultBudget = this.createDefaultBudget();
       this.budgets.set(strategyId, defaultBudget);
       this.saveBudgets();
+    }
+  }
+
+  /**
+   * Generate trades for a strategy using DeepSeek AI
+   * @param strategy The strategy to generate trades for
+   * @returns Array of generated trades
+   */
+  async generateTradesForStrategy(strategy: any): Promise<any[]> {
+    try {
+      if (!strategy || !strategy.id) {
+        logService.log('error', 'Invalid strategy provided for trade generation', { strategy }, 'TradeService');
+        return [];
+      }
+
+      logService.log('info', `Generating trades for strategy ${strategy.id}`, {
+        strategyName: strategy.name || strategy.title,
+        marketType: strategy.market_type || strategy.marketType,
+        status: strategy.status
+      }, 'TradeService');
+
+      // Check if strategy is active
+      if (strategy.status !== 'active') {
+        logService.log('info', `Strategy ${strategy.id} is not active, skipping trade generation`, null, 'TradeService');
+        return [];
+      }
+
+      // Get budget for this strategy
+      const budget = this.getBudget(strategy.id);
+      if (!budget || budget.available <= 0) {
+        logService.log('info', `No available budget for strategy ${strategy.id}, skipping trade generation`, { budget }, 'TradeService');
+        return [];
+      }
+
+      // Import AI service dynamically to avoid circular dependencies
+      const { AIService } = await import('./ai-service');
+      const aiService = new AIService();
+
+      // Generate trades using DeepSeek AI
+      const trades = await aiService.generateTradesForStrategy(strategy, budget);
+
+      if (!trades || trades.length === 0) {
+        logService.log('info', `No trades generated for strategy ${strategy.id}`, null, 'TradeService');
+        return [];
+      }
+
+      logService.log('info', `Generated ${trades.length} trades for strategy ${strategy.id}`, null, 'TradeService');
+
+      // Process and save each trade
+      const savedTrades = [];
+      for (const trade of trades) {
+        try {
+          // Ensure trade has all required fields
+          const completeTrade = {
+            id: uuidv4(),
+            strategy_id: strategy.id,
+            user_id: strategy.user_id,
+            symbol: trade.symbol || trade.pair,
+            side: trade.side || 'buy',
+            type: trade.type || 'market',
+            amount: trade.amount || 0,
+            price: trade.price || 0,
+            status: 'pending',
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            market_type: strategy.market_type || strategy.marketType || 'spot',
+            metadata: {
+              ...trade,
+              entry_conditions: trade.entry_conditions || trade.entryConditions || [],
+              exit_conditions: trade.exit_conditions || trade.exitConditions || [],
+              stop_loss: trade.stop_loss || trade.stopLoss,
+              take_profit: trade.take_profit || trade.takeProfit,
+              timeframe: trade.timeframe || '1h',
+              reason: trade.reason || 'AI generated trade'
+            }
+          };
+
+          // Reserve budget for this trade
+          const budgetReserved = this.reserveBudgetForTrade(
+            strategy.id,
+            completeTrade.amount * completeTrade.price,
+            completeTrade.id,
+            completeTrade.market_type
+          );
+
+          if (!budgetReserved) {
+            logService.log('warn', `Failed to reserve budget for trade ${completeTrade.id}`, {
+              trade: completeTrade,
+              budget: this.getBudget(strategy.id)
+            }, 'TradeService');
+            continue;
+          }
+
+          // Save trade to database
+          const { data: savedTrade, error } = await supabase
+            .from('trades')
+            .insert(completeTrade)
+            .select()
+            .single();
+
+          if (error) {
+            logService.log('error', `Failed to save trade ${completeTrade.id}`, { error, trade: completeTrade }, 'TradeService');
+            // Release the budget since we couldn't save the trade
+            await this.releaseBudgetFromTrade(
+              strategy.id,
+              completeTrade.amount * completeTrade.price,
+              0,
+              completeTrade.id,
+              'cancelled',
+              completeTrade.market_type
+            );
+            continue;
+          }
+
+          // Emit events
+          this.emit('tradeCreated', savedTrade);
+          eventBus.emit('trade:created', savedTrade);
+
+          savedTrades.push(savedTrade);
+
+          logService.log('info', `Trade ${savedTrade.id} created for strategy ${strategy.id}`, {
+            symbol: savedTrade.symbol,
+            amount: savedTrade.amount,
+            price: savedTrade.price
+          }, 'TradeService');
+        } catch (tradeError) {
+          logService.log('error', `Error processing trade for strategy ${strategy.id}`, tradeError, 'TradeService');
+        }
+      }
+
+      return savedTrades;
+    } catch (error) {
+      logService.log('error', `Failed to generate trades for strategy ${strategy?.id}`, error, 'TradeService');
+      return [];
+    }
+  }
+
+  /**
+   * Update the status of a trade
+   * @param tradeId The ID of the trade to update
+   * @returns The updated trade
+   */
+  async updateTradeStatus(tradeId: string): Promise<any> {
+    try {
+      if (!tradeId) {
+        logService.log('error', 'Invalid trade ID provided for status update', null, 'TradeService');
+        return null;
+      }
+
+      // Get the trade from the database
+      const { data: trade, error } = await supabase
+        .from('trades')
+        .select('*')
+        .eq('id', tradeId)
+        .single();
+
+      if (error) {
+        logService.log('error', `Failed to get trade ${tradeId}`, error, 'TradeService');
+        return null;
+      }
+
+      if (!trade) {
+        logService.log('warn', `Trade ${tradeId} not found`, null, 'TradeService');
+        return null;
+      }
+
+      // Check if trade is already closed
+      if (trade.status === 'closed') {
+        logService.log('info', `Trade ${tradeId} is already closed`, null, 'TradeService');
+        return trade;
+      }
+
+      // Import AI service dynamically to avoid circular dependencies
+      const { AIService } = await import('./ai-service');
+      const aiService = new AIService();
+
+      // Check if trade should be closed
+      const shouldClose = await aiService.shouldCloseTrade(trade);
+
+      if (shouldClose) {
+        // Calculate profit/loss
+        const entryValue = trade.amount * trade.price;
+        const currentPrice = await this.getCurrentPrice(trade.symbol);
+        const exitValue = trade.amount * currentPrice;
+        const profit = trade.side === 'buy' ? exitValue - entryValue : entryValue - exitValue;
+
+        // Update trade status
+        const { data: updatedTrade, error: updateError } = await supabase
+          .from('trades')
+          .update({
+            status: 'closed',
+            exit_price: currentPrice,
+            exit_time: new Date().toISOString(),
+            profit: profit,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', tradeId)
+          .select()
+          .single();
+
+        if (updateError) {
+          logService.log('error', `Failed to update trade ${tradeId}`, updateError, 'TradeService');
+          return trade;
+        }
+
+        // Release budget with profit/loss
+        await this.releaseBudgetFromTrade(
+          trade.strategy_id,
+          entryValue,
+          profit,
+          tradeId,
+          'closed',
+          trade.market_type
+        );
+
+        // Emit events
+        this.emit('tradeClosed', updatedTrade);
+        eventBus.emit('trade:closed', updatedTrade);
+
+        logService.log('info', `Trade ${tradeId} closed with profit ${profit}`, {
+          symbol: trade.symbol,
+          entryPrice: trade.price,
+          exitPrice: currentPrice,
+          profit
+        }, 'TradeService');
+
+        return updatedTrade;
+      }
+
+      return trade;
+    } catch (error) {
+      logService.log('error', `Failed to update trade status for ${tradeId}`, error, 'TradeService');
+      return null;
+    }
+  }
+
+  /**
+   * Get the current price for a symbol
+   * @param symbol The symbol to get the price for
+   * @returns The current price
+   */
+  private async getCurrentPrice(symbol: string): Promise<number> {
+    try {
+      // Import exchange service dynamically to avoid circular dependencies
+      const { exchangeService } = await import('./exchange-service');
+
+      // Get the current price from the exchange
+      const price = await exchangeService.fetchMarketPrice(symbol);
+      return price.price;
+    } catch (error) {
+      logService.log('error', `Failed to get current price for ${symbol}`, error, 'TradeService');
+      return 0;
+    }
+  }
+
+  /**
+   * Reset active strategies
+   * This is called when the exchange is changed
+   */
+  async resetActiveStrategies(): Promise<void> {
+    try {
+      // Get current user
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) {
+        logService.log('warn', 'No authenticated user found, skipping strategy reset', null, 'TradeService');
+        return;
+      }
+
+      // Get all active strategies
+      const { data: strategies, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .eq('status', 'active');
+
+      if (error) {
+        logService.log('error', 'Failed to get active strategies', error, 'TradeService');
+        return;
+      }
+
+      if (!strategies || strategies.length === 0) {
+        logService.log('info', 'No active strategies found', null, 'TradeService');
+        return;
+      }
+
+      // Deactivate each strategy
+      for (const strategy of strategies) {
+        try {
+          // Update strategy status
+          const { error: updateError } = await supabase
+            .from('strategies')
+            .update({
+              status: 'inactive',
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', strategy.id);
+
+          if (updateError) {
+            logService.log('error', `Failed to deactivate strategy ${strategy.id}`, updateError, 'TradeService');
+            continue;
+          }
+
+          // Close all open trades for this strategy
+          const { data: trades, error: tradesError } = await supabase
+            .from('trades')
+            .select('*')
+            .eq('strategy_id', strategy.id)
+            .in('status', ['open', 'pending']);
+
+          if (tradesError) {
+            logService.log('error', `Failed to get open trades for strategy ${strategy.id}`, tradesError, 'TradeService');
+            continue;
+          }
+
+          if (trades && trades.length > 0) {
+            for (const trade of trades) {
+              try {
+                // Update trade status
+                const { error: tradeUpdateError } = await supabase
+                  .from('trades')
+                  .update({
+                    status: 'cancelled',
+                    updated_at: new Date().toISOString()
+                  })
+                  .eq('id', trade.id);
+
+                if (tradeUpdateError) {
+                  logService.log('error', `Failed to cancel trade ${trade.id}`, tradeUpdateError, 'TradeService');
+                  continue;
+                }
+
+                // Release budget
+                await this.releaseBudgetFromTrade(
+                  strategy.id,
+                  trade.amount * trade.price,
+                  0,
+                  trade.id,
+                  'cancelled',
+                  trade.market_type
+                );
+
+                logService.log('info', `Trade ${trade.id} cancelled due to strategy deactivation`, null, 'TradeService');
+              } catch (tradeError) {
+                logService.log('error', `Error cancelling trade ${trade.id}`, tradeError, 'TradeService');
+              }
+            }
+          }
+
+          logService.log('info', `Strategy ${strategy.id} deactivated`, null, 'TradeService');
+        } catch (strategyError) {
+          logService.log('error', `Error deactivating strategy ${strategy.id}`, strategyError, 'TradeService');
+        }
+      }
+
+      logService.log('info', `Reset ${strategies.length} active strategies`, null, 'TradeService');
+    } catch (error) {
+      logService.log('error', 'Failed to reset active strategies', error, 'TradeService');
     }
   }
 }
