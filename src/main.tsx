@@ -54,18 +54,24 @@ const initApp = async () => {
         console.warn('Main: Log service initialization failed:', logError);
       }
 
-      // Render the actual application
-      root.render(
-        <StrictMode>
-          <ErrorBoundary>
-            <BrowserRouter>
-              <AuthProvider>
-                <App />
-              </AuthProvider>
-            </BrowserRouter>
-          </ErrorBoundary>
-        </StrictMode>
-      );
+      // Render the application with BrowserRouter instead of RouterProvider
+      try {
+        // Render the actual application
+        root.render(
+          <StrictMode>
+            <ErrorBoundary>
+              <BrowserRouter>
+                <AuthProvider>
+                  <App />
+                </AuthProvider>
+              </BrowserRouter>
+            </ErrorBoundary>
+          </StrictMode>
+        );
+        console.log('Main: Application rendered successfully');
+      } catch (error) {
+        console.error('Failed to render main application:', error);
+      }
     }
   } catch (error) {
     console.error('Main: Failed to initialize application:', error);

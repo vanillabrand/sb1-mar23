@@ -1,12 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { AlertCircle, ArrowLeft, ArrowRight, Check, DollarSign, Zap } from 'lucide-react';
-import { tradeService } from '../lib/trade-service';
-import { logService } from '../lib/log-service';
-import { walletBalanceService } from '../lib/wallet-balance-service';
-import { demoService } from '../lib/demo-service';
-import type { Strategy, StrategyBudget, RiskLevel, MarketType } from '../lib/types';
-import { strategyService } from '../lib/strategy-service';
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  Check,
+  DollarSign,
+  Shield,
+  Zap,
+  Loader2,
+  Target,
+  Gauge
+} from 'lucide-react';
+import { Strategy, StrategyBudget, RiskLevel, MarketType } from '../../lib/types';
+import { tradeService } from '../../lib/trade-service';
+import { strategyService } from '../../lib/strategy-service';
+import { logService } from '../../lib/log-service';
+import { demoService } from '../../lib/demo-service';
 
 interface StrategyActivationWizardProps {
   strategy: Strategy;
@@ -30,43 +40,32 @@ export function StrategyActivationWizard({
   const [totalBudget, setTotalBudget] = useState<number>(
     Math.min((maxBudget || 0) * 0.1, maxBudget || 0)
   );
-  const [availableBalance, setAvailableBalance] = useState<number>(maxBudget || 0);
 
   // Risk settings
-  const [riskLevel, setRiskLevel] = useState<RiskLevel>(strategy.riskLevel || 'Medium');
-  const [marketType, setMarketType] = useState<MarketType>(strategy.marketType || 'spot');
+  const [riskLevel, setRiskLevel] = useState<RiskLevel>(strategy.risk_level || 'Medium');
+  const [marketType, setMarketType] = useState<MarketType>(strategy.market_type || strategy.marketType || 'spot');
 
   // Demo mode
   const isDemoMode = demoService.isDemoMode();
 
   // Calculate position size multiplier based on risk level
   const positionSizeMultiplier = {
+    'Ultra Low': 0.02,
     'Low': 0.05,
     'Medium': 0.1,
-    'High': 0.2
+    'High': 0.2,
+    'Ultra High': 0.3,
+    'Extreme': 0.4,
+    'God Mode': 0.5
   }[riskLevel] || 0.1;
-
-  // Fetch available balance
-  useEffect(() => {
-    const fetchBalance = () => {
-      try {
-        const balance = walletBalanceService.getAvailableBalance(marketType);
-        setAvailableBalance(balance);
-      } catch (error) {
-        logService.log('error', 'Failed to fetch available balance', error, 'StrategyActivationWizard');
-        // Use max budget as fallback
-        setAvailableBalance(maxBudget || 10000);
-      }
-    };
-
-    fetchBalance();
-  }, [marketType, maxBudget]);
 
   // Handle budget change
   const handleBudgetChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const parsedValue = parseFloat(e.target.value);
-    if (!isNaN(parsedValue)) {
-      setTotalBudget(Number(parsedValue.toFixed(2)));
+    const value = parseFloat(e.target.value);
+    if (isNaN(value)) {
+      setTotalBudget(0);
+    } else {
+      setTotalBudget(Math.min(value, maxBudget || 0));
     }
   };
 
@@ -96,12 +95,6 @@ export function StrategyActivationWizard({
       setIsProcessing(true);
       setError(null);
 
-      logService.log('info', `Starting strategy activation for ${strategy.id}`, {
-        totalBudget,
-        positionSizeMultiplier,
-        marketType
-      }, 'StrategyActivationWizard');
-
       // Create budget object
       const budget: StrategyBudget = {
         total: Number(totalBudget.toFixed(2)),
@@ -113,40 +106,31 @@ export function StrategyActivationWizard({
       };
 
       // Set budget for strategy
-      try {
-        await tradeService.setBudget(strategy.id, budget);
-        logService.log('info', `Budget set for strategy ${strategy.id}`, { budget }, 'StrategyActivationWizard');
-      } catch (budgetError) {
-        logService.log('error', `Failed to set budget for strategy ${strategy.id}`, budgetError, 'StrategyActivationWizard');
-        throw new Error(`Failed to set budget: ${budgetError instanceof Error ? budgetError.message : 'Unknown error'}`);
-      }
+      await tradeService.setBudget(strategy.id, budget);
 
       // Activate strategy using strategyService
-      try {
-        const activatedStrategy = await strategyService.activateStrategy(strategy.id);
-        logService.log('info', `Strategy ${strategy.id} activated successfully`, { activatedStrategy }, 'StrategyActivationWizard');
-      } catch (activationError) {
-        logService.log('error', `Failed to activate strategy ${strategy.id}`, activationError, 'StrategyActivationWizard');
+      const activatedStrategy = await strategyService.activateStrategy(strategy.id);
 
-        // Try to clean up the budget if activation failed
-        try {
-          await tradeService.setBudget(strategy.id, null);
-          logService.log('info', `Cleaned up budget for strategy ${strategy.id} after activation failure`, null, 'StrategyActivationWizard');
-        } catch (cleanupError) {
-          logService.log('warn', `Failed to clean up budget for strategy ${strategy.id}`, cleanupError, 'StrategyActivationWizard');
-        }
-
-        throw new Error(`Failed to activate strategy: ${activationError instanceof Error ? activationError.message : 'Unknown error'}`);
+      if (!activatedStrategy) {
+        throw new Error('Failed to activate strategy - no response from activation');
       }
 
-      // Complete wizard
+      // Log success
+      logService.log('info', 'Strategy activated successfully', {
+        strategyId: strategy.id,
+        budget,
+        marketType
+      }, 'StrategyActivationWizard');
+
+      // Important: Set isProcessing to false before calling onComplete
       setIsProcessing(false);
+
+      // Complete wizard
       onComplete(true);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to activate strategy';
-      setError(errorMessage);
+      setError(error instanceof Error ? error.message : 'Failed to activate strategy');
       setIsProcessing(false);
-      logService.log('error', `Strategy activation failed: ${errorMessage}`, error, 'StrategyActivationWizard');
+      logService.log('error', 'Failed to activate strategy', error, 'StrategyActivationWizard');
     }
   };
 
@@ -179,14 +163,14 @@ export function StrategyActivationWizard({
                     onChange={handleBudgetChange}
                     className="pl-10 w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg px-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-turquoise focus:border-transparent"
                     min={0}
-                    max={availableBalance}
+                    max={maxBudget}
                     step={0.01}
                     required
                     disabled={isProcessing}
                   />
                 </div>
                 <p className="mt-1 text-sm text-gray-400">
-                  Available: ${availableBalance.toLocaleString(undefined, {
+                  Available: ${maxBudget.toLocaleString(undefined, {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}
@@ -219,6 +203,7 @@ export function StrategyActivationWizard({
                   {(['Low', 'Medium', 'High'] as RiskLevel[]).map((level) => (
                     <button
                       key={level}
+                      type="button"
                       onClick={() => handleRiskLevelChange(level)}
                       className={`flex items-center justify-center py-2 px-4 rounded-lg border ${
                         riskLevel === level
@@ -226,15 +211,13 @@ export function StrategyActivationWizard({
                           : 'bg-gunmetal-800 border-gunmetal-700 text-gray-400 hover:bg-gunmetal-700'
                       }`}
                     >
+                      {level === 'Low' && <Shield className="w-4 h-4 mr-2" />}
+                      {level === 'Medium' && <Target className="w-4 h-4 mr-2" />}
+                      {level === 'High' && <Gauge className="w-4 h-4 mr-2" />}
                       {level}
                     </button>
                   ))}
                 </div>
-                <p className="mt-2 text-sm text-gray-400">
-                  {riskLevel === 'Low' && 'Conservative approach with smaller position sizes.'}
-                  {riskLevel === 'Medium' && 'Balanced approach with moderate position sizes.'}
-                  {riskLevel === 'High' && 'Aggressive approach with larger position sizes.'}
-                </p>
               </div>
 
               <div>
@@ -245,8 +228,9 @@ export function StrategyActivationWizard({
                   {(['spot', 'margin', 'futures'] as MarketType[]).map((type) => (
                     <button
                       key={type}
+                      type="button"
                       onClick={() => handleMarketTypeChange(type)}
-                      className={`flex items-center justify-center py-2 px-4 rounded-lg border capitalize ${
+                      className={`py-2 px-4 rounded-lg border capitalize ${
                         marketType === type
                           ? 'bg-neon-turquoise/20 border-neon-turquoise text-white'
                           : 'bg-gunmetal-800 border-gunmetal-700 text-gray-400 hover:bg-gunmetal-700'
@@ -271,37 +255,49 @@ export function StrategyActivationWizard({
           >
             <h3 className="text-xl font-bold text-white">Confirm Activation</h3>
             <p className="text-gray-400">
-              Review your settings and confirm strategy activation.
+              Review your settings and activate the strategy.
             </p>
 
-            <div className="space-y-4 bg-gunmetal-800/50 rounded-lg p-4">
+            <div className="bg-gunmetal-800/50 rounded-lg p-4 space-y-3">
               <div className="flex justify-between">
-                <span className="text-gray-400">Strategy</span>
+                <span className="text-gray-400">Strategy:</span>
                 <span className="text-white font-medium">{strategy.name}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Budget</span>
-                <span className="text-white font-medium">${totalBudget.toFixed(2)}</span>
+                <span className="text-gray-400">Budget:</span>
+                <span className="text-white font-medium">${totalBudget.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Risk Level</span>
+                <span className="text-gray-400">Risk Level:</span>
                 <span className="text-white font-medium">{riskLevel}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Market Type</span>
+                <span className="text-gray-400">Market Type:</span>
                 <span className="text-white font-medium capitalize">{marketType}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Max Position Size</span>
-                <span className="text-white font-medium">${(totalBudget * positionSizeMultiplier).toFixed(2)}</span>
+                <span className="text-gray-400">Trading Pairs:</span>
+                <span className="text-white font-medium">{strategy.selected_pairs?.length || 0}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-400">Trading Mode</span>
-                <span className={`font-medium ${isDemoMode ? 'text-neon-turquoise' : 'text-neon-raspberry'}`}>
+                <span className="text-gray-400">Mode:</span>
+                <span className={isDemoMode ? 'text-neon-yellow font-medium' : 'text-neon-turquoise font-medium'}>
                   {isDemoMode ? 'Demo' : 'Live'}
                 </span>
               </div>
             </div>
+
+            {isDemoMode && (
+              <div className="p-3 bg-neon-yellow/10 border border-neon-yellow/20 rounded-lg flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-neon-yellow" />
+                <p className="text-sm text-neon-yellow">
+                  Demo Mode: This strategy will use simulated funds.
+                </p>
+              </div>
+            )}
           </motion.div>
         );
 
@@ -311,15 +307,7 @@ export function StrategyActivationWizard({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto"
-      onClick={(e) => {
-        // Only close if clicking the backdrop, not the modal content
-        if (e.target === e.currentTarget && !isProcessing) {
-          onCancel();
-        }
-      }}
-    >
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
       <div
         className="bg-gunmetal-900 border border-gunmetal-700 rounded-lg p-6 w-full max-w-md shadow-xl"
         onClick={(e) => e.stopPropagation()} // Prevent clicks inside modal from closing it
@@ -338,7 +326,7 @@ export function StrategyActivationWizard({
         {error && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center gap-2">
             <AlertCircle className="w-4 h-4" />
-            {error}
+            <p>{error}</p>
           </div>
         )}
 
@@ -380,8 +368,8 @@ export function StrategyActivationWizard({
           {currentStep > 0 ? (
             <button
               onClick={handlePrevStep}
-              disabled={isProcessing}
               className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800 text-gray-300 rounded-lg hover:bg-gunmetal-700 transition-colors"
+              disabled={isProcessing}
             >
               <ArrowLeft className="w-4 h-4" />
               Back
@@ -389,8 +377,8 @@ export function StrategyActivationWizard({
           ) : (
             <button
               onClick={onCancel}
+              className="px-4 py-2 text-gray-400 hover:text-gray-300"
               disabled={isProcessing}
-              className="flex items-center gap-2 px-4 py-2 bg-gunmetal-800 text-gray-300 rounded-lg hover:bg-gunmetal-700 transition-colors"
             >
               Cancel
             </button>
@@ -411,7 +399,10 @@ export function StrategyActivationWizard({
               className="flex items-center gap-2 px-4 py-2 bg-neon-turquoise text-gunmetal-950 rounded-lg hover:bg-neon-yellow transition-colors disabled:opacity-50 disabled:pointer-events-none"
             >
               {isProcessing ? (
-                <>Processing...</>
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Processing...
+                </>
               ) : (
                 <>
                   Activate

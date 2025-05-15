@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Brain,
-  Plus,
   AlertCircle,
   Loader2,
   Search,
-  Filter,
   SortAsc,
   SortDesc,
   Copy,
@@ -16,7 +13,6 @@ import {
   Crown
 } from 'lucide-react';
 import { useAuth } from '../hooks/useAuth';
-import { supabase } from '../lib/supabase';
 import { templateService } from '../lib/template-service';
 import { logService } from '../lib/log-service';
 import { BudgetModal } from './BudgetModal';
@@ -24,9 +20,8 @@ import { tradeService } from '../lib/trade-service';
 import { strategyService } from '../lib/strategy-service';
 import { strategySync } from '../lib/strategy-sync';
 import { marketService } from '../lib/market-service';
-import { tradeManager } from '../lib/trade-manager';
 import { eventBus } from '../lib/event-bus';
-import type { StrategyTemplate, RiskLevel, StrategyBudget } from '../lib/types';
+import type { StrategyTemplate, RiskLevel } from '../lib/types';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 
 interface StrategyLibraryProps {
@@ -41,13 +36,12 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
   const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [riskFilter, setRiskFilter] = useState<RiskLevel | 'all'>('all');
-  const [sortField, setSortField] = useState<'winRate' | 'avgReturn'>('winRate');
+  const [sortField] = useState<'winRate' | 'averageProfit'>('winRate');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [selectedTemplate, setSelectedTemplate] = useState<string | null>(null);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [pendingTemplate, setPendingTemplate] = useState<StrategyTemplate | null>(null);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
-  const [isCreating, setIsCreating] = useState(false);
+  const [isCreating] = useState(false);
   const screenSize = useScreenSize();
 
   useEffect(() => {
@@ -96,7 +90,7 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
     }
   };
 
-  const handleSubmitBudget = async (budget: number) => {
+  const handleSubmitBudget = async (budgetObj: any) => {
     if (!pendingTemplate) return;
 
     try {
@@ -110,25 +104,16 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
         throw new Error('Failed to create strategy from template');
       }
 
-      // Create a proper budget object
-      const budgetObj = {
-        total: budget,
-        allocated: 0,
-        available: budget,
-        maxPositionSize: budget * 0.2 // 20% of total budget as max position size
-      };
-
       // Set budget
       await tradeService.setBudget(strategy.id, budgetObj);
 
-      // Activate the strategy
+      // Activate the strategy using strategyService
       const activatedStrategy = await strategyService.activateStrategy(strategy.id);
 
       // Force refresh all views that display strategies
       await Promise.all([
         strategySync.initialize(), // Refresh strategy sync
-        marketService.syncStrategies(), // Refresh market data
-        tradeManager.syncTrades() // Refresh trades
+        marketService.startStrategyMonitoring(activatedStrategy) // Refresh market data
       ]);
 
       // Get the latest strategies after initialization
@@ -157,7 +142,7 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
         onStrategyCreated();
       }
 
-      logService.log('info', 'Strategy created from template with budget and activated', { strategy: activatedStrategy, budget }, 'StrategyLibrary');
+      logService.log('info', 'Strategy created from template with budget and activated', { strategy: activatedStrategy, budgetObj }, 'StrategyLibrary');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to create strategy with budget';
       setError(errorMessage);
@@ -178,9 +163,8 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
     return sortOrder === 'asc' ? comparison : -comparison;
   });
 
-  // Limit number of displayed templates based on screen size
-  const displayLimit = screenSize === 'sm' ? 3 : 6;
-  const displayedTemplates = filteredTemplates.slice(0, 10);
+  // Get templates to display
+  const displayedTemplates = filteredTemplates.slice(0, screenSize === 'sm' ? 3 : 10);
 
   const getRiskIcon = (risk: RiskLevel) => {
     switch (risk) {
@@ -313,8 +297,8 @@ export function StrategyLibrary({ onStrategyCreated, className = "" }: StrategyL
                   <div className="bg-gunmetal-900/30 p-3 rounded-lg">
                     <p className="text-xs text-gray-400">Expected Return</p>
                     <p className="text-lg font-medium text-neon-yellow">
-                      {template.metrics && typeof template.metrics.avgReturn !== 'undefined'
-                        ? Number(template.metrics.avgReturn).toFixed(1)
+                      {template.metrics && typeof template.metrics.averageProfit !== 'undefined'
+                        ? Number(template.metrics.averageProfit).toFixed(1)
                         : '8.0'}%
                     </p>
                   </div>

@@ -17,10 +17,16 @@ export interface TradeOptions {
 }
 
 export interface MarketData {
-  ticker: any; // Replace with proper ticker type
-  trades: any[]; // Replace with proper trade type
-  candles: any[]; // Replace with proper candle type
+  symbol: string;
+  price: number;
+  bid: number;
+  ask: number;
+  high24h: number;
+  low24h: number;
+  volume24h: number;
+  change24h: number;
   lastUpdate: number;
+  source: string;
 }
 
 export type TimeFrame = '1m' | '5m' | '15m' | '30m' | '1h' | '4h' | '1d';

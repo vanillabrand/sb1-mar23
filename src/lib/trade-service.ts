@@ -115,46 +115,71 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     eventBus.emit('budget:updated', { strategyId, budget });
   }
 
-  // Validate that the budget object has correct numeric values.
+  /**
+   * Validate that the budget object has correct numeric values.
+   * @param budget The budget to validate
+   * @returns True if the budget is valid, false otherwise
+   */
   private validateBudget(budget: StrategyBudget): boolean {
-    // Special case for deactivation - allow zero budget
-    if (budget.total === 0 && budget.allocated === 0 && budget.available === 0 && budget.maxPositionSize === 0) {
-      return true;
-    }
+    if (!budget) return false;
 
-    // Check for NaN values
-    if (isNaN(budget.total) || isNaN(budget.allocated) || isNaN(budget.available) || isNaN(budget.maxPositionSize)) {
-      logService.log('error', 'Budget contains NaN values', { budget }, 'TradeService');
+    try {
+      // Special case for deactivation - allow zero budget
+      if (budget.total === 0 && budget.allocated === 0 && budget.available === 0 && budget.maxPositionSize === 0) {
+        return true;
+      }
+
+      // Check required fields
+      if (typeof budget.total !== 'number' || isNaN(budget.total)) return false;
+      if (typeof budget.allocated !== 'number' || isNaN(budget.allocated)) return false;
+      if (typeof budget.available !== 'number' || isNaN(budget.available)) return false;
+
+      // Check for NaN values
+      if (isNaN(budget.total) || isNaN(budget.allocated) || isNaN(budget.available) || isNaN(budget.maxPositionSize)) {
+        logService.log('error', 'Budget contains NaN values', { budget }, 'TradeService');
+        return false;
+      }
+
+      // Check for negative values
+      if (budget.total < 0 || budget.allocated < 0 || budget.available < 0 || budget.maxPositionSize < 0) {
+        logService.log('error', 'Budget contains negative values', { budget }, 'TradeService');
+        return false;
+      }
+
+      // Check that available + allocated = total (with small rounding error tolerance)
+      const sum = budget.available + budget.allocated;
+      const diff = Math.abs(sum - budget.total);
+      if (diff > 0.01) {
+        logService.log('warn', `Budget validation failed: available (${budget.available}) + allocated (${budget.allocated}) != total (${budget.total})`,
+          { diff, budget }, 'TradeService');
+        return false;
+      }
+
+      // Normal budget validation
+      const isValid = (
+        budget.total > 0 &&
+        budget.allocated >= 0 &&
+        budget.available >= 0 &&
+        budget.maxPositionSize > 0 &&
+        budget.allocated + budget.available <= budget.total
+      );
+
+      if (!isValid) {
+        logService.log('error', 'Budget validation failed', {
+          budget,
+          totalPositive: budget.total > 0,
+          allocatedNonNegative: budget.allocated >= 0,
+          availableNonNegative: budget.available >= 0,
+          maxPositionSizePositive: budget.maxPositionSize > 0,
+          sumCheck: budget.allocated + budget.available <= budget.total
+        }, 'TradeService');
+      }
+
+      return isValid;
+    } catch (error) {
+      logService.log('error', 'Error validating budget', error, 'TradeService');
       return false;
     }
-
-    // Check for negative values
-    if (budget.total < 0 || budget.allocated < 0 || budget.available < 0 || budget.maxPositionSize < 0) {
-      logService.log('error', 'Budget contains negative values', { budget }, 'TradeService');
-      return false;
-    }
-
-    // Normal budget validation
-    const isValid = (
-      budget.total > 0 &&
-      budget.allocated >= 0 &&
-      budget.available >= 0 &&
-      budget.maxPositionSize > 0 &&
-      budget.allocated + budget.available <= budget.total
-    );
-
-    if (!isValid) {
-      logService.log('error', 'Budget validation failed', {
-        budget,
-        totalPositive: budget.total > 0,
-        allocatedNonNegative: budget.allocated >= 0,
-        availableNonNegative: budget.available >= 0,
-        maxPositionSizePositive: budget.maxPositionSize > 0,
-        sumCheck: budget.allocated + budget.available <= budget.total
-      }, 'TradeService');
-    }
-
-    return isValid;
   }
 
   // Retrieve the budget for a given strategy.
@@ -167,79 +192,16 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     return new Map(this.budgets);
   }
 
+
+
   /**
-   * Validate a budget object
-   * @param budget The budget to validate
-   * @returns True if the budget is valid, false otherwise
+   * Simple version of updateBudgetCache for basic updates
+   * @param strategyId The strategy ID
+   * @param budget The updated budget
    */
-  private validateBudget(budget: StrategyBudget): boolean {
-    if (!budget) return false;
-
-    try {
-      // Check required fields
-      if (typeof budget.total !== 'number' || isNaN(budget.total)) return false;
-      if (typeof budget.allocated !== 'number' || isNaN(budget.allocated)) return false;
-      if (typeof budget.available !== 'number' || isNaN(budget.available)) return false;
-
-      // Check that available + allocated = total (with small rounding error tolerance)
-      const sum = budget.available + budget.allocated;
-      const diff = Math.abs(sum - budget.total);
-      if (diff > 0.01) {
-        logService.log('warn', `Budget validation failed: available (${budget.available}) + allocated (${budget.allocated}) != total (${budget.total})`,
-          { diff, budget }, 'TradeService');
-        return false;
-      }
-
-      // Check that values are not negative
-      if (budget.total < 0 || budget.allocated < 0 || budget.available < 0) {
-        logService.log('warn', 'Budget validation failed: negative values', { budget }, 'TradeService');
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      logService.log('error', 'Error validating budget', error, 'TradeService');
-      return false;
-    }
-  }
-
   updateBudgetCache(strategyId: string, budget: StrategyBudget): void {
-    if (!strategyId || !budget) {
-      logService.log('error', 'Invalid parameters for updateBudgetCache', { strategyId, budget }, 'TradeService');
-      return;
-    }
-
-    try {
-      // Format budget values to 2 decimal places
-      const formattedBudget = {
-        ...budget,
-        total: Number(budget.total.toFixed(2)),
-        allocated: Number(budget.allocated.toFixed(2)),
-        available: Number(budget.available.toFixed(2)),
-        maxPositionSize: budget.maxPositionSize ? Number(budget.maxPositionSize.toFixed(2)) : budget.total * 0.1,
-        lastUpdated: Date.now() // Add timestamp
-      };
-
-      // Validate the budget
-      if (!this.validateBudget(formattedBudget)) {
-        logService.log('error', 'Invalid budget in updateBudgetCache', { budget: formattedBudget }, 'TradeService');
-        return;
-      }
-
-      // Update the budget in memory
-      this.budgets.set(strategyId, formattedBudget);
-
-      // Save to localStorage
-      this.saveBudgets();
-
-      // Emit events
-      this.emit('budgetUpdated', { strategyId, budget: formattedBudget });
-      eventBus.emit('budget:updated', { strategyId, budget: formattedBudget });
-
-      logService.log('info', `Budget cache updated for strategy ${strategyId}`, { budget: formattedBudget }, 'TradeService');
-    } catch (error) {
-      logService.log('error', `Failed to update budget cache for strategy ${strategyId}`, error, 'TradeService');
-    }
+    // Call the more comprehensive version with default parameters
+    this.updateBudgetCacheWithOptions(strategyId, budget, false);
   }
 
   // Calculate the total available budget after subtracting allocated funds.
@@ -650,14 +612,14 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
   }
 
   /**
-   * Update budget with profit/loss from a trade
+   * Update budget with profit/loss from a trade with status
    * @param strategyId The ID of the strategy
    * @param profit The profit/loss amount
    * @param tradeId The ID of the trade
    * @param status The status of the trade
    * @returns True if successful, false otherwise
    */
-  async updateBudgetWithProfit(
+  async updateBudgetWithProfitAndStatus(
     strategyId: string,
     profit: number,
     tradeId: string,
@@ -702,13 +664,13 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
   }
 
   /**
-   * Update the budget cache for a strategy
+   * Update the budget cache for a strategy with advanced options
    * This method is used to ensure consistency across all components
    * @param strategyId The strategy ID
    * @param budget The updated budget
    * @param skipEvents Optional flag to skip emitting events (to prevent loops)
    */
-  updateBudgetCache(strategyId: string, budget: StrategyBudget, skipEvents: boolean = false): void {
+  updateBudgetCacheWithOptions(strategyId: string, budget: StrategyBudget, skipEvents: boolean = false): void {
     if (!strategyId || !budget) {
       logService.log('warn', 'Invalid parameters for updateBudgetCache', { strategyId, budget }, 'TradeService');
       return;
@@ -1575,7 +1537,7 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
    * This will deactivate all active strategies and close any open trades
    * @returns Promise<boolean> True if successful, false otherwise
    */
-  async resetActiveStrategies(): Promise<boolean> {
+  async resetActiveStrategiesWithResult(): Promise<boolean> {
     try {
       logService.log('info', 'Resetting all active strategies', null, 'TradeService');
 
@@ -2100,102 +2062,16 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
    */
   async resetActiveStrategies(): Promise<void> {
     try {
-      // Get current user
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.user) {
-        logService.log('warn', 'No authenticated user found, skipping strategy reset', null, 'TradeService');
-        return;
+      // Call the more comprehensive version that returns a result
+      const result = await this.resetActiveStrategiesWithResult();
+
+      if (result) {
+        logService.log('info', 'Successfully reset active strategies', null, 'TradeService');
+      } else {
+        logService.log('warn', 'Failed to reset active strategies', null, 'TradeService');
       }
-
-      // Get all active strategies
-      const { data: strategies, error } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .eq('status', 'active');
-
-      if (error) {
-        logService.log('error', 'Failed to get active strategies', error, 'TradeService');
-        return;
-      }
-
-      if (!strategies || strategies.length === 0) {
-        logService.log('info', 'No active strategies found', null, 'TradeService');
-        return;
-      }
-
-      // Deactivate each strategy
-      for (const strategy of strategies) {
-        try {
-          // Update strategy status
-          const { error: updateError } = await supabase
-            .from('strategies')
-            .update({
-              status: 'inactive',
-              updated_at: new Date().toISOString()
-            })
-            .eq('id', strategy.id);
-
-          if (updateError) {
-            logService.log('error', `Failed to deactivate strategy ${strategy.id}`, updateError, 'TradeService');
-            continue;
-          }
-
-          // Close all open trades for this strategy
-          const { data: trades, error: tradesError } = await supabase
-            .from('trades')
-            .select('*')
-            .eq('strategy_id', strategy.id)
-            .in('status', ['open', 'pending']);
-
-          if (tradesError) {
-            logService.log('error', `Failed to get open trades for strategy ${strategy.id}`, tradesError, 'TradeService');
-            continue;
-          }
-
-          if (trades && trades.length > 0) {
-            for (const trade of trades) {
-              try {
-                // Update trade status
-                const { error: tradeUpdateError } = await supabase
-                  .from('trades')
-                  .update({
-                    status: 'cancelled',
-                    updated_at: new Date().toISOString()
-                  })
-                  .eq('id', trade.id);
-
-                if (tradeUpdateError) {
-                  logService.log('error', `Failed to cancel trade ${trade.id}`, tradeUpdateError, 'TradeService');
-                  continue;
-                }
-
-                // Release budget
-                await this.releaseBudgetFromTrade(
-                  strategy.id,
-                  trade.amount * trade.price,
-                  0,
-                  trade.id,
-                  'cancelled',
-                  trade.market_type
-                );
-
-                logService.log('info', `Trade ${trade.id} cancelled due to strategy deactivation`, null, 'TradeService');
-              } catch (tradeError) {
-                logService.log('error', `Error cancelling trade ${trade.id}`, tradeError, 'TradeService');
-              }
-            }
-          }
-
-          logService.log('info', `Strategy ${strategy.id} deactivated`, null, 'TradeService');
-        } catch (strategyError) {
-          logService.log('error', `Error deactivating strategy ${strategy.id}`, strategyError, 'TradeService');
-        }
-      }
-
-      logService.log('info', `Reset ${strategies.length} active strategies`, null, 'TradeService');
     } catch (error) {
-      logService.log('error', 'Failed to reset active strategies', error, 'TradeService');
+      logService.log('error', 'Error in resetActiveStrategies', error, 'TradeService');
     }
   }
 }

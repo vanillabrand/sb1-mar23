@@ -17,6 +17,7 @@ import PerformancePage from '../pages/PerformancePage';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobileDetect } from '../hooks/useMobileDetect';
 import { TradeDebugMonitor } from './TradeDebugMonitor';
+import { TradingModeIndicator } from './TradingModeIndicator';
 
 
 interface AppContentProps {
@@ -85,6 +86,13 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
           position: 'relative',
           zIndex: 1 // Ensure main content is above sidebar on mobile
         }}>
+
+        {/* Global Header - Only visible on desktop */}
+        {!isMobile && (
+          <div className="bg-gunmetal-900/50 backdrop-blur-sm border-b border-gunmetal-800 py-2 px-4 flex items-center justify-end sticky top-0 z-10">
+            <TradingModeIndicator showToggle={true} />
+          </div>
+        )}
         <LazyMotion features={domAnimation}>
           <AnimatePresence mode="wait">
             <Routes location={location} key={location.pathname}>

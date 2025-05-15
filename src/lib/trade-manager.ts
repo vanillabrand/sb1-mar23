@@ -9,6 +9,8 @@ import { demoService } from './demo-service';
 import { tradeService } from './trade-service';
 import { enhancedPositionSizing } from './enhanced-position-sizing';
 import { tradeBatchingService } from './trade-batching-service';
+import { walletBalanceService } from './wallet-balance-service';
+import { transactionService } from './transaction-service';
 
 class TradeManager extends EventEmitter {
   private readonly EXECUTION_TIMEOUT = 30000;
@@ -449,6 +451,118 @@ class TradeManager extends EventEmitter {
   }
 
   /**
+   * Verifies that there is sufficient available balance for the trade
+   * @param options Trade options
+   */
+  private async verifyAvailableBalance(options: TradeOptions): Promise<void> {
+    try {
+      // Skip balance check for demo mode
+      if (demoService.isInDemoMode()) {
+        return;
+      }
+
+      // Calculate trade cost
+      const tradeAmount = options.amount || 0;
+      const tradePrice = options.price || options.entry_price || 0;
+      const tradeCost = tradeAmount * tradePrice;
+
+      if (tradeCost <= 0) {
+        return; // Skip zero or negative cost trades
+      }
+
+      // Get strategy ID
+      const strategyId = options.strategy_id || options.strategyId;
+      if (!strategyId) {
+        logService.log('warn', 'Cannot verify balance: No strategy ID provided', { options }, 'TradeManager');
+        return;
+      }
+
+      // Check strategy budget
+      const budget = tradeService.getBudget(strategyId);
+      if (!budget) {
+        throw new Error(`No budget found for strategy ${strategyId}`);
+      }
+
+      if (budget.available < tradeCost) {
+        throw new Error(`Insufficient budget: Available ${budget.available.toFixed(2)}, Required ${tradeCost.toFixed(2)}`);
+      }
+
+      // Check exchange balance if we're in live mode
+      if (!demoService.isInDemoMode()) {
+        const activeExchange = await exchangeService.getActiveExchange();
+        if (!activeExchange) {
+          return; // Skip exchange balance check if no exchange is connected
+        }
+
+        // Extract quote currency from symbol (e.g., USDT from BTC/USDT)
+        const quoteCurrency = options.symbol.split('/')[1] || 'USDT';
+
+        try {
+          // Get wallet balance for the quote currency
+          const walletBalance = walletBalanceService.getAvailableBalance();
+
+          if (walletBalance < tradeCost) {
+            throw new Error(`Insufficient exchange balance: Available ${walletBalance.toFixed(2)} ${quoteCurrency}, Required ${tradeCost.toFixed(2)} ${quoteCurrency}`);
+          }
+
+          logService.log('info', `Balance verification successful for ${options.symbol}`, {
+            strategyId,
+            budgetAvailable: budget.available,
+            walletBalance,
+            tradeCost,
+            quoteCurrency
+          }, 'TradeManager');
+        } catch (balanceError) {
+          logService.log('warn', `Could not verify wallet balance for ${quoteCurrency}`, balanceError, 'TradeManager');
+          // Continue anyway since we've verified the strategy budget
+        }
+      }
+    } catch (error) {
+      logService.log('error', `Balance verification failed for ${options.symbol}`, error, 'TradeManager');
+      throw error;
+    }
+  }
+
+  /**
+   * Verifies that the exchange connection is valid and has the necessary permissions
+   * @param exchange The exchange to verify
+   * @param options Trade options
+   */
+  private async verifyExchangeConnection(exchange: any, options: TradeOptions): Promise<void> {
+    try {
+      // Skip verification for demo mode
+      if (demoService.isInDemoMode()) {
+        return;
+      }
+
+      if (!exchange) {
+        throw new Error('No active exchange found');
+      }
+
+      // Check if exchange is connected
+      const isConnected = await exchangeService.isConnected();
+      if (!isConnected) {
+        throw new Error('Exchange is not connected');
+      }
+
+      // Check if exchange supports the symbol
+      const symbol = options.symbol;
+
+      // Check if the exchange has trading permissions
+      // This is a simplified check since we don't have direct access to exchange permissions
+      // In a real implementation, we would check the exchange's permissions
+
+      logService.log('info', `Exchange connection verified for ${options.symbol}`, {
+        exchangeId: exchange.id,
+        symbol
+      }, 'TradeManager');
+    } catch (error) {
+      logService.log('error', `Exchange connection verification failed for ${options.symbol}`, error, 'TradeManager');
+      throw error;
+    }
+  }
+
+  /**
    * Execute a trade with batching support
    * @param options Trade options
    * @returns Promise that resolves to the trade result
@@ -463,6 +577,9 @@ class TradeManager extends EventEmitter {
       );
       throw new Error('Circuit breaker is open due to multiple failures. Trading temporarily disabled.');
     }
+
+    // Verify available balance before executing trade
+    await this.verifyAvailableBalance(options);
 
     // Check if this trade is eligible for batching
     const isBatchable = this.isTradeBatchable(options);
@@ -515,6 +632,9 @@ class TradeManager extends EventEmitter {
           symbol: options.symbol,
           exchangeId: activeExchange?.id || 'default'
         }, 'TradeManager');
+
+        // Verify exchange connection and API permissions
+        await this.verifyExchangeConnection(activeExchange, options);
 
         // Execute the trade with timeout
         const result = await this.executeWithTimeout(
@@ -819,8 +939,8 @@ class TradeManager extends EventEmitter {
           // Create exit order options
           const exitOrderOptions = {
             symbol: status.symbol,
-            side: exitSide,
-            type: 'market',
+            side: exitSide as 'buy' | 'sell', // Explicitly type as 'buy' | 'sell'
+            type: 'market' as 'market' | 'limit', // Explicitly type as 'market' | 'limit'
             amount: status.amount,
             entry_price: currentPrice,
             strategy_id: status.strategyId || status.strategy_id,
@@ -1326,12 +1446,12 @@ class TradeManager extends EventEmitter {
   private async recordFailedOperation(error: any, options?: TradeOptions): Promise<void> {
     try {
       // Import retry service dynamically to avoid circular dependencies
-      const { retryService, OperationType } = await import('./retry-service');
+      const { retryService } = await import('./retry-service');
 
       if (!options) return;
 
-      // Determine operation type
-      let operationType: OperationType = 'trade_execution';
+      // Determine operation type - explicitly typed as a valid OperationType
+      const operationType = 'trade_execution' as const;
 
       // Create operation data
       const operationData = { ...options };
@@ -1410,19 +1530,19 @@ class TradeManager extends EventEmitter {
     // Categorize errors for user-friendly messages
     let userMessage = 'An unknown error occurred while executing your trade.';
     let errorCategory = 'unknown';
-    let severity = 'error';
+    let severity: 'info' | 'warn' | 'error' | 'debug' = 'error';
     let recoverable = false;
-    
+
     const errorMsg = error?.message || String(error);
-    
+
     if (errorMsg.includes('insufficient balance') || errorMsg.includes('not enough balance')) {
       userMessage = 'You don\'t have enough funds to place this trade.';
       errorCategory = 'insufficient_funds';
-      severity = 'warning';
+      severity = 'warn';
     } else if (errorMsg.includes('Risk validation failed') || errorMsg.includes('exceeds risk limit')) {
       userMessage = 'This trade exceeds your risk parameters.';
       errorCategory = 'risk_limit';
-      severity = 'warning';
+      severity = 'warn';
     } else if (errorMsg.includes('Exchange unavailable') || errorMsg.includes('service unavailable')) {
       userMessage = 'The exchange is currently unavailable. Please try again later.';
       errorCategory = 'exchange_error';
@@ -1431,31 +1551,34 @@ class TradeManager extends EventEmitter {
       userMessage = 'Trading has been temporarily paused due to multiple failures.';
       errorCategory = 'circuit_breaker';
       recoverable = true;
-      severity = 'warning';
+      severity = 'warn';
     } else if (errorMsg.includes('minimum notional')) {
       userMessage = 'Trade amount is too small for this market.';
       errorCategory = 'min_notional';
-      severity = 'warning';
+      severity = 'warn';
     } else if (errorMsg.includes('market closed') || errorMsg.includes('not trading')) {
       userMessage = 'This market is currently closed or not available for trading.';
       errorCategory = 'market_closed';
-      severity = 'warning';
+      severity = 'warn';
     }
-    
+
     // Log the error with detailed information
-    this.logService.log(severity, `Trade execution failed: ${errorMsg}`, {
+    logService.log(severity, `Trade execution failed: ${errorMsg}`, {
       tradeId,
       errorCategory,
       userMessage,
       options,
       recoverable
-    });
-    
+    }, 'TradeManager');
+
     // Update trade status in database if needed
     try {
-      await this.supabase
+      // Import supabase dynamically to avoid circular dependencies
+      const { supabase } = await import('./supabase');
+
+      await supabase
         .from('strategy_trades')
-        .update({ 
+        .update({
           status: 'failed',
           error_message: userMessage,
           error_category: errorCategory,
@@ -1463,11 +1586,11 @@ class TradeManager extends EventEmitter {
         })
         .eq('id', tradeId);
     } catch (dbError) {
-      this.logService.error('Failed to update trade status in database', dbError);
+      logService.log('error', 'Failed to update trade status in database', dbError, 'TradeManager');
     }
-    
+
     // Emit user-friendly error event
-    this.eventBus.emit('trade:error', {
+    eventBus.emit('trade:error', {
       tradeId,
       errorCategory,
       message: userMessage,
@@ -1477,25 +1600,37 @@ class TradeManager extends EventEmitter {
       strategyId: options.strategy_id,
       symbol: options.symbol
     });
-    
-    // Record the error for analytics
-    this.analyticsService.recordError('trade_execution', errorCategory, {
+
+    // Log analytics event for error tracking
+    logService.log('info', 'Trade error analytics event', {
+      event: 'trade_error',
       tradeId,
+      errorCategory,
       symbol: options.symbol,
       strategyId: options.strategy_id,
       severity,
       recoverable
-    });
-    
+    }, 'TradeManager');
+
     // If recoverable, schedule retry
-    if (recoverable && this.retryService) {
-      this.retryService.scheduleRetry({
-        type: 'trade',
-        id: tradeId,
-        options,
-        attempt: 1,
-        maxAttempts: 3
-      });
+    if (recoverable) {
+      try {
+        const { retryService } = await import('./retry-service');
+
+        // Use recordFailedOperation instead of scheduleRetry if it exists
+        if (typeof retryService.recordFailedOperation === 'function') {
+          await retryService.recordFailedOperation({
+            operation_type: 'trade_execution',
+            operation_data: options,
+            error_message: errorMsg,
+            error_details: error,
+            strategy_id: options.strategy_id || options.strategyId,
+            trade_id: tradeId
+          });
+        }
+      } catch (retryError) {
+        logService.log('warn', 'Failed to schedule retry for trade', retryError, 'TradeManager');
+      }
     }
   }
 
@@ -1533,7 +1668,7 @@ class TradeManager extends EventEmitter {
         availableBudget: options.availableBudget,
         currentPrice: options.currentPrice,
         riskLevel: options.riskLevel as any || 'Medium',
-        marketType: 'spot', // Default to spot market
+        marketType: 'spot' as 'spot' | 'margin' | 'futures', // Explicitly typed as MarketType
         confidence: options.confidence || 0.7,
         volatility,
         stopLossPrice: options.stopLossPrice

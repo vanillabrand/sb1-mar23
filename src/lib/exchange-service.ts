@@ -3055,10 +3055,10 @@ class ExchangeService extends EventEmitter {
   }
 
   /**
-   * Check if the exchange is connected
+   * Check if the exchange is connected using a comprehensive check
    * @returns True if connected, false otherwise
    */
-  async isConnected(): Promise<boolean> {
+  async isConnectedWithCheck(): Promise<boolean> {
     try {
       // Check if we're in demo mode
       const isDemo = demoService.isInDemoMode();
@@ -3356,30 +3356,8 @@ class ExchangeService extends EventEmitter {
    * @returns True if an exchange is connected, false otherwise
    */
   async isConnected(): Promise<boolean> {
-    try {
-      // If we're in demo mode, we're always "connected" to the demo exchange
-      if (this.demoMode) {
-        return true;
-      }
-
-      // Check if we have an active exchange
-      if (!this.activeExchange) {
-        return false;
-      }
-
-      // Get the exchange instance
-      const exchange = this.exchangeInstances.get(this.activeExchange.id);
-      if (!exchange) {
-        return false;
-      }
-
-      // Try a simple API call to check if the exchange is responsive
-      await exchange.fetchTime();
-      return true;
-    } catch (error) {
-      logService.log('error', 'Failed to check exchange connection', error, 'ExchangeService');
-      return false;
-    }
+    // Call the more comprehensive version
+    return this.isConnectedWithCheck();
   }
 
   /**

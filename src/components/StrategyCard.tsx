@@ -31,6 +31,10 @@ import BudgetValidationStatus from './BudgetValidationStatus';
 import TradeExecutionMetrics from './TradeExecutionMetrics';
 import { StrategyActivationWizard } from './StrategyActivationWizard';
 import { ErrorDisplay } from './ErrorDisplay';
+import { TradeList } from './TradeList';
+import { SimplifiedTradeCreator } from './SimplifiedTradeCreator';
+import { TradeFlowDiagram } from './TradeFlowDiagram';
+import { RealTimeTradeAnalytics } from './RealTimeTradeAnalytics';
 import type { RiskLevel, Strategy, StrategyBudget, Trade, MarketType } from '../lib/types';
 import { standardizeAssetPairFormat } from '../lib/format-utils';
 
@@ -99,7 +103,9 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   const [showBudgetAdjustmentModal, setShowBudgetAdjustmentModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showActivationWizard, setShowActivationWizard] = useState(false);
+  const [showTradeCreator, setShowTradeCreator] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
   const [strategyBudget, setStrategyBudget] = useState<number>(0);
   const [availableBalance, setAvailableBalance] = useState<number>(0);
   const [strategyTrades, setStrategyTrades] = useState<ExtendedTrade[]>([]);
@@ -1632,80 +1638,54 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
               </div>
             )}
 
-            {/* Live Trades */}
+            {/* Real-Time Analytics Dashboard */}
             {strategy.status === 'active' && (
               <div className="mt-6">
                 <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
                   <Activity className="w-4 h-4" />
+                  Real-Time Analytics
+                </h4>
+
+                {/* Add the RealTimeTradeAnalytics component */}
+                <RealTimeTradeAnalytics
+                  strategy={strategy}
+                  trades={strategyTrades}
+                  budget={budget}
+                  className="mb-6"
+                />
+
+                <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider mt-6">
+                  <Activity className="w-4 h-4" />
                   Live Trades
                 </h4>
-                {/* Always show trades */}
+                {/* Use the TradeList component */}
                 {isLoadingTrades ? (
-                    <div className="flex justify-center items-center py-8">
-                      <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise"></div>
-                    </div>
-                  ) : strategyTrades.length === 0 ? (
-                    <div className="bg-gunmetal-800/50 rounded-lg p-4 text-center">
-                      <p className="text-gray-400">No active trades for this strategy</p>
-                    </div>
-                  ) : (
-                    <div className="bg-black border border-gunmetal-800/50 rounded-lg overflow-hidden max-h-[400px] overflow-y-auto scrollbar-thin scrollbar-thumb-gunmetal-700 scrollbar-track-gunmetal-900">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="bg-gunmetal-900/50">
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Symbol</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Side</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Amount</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Entry</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Status</th>
-                            <th className="px-3 py-2 text-left text-xs font-medium text-gray-400">Time</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {strategyTrades.map((trade) => (
-                            <tr key={trade.id} className="border-t border-gunmetal-700/50 hover:bg-gunmetal-800/50">
-                              <td className="px-3 py-2 text-xs text-white">{trade.symbol ? standardizeAssetPairFormat(trade.symbol) : '-'}</td>
-                              <td className="px-3 py-2 text-xs">
-                                <span className={`flex items-center gap-1 ${trade.side === 'buy' ? 'text-green-400' : 'text-red-400'}`}>
-                                  {trade.side === 'buy' ? (
-                                    <ArrowUpRight className="w-3 h-3" />
-                                  ) : (
-                                    <ArrowDownRight className="w-3 h-3" />
-                                  )}
-                                  {trade.side}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-xs text-white">
-                                {trade.amount !== undefined && typeof trade.amount === 'number'
-                                  ? trade.amount.toFixed(6)
-                                  : typeof trade.amount === 'string'
-                                    ? (isNaN(parseFloat(trade.amount)) ? '-' : parseFloat(trade.amount).toFixed(6))
-                                    : '-'}
-                              </td>
-                              <td className="px-3 py-2 text-xs text-white">
-                                {trade.entryPrice !== undefined && typeof trade.entryPrice === 'number'
-                                  ? `$${trade.entryPrice.toFixed(2)}`
-                                  : typeof trade.entryPrice === 'string'
-                                    ? (isNaN(parseFloat(trade.entryPrice)) ? '-' : `$${parseFloat(trade.entryPrice).toFixed(2)}`)
-                                    : '-'}
-                              </td>
-                              <td className="px-3 py-2 text-xs">
-                                <span
-                                  className={`px-2 py-0.5 rounded-full text-xs ${trade.status === 'executed' ? 'bg-green-500/20 text-green-400' : trade.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-gray-500/20 text-gray-400'}`}
-                                  title={trade.status === 'executed' ? `Executed: ${trade.executedAt ? new Date(trade.executedAt).toLocaleString() : 'Unknown'}` : ''}
-                                >
-                                  {trade.status}
-                                </span>
-                              </td>
-                              <td className="px-3 py-2 text-xs text-gray-400" title={`Created: ${trade.createdAt ? new Date(trade.createdAt).toLocaleString() : 'Unknown'}`}>
-                                {trade.createdAt ? formatTimeAgo(new Date(trade.createdAt)) : '-'}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
+                  <div className="flex justify-center items-center py-8">
+                    <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-neon-turquoise"></div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {/* Trade Flow Diagram - Only show when a trade is selected */}
+                    {selectedTrade && (
+                      <div className="bg-gunmetal-800/50 rounded-lg p-4 mb-4">
+                        <TradeFlowDiagram trade={selectedTrade} />
+                      </div>
+                    )}
+
+                    {/* Trade List */}
+                    <TradeList
+                      trades={strategyTrades}
+                      strategy={strategy}
+                      onCreateTrade={(strategy) => {
+                        setSelectedStrategy(strategy);
+                        setShowTradeCreator(true);
+                      }}
+                      onSelectTrade={(trade) => setSelectedTrade(trade)}
+                      selectedTradeId={selectedTrade?.id}
+                      itemsPerPage={5}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -1733,7 +1713,43 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         {/* No pulsing animation */}
       </motion.div>
 
-      {/* Add Budget Modal */}
+      {/* Strategy Activation Wizard */}
+      {showActivationWizard && (
+        <StrategyActivationWizard
+          strategy={strategy}
+          onComplete={(success) => {
+            setShowActivationWizard(false);
+            if (success && onRefresh) {
+              onRefresh();
+            }
+          }}
+          onCancel={() => {
+            setShowActivationWizard(false);
+          }}
+          maxBudget={availableBalance}
+        />
+      )}
+
+      {/* Simplified Trade Creator */}
+      {showTradeCreator && selectedStrategy && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
+          <SimplifiedTradeCreator
+            strategy={selectedStrategy}
+            onSuccess={() => {
+              setShowTradeCreator(false);
+              setSelectedStrategy(null);
+              // Refresh trades
+              fetchTrades();
+            }}
+            onCancel={() => {
+              setShowTradeCreator(false);
+              setSelectedStrategy(null);
+            }}
+          />
+        </div>
+      )}
+
+      {/* Add Budget Modal (legacy) */}
       {showBudgetModal && selectedStrategy && (
         <BudgetModal
           onConfirm={handleBudgetSubmit}

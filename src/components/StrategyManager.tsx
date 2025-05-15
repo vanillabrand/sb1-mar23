@@ -471,11 +471,17 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
     try {
       setIsRefreshing(true);
+      setError(null); // Clear any previous errors
 
       // Properly capitalize the strategy title
       const capitalizedTitle = strategyData.title
         ? strategyData.title.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
         : 'New Strategy';
+
+      // Format selected pairs to ensure they use the correct format (BTC/USDT instead of BTC_USDT)
+      const formattedPairs = Array.isArray(strategyData.selected_pairs)
+        ? strategyData.selected_pairs.map(pair => pair.includes('_') ? pair.replace('_', '/') : pair)
+        : ['BTC/USDT'];
 
       // Ensure all required fields are properly set
       const enrichedData = {
@@ -490,21 +496,18 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         risk_level: strategyData.risk_level || 'Medium',
         riskLevel: strategyData.risk_level || 'Medium',
         // Ensure selected_pairs is properly set and formatted correctly
-        selected_pairs: Array.isArray(strategyData.selected_pairs)
-          ? strategyData.selected_pairs.map(pair =>
-              pair.includes('_') ? pair.replace('_', '/') : pair
-            )
-          : ['BTC/USDT'],
+        selected_pairs: formattedPairs,
         // Ensure market_type is properly set (database field)
         market_type: strategyData.marketType || 'spot',
         // Also set marketType for UI components
-        marketType: strategyData.marketType || 'spot'
+        marketType: strategyData.marketType || 'spot',
+        // Ensure status is set
+        status: 'inactive'
       };
 
-      console.log('StrategyManager: Creating strategy with enriched data:', enrichedData);
+      logService.log('info', 'Creating strategy with enriched data', enrichedData, 'StrategyManager');
 
       // Create the strategy
-      console.log('StrategyManager: Calling createStrategy with enriched data');
       let newStrategy;
 
       try {
@@ -518,15 +521,13 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           status: 'inactive',
           risk_level: enrichedData.risk_level || 'Medium',
           market_type: enrichedData.marketType || enrichedData.market_type || 'spot',
-          selected_pairs: Array.isArray(enrichedData.selected_pairs) && enrichedData.selected_pairs.length > 0
-            ? enrichedData.selected_pairs
-            : ['BTC/USDT'],
+          selected_pairs: formattedPairs,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
           type: 'custom'
         };
 
-        console.log('StrategyManager: Creating minimal strategy:', minimalStrategy);
+        logService.log('info', 'Creating minimal strategy', minimalStrategy, 'StrategyManager');
 
         // Direct creation with supabase
         const { data: directStrategy, error } = await supabase
@@ -536,14 +537,14 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           .single();
 
         if (error) {
-          console.error('StrategyManager: Error with direct creation:', error);
+          logService.log('error', 'Error with direct strategy creation', error, 'StrategyManager');
           throw error;
         }
 
         newStrategy = directStrategy;
-        console.log('StrategyManager: Strategy created successfully with direct creation:', newStrategy?.id);
+        logService.log('info', `Strategy created successfully with ID: ${newStrategy?.id}`, null, 'StrategyManager');
       } catch (createError) {
-        console.error('StrategyManager: All strategy creation attempts failed:', createError);
+        logService.log('error', 'All strategy creation attempts failed', createError, 'StrategyManager');
         throw new Error('Failed to create strategy after multiple attempts');
       }
 
@@ -552,57 +553,39 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         throw new Error('Failed to create strategy - no data returned');
       }
 
-      console.log('StrategyManager: Strategy created successfully:', newStrategy.id);
+      logService.log('info', `Strategy created successfully with ID: ${newStrategy.id}`, null, 'StrategyManager');
 
       // Close the modal
       setShowCreateModal(false);
 
-      // DIRECT APPROACH: Manually add the strategy to all lists for immediate visibility
+      // Add the strategy to all lists for immediate visibility
       if (newStrategy) {
-        console.log('StrategyManager: Manually adding AI-created strategy to all lists');
-
-        // 1. Add to the main strategies array
-        if (strategies) {
-          console.log('StrategyManager: Current strategies count:', strategies.length);
-
-          // Create a new array with the new strategy
-          const updatedStrategiesArray = [...strategies, newStrategy];
-          console.log('StrategyManager: Updated strategies count:', updatedStrategiesArray.length);
+        // 1. Add to the strategy sync cache first
+        if (!strategySync.hasStrategy(newStrategy.id)) {
+          strategySync.addStrategyToCache(newStrategy);
+          logService.log('info', `Added strategy ${newStrategy.id} to strategy sync cache`, null, 'StrategyManager');
         }
 
         // 2. Update filtered strategies
         setFilteredStrategies(prev => {
-          // Only add if not already in the list
           if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('StrategyManager: Adding AI-created strategy to filtered list');
             return [...prev, newStrategy];
           }
-          console.log('StrategyManager: AI-created strategy already in filtered list');
           return prev;
         });
 
         // 3. Update paginated strategies
         setPaginatedStrategies(prev => {
-          // Only add if not already in the list
           if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('StrategyManager: Adding AI-created strategy to paginated list');
             return [...prev, newStrategy];
           }
-          console.log('StrategyManager: AI-created strategy already in paginated list');
           return prev;
         });
 
         // 4. Force a re-render by updating the current page
         setCurrentPage(currentPage);
 
-        // 5. Manually add the strategy to the strategy sync cache
-        console.log('StrategyManager: Manually adding AI-created strategy to strategy sync cache');
-        if (!strategySync.hasStrategy(newStrategy.id)) {
-          strategySync.addStrategyToCache(newStrategy);
-        }
-
-        // 6. Manually emit events to update all components
-        console.log('StrategyManager: Manually emitting events for AI-created strategy');
+        // 5. Emit events to update all components
         eventBus.emit('strategy:created', newStrategy);
         eventBus.emit('strategy:created', { strategy: newStrategy }); // Also emit with object wrapper for compatibility
 
@@ -610,51 +593,42 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           detail: { strategy: newStrategy }
         }));
 
-        // 7. Force a broadcast of all strategies
+        // 6. Force a broadcast of all strategies
         strategySync.broadcastStrategiesUpdate();
       }
 
-      // 8. Force a complete refresh of strategies
-      console.log('StrategyManager: Forcing complete refresh of strategies');
+      // 7. Refresh strategies to ensure everything is in sync
       try {
         await refreshStrategies();
-        console.log('StrategyManager: Refresh completed');
+        logService.log('info', 'Strategy list refreshed after creation', null, 'StrategyManager');
       } catch (refreshError) {
-        console.error('StrategyManager: Error refreshing strategies:', refreshError);
-        // Continue even if refresh fails
+        logService.log('error', 'Error refreshing strategies after creation', refreshError, 'StrategyManager');
       }
 
-      // 9. Double-check that the strategy is in the lists
+      // 8. Double-check that the strategy is in the lists after a short delay
       setTimeout(async () => {
-        console.log('StrategyManager: Performing delayed check for AI-created strategy');
-
         // Check if the strategy is in the filtered list
         const isInFiltered = filteredStrategies.some(s => s.id === newStrategy.id);
         if (!isInFiltered) {
-          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} not in filtered list, adding it`);
           setFilteredStrategies(prev => [...prev, newStrategy]);
-        } else {
-          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} is in filtered list`);
+          logService.log('info', `Added strategy ${newStrategy.id} to filtered list in delayed check`, null, 'StrategyManager');
         }
 
         // Check if the strategy is in the paginated list
         const isInPaginated = paginatedStrategies.some(s => s.id === newStrategy.id);
         if (!isInPaginated) {
-          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} not in paginated list, adding it`);
           setPaginatedStrategies(prev => [...prev, newStrategy]);
-        } else {
-          console.log(`StrategyManager: AI-created strategy ${newStrategy.id} is in paginated list`);
+          logService.log('info', `Added strategy ${newStrategy.id} to paginated list in delayed check`, null, 'StrategyManager');
         }
 
         // Force another refresh
         try {
           await refreshStrategies();
-          console.log('StrategyManager: Second refresh completed');
+          logService.log('info', 'Second strategy refresh completed', null, 'StrategyManager');
         } catch (refreshError) {
-          console.error('StrategyManager: Error in second refresh:', refreshError);
-          // Continue even if refresh fails
+          logService.log('error', 'Error in second strategy refresh', refreshError, 'StrategyManager');
         }
-      }, 1000);
+      }, 500);
     } catch (error) {
       logService.log('error', 'Failed to create strategy', error, 'StrategyManager');
       throw error;
@@ -1079,12 +1053,40 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
     try {
       logService.log('info', `Starting strategy activation process for ${strategy.id}`,
-        { strategyId: strategy.id, budget }, 'StrategyManager');
+        { strategyId: strategy.id, budget, isDemoMode: demoService.isInDemoMode() }, 'StrategyManager');
+
+      // 0. Ensure the strategy exists in the strategy sync cache
+      if (!strategySync.hasStrategy(strategy.id)) {
+        strategySync.addStrategyToCache(strategy);
+        logService.log('info', `Added strategy ${strategy.id} to strategy sync cache before activation`, null, 'StrategyManager');
+      }
 
       // 1. Activate strategy in database
       activationStage = 'database_activation';
-      updatedStrategy = await strategyService.activateStrategy(strategy.id);
-      logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'StrategyManager');
+      try {
+        updatedStrategy = await strategyService.activateStrategy(strategy.id);
+        logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'StrategyManager');
+      } catch (activationError) {
+        logService.log('error', `Failed to activate strategy ${strategy.id} in database`, activationError, 'StrategyManager');
+
+        // If we're in demo mode, we can continue with a fallback
+        if (demoService.isInDemoMode()) {
+          logService.log('info', `Using fallback for demo mode activation of strategy ${strategy.id}`, null, 'StrategyManager');
+
+          // Create an updated strategy object
+          updatedStrategy = {
+            ...strategy,
+            status: 'active',
+            updated_at: new Date().toISOString()
+          };
+
+          // Add to strategy sync cache
+          strategySync.addStrategyToCache(updatedStrategy);
+        } else {
+          // In live mode, we need to fail
+          throw new Error(`Failed to activate strategy in database: ${activationError instanceof Error ? activationError.message : 'Unknown error'}`);
+        }
+      }
 
       // 2. Start market monitoring
       activationStage = 'market_monitoring';

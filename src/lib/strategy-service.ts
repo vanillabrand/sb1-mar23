@@ -8,6 +8,7 @@ import { StrategyManager } from './strategy-manager';
 import { riskManagementService } from './risk-management-service';
 import { detectMarketType, normalizeMarketType } from './market-type-detection';
 import { strategySync } from './strategy-sync';
+import { demoService } from './demo-service';
 import type { Strategy, CreateStrategyData, StrategyBudget, MarketType } from './types';
 
 class StrategyService {
@@ -23,10 +24,28 @@ class StrategyService {
 
   async createStrategy(data: CreateStrategyData): Promise<Strategy> {
     try {
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
+      // Get the current session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
+      // In demo mode, we'll use a fallback user ID if there's no authenticated session
+      let userId: string;
+
       if (sessionError || !session?.user?.id) {
-        throw new Error('No authenticated session found');
+        if (isDemo) {
+          // Use a fallback demo user ID in demo mode
+          userId = 'demo-user-' + Date.now().toString();
+          logService.log('info', 'Using demo user ID for strategy creation', { userId }, 'StrategyService');
+        } else {
+          // In live mode, we still require authentication
+          logService.log('error', 'No authenticated session found for strategy creation', { sessionError }, 'StrategyService');
+          throw new Error('No authenticated session found');
+        }
+      } else {
+        // Use the authenticated user's ID
+        userId = session.user.id;
       }
 
       // Detect market type from description if not explicitly provided
@@ -121,7 +140,7 @@ class StrategyService {
         ...data,
         name: data.name || data.title, // Map title to name if name is not provided
         type: data.type || 'custom',  // Add default type
-        user_id: session.user.id,
+        user_id: userId, // Use our userId variable (either from session or demo fallback)
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         status: data.status || 'inactive',
@@ -166,7 +185,7 @@ class StrategyService {
           name: strategy.name || strategy.title || 'New Strategy',
           title: strategy.title || strategy.name || 'New Strategy',
           description: strategy.description || '',
-          user_id: session.user.id,
+          user_id: userId, // Use our userId variable (either from session or demo fallback)
           created_at: strategy.created_at || new Date().toISOString(),
           updated_at: strategy.updated_at || new Date().toISOString(),
           status: strategy.status || 'inactive',
@@ -560,6 +579,11 @@ class StrategyService {
 
   async activateStrategy(id: string): Promise<Strategy> {
     try {
+      logService.log('info', `Attempting to activate strategy with ID: ${id}`, null, 'StrategyService');
+
+      // Check if we're in demo mode
+      const isDemo = demoService.isInDemoMode();
+
       // First, get the current strategy to check if it has trading pairs
       const { data: currentStrategy, error: getError } = await supabase
         .from('strategies')
@@ -569,11 +593,32 @@ class StrategyService {
 
       if (getError) {
         logService.log('error', 'Failed to get strategy for activation', { error: getError, id }, 'StrategyService');
+
+        // In demo mode, we can try to get the strategy from the strategy sync cache
+        if (isDemo) {
+          const cachedStrategy = strategySync.getStrategy(id);
+          if (cachedStrategy) {
+            logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
+            return this.activateStrategyInDemoMode(cachedStrategy);
+          }
+        }
+
         throw getError;
       }
 
       if (!currentStrategy) {
-        throw new Error(`Strategy with ID ${id} not found`);
+        logService.log('error', `Strategy with ID ${id} not found for activation`, null, 'StrategyService');
+
+        // In demo mode, we can try to get the strategy from the strategy sync cache
+        if (isDemo) {
+          const cachedStrategy = strategySync.getStrategy(id);
+          if (cachedStrategy) {
+            logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
+            return this.activateStrategyInDemoMode(cachedStrategy);
+          }
+        }
+
+        throw new Error(`Strategy with ID ${id} not found or activation failed`);
       }
 
       // Check if strategy is already active
@@ -734,6 +779,50 @@ class StrategyService {
       return data;
     } catch (error) {
       logService.log('error', 'Failed to activate strategy', { error, id }, 'StrategyService');
+      throw error;
+    }
+  }
+
+  /**
+   * Special method to activate a strategy in demo mode
+   * This bypasses database operations and works with in-memory data
+   * @param strategy The strategy to activate
+   * @returns The activated strategy
+   */
+  private async activateStrategyInDemoMode(strategy: Strategy): Promise<Strategy> {
+    try {
+      logService.log('info', `Activating strategy ${strategy.id} in demo mode`, null, 'StrategyService');
+
+      // Create a copy of the strategy with active status
+      const activatedStrategy = {
+        ...strategy,
+        status: 'active',
+        updated_at: new Date().toISOString(),
+        deactivated_at: null
+      };
+
+      // Update the strategy in the strategy sync cache
+      strategySync.addStrategyToCache(activatedStrategy);
+
+      // Emit events to notify other components
+      eventBus.emit('strategy:activated', {
+        strategyId: strategy.id,
+        strategy: activatedStrategy,
+        timestamp: Date.now()
+      });
+
+      document.dispatchEvent(new CustomEvent('strategy:activated', {
+        detail: {
+          strategyId: strategy.id,
+          strategy: activatedStrategy
+        }
+      }));
+
+      logService.log('info', `Strategy ${strategy.id} activated successfully in demo mode`, null, 'StrategyService');
+
+      return activatedStrategy;
+    } catch (error) {
+      logService.log('error', `Failed to activate strategy ${strategy.id} in demo mode`, error, 'StrategyService');
       throw error;
     }
   }

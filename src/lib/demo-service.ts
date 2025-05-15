@@ -172,6 +172,38 @@ class DemoService {
   }
 
   /**
+   * Set demo mode status and notify other components
+   * @param isDemo Whether to enable demo mode
+   */
+  async setDemoMode(isDemo: boolean): Promise<void> {
+    try {
+      // If already in the requested mode, do nothing
+      if (this._isDemoMode === isDemo) {
+        logService.log('info', `Already in ${isDemo ? 'demo' : 'live'} mode`, null, 'DemoService');
+        return;
+      }
+
+      logService.log('info', `Setting demo mode to ${isDemo}`, null, 'DemoService');
+
+      // Update the demo mode flag
+      this._isDemoMode = isDemo;
+
+      // Import and update exchange service
+      const { exchangeService } = await import('./exchange-service');
+      await exchangeService.switchMode(!isDemo);
+
+      // Emit events for UI updates
+      const event = new CustomEvent('demo:changed', { detail: { isDemo } });
+      document.dispatchEvent(event);
+
+      logService.log('info', `Successfully set demo mode to ${isDemo}`, null, 'DemoService');
+    } catch (error) {
+      logService.log('error', 'Failed to set demo mode', error, 'DemoService');
+      throw error;
+    }
+  }
+
+  /**
    * Get the TestNet exchange instance for demo mode
    */
   async getTestNetExchange(): Promise<any> {

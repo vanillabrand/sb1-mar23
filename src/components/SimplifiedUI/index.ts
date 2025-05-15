@@ -1,0 +1,13 @@
+export { SimplifiedAppLayout } from './SimplifiedAppLayout';
+export { SimplifiedDashboard } from './SimplifiedDashboard';
+export { SimplifiedStrategyManager } from './SimplifiedStrategyManager';
+export { SimplifiedTradeMonitor } from './SimplifiedTradeMonitor';
+export { SimplifiedSettings } from './SimplifiedSettings';
+export { SimplifiedStrategyCard } from './SimplifiedStrategyCard';
+export { SimplifiedTradeCard } from './SimplifiedTradeCard';
+export { SimplifiedPortfolioSummary } from './SimplifiedPortfolioSummary';
+export { SimplifiedStrategyWizard } from './SimplifiedStrategyWizard';
+export { SimplifiedTradeCreator } from './SimplifiedTradeCreator';
+export { StrategyActivationWizard } from './StrategyActivationWizard';
+export { SimplifiedStrategyDetails } from './SimplifiedStrategyDetails';
+export { SimplifiedTradeDetails } from './SimplifiedTradeDetails';

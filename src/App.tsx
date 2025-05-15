@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Preloader } from './components/Preloader';
 import { systemSync } from './lib/system-sync';
 import { AppContent } from './components/AppContent';
+import { SimplifiedAppLayout } from './components/SimplifiedUI';
 
 // Detect devices and browsers
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -248,7 +249,8 @@ function App() {
   }
 
   // Show main content when initialization is complete
-  return <AppContent isReady={true} />;
+  // Use the simplified UI instead of the original AppContent
+  return <SimplifiedAppLayout />;
 }
 
 export default App;

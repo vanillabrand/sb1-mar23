@@ -11,7 +11,7 @@ interface TradingModeIndicatorProps {
   showToggle?: boolean;
 }
 
-export function TradingModeIndicator({ 
+export function TradingModeIndicator({
   className = '',
   showToggle = false
 }: TradingModeIndicatorProps) {
@@ -75,11 +75,12 @@ export function TradingModeIndicator({
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
-        className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${
-          isDemoMode 
-            ? 'bg-neon-turquoise/10 text-neon-turquoise border border-neon-turquoise/30' 
-            : 'bg-neon-raspberry/10 text-neon-raspberry border border-neon-raspberry/30'
+        className={`flex items-center gap-2 px-3 py-1.5 rounded-full cursor-pointer ${
+          isDemoMode
+            ? 'bg-neon-turquoise/10 text-neon-turquoise border border-neon-turquoise/30 hover:bg-neon-turquoise/20'
+            : 'bg-neon-raspberry/10 text-neon-raspberry border border-neon-raspberry/30 hover:bg-neon-raspberry/20'
         }`}
+        onClick={showToggle ? handleModeToggle : undefined}
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
       >
@@ -99,9 +100,10 @@ export function TradingModeIndicator({
           <button
             onClick={handleModeToggle}
             disabled={isToggling}
-            className={`ml-2 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+            className={`ml-2 relative inline-flex h-5 w-9 items-center rounded-full transition-colors cursor-pointer ${
               !isDemoMode ? 'bg-neon-raspberry' : 'bg-gunmetal-700'
-            } ${!hasCredentials && isDemoMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+            } ${!hasCredentials && !isDemoMode ? 'opacity-50 cursor-not-allowed' : ''}`}
+            aria-label={isDemoMode ? "Switch to Live Mode" : "Switch to Demo Mode"}
           >
             <span
               className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
@@ -129,12 +131,13 @@ export function TradingModeIndicator({
             {showToggle && (
               <button
                 onClick={handleModeToggle}
-                disabled={isToggling || (!hasCredentials && isDemoMode)}
-                className={`w-full mt-2 py-1.5 rounded-md text-sm ${
+                disabled={isToggling || (!hasCredentials && !isDemoMode)}
+                className={`w-full mt-2 py-1.5 rounded-md text-sm cursor-pointer ${
                   isDemoMode
                     ? 'bg-neon-raspberry text-white hover:bg-neon-raspberry/90'
                     : 'bg-neon-turquoise text-gunmetal-950 hover:bg-neon-turquoise/90'
-                } transition-colors`}
+                } transition-colors ${isToggling ? 'opacity-70' : ''} ${(!hasCredentials && !isDemoMode) ? 'opacity-50 cursor-not-allowed' : ''}`}
+                aria-label={isDemoMode ? "Switch to Live Trading" : "Switch to Demo Mode"}
               >
                 {isToggling
                   ? 'Switching...'

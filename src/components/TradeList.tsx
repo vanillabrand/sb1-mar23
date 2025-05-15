@@ -1,12 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowUpRight, ArrowDownRight, RefreshCw } from 'lucide-react';
-import type { Trade, MarketType } from '../lib/types';
+import { ArrowUpRight, ArrowDownRight, RefreshCw, PlusCircle } from 'lucide-react';
+import type { Trade, MarketType, Strategy } from '../lib/types';
 import { marketDataService } from '../lib/market-data-service';
 import { Pagination } from './ui/Pagination';
 
 interface TradeListProps {
   trades: Trade[];
+  strategy?: Strategy;
+  onCreateTrade?: (strategy: Strategy) => void;
+  onSelectTrade?: (trade: Trade) => void;
+  selectedTradeId?: string;
   currentPage?: number;
   onPageChange?: (page: number) => void;
   itemsPerPage?: number;
@@ -15,6 +19,10 @@ interface TradeListProps {
 
 export const TradeList: React.FC<TradeListProps> = ({
   trades,
+  strategy,
+  onCreateTrade,
+  onSelectTrade,
+  selectedTradeId,
   currentPage: externalCurrentPage,
   onPageChange: externalOnPageChange,
   itemsPerPage: externalItemsPerPage,
@@ -116,8 +124,8 @@ export const TradeList: React.FC<TradeListProps> = ({
       for (const symbol of uniqueSymbols) {
         try {
           const marketData = await marketDataService.getMarketData(symbol);
-          if (marketData && marketData.ticker && marketData.ticker.last) {
-            prices[symbol] = parseFloat(marketData.ticker.last);
+          if (marketData && marketData.price !== undefined) {
+            prices[symbol] = parseFloat(marketData.price);
           }
         } catch (error) {
           console.error(`Failed to fetch price for ${symbol}:`, error);
@@ -145,8 +153,8 @@ export const TradeList: React.FC<TradeListProps> = ({
     for (const symbol of uniqueSymbols) {
       try {
         const marketData = await marketDataService.getMarketData(symbol);
-        if (marketData && marketData.ticker && marketData.ticker.last) {
-          prices[symbol] = parseFloat(marketData.ticker.last);
+        if (marketData && marketData.price !== undefined) {
+          prices[symbol] = parseFloat(marketData.price);
         }
       } catch (error) {
         console.error(`Failed to fetch price for ${symbol}:`, error);
@@ -164,7 +172,18 @@ export const TradeList: React.FC<TradeListProps> = ({
   return (
     <div className="space-y-4">
       <div className="bg-gunmetal-800 rounded-lg table-container overflow-x-auto">
-        <div className="flex justify-end p-2">
+        <div className="flex justify-between p-2">
+          {/* Create Trade Button - Only show if strategy is provided and active */}
+          {strategy && strategy.status === 'active' && onCreateTrade && (
+            <button
+              onClick={() => onCreateTrade(strategy)}
+              className="flex items-center gap-1 px-3 py-1 text-xs bg-neon-turquoise text-gunmetal-950 rounded-md hover:bg-neon-yellow transition-colors"
+            >
+              <PlusCircle className="w-3 h-3" />
+              Create Trade
+            </button>
+          )}
+
           <button
             onClick={refreshPrices}
             disabled={isLoadingPrices}

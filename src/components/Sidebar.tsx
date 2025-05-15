@@ -16,11 +16,14 @@ import {
   XCircle,
   Loader2,
   Circle,
-  BarChart3
+  BarChart3,
+  AlertTriangle
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
 import { websocketService } from '../lib/websocket-service';
+import { demoService } from '../lib/demo-service';
+import { TradingModeIndicator } from './TradingModeIndicator';
 
 interface SidebarProps {
   isOpen?: boolean;
@@ -408,6 +411,14 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
             <div className={`${isMobile ? 'text-xl' : 'text-2xl'} gradient-text`}>GIGAntic</div>
             <div className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'} whitespace-nowrap`} style={{ marginTop: "-2px" }}>AI Trading Platform</div>
           </div>
+
+          {/* Trading Mode Indicator */}
+          {!isMobile && (
+            <TradingModeIndicator
+              className="ml-auto"
+              showToggle={true}
+            />
+          )}
         </div>
 
         {/* Mobile Menu Toggle Button */}
@@ -522,6 +533,12 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
         style={isMobile ? { transitionTimingFunction: 'cubic-bezier(0.175, 0.885, 0.32, 1.275)', marginTop: '-25px' } : {}}
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Mobile Trading Mode Indicator */}
+        {isMobile && isMobileMenuOpen && (
+          <div className="mb-4 mt-8 flex justify-center">
+            <TradingModeIndicator showToggle={true} />
+          </div>
+        )}
         <NavItem
           to="/dashboard"
           icon={<LayoutDashboard className="w-5 h-5" />}

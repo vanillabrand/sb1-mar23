@@ -1,6 +1,7 @@
 import { logService } from './log-service';
 import { EventEmitter } from './event-emitter';
 import type { Strategy } from './types';
+import { demoService } from './demo-service';
 
 class MarketService extends EventEmitter {
   private monitoredStrategies: Set<string> = new Set();
@@ -277,6 +278,98 @@ class MarketService extends EventEmitter {
       logService.log('info', `Trade generation triggered for strategy ${strategy.id}`, null, 'MarketService');
     } catch (error) {
       logService.log('error', `Failed to generate initial trades for strategy ${strategy.id}`, error, 'MarketService');
+    }
+  }
+
+  /**
+   * Get available trading pairs
+   * @returns Array of available trading pairs in the format 'BTC_USDT'
+   */
+  async getAvailablePairs(): Promise<string[]> {
+    try {
+      // Common trading pairs
+      const commonPairs = [
+        'BTC_USDT', 'ETH_USDT', 'BNB_USDT', 'SOL_USDT', 'ADA_USDT',
+        'XRP_USDT', 'DOT_USDT', 'DOGE_USDT', 'AVAX_USDT', 'MATIC_USDT',
+        'LINK_USDT', 'UNI_USDT', 'ATOM_USDT', 'LTC_USDT', 'BCH_USDT',
+        'ALGO_USDT', 'XLM_USDT', 'FIL_USDT', 'TRX_USDT', 'ETC_USDT'
+      ];
+
+      // In a real implementation, we would fetch this from the exchange
+      // For now, we'll just return a static list of common pairs
+      logService.log('info', 'Returning available trading pairs', { count: commonPairs.length }, 'MarketService');
+      
+      return commonPairs;
+    } catch (error) {
+      logService.log('error', 'Failed to get available trading pairs', error, 'MarketService');
+      // Return a minimal set of pairs as fallback
+      return ['BTC_USDT', 'ETH_USDT', 'SOL_USDT'];
+    }
+  }
+
+  /**
+   * Get market data for a specific trading pair
+   * @param symbol Trading pair symbol (e.g., 'BTC_USDT')
+   * @returns Market data for the specified pair
+   */
+  async getMarketData(symbol: string): Promise<any> {
+    try {
+      // In a real implementation, we would fetch this from the exchange
+      // For now, we'll just return mock data
+      const normalizedSymbol = symbol.replace('_', '/');
+      
+      // Import dynamically to avoid circular dependencies
+      const { exchangeService } = await import('./exchange-service');
+      
+      // Check if we're in demo mode
+      const isDemoMode = demoService.isDemoMode();
+      
+      if (isDemoMode) {
+        // In demo mode, use mock data
+        return {
+          symbol: normalizedSymbol,
+          price: 50000, // Mock price
+          high24h: 52000,
+          low24h: 48000,
+          volume24h: 1000000000,
+          timestamp: Date.now()
+        };
+      } else {
+        // In live mode, try to get data from the exchange
+        try {
+          const price = await exchangeService.fetchMarketPrice(normalizedSymbol);
+          return {
+            symbol: normalizedSymbol,
+            price: price.price,
+            high24h: price.price * 1.05, // Estimate
+            low24h: price.price * 0.95, // Estimate
+            volume24h: 1000000000, // Mock volume
+            timestamp: price.timestamp
+          };
+        } catch (error) {
+          logService.log('error', `Failed to fetch market data for ${symbol}`, error, 'MarketService');
+          // Return mock data as fallback
+          return {
+            symbol: normalizedSymbol,
+            price: 50000, // Mock price
+            high24h: 52000,
+            low24h: 48000,
+            volume24h: 1000000000,
+            timestamp: Date.now()
+          };
+        }
+      }
+    } catch (error) {
+      logService.log('error', `Failed to get market data for ${symbol}`, error, 'MarketService');
+      // Return mock data as fallback
+      return {
+        symbol: symbol.replace('_', '/'),
+        price: 50000, // Mock price
+        high24h: 52000,
+        low24h: 48000,
+        volume24h: 1000000000,
+        timestamp: Date.now()
+      };
     }
   }
 }

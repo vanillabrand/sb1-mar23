@@ -1,20 +1,18 @@
-import React, { useEffect, useState, lazy, Suspense } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
-  AlertCircle,
   Loader2,
   RefreshCw,
   Search,
   Clock,
   Activity
 } from 'lucide-react';
-import { TradeList } from './TradeList';
 import { StrategyCard } from './StrategyCard';
-import { MarketTypeBadge } from './ui/MarketTypeBadge';
-import TradeExecutionMetrics from './TradeExecutionMetrics';
+import { TradeFlowDiagram } from './TradeFlowDiagram';
+import { SimplifiedTradeCreator } from './SimplifiedTradeCreator';
+import { ErrorDisplay } from './ErrorDisplay';
 import { marketService } from '../lib/market-service';
-import { marketDataService } from '../lib/market-data-service';
 import { marketAnalyzer } from '../lib/market-analyzer';
 import { tradeService } from '../lib/trade-service';
 import { logService } from '../lib/log-service';
@@ -22,7 +20,7 @@ import { supabase } from '../lib/enhanced-supabase';
 import { cacheService } from '../lib/cache-service';
 import { directDeleteStrategy } from '../lib/direct-delete';
 import { eventBus } from '../lib/event-bus';
-import { standardizeAssetPairFormat, toBinanceWsFormat } from '../lib/format-utils';
+import { toBinanceWsFormat } from '../lib/format-utils';
 import { normalizeSymbol, getBasePrice, generateRandomPrice, generateRandomAmount } from '../utils/symbol-utils';
 import { demoService } from '../lib/demo-service';
 import { exchangeService } from '../lib/exchange-service';
@@ -42,10 +40,9 @@ import { BudgetModal } from './BudgetModal';
 import { BudgetAdjustmentModal } from './BudgetAdjustmentModal';
 import { DeactivationProgressModal, type DeactivationStep } from './DeactivationProgressModal';
 import { ErrorBoundary } from './ErrorBoundary';
-import AvailableBalanceDisplay from './AvailableBalanceDisplay';
 import MarketTypeBalanceDisplay from './MarketTypeBalanceDisplay';
 import { SimplifiedTradeMonitor } from './SimplifiedTradeMonitor';
-import type { Trade, Strategy, StrategyBudget, MarketType } from '../lib/types';
+import type { Trade, Strategy, StrategyBudget } from '../lib/types';
 
 // Define local types
 
@@ -89,9 +86,11 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showBudgetAdjustmentModal, setShowBudgetAdjustmentModal] = useState(false);
   const [showDeactivationModal, setShowDeactivationModal] = useState(false);
+  const [showTradeCreator, setShowTradeCreator] = useState(false);
   const [pendingStrategy, setPendingStrategy] = useState<Strategy | null>(null);
   const [pendingBudget, setPendingBudget] = useState<number>(0);
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
+  const [selectedTrade] = useState<Trade | null>(null);
 
   // Deactivation progress state
   const [deactivationSteps, setDeactivationSteps] = useState<DeactivationStep[]>([]);
@@ -205,7 +204,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           // Check if we already have this trade (by ID)
           const existingTradeIndex = (prev[strategyId] || []).findIndex(t => t.id === trade.id);
 
-          let updatedTrades;
+          let updatedTrades: Trade[] = [];
           if (existingTradeIndex >= 0) {
             // Update existing trade
             updatedTrades = [...prev[strategyId]];
@@ -216,7 +215,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           }
 
           // Sort by timestamp, newest first
-          updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+          updatedTrades.sort((a: Trade, b: Trade) => b.timestamp - a.timestamp);
           // Keep only the latest 100 trades
           const limitedTrades = updatedTrades.slice(0, 100);
 
@@ -231,7 +230,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           // Check if we already have this trade (by ID)
           const existingTradeIndex = prev.findIndex(t => t.id === trade.id);
 
-          let updatedTrades;
+          let updatedTrades: Trade[] = [];
           if (existingTradeIndex >= 0) {
             // Update existing trade
             updatedTrades = [...prev];
@@ -242,7 +241,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           }
 
           // Sort by timestamp, newest first
-          updatedTrades.sort((a, b) => b.timestamp - a.timestamp);
+          updatedTrades.sort((a: Trade, b: Trade) => b.timestamp - a.timestamp);
           // Keep only the latest 100 trades
           return updatedTrades.slice(0, 100);
         });
@@ -426,7 +425,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
         // Check if we can connect to Supabase
         try {
-          const { data, error } = await supabase.auth.getSession();
+          const { error } = await supabase.auth.getSession();
           if (error) {
             throw new Error(`Supabase authentication error: ${error.message}`);
           }
@@ -1007,7 +1006,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         }));
 
         // Update the budget in the trade service WITHOUT emitting events to prevent loops
-        tradeService.updateBudgetCache(strategyId, updatedBudget, true);
+        tradeService.updateBudgetCache(strategyId, updatedBudget);
 
         // Only emit global event occasionally to prevent loops
         if (now - lastUpdate > 1000) { // Only emit once per second
@@ -1243,7 +1242,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       }
 
       // Filter out any strategies that were deleted in this session
-      const filteredStrategies = fetchedStrategies.filter(strategy => {
+      const filteredStrategies = fetchedStrategies.filter((strategy: Strategy) => {
         const isDeleted = deletedStrategyIds.has(strategy.id);
         if (isDeleted) {
           logService.log('debug', `Filtering out deleted strategy ${strategy.id}`, null, 'TradeMonitor');
@@ -1277,7 +1276,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
         if (hasChanges) {
           // Create a new array of strategies, preserving the status of any strategies
           // that were manually deactivated by the user
-          return filteredStrategies.map(strategy => {
+          return filteredStrategies.map((strategy: Strategy) => {
             const prevStrategy = prevMap.get(strategy.id);
 
             // Check if this strategy was deactivated by the user
@@ -1303,7 +1302,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       });
 
       // Subscribe to market data for active strategies
-      filteredStrategies.forEach(strategy => {
+      filteredStrategies.forEach((strategy: Strategy) => {
         if (strategy.status === 'active') {
           // Use the WebSocket service to subscribe to the strategy and its market data
           websocketService.subscribeToStrategy(strategy.id)
@@ -1458,7 +1457,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
     const normalizedSymbol = normalizeSymbol(symbol);
 
     // Extract the base asset for price determination
-    const baseAsset = normalizedSymbol.split('/')[0];
+    // const baseAsset = normalizedSymbol.split('/')[0]; // Unused
 
     // Get base price for the symbol
     let basePrice = getBasePrice(normalizedSymbol);
@@ -1484,7 +1483,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       const price = basePrice * (0.98 + Math.random() * 0.04);
 
       // Calculate amount based on price and budget constraints
-      let amount;
+      let amount: number;
       if (maxTotalAmount !== Infinity) {
         amount = maxTotalAmount * (0.2 + Math.random() * 0.6);
       } else {
@@ -1597,7 +1596,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
             continue; // Skip to next symbol
           }
 
-          let symbolTrades;
+          let symbolTrades: any[] = [];
           try {
             symbolTrades = await exchange.fetchMyTrades(normalizedSymbol, undefined, 20);
             logService.log('info', `Successfully fetched ${symbolTrades.length} trades for ${normalizedSymbol}`, null, 'TradeMonitor');
@@ -1620,7 +1619,7 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
               side: trade.side || (Math.random() > 0.5 ? 'buy' : 'sell'),
               entryPrice: trade.price || generateRandomPrice(normalizedSymbol),
               amount: trade.amount || generateRandomAmount(),
-              status: 'completed',
+              status: 'closed' as 'pending' | 'executed' | 'cancelled' | 'failed' | 'closed',
               strategyId: activeStrategies[0].id,
               createdAt: new Date(trade.timestamp || Date.now()).toISOString()
             };
@@ -1879,281 +1878,170 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // 2. Get the latest strategy data to ensure we have the most up-to-date information
       try {
-        const { data: latestStrategy, error: fetchError } = await supabase
+        // Check if strategy exists
+        await supabase
           .from('strategies')
-          .select('*')
+          .select('id')
           .eq('id', strategy.id)
           .single();
 
-        if (fetchError) {
-          // If we get a content type error, try refreshing the session
-          if (fetchError.message?.includes('Content-Type not acceptable') ||
-              fetchError.code === 'PGRST102') {
-            logService.log('warn', 'Content-Type error when fetching strategy, attempting to refresh session',
-              fetchError, 'TradeMonitor');
-
-            // Import the refreshSession function and try to refresh the session
-            let refreshed = false;
-            try {
-              const { refreshSession } = await import('../lib/supabase');
-
-              // Try to refresh the session
-              refreshed = await refreshSession();
-            } catch (importError) {
-              logService.log('error', 'Failed to import refreshSession function',
-                importError, 'TradeMonitor');
-              throw new Error(`Failed to import refreshSession: ${importError.message}`);
-            }
-
-            if (refreshed) {
-              logService.log('info', 'Session refreshed successfully, retrying fetch', null, 'TradeMonitor');
-
-              // Retry the fetch
-              const { data: retryStrategy, error: retryError } = await supabase
-                .from('strategies')
-                .select('*')
-                .eq('id', strategy.id)
-                .single();
-
-              if (retryError) {
-                throw new Error(`Failed to fetch strategy after session refresh: ${retryError.message}`);
-              }
-
-              if (!retryStrategy) {
-                throw new Error('No strategy data returned after session refresh');
-              }
-
-              // Use the retry data
-              logService.log('info', 'Successfully fetched strategy after session refresh', null, 'TradeMonitor');
-            } else {
-              throw new Error(`Failed to refresh session: ${fetchError.message}`);
-            }
-          } else {
-            throw new Error(`Failed to fetch latest strategy data: ${fetchError.message}`);
-          }
-        } else if (!latestStrategy) {
-          throw new Error('No strategy data returned');
-        }
-      } catch (fetchError) {
-        logService.log('warn', `Error fetching latest strategy data, continuing with activation`,
-          fetchError, 'TradeMonitor');
-        // Continue with activation despite this error
-      }
-
-      // 3. Optimistically update the UI before the backend confirms the change
-      // This provides immediate feedback to the user without waiting for the full refresh
-      setStrategies(prevStrategies => {
-        return prevStrategies.map(s => {
-          if (s.id === strategy.id) {
-            // Create an updated version of the strategy with active status
-            return { ...s, status: 'active' };
-          }
-          return s;
-        });
-      });
-
-      // 4. Activate the strategy in the database
-      try {
-        const updatedStrategy = await strategyService.activateStrategy(strategy.id);
-        logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'TradeMonitor');
-
-        // 5. Start monitoring the strategy - wrap in try/catch to continue even if this fails
+        // 4. Activate the strategy in the database using strategyService
         try {
-          await marketService.startStrategyMonitoring(updatedStrategy);
-          logService.log('info', `Started monitoring for strategy ${strategy.id}`, null, 'TradeMonitor');
-        } catch (monitorError) {
-          logService.log('warn', `Error starting market monitoring for strategy ${strategy.id}, continuing with activation`,
-            monitorError, 'TradeMonitor');
-        }
-      } catch (activationError) {
-        // If we get a content type error, try refreshing the session and retry
-        if (activationError.message?.includes('Content-Type not acceptable') ||
-            (activationError.code && activationError.code === 'PGRST102')) {
-          logService.log('warn', 'Content-Type error when activating strategy, attempting to refresh session',
-            activationError, 'TradeMonitor');
-
-          // Import the refreshSession function and try to refresh the session
-          let refreshed = false;
-          try {
-            const { refreshSession } = await import('../lib/supabase');
-
-            // Try to refresh the session
-            refreshed = await refreshSession();
-          } catch (importError) {
-            logService.log('error', 'Failed to import refreshSession function',
-              importError, 'TradeMonitor');
-            // Continue with activation despite this error - the UI is already updated
-          }
-          if (refreshed) {
-            logService.log('info', 'Session refreshed successfully, retrying activation', null, 'TradeMonitor');
-
-            // Retry the activation
-            try {
-              const updatedStrategy = await strategyService.activateStrategy(strategy.id);
-              logService.log('info', `Strategy ${strategy.id} activated in database after session refresh`,
-                null, 'TradeMonitor');
-
-              // Start monitoring the strategy
-              try {
-                await marketService.startStrategyMonitoring(updatedStrategy);
-                logService.log('info', `Started monitoring for strategy ${strategy.id} after session refresh`,
-                  null, 'TradeMonitor');
-              } catch (monitorError) {
-                logService.log('warn', `Error starting market monitoring for strategy ${strategy.id} after session refresh, continuing with activation`,
-                  monitorError, 'TradeMonitor');
-              }
-            } catch (retryError) {
-              logService.log('error', `Failed to activate strategy after session refresh`,
-                retryError, 'TradeMonitor');
-              // Continue with activation despite this error - the UI is already updated
-            }
-          } else {
-            logService.log('error', `Failed to refresh session for strategy activation`,
-              activationError, 'TradeMonitor');
-            // Continue with activation despite this error - the UI is already updated
-          }
-        } else {
+          await strategyService.activateStrategy(strategy.id);
+          logService.log('info', `Strategy ${strategy.id} activated in database`, null, 'TradeMonitor');
+        } catch (activationError) {
           logService.log('warn', `Error activating strategy in database, continuing with UI update only`,
             activationError, 'TradeMonitor');
           // Continue with activation despite this error - the UI is already updated
         }
-      }
 
-      // IMPORTANT: Do NOT refresh the strategy list here - we've already updated the UI optimistically
+        // IMPORTANT: Do NOT refresh the strategy list here - we've already updated the UI optimistically
 
-      // 6. Connect to trading engine to start generating trades - wrap in try/catch to continue even if this fails
-      try {
-        const connected = await tradeService.connectStrategyToTradingEngine(strategy.id);
-
-        if (!connected) {
-          // If connection failed, log a warning but continue
-          logService.log('warn', `Failed to connect strategy ${strategy.id} to trading engine, will retry later`,
-            null, 'TradeMonitor');
-        } else {
-          logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'TradeMonitor');
-        }
-      } catch (engineError) {
-        logService.log('warn', `Error connecting strategy ${strategy.id} to trading engine, will retry later`,
-          engineError, 'TradeMonitor');
-      }
-
-      // 7. Subscribe to the strategy's trades via WebSocket without refreshing the UI
-      try {
-        await websocketService.subscribeToStrategy(strategy.id);
-        logService.log('info', `Subscribed to WebSocket updates for strategy ${strategy.id}`, null, 'TradeMonitor');
-
-        // Get the budget for this strategy
-        const strategyBudget = tradeService.getBudget(strategy.id);
-
-        // Create a real trade using the unified trade service for immediate visual feedback
-        const symbol = strategy.selected_pairs?.[0] || 'BTC/USDT';
-        const basePrice = getBasePrice(symbol);
-        const marketType = strategy.market_type || 'spot';
-
-        // Calculate a reasonable amount based on budget
-        let amount = 0.1; // Default fallback
-
-        if (strategyBudget && strategyBudget.available > 0 && basePrice > 0) {
-          // Use at most 20% of available budget for a single trade
-          const maxBudgetToUse = Math.min(strategyBudget.available, strategyBudget.available * 0.2);
-          amount = maxBudgetToUse / basePrice;
-          // Round to 6 decimal places for crypto
-          amount = Math.round(amount * 1000000) / 1000000;
-
-          logService.log('info', `Calculated trade amount ${amount} based on budget ${strategyBudget.available} for ${symbol}`, null, 'TradeMonitor');
-        }
-
+        // 6. Connect to trading engine to start generating trades - wrap in try/catch to continue even if this fails
         try {
-          // Generate a trade side based on market conditions
-          const side = Math.random() > 0.5 ? 'buy' : 'sell';
+          const connected = await tradeService.connectStrategyToTradingEngine(strategy.id);
 
-          // Calculate stop loss and take profit based on market conditions
-          const stopLoss = side === 'buy'
-            ? basePrice * 0.95 // 5% below entry for buy
-            : basePrice * 1.05; // 5% above entry for sell
-
-          const takeProfit = side === 'buy'
-            ? basePrice * 1.1 // 10% above entry for buy
-            : basePrice * 0.9; // 10% below entry for sell
-
-          // Create trade options
-          const tradeOptions = {
-            strategy_id: strategy.id,
-            symbol: symbol,
-            side: side,
-            quantity: amount,
-            price: basePrice,
-            entry_price: basePrice,
-            stop_loss: stopLoss,
-            take_profit: takeProfit,
-            trailing_stop: 2.5, // 2.5% trailing stop
-            market_type: marketType, // Use market_type for database column name
-            marginType: marketType === 'futures' ? 'cross' : undefined,
-            leverage: marketType === 'futures' ? 2 : undefined,
-            rationale: 'Initial trade for newly activated strategy',
-            entry_conditions: ['Strategy activation'],
-            exit_conditions: ['Take profit', 'Stop loss', 'Trailing stop']
-          };
-
-          // Create the trade using unified trade service
-          const createdTrade = await unifiedTradeService.createTrade(tradeOptions);
-
-          if (createdTrade) {
-            logService.log('info', `Created initial trade for strategy ${strategy.id} using unified trade service`, {
-              tradeId: createdTrade.id,
-              symbol,
-              side,
-              amount
-            }, 'TradeMonitor');
-
-            // The trade will be added to the UI through the event system
+          if (!connected) {
+            // If connection failed, log a warning but continue
+            logService.log('warn', `Failed to connect strategy ${strategy.id} to trading engine, will retry later`,
+              null, 'TradeMonitor');
           } else {
-            // Fallback to adding a placeholder trade if creation fails
-            logService.log('warn', `Failed to create trade using unified service, adding placeholder`, null, 'TradeMonitor');
+            logService.log('info', `Connected strategy ${strategy.id} to trading engine`, null, 'TradeMonitor');
+          }
+        } catch (engineError) {
+          logService.log('warn', `Error connecting strategy ${strategy.id} to trading engine, will retry later`,
+            engineError, 'TradeMonitor');
+        }
 
-            const placeholderTrade: Trade = {
-              id: `placeholder-${strategy.id}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+        // 7. Subscribe to the strategy's trades via WebSocket without refreshing the UI
+        try {
+          await websocketService.subscribeToStrategy(strategy.id);
+          logService.log('info', `Subscribed to WebSocket updates for strategy ${strategy.id}`, null, 'TradeMonitor');
+
+          // Get the budget for this strategy
+          const strategyBudget = tradeService.getBudget(strategy.id);
+
+          // Create a real trade using the unified trade service for immediate visual feedback
+          const symbol = strategy.selected_pairs?.[0] || 'BTC/USDT';
+          const basePrice = getBasePrice(symbol);
+          const marketType = strategy.market_type || 'spot';
+
+          // Calculate a reasonable amount based on budget
+          let amount = 0.1; // Default fallback
+
+          if (strategyBudget && strategyBudget.available > 0 && basePrice > 0) {
+            // Use at most 20% of available budget for a single trade
+            const maxBudgetToUse = Math.min(strategyBudget.available, strategyBudget.available * 0.2);
+            amount = maxBudgetToUse / basePrice;
+            // Round to 6 decimal places for crypto
+            amount = Math.round(amount * 1000000) / 1000000;
+
+            logService.log('info', `Calculated trade amount ${amount} based on budget ${strategyBudget.available} for ${symbol}`, null, 'TradeMonitor');
+          }
+
+          try {
+            // Generate a trade side based on market conditions
+            const side = Math.random() > 0.5 ? 'buy' : 'sell';
+
+            // Calculate stop loss and take profit based on market conditions
+            const stopLoss = side === 'buy'
+              ? basePrice * 0.95 // 5% below entry for buy
+              : basePrice * 1.05; // 5% above entry for sell
+
+            const takeProfit = side === 'buy'
+              ? basePrice * 1.1 // 10% above entry for buy
+              : basePrice * 0.9; // 10% below entry for sell
+
+            // Create trade options with properly typed side
+            const tradeOptions = {
+              strategy_id: strategy.id,
               symbol: symbol,
-              side: side,
-              status: 'pending',
-              entryPrice: basePrice,
-              timestamp: Date.now(),
-              strategyId: strategy.id,
-              createdAt: new Date().toISOString(),
-              executedAt: null,
-              amount: amount
+              side: side as 'buy' | 'sell', // Explicitly type as 'buy' | 'sell'
+              quantity: amount,
+              price: basePrice,
+              entry_price: basePrice,
+              stop_loss: stopLoss,
+              take_profit: takeProfit,
+              trailing_stop: 2.5, // 2.5% trailing stop
+              market_type: marketType, // Use market_type for database column name
+              marginType: marketType === 'futures' ? ('cross' as 'cross' | 'isolated') : undefined,
+              leverage: marketType === 'futures' ? 2 : undefined,
+              rationale: 'Initial trade for newly activated strategy',
+              entry_conditions: ['Strategy activation'],
+              exit_conditions: ['Take profit', 'Stop loss', 'Trailing stop']
             };
 
-            // Add the placeholder trade to the strategy's trades only if it doesn't exist
-            setStrategyTrades(prev => {
-              // Check if a similar placeholder trade already exists
-              const existingPlaceholder = (prev[strategy.id] || []).find(t =>
-                t.id.startsWith('placeholder-') && t.symbol === placeholderTrade.symbol);
-              if (existingPlaceholder) return prev; // Skip if a similar placeholder exists
+            // Create the trade using unified trade service
+            const createdTrade = await unifiedTradeService.createTrade(tradeOptions);
 
-              return {
-                ...prev,
-                [strategy.id]: [placeholderTrade, ...(prev[strategy.id] || [])]
+            if (createdTrade) {
+              logService.log('info', `Created initial trade for strategy ${strategy.id} using unified trade service`, {
+                tradeId: createdTrade.id,
+                symbol,
+                side,
+                amount
+              }, 'TradeMonitor');
+
+              // The trade will be added to the UI through the event system
+            } else {
+              // Fallback to adding a placeholder trade if creation fails
+              logService.log('warn', `Failed to create trade using unified service, adding placeholder`, null, 'TradeMonitor');
+
+              const placeholderTrade: Trade = {
+                id: `placeholder-${strategy.id}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+                symbol: symbol,
+                side: side as 'buy' | 'sell', // Explicitly type as 'buy' | 'sell'
+                status: 'pending',
+                entryPrice: basePrice,
+                timestamp: Date.now(),
+                strategyId: strategy.id,
+                createdAt: new Date().toISOString(),
+                executedAt: null,
+                amount: amount
               };
-            });
+
+              // Add the placeholder trade to the strategy's trades only if it doesn't exist
+              setStrategyTrades(prev => {
+                // Check if a similar placeholder trade already exists
+                const existingPlaceholder = (prev[strategy.id] || []).find(t =>
+                  t.id.startsWith('placeholder-') && t.symbol === placeholderTrade.symbol);
+                if (existingPlaceholder) return prev; // Skip if a similar placeholder exists
+
+                return {
+                  ...prev,
+                  [strategy.id]: [placeholderTrade, ...(prev[strategy.id] || [])]
+                };
+              });
+            }
+          } catch (tradeError) {
+            logService.log('error', `Failed to create initial trade for strategy ${strategy.id}`, tradeError, 'TradeMonitor');
           }
-        } catch (tradeError) {
-          logService.log('error', `Failed to create initial trade for strategy ${strategy.id}`, tradeError, 'TradeMonitor');
+        } catch (wsError) {
+          logService.log('warn', `Error subscribing to WebSocket updates for strategy ${strategy.id}`, wsError, 'TradeMonitor');
         }
-      } catch (wsError) {
-        logService.log('warn', `Error subscribing to WebSocket updates for strategy ${strategy.id}`, wsError, 'TradeMonitor');
+
+        // 8. Fetch trade data in the background without disrupting the UI
+        fetchTradeData().catch(error => {
+          logService.log('warn', 'Error fetching trade data in background', error, 'TradeMonitor');
+        });
+
+        // 9. Clean up state
+        setPendingStrategy(null);
+        setPendingBudget(0);
+
+        logService.log('info', `Strategy ${strategy.id} successfully activated with budget`, { budget }, 'TradeMonitor');
+      } catch (error) {
+        logService.log('error', 'Failed to activate strategy with budget', error, 'TradeMonitor');
+        setError('Failed to activate strategy. Please try again.');
+
+        // Make sure modals are closed even on error
+        setShowBudgetModal(false);
+        setShowBudgetAdjustmentModal(false);
+        setPendingStrategy(null);
+        setPendingBudget(0);
+      } finally {
+        setIsSubmittingBudget(false);
       }
-
-      // 8. Fetch trade data in the background without disrupting the UI
-      fetchTradeData().catch(error => {
-        logService.log('warn', 'Error fetching trade data in background', error, 'TradeMonitor');
-      });
-
-      // 9. Clean up state
-      setPendingStrategy(null);
-      setPendingBudget(0);
-
-      logService.log('info', `Strategy ${strategy.id} successfully activated with budget`, { budget }, 'TradeMonitor');
     } catch (error) {
       logService.log('error', 'Failed to activate strategy with budget', error, 'TradeMonitor');
       setError('Failed to activate strategy. Please try again.');
@@ -2201,10 +2089,10 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
       setRefreshing(false);
       setError(null);
       setStrategies([]);
-      setTrades({});
+      setTrades([]); // Fixed: Use empty array instead of empty object
       setExpandedStrategyId(null);
-      setFilteredStrategies([]);
-      setSubscribedStrategies(new Set());
+      // Removed setFilteredStrategies as it doesn't exist
+      setSubscribedStrategies([]); // Fixed: Use empty array instead of Set
 
       logService.log('info', 'Cleared caches and reset state', null, 'TradeMonitor');
       return true;
@@ -2330,12 +2218,14 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="bg-red-500/10 border border-red-500/20 rounded-lg p-4"
           >
-            <div className="flex items-center gap-2 text-red-400">
-              <AlertCircle className="w-5 h-5" />
-              <span>{error}</span>
-            </div>
+            <ErrorDisplay
+              message={error}
+              category="unknown"
+              showIcon={true}
+              showClose={true}
+              onClose={() => setError(null)}
+            />
           </motion.div>
         )}
 
@@ -2977,6 +2867,32 @@ export const TradeMonitor: React.FC<TradeMonitorProps> = ({
           </div>
         )}
       </motion.div>
+
+      {/* Trade Flow Diagram - Only show when a trade is selected */}
+      {selectedTrade && (
+        <div className="panel-metallic rounded-xl p-6 mb-6">
+          <TradeFlowDiagram trade={selectedTrade} />
+        </div>
+      )}
+
+      {/* Simplified Trade Creator Modal */}
+      {showTradeCreator && pendingStrategy && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[100] p-4 overflow-y-auto">
+          <SimplifiedTradeCreator
+            strategy={pendingStrategy}
+            onSuccess={() => {
+              setShowTradeCreator(false);
+              setPendingStrategy(null);
+              // Refresh trades after creation
+              fetchTradeData();
+            }}
+            onCancel={() => {
+              setShowTradeCreator(false);
+              setPendingStrategy(null);
+            }}
+          />
+        </div>
+      )}
 
       {/* Budget Modal */}
       {showBudgetModal && pendingStrategy && (
