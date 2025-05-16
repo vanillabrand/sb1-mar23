@@ -576,7 +576,7 @@ class StrategyService {
           .eq('id', id)
           .eq('user_id', userId); // Ensure we only delete if it belongs to the current user
 
-      if (error) {
+        if (error) {
         // Log the error but don't throw it - the UI has already been updated
         console.error(`Database error deleting strategy ${id}:`, error);
         logService.log('error', 'Database error deleting strategy', { error, id }, 'StrategyService');
@@ -639,6 +639,7 @@ class StrategyService {
 
       // Emit event again after deletion attempt to ensure all components are updated
       eventBus.emit('strategy:deleted', { strategyId: id });
+      }
     } catch (error) {
       console.error(`Unexpected error deleting strategy ${id}:`, error);
       logService.log('error', 'Unexpected error deleting strategy', { error, id }, 'StrategyService');
@@ -965,7 +966,7 @@ class StrategyService {
           });
 
           return strategyData;
-      } catch (updateError) {
+        } catch (updateError) {
         // If standard update fails, try raw SQL
         logService.log('warn', 'Standard update failed, trying raw SQL', updateError, 'StrategyService');
 
@@ -1057,6 +1058,7 @@ class StrategyService {
             throw rpcError;
           }
         }
+      }
       }
     } catch (error) {
       logService.log('error', 'Failed to deactivate strategy', { error, id }, 'StrategyService');
