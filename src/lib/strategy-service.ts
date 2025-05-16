@@ -9,6 +9,7 @@ import { riskManagementService } from './risk-management-service';
 import { detectMarketType, normalizeMarketType } from './market-type-detection';
 import { strategySync } from './strategy-sync';
 import { demoService } from './demo-service';
+import { apiClient } from './api-client';
 import type { Strategy, CreateStrategyData, StrategyBudget, MarketType } from './types';
 
 class StrategyService {
@@ -24,6 +25,9 @@ class StrategyService {
 
   async createStrategy(data: CreateStrategyData): Promise<Strategy> {
     try {
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
+
       // Check if we're in demo mode
       const isDemo = demoService.isInDemoMode();
 
@@ -197,23 +201,48 @@ class StrategyService {
           type: strategy.type || 'custom'
         };
 
-        // Insert the strategy directly
-        const { data: createdStrategy, error } = await supabase
-          .from('strategies')
-          .insert(completeStrategy)
-          .select()
-          .single();
+        let createdStrategy;
 
-        if (error) {
-          logService.log('error', 'Failed to create strategy', {
-            error,
-            strategy: completeStrategy
+        try {
+          // Try to create the strategy using the API first
+          const apiStrategy = await apiClient.createStrategy({
+            name: completeStrategy.name,
+            title: completeStrategy.title,
+            description: completeStrategy.description,
+            risk_level: completeStrategy.risk_level,
+            market_type: completeStrategy.market_type,
+            selected_pairs: completeStrategy.selected_pairs,
+            strategy_config: completeStrategy.strategy_config
+          });
+
+          logService.log('info', 'Successfully created strategy via API', {
+            strategyId: apiStrategy.id
           }, 'StrategyService');
-          throw error;
-        }
 
-        if (!createdStrategy) {
-          throw new Error('Failed to create strategy - no data returned');
+          createdStrategy = apiStrategy;
+        } catch (apiError) {
+          logService.log('warn', 'Failed to create strategy via API, falling back to Supabase', apiError, 'StrategyService');
+
+          // Insert the strategy directly via Supabase
+          const { data: dbStrategy, error } = await supabase
+            .from('strategies')
+            .insert(completeStrategy)
+            .select()
+            .single();
+
+          if (error) {
+            logService.log('error', 'Failed to create strategy via Supabase', {
+              error,
+              strategy: completeStrategy
+            }, 'StrategyService');
+            throw error;
+          }
+
+          if (!dbStrategy) {
+            throw new Error('Failed to create strategy - no data returned');
+          }
+
+          createdStrategy = dbStrategy;
         }
 
         logService.log('info', 'Successfully created strategy', {
@@ -268,22 +297,35 @@ class StrategyService {
 
   async getStrategy(id: string): Promise<Strategy> {
     try {
-      const { data, error } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('id', id)
-        .single();
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
 
-      if (error) {
-        logService.log('error', 'Failed to get strategy', { error, id }, 'StrategyService');
-        throw error;
+      try {
+        // Try to get strategy from the API first
+        const strategy = await apiClient.getStrategy(id);
+        logService.log('info', 'Successfully retrieved strategy from API', { id }, 'StrategyService');
+        return strategy;
+      } catch (apiError) {
+        logService.log('warn', 'Failed to get strategy from API, falling back to Supabase', { apiError, id }, 'StrategyService');
+
+        // Fall back to direct Supabase access
+        const { data, error } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (error) {
+          logService.log('error', 'Failed to get strategy from Supabase', { error, id }, 'StrategyService');
+          throw error;
+        }
+
+        if (!data) {
+          throw new Error(`Strategy with ID ${id} not found`);
+        }
+
+        return data;
       }
-
-      if (!data) {
-        throw new Error(`Strategy with ID ${id} not found`);
-      }
-
-      return data;
     } catch (error) {
       logService.log('error', 'Failed to get strategy', { error, id }, 'StrategyService');
       throw error;
@@ -292,6 +334,9 @@ class StrategyService {
 
   async updateStrategy(id: string, updates: Partial<Strategy>): Promise<Strategy> {
     try {
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
+
       // Get the current strategy to check market type and risk level
       const currentStrategy = await this.getStrategy(id);
 
@@ -410,23 +455,34 @@ class StrategyService {
         safeUpdates.marketType = updatedMarketType;
       }
 
-      const { data, error } = await supabase
-        .from('strategies')
-        .update(safeUpdates)
-        .eq('id', id)
-        .select()
-        .single();
+      try {
+        // Try to update the strategy using the API first
+        const updatedStrategy = await apiClient.updateStrategy(id, safeUpdates);
 
-      if (error) {
-        logService.log('error', 'Failed to update strategy', { error, id, updates }, 'StrategyService');
-        throw error;
+        logService.log('info', `Successfully updated strategy ${id} via API`, null, 'StrategyService');
+        return updatedStrategy;
+      } catch (apiError) {
+        logService.log('warn', 'Failed to update strategy via API, falling back to Supabase', apiError, 'StrategyService');
+
+        // Fall back to direct Supabase access
+        const { data, error } = await supabase
+          .from('strategies')
+          .update(safeUpdates)
+          .eq('id', id)
+          .select()
+          .single();
+
+        if (error) {
+          logService.log('error', 'Failed to update strategy via Supabase', { error, id, updates }, 'StrategyService');
+          throw error;
+        }
+
+        if (!data) {
+          throw new Error(`Strategy with ID ${id} not found or update failed`);
+        }
+
+        return data;
       }
-
-      if (!data) {
-        throw new Error(`Strategy with ID ${id} not found or update failed`);
-      }
-
-      return data;
     } catch (error) {
       logService.log('error', 'Failed to update strategy', { error, id, updates }, 'StrategyService');
       throw error;
@@ -437,73 +493,88 @@ class StrategyService {
     try {
       console.log('StrategyService: Deleting strategy', id);
 
-      // Get current user session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-      if (sessionError || !session?.user?.id) {
-        throw new Error('No authenticated user found');
-      }
-
-      const userId = session.user.id;
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
 
       // Emit event before database operation for immediate UI update
       eventBus.emit('strategy:deleted', { strategyId: id });
 
-      // First, check if the strategy exists and belongs to the current user
-      const { data: existingStrategy, error: checkError } = await supabase
-        .from('strategies')
-        .select('id, user_id')
-        .eq('id', id)
-        .single();
+      try {
+        // Try to delete the strategy using the API first
+        await apiClient.deleteStrategy(id);
 
-      if (checkError && checkError.code !== 'PGRST116') {
-        // Log the error but don't throw it - we'll still try to delete
-        console.warn(`Error checking if strategy ${id} exists:`, checkError);
-      }
+        logService.log('info', `Successfully deleted strategy ${id} via API`, null, 'StrategyService');
 
-      if (!existingStrategy) {
-        // Strategy doesn't exist, but that's okay - we're trying to delete it anyway
-        console.log(`Strategy ${id} doesn't exist in database, skipping deletion`);
-
-        // Still emit the event to ensure UI is updated
+        // Emit event again to ensure all components are updated
         eventBus.emit('strategy:deleted', { strategyId: id });
         return;
-      }
+      } catch (apiError) {
+        logService.log('warn', 'Failed to delete strategy via API, falling back to Supabase', apiError, 'StrategyService');
 
-      // Verify ownership
-      if (existingStrategy.user_id !== userId) {
-        console.error(`Strategy ${id} does not belong to the current user`);
-        throw new Error(`Strategy ${id} does not belong to the current user`);
-      }
+        // Get current user session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
-      // Delete trades first to avoid foreign key constraints
-      try {
-        console.log(`Deleting trades for strategy ${id}`);
-        const { error: tradesError } = await supabase
-          .from('trades')
-          .delete()
-          .eq('strategy_id', id);
-
-        if (tradesError) {
-          // Check if the error is because the trades table doesn't exist
-          if (tradesError.message.includes('relation "trades" does not exist')) {
-            console.log('Trades table does not exist, skipping trade deletion');
-          } else {
-            console.warn(`Error deleting trades for strategy ${id}:`, tradesError);
-          }
-        } else {
-          console.log(`Successfully deleted trades for strategy ${id}`);
+        if (sessionError || !session?.user?.id) {
+          throw new Error('No authenticated user found');
         }
-      } catch (tradesError) {
-        console.warn(`Exception deleting trades for strategy ${id}:`, tradesError);
-      }
 
-      // Delete from database
-      const { error } = await supabase
-        .from('strategies')
-        .delete()
-        .eq('id', id)
-        .eq('user_id', userId); // Ensure we only delete if it belongs to the current user
+        const userId = session.user.id;
+
+        // First, check if the strategy exists and belongs to the current user
+        const { data: existingStrategy, error: checkError } = await supabase
+          .from('strategies')
+          .select('id, user_id')
+          .eq('id', id)
+          .single();
+
+        if (checkError && checkError.code !== 'PGRST116') {
+          // Log the error but don't throw it - we'll still try to delete
+          console.warn(`Error checking if strategy ${id} exists:`, checkError);
+        }
+
+        if (!existingStrategy) {
+          // Strategy doesn't exist, but that's okay - we're trying to delete it anyway
+          console.log(`Strategy ${id} doesn't exist in database, skipping deletion`);
+
+          // Still emit the event to ensure UI is updated
+          eventBus.emit('strategy:deleted', { strategyId: id });
+          return;
+        }
+
+        // Verify ownership
+        if (existingStrategy.user_id !== userId) {
+          console.error(`Strategy ${id} does not belong to the current user`);
+          throw new Error(`Strategy ${id} does not belong to the current user`);
+        }
+
+        // Delete trades first to avoid foreign key constraints
+        try {
+          console.log(`Deleting trades for strategy ${id}`);
+          const { error: tradesError } = await supabase
+            .from('trades')
+            .delete()
+            .eq('strategy_id', id);
+
+          if (tradesError) {
+            // Check if the error is because the trades table doesn't exist
+            if (tradesError.message.includes('relation "trades" does not exist')) {
+              console.log('Trades table does not exist, skipping trade deletion');
+            } else {
+              console.warn(`Error deleting trades for strategy ${id}:`, tradesError);
+            }
+          } else {
+            console.log(`Successfully deleted trades for strategy ${id}`);
+          }
+        } catch (tradesError) {
+          console.warn(`Exception deleting trades for strategy ${id}:`, tradesError);
+        }
+
+        // Delete from database
+        const { error } = await supabase
+          .from('strategies')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', userId); // Ensure we only delete if it belongs to the current user
 
       if (error) {
         // Log the error but don't throw it - the UI has already been updated
@@ -581,45 +652,65 @@ class StrategyService {
     try {
       logService.log('info', `Attempting to activate strategy with ID: ${id}`, null, 'StrategyService');
 
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
+
       // Check if we're in demo mode
       const isDemo = demoService.isInDemoMode();
 
-      // First, get the current strategy to check if it has trading pairs
-      const { data: currentStrategy, error: getError } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('id', id)
-        .single();
+      try {
+        // Try to activate the strategy using the API first
+        const activatedStrategy = await apiClient.activateStrategy(id);
 
-      if (getError) {
-        logService.log('error', 'Failed to get strategy for activation', { error: getError, id }, 'StrategyService');
+        logService.log('info', `Successfully activated strategy ${id} via API`, null, 'StrategyService');
 
-        // In demo mode, we can try to get the strategy from the strategy sync cache
-        if (isDemo) {
-          const cachedStrategy = strategySync.getStrategy(id);
-          if (cachedStrategy) {
-            logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
-            return this.activateStrategyInDemoMode(cachedStrategy);
+        // Emit event to notify other components
+        eventBus.emit('strategy:activated', {
+          strategyId: id,
+          strategy: activatedStrategy,
+          timestamp: Date.now()
+        });
+
+        return activatedStrategy;
+      } catch (apiError) {
+        logService.log('warn', 'Failed to activate strategy via API, falling back to Supabase', apiError, 'StrategyService');
+
+        // First, get the current strategy to check if it has trading pairs
+        const { data: currentStrategy, error: getError } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (getError) {
+          logService.log('error', 'Failed to get strategy for activation', { error: getError, id }, 'StrategyService');
+
+          // In demo mode, we can try to get the strategy from the strategy sync cache
+          if (isDemo) {
+            const cachedStrategy = strategySync.getStrategy(id);
+            if (cachedStrategy) {
+              logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
+              return this.activateStrategyInDemoMode(cachedStrategy);
+            }
           }
+
+          throw getError;
         }
 
-        throw getError;
-      }
+        if (!currentStrategy) {
+          logService.log('error', `Strategy with ID ${id} not found for activation`, null, 'StrategyService');
 
-      if (!currentStrategy) {
-        logService.log('error', `Strategy with ID ${id} not found for activation`, null, 'StrategyService');
-
-        // In demo mode, we can try to get the strategy from the strategy sync cache
-        if (isDemo) {
-          const cachedStrategy = strategySync.getStrategy(id);
-          if (cachedStrategy) {
-            logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
-            return this.activateStrategyInDemoMode(cachedStrategy);
+          // In demo mode, we can try to get the strategy from the strategy sync cache
+          if (isDemo) {
+            const cachedStrategy = strategySync.getStrategy(id);
+            if (cachedStrategy) {
+              logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
+              return this.activateStrategyInDemoMode(cachedStrategy);
+            }
           }
-        }
 
-        throw new Error(`Strategy with ID ${id} not found or activation failed`);
-      }
+          throw new Error(`Strategy with ID ${id} not found or activation failed`);
+        }
 
       // Check if strategy is already active
       if (currentStrategy.status === 'active') {
@@ -829,31 +920,51 @@ class StrategyService {
 
   async deactivateStrategy(id: string): Promise<Strategy> {
     try {
-      // Try multiple approaches to update the database
-      try {
-        // First try the standard update method
-        const { data: strategyData, error: strategyError } = await supabase
-          .from('strategies')
-          .update({
-            status: 'inactive',
-            updated_at: new Date().toISOString(),
-            deactivated_at: new Date().toISOString()
-          })
-          .eq('id', id)
-          .select('*')
-          .single();
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
 
-        if (strategyError) {
-          throw strategyError;
-        }
+      try {
+        // Try to deactivate the strategy using the API first
+        const deactivatedStrategy = await apiClient.deactivateStrategy(id);
+
+        logService.log('info', `Successfully deactivated strategy ${id} via API`, null, 'StrategyService');
 
         // Emit an event to notify other components
         eventBus.emit('strategy:deactivated', {
           strategyId: id,
+          strategy: deactivatedStrategy,
           timestamp: Date.now()
         });
 
-        return strategyData;
+        return deactivatedStrategy;
+      } catch (apiError) {
+        logService.log('warn', 'Failed to deactivate strategy via API, falling back to Supabase', apiError, 'StrategyService');
+
+        // Try multiple approaches to update the database
+        try {
+          // First try the standard update method
+          const { data: strategyData, error: strategyError } = await supabase
+            .from('strategies')
+            .update({
+              status: 'inactive',
+              updated_at: new Date().toISOString(),
+              deactivated_at: new Date().toISOString()
+            })
+            .eq('id', id)
+            .select('*')
+            .single();
+
+          if (strategyError) {
+            throw strategyError;
+          }
+
+          // Emit an event to notify other components
+          eventBus.emit('strategy:deactivated', {
+            strategyId: id,
+            timestamp: Date.now()
+          });
+
+          return strategyData;
       } catch (updateError) {
         // If standard update fails, try raw SQL
         logService.log('warn', 'Standard update failed, trying raw SQL', updateError, 'StrategyService');
@@ -955,24 +1066,37 @@ class StrategyService {
 
   async getAllStrategies(): Promise<Strategy[]> {
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
 
-      if (sessionError || !session?.user?.id) {
-        throw new Error('No authenticated session found');
+      try {
+        // Try to get strategies from the API first
+        const strategies = await apiClient.getStrategies();
+        logService.log('info', 'Successfully retrieved strategies from API', { count: strategies.length }, 'StrategyService');
+        return strategies;
+      } catch (apiError) {
+        logService.log('warn', 'Failed to get strategies from API, falling back to Supabase', apiError, 'StrategyService');
+
+        // Fall back to direct Supabase access
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError || !session?.user?.id) {
+          throw new Error('No authenticated session found');
+        }
+
+        const { data, error } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          logService.log('error', 'Failed to get strategies from Supabase', { error }, 'StrategyService');
+          throw error;
+        }
+
+        return data || [];
       }
-
-      const { data, error } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        logService.log('error', 'Failed to get strategies', { error }, 'StrategyService');
-        throw error;
-      }
-
-      return data || [];
     } catch (error) {
       logService.log('error', 'Failed to get strategies', { error }, 'StrategyService');
       return [];
@@ -981,25 +1105,44 @@ class StrategyService {
 
   async getActiveStrategies(): Promise<Strategy[]> {
     try {
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      // Initialize API client if not already initialized
+      await apiClient.initialize();
 
-      if (sessionError || !session?.user?.id) {
-        throw new Error('No authenticated session found');
+      try {
+        // Get all strategies from the API
+        const allStrategies = await apiClient.getStrategies();
+
+        // Filter for active strategies
+        const activeStrategies = allStrategies.filter(strategy => strategy.status === 'active');
+
+        logService.log('info', 'Successfully retrieved active strategies from API',
+          { count: activeStrategies.length, total: allStrategies.length }, 'StrategyService');
+
+        return activeStrategies;
+      } catch (apiError) {
+        logService.log('warn', 'Failed to get active strategies from API, falling back to Supabase', apiError, 'StrategyService');
+
+        // Fall back to direct Supabase access
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError || !session?.user?.id) {
+          throw new Error('No authenticated session found');
+        }
+
+        const { data, error } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('user_id', session.user.id)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false });
+
+        if (error) {
+          logService.log('error', 'Failed to get active strategies from Supabase', { error }, 'StrategyService');
+          throw error;
+        }
+
+        return data || [];
       }
-
-      const { data, error } = await supabase
-        .from('strategies')
-        .select('*')
-        .eq('user_id', session.user.id)
-        .eq('status', 'active')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        logService.log('error', 'Failed to get active strategies', { error }, 'StrategyService');
-        throw error;
-      }
-
-      return data || [];
     } catch (error) {
       logService.log('error', 'Failed to get active strategies', { error }, 'StrategyService');
       return [];

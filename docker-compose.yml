@@ -1,7 +1,30 @@
 version: '3'
 
 services:
-  # Python Trading Engine
+  # Rust Trading API
+  trading-api:
+    build:
+      context: ./backend/rust
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - RUST_LOG=info
+      - HOST=0.0.0.0
+      - PORT=8080
+      - VITE_SUPABASE_URL=https://gsuiserbzoebcdptglzm.supabase.co
+      - VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzdWlzZXJiem9lYmNkcHRnbHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM0MjE1MzgsImV4cCI6MjA1ODk5NzUzOH0.kSsWOfPW7RI3IXbCUzXi9oKK0zSC__-6p6ukfDJbk-k
+      - DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
+      - DEEPSEEK_API_KEY=sk-d218e91b203f45ebb4ede94cbed76478
+      - BINANCE_TESTNET_API_KEY=6dbf9bc5b8e03455128d00bab9ccaffb33fa812bfcf0b21bcb50cff355a88049
+      - BINANCE_TESTNET_API_SECRET=4024ffff209db1b0681f8276fb9ba8425ae3883fc15176b622c11e7c4c8d53df
+      - DEMO_MODE_ENABLED=true
+      - ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+    restart: unless-stopped
+    volumes:
+      - ./logs:/app/logs
+
+  # Python Trading Engine (Legacy)
   trading-engine:
     build:
       context: ./backend/python
@@ -12,7 +35,7 @@ services:
       - SUPABASE_URL=https://gsuiserbzoebcdptglzm.supabase.co
       - SUPABASE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzdWlzZXJiem9lYmNkcHRnbHptIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDM0MjE1MzgsImV4cCI6MjA1ODk5NzUzOH0.kSsWOfPW7RI3IXbCUzXi9oKK0zSC__-6p6ukfDJbk-k
       - DEEPSEEK_API_URL=https://api.deepseek.com/v1/chat/completions
-        - DEEPSEEK_API_KEY=sk-d218e91b203f45ebb4ede94cbed76478
+      - DEEPSEEK_API_KEY=sk-d218e91b203f45ebb4ede94cbed76478
       - BINANCE_TESTNET_API_KEY=6dbf9bc5b8e03455128d00bab9ccaffb33fa812bfcf0b21bcb50cff355a88049
       - BINANCE_TESTNET_API_SECRET=4024ffff209db1b0681f8276fb9ba8425ae3883fc15176b622c11e7c4c8d53df
       - DEMO_MODE_ENABLED=true
@@ -20,3 +43,19 @@ services:
     volumes:
       - ./backend/python:/app
     restart: unless-stopped
+    depends_on:
+      - trading-api
+
+  # Proxy Server for WebSockets
+  proxy-server:
+    build:
+      context: ./
+      dockerfile: proxy-server.Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - BINANCE_TESTNET_WEBSOCKETS_URL=wss://testnet.binancefuture.com/ws-fapi/v1
+    restart: unless-stopped
+    depends_on:
+      - trading-api

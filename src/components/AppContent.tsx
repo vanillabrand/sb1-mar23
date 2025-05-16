@@ -1,4 +1,4 @@
-import React, { useState, Suspense } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, LazyMotion, domAnimation } from 'framer-motion';
 import PageTransition from './PageTransition';
@@ -89,7 +89,13 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
 
         {/* Global Header - Only visible on desktop */}
         {!isMobile && (
-          <div className="bg-gunmetal-900/50 backdrop-blur-sm border-b border-gunmetal-800 py-2 px-4 flex items-center justify-end sticky top-0 z-10">
+          <div className="bg-gunmetal-900/50 backdrop-blur-sm border-b border-gunmetal-800 py-2 px-4 flex items-center justify-between sticky top-0 z-10">
+            <div className="flex items-center space-x-2">
+              {/* Dynamic import for ApiStatusIndicator to avoid circular dependencies */}
+              <Suspense fallback={<div className="w-12"></div>}>
+                {React.createElement(React.lazy(() => import('./ApiStatusIndicator')))}
+              </Suspense>
+            </div>
             <TradingModeIndicator showToggle={true} />
           </div>
         )}
