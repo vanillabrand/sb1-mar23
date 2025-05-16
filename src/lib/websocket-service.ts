@@ -34,6 +34,8 @@ export class WebSocketService extends EventEmitter {
 
   private isPageVisible: boolean = true;
   private visibilityChangeHandler: () => void;
+  private clientId: string | null = null;
+  private isDemo: boolean = false;
 
   private constructor() {
     super();
@@ -97,6 +99,22 @@ export class WebSocketService extends EventEmitter {
   private getWebSocketUrl(): string {
     // Check if we're in demo mode
     const isDemo = demoService.isDemoMode();
+
+    // Check if we have an API WebSocket URL in the environment
+    const apiWsUrl = import.meta.env.VITE_API_WS_URL;
+    if (apiWsUrl) {
+      logService.log('info', `Using API WebSocket URL from environment: ${apiWsUrl}`, null, 'WebSocketService');
+      return apiWsUrl;
+    }
+
+    // Try to derive the WebSocket URL from the API URL
+    const apiUrl = import.meta.env.VITE_API_URL;
+    if (apiUrl) {
+      // Convert http(s):// to ws(s)://
+      const wsUrl = apiUrl.replace(/^http/, 'ws') + '/ws';
+      logService.log('info', `Using WebSocket URL derived from API URL: ${wsUrl}`, null, 'WebSocketService');
+      return wsUrl;
+    }
 
     if (isDemo) {
       // Use Binance TestNet WebSocket URL directly for demo mode
@@ -245,8 +263,21 @@ export class WebSocketService extends EventEmitter {
         // Emit the message to all listeners
         this.emit('message', message);
 
+        // Handle connection message to get client ID
+        if (message.type === 'connection') {
+          this.clientId = message.data?.clientId;
+          this.isDemo = message.data?.isDemo || false;
+
+          logService.log('info', `WebSocket client ID: ${this.clientId}, demo mode: ${this.isDemo}`, null, 'WebSocketService');
+
+          // Emit connection event with client ID
+          this.emit('connection', {
+            clientId: this.clientId,
+            isDemo: this.isDemo
+          });
+        }
         // Handle ping/pong messages
-        if (message.type === 'ping') {
+        else if (message.type === 'ping') {
           // Respond with a pong message
           this.send({
             type: 'pong',
@@ -263,8 +294,24 @@ export class WebSocketService extends EventEmitter {
           const rtt = Date.now() - (message.echo || 0);
           logService.log('debug', 'WebSocket pong received', { rtt }, 'WebSocketService');
         }
-
-        // Handle Binance TestNet data
+        // Handle subscription confirmation
+        else if (message.type === 'subscription') {
+          logService.log('info', `Subscription ${message.data?.status}: ${message.data?.channel}`, message.data, 'WebSocketService');
+          this.emit('subscription', message.data);
+        }
+        // Handle trade updates
+        else if (message.type === 'trade_update') {
+          this.emit('trade_update', message.data);
+        }
+        // Handle market data updates
+        else if (message.type === 'market_data') {
+          this.emit('market_data', message.data);
+        }
+        // Handle strategy updates
+        else if (message.type === 'strategy_update') {
+          this.emit('strategy_update', message.data);
+        }
+        // Handle Binance TestNet data (legacy support)
         else if (message.type === 'binance_data' || message.type === 'binance_market_data') {
           this.handleBinanceData(message.data);
         }
@@ -471,6 +518,46 @@ export class WebSocketService extends EventEmitter {
   }
 
   /**
+   * Subscribe to a specific channel
+   * @param channel The channel to subscribe to
+   * @param strategyId Optional strategy ID for strategy-specific channels
+   * @param symbols Optional array of symbols for market data channels
+   */
+  async subscribeToChannel(channel: string, strategyId?: string, symbols?: string[]): Promise<void> {
+    try {
+      if (!this.getConnectionStatus()) {
+        await this.connect({});
+      }
+
+      // Create subscription message
+      const subscriptionMessage: any = {
+        type: 'subscribe',
+        data: {
+          channel: channel
+        }
+      };
+
+      // Add strategy ID if provided
+      if (strategyId) {
+        subscriptionMessage.data.strategyId = strategyId;
+      }
+
+      // Add symbols if provided
+      if (symbols && symbols.length > 0) {
+        subscriptionMessage.data.symbols = symbols;
+      }
+
+      // Send subscription message
+      await this.send(subscriptionMessage);
+
+      logService.log('info', `Subscribed to channel ${channel}`, { strategyId, symbolCount: symbols?.length }, 'WebSocketService');
+    } catch (error) {
+      logService.log('error', `Failed to subscribe to channel ${channel}`, error, 'WebSocketService');
+      throw error;
+    }
+  }
+
+  /**
    * Process the subscription queue with controlled concurrency
    */
   private async processSubscriptionQueue(): Promise<void> {
@@ -524,28 +611,67 @@ export class WebSocketService extends EventEmitter {
     reject: (error: Error) => void
   ): Promise<void> {
     try {
-      // Send subscription message
-      await this.send({
-        type: 'subscribe',
-        channel: 'strategy',
-        strategyId
-      });
-
-      // Get strategy details to subscribe to its trading pairs
+      // Try to use the new API first
       try {
-        const { data: strategy } = await supabase
-          .from('strategies')
-          .select('*')
-          .eq('id', strategyId)
-          .single();
+        await this.subscribeToChannel('strategy', strategyId);
 
-        if (strategy && strategy.selected_pairs) {
-          // Batch subscribe to market data for all trading pairs
-          await this.batchSubscribeToMarketData(strategy.selected_pairs);
+        // Get strategy details to subscribe to its trading pairs
+        try {
+          // Try to get strategy from API client first
+          const apiClient = await import('./api-client').then(m => m.apiClient);
+          await apiClient.initialize();
+
+          const strategy = await apiClient.getStrategy(strategyId).catch(() => null);
+
+          if (strategy && strategy.selected_pairs) {
+            // Batch subscribe to market data for all trading pairs
+            await this.subscribeToChannel('market', undefined, strategy.selected_pairs);
+          }
+        } catch (apiError) {
+          // Fall back to Supabase
+          try {
+            const { data: strategy } = await supabase
+              .from('strategies')
+              .select('*')
+              .eq('id', strategyId)
+              .single();
+
+            if (strategy && strategy.selected_pairs) {
+              // Batch subscribe to market data for all trading pairs
+              await this.subscribeToChannel('market', undefined, strategy.selected_pairs);
+            }
+          } catch (strategyError) {
+            logService.log('warn', `Failed to get strategy details for ${strategyId}`, strategyError, 'WebSocketService');
+            // Continue anyway - we've at least subscribed to the strategy itself
+          }
         }
-      } catch (strategyError) {
-        logService.log('warn', `Failed to get strategy details for ${strategyId}`, strategyError, 'WebSocketService');
-        // Continue anyway - we've at least subscribed to the strategy itself
+      } catch (apiError) {
+        // Fall back to legacy subscription method
+        logService.log('warn', `Failed to subscribe to strategy ${strategyId} via new API, falling back to legacy method`, apiError, 'WebSocketService');
+
+        // Send subscription message
+        await this.send({
+          type: 'subscribe',
+          channel: 'strategy',
+          strategyId
+        });
+
+        // Get strategy details to subscribe to its trading pairs
+        try {
+          const { data: strategy } = await supabase
+            .from('strategies')
+            .select('*')
+            .eq('id', strategyId)
+            .single();
+
+          if (strategy && strategy.selected_pairs) {
+            // Batch subscribe to market data for all trading pairs
+            await this.batchSubscribeToMarketData(strategy.selected_pairs);
+          }
+        } catch (strategyError) {
+          logService.log('warn', `Failed to get strategy details for ${strategyId}`, strategyError, 'WebSocketService');
+          // Continue anyway - we've at least subscribed to the strategy itself
+        }
       }
 
       logService.log('info', `Subscribed to strategy ${strategyId}`, null, 'WebSocketService');

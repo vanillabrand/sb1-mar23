@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { Routes, Route, Navigate, useLocation, Link } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import {
@@ -66,6 +66,11 @@ export function SimplifiedAppLayout() {
         </div>
 
         <div className="flex items-center gap-4">
+          {/* API Status Indicator */}
+          <Suspense fallback={<div className="w-12"></div>}>
+            {React.createElement(lazy(() => import('../ApiStatusIndicator')))}
+          </Suspense>
+
           <TradingModeIndicator showToggle={true} />
 
           {user && (
