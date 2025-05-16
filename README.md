@@ -1,5 +1,9 @@
 # GiGAntic Trading Platform
 
+## High-Performance API
+
+This project now includes a high-performance server-side API built with Rust that handles all the functions of the current app, with a focus on low latency, security, and proper integration with the frontend.
+
 ## Setup and Installation
 
 ### Clean Installation
@@ -27,6 +31,28 @@ npm run build
 ```
 
 ## API Documentation
+
+### Rust API Server
+
+The application now includes a high-performance API server built with Rust. This server provides a comprehensive set of endpoints for all trading functionality, with WebSocket support for real-time updates.
+
+#### Key Features:
+- **High Performance**: Built with Rust for maximum performance and memory safety
+- **Complete API**: Handles all app functionality including trading, asset monitoring, market conditions, and strategy adaptation
+- **WebSocket Support**: Real-time data streaming for market updates and trade notifications
+- **Supabase Integration**: Seamless integration with the existing database
+- **Authentication**: JWT-based authentication with Supabase Auth
+
+#### Endpoints:
+- `/api/strategies` - Strategy management (create, read, update, delete, activate, deactivate)
+- `/api/trades` - Trade execution and monitoring
+- `/api/market` - Market data retrieval
+- `/api/exchanges` - Exchange integration
+- `/api/news` - News retrieval
+- `/api/auth` - Authentication
+
+#### WebSocket:
+- `ws://localhost:8080/ws` - WebSocket endpoint for real-time updates
 
 ### Proxy Server
 The application uses a proxy server to avoid CORS issues when making API requests to external services. The proxy server is automatically started when running the application.
@@ -78,7 +104,20 @@ Exchange credentials are stored securely in the database and are encrypted befor
 
 ## WebSocket Support
 
-The application uses WebSockets for real-time data updates from exchanges. WebSocket connections are automatically established when connecting to an exchange.
+The application uses WebSockets for real-time data updates from exchanges and the API server. WebSocket connections are automatically established when connecting to an exchange or when using the application.
+
+### Exchange WebSockets
+WebSocket connections to exchanges are automatically established when connecting to an exchange. These provide real-time market data and trade updates directly from the exchange.
+
+### API Server WebSockets
+The Rust API server provides a WebSocket endpoint at `ws://localhost:8080/ws` for real-time updates. This includes:
+
+- Strategy updates
+- Trade notifications
+- Market data
+- Connection status
+
+The WebSocket client in the frontend automatically handles reconnection, authentication, and message processing.
 
 ## Demo Mode
 
