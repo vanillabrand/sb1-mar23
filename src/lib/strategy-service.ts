@@ -254,44 +254,11 @@ class StrategyService {
         logService.log('error', 'Failed to create strategy after multiple attempts', insertError, 'StrategyService');
         throw new Error(`Failed to create strategy: ${insertError.message}`);
       }
-
-      // Refresh news and market insights cache in the background to include the new strategy's assets
-      if (createdStrategy) {
-        this.refreshCachesForNewStrategy(createdStrategy).catch(error => {
-          logService.log('warn', 'Failed to refresh caches for new strategy', error, 'StrategyService');
-        });
-      }
-
-      // Add the strategy to the strategy sync cache
-      if (createdStrategy && strategySync && typeof strategySync.addStrategyToCache === 'function') {
-        try {
-          strategySync.addStrategyToCache(createdStrategy);
-        } catch (syncError) {
-          logService.log('warn', 'Failed to add strategy to sync cache', syncError, 'StrategyService');
-        }
-      }
-
-      // Emit events to update all components
-      if (createdStrategy) {
-        try {
-          eventBus.emit('strategy:created', createdStrategy);
-          eventBus.emit('strategy:created', { strategy: createdStrategy }); // Also emit with object wrapper for compatibility
-
-          // Also dispatch a DOM event for components that don't use the event bus
-          if (typeof document !== 'undefined') {
-            document.dispatchEvent(new CustomEvent('strategy:created', {
-              detail: { strategy: createdStrategy }
-            }));
-          }
-        } catch (eventError) {
-          logService.log('warn', 'Failed to emit strategy created events', eventError, 'StrategyService');
-        }
-      }
-
+      
       return createdStrategy;
-    } catch (error) {
-      logService.log('error', 'Failed to create strategy', error, 'StrategyService');
-      throw error;
+    } catch (insertError) {
+      logService.log('error', 'Failed to create strategy after multiple attempts', insertError, 'StrategyService');
+      throw new Error(`Failed to create strategy: ${insertError.message}`);
     }
   }
 
