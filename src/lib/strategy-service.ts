@@ -58,9 +58,9 @@ class StrategyService {
       if (data.marketType) {
         // If marketType is provided, normalize it to ensure it's valid
         marketType = normalizeMarketType(data.marketType);
-      } else if (data.market_type) {
+      } else if ('market_type' in data as any) {
         // Support for market_type field (database field name)
-        marketType = normalizeMarketType(data.market_type);
+        marketType = normalizeMarketType((data as any).market_type);
       } else {
         // Detect from description
         marketType = detectMarketType(data.description || '');
@@ -197,7 +197,7 @@ class StrategyService {
           selected_pairs: Array.isArray(strategy.selected_pairs) && strategy.selected_pairs.length > 0
             ? strategy.selected_pairs
             : ['BTC/USDT'],
-          risk_level: strategy.risk_level || 'Medium',
+          risk_level: (strategy as any).risk_level || strategy.riskLevel || 'Medium',
           type: strategy.type || 'custom'
         };
 
@@ -213,7 +213,7 @@ class StrategyService {
             market_type: completeStrategy.market_type,
             selected_pairs: completeStrategy.selected_pairs,
             strategy_config: completeStrategy.strategy_config
-          });
+          }) as Strategy;
 
           logService.log('info', 'Successfully created strategy via API', {
             strategyId: apiStrategy.id
@@ -253,12 +253,12 @@ class StrategyService {
       } catch (insertError) {
         logService.log('error', 'Failed to create strategy after multiple attempts', insertError, 'StrategyService');
         throw new Error(`Failed to create strategy: ${insertError.message}`);
+        // Return the created strategy if no error was thrown
+        return createdStrategy;
       }
-      
-      return createdStrategy;
-    } catch (insertError) {
-      logService.log('error', 'Failed to create strategy after multiple attempts', insertError, 'StrategyService');
-      throw new Error(`Failed to create strategy: ${insertError.message}`);
+    } catch (error) {
+      logService.log('error', 'Failed to create strategy after multiple attempts', error, 'StrategyService');
+      throw new Error(`Failed to create strategy: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -269,7 +269,7 @@ class StrategyService {
 
       try {
         // Try to get strategy from the API first
-        const strategy = await apiClient.getStrategy(id);
+        const strategy = await apiClient.getStrategy(id) as Strategy;
         logService.log('info', 'Successfully retrieved strategy from API', { id }, 'StrategyService');
         return strategy;
       } catch (apiError) {
@@ -424,7 +424,7 @@ class StrategyService {
 
       try {
         // Try to update the strategy using the API first
-        const updatedStrategy = await apiClient.updateStrategy(id, safeUpdates);
+        const updatedStrategy = await apiClient.updateStrategy(id, safeUpdates) as Strategy;
 
         logService.log('info', `Successfully updated strategy ${id} via API`, null, 'StrategyService');
         return updatedStrategy;
@@ -617,189 +617,196 @@ class StrategyService {
   }
 
   async activateStrategy(id: string): Promise<Strategy> {
+    logService.log('info', `Attempting to activate strategy with ID: ${id}`, null, 'StrategyService');
+
+    // Initialize API client if not already initialized
+    await apiClient.initialize();
+
+    // Check if we're in demo mode
+    const isDemo = demoService.isInDemoMode();
+
+    // Try to activate the strategy using the API first
     try {
-      logService.log('info', `Attempting to activate strategy with ID: ${id}`, null, 'StrategyService');
+      const activatedStrategy = await apiClient.activateStrategy(id) as Strategy;
+      logService.log('info', `Successfully activated strategy ${id} via API`, null, 'StrategyService');
 
-      // Initialize API client if not already initialized
-      await apiClient.initialize();
-
-      // Check if we're in demo mode
-      const isDemo = demoService.isInDemoMode();
-
-      try {
-        // Try to activate the strategy using the API first
-        const activatedStrategy = await apiClient.activateStrategy(id);
-
-        logService.log('info', `Successfully activated strategy ${id} via API`, null, 'StrategyService');
-
-        // Emit event to notify other components
-        eventBus.emit('strategy:activated', {
-          strategyId: id,
-          strategy: activatedStrategy,
-          timestamp: Date.now()
-        });
-
-        return activatedStrategy;
-      } catch (apiError) {
-        logService.log('warn', 'Failed to activate strategy via API, falling back to Supabase', apiError, 'StrategyService');
-
-        // First, get the current strategy to check if it has trading pairs
-        const { data: currentStrategy, error: getError } = await supabase
-          .from('strategies')
-          .select('*')
-          .eq('id', id)
-          .single();
-
-        if (getError) {
-          logService.log('error', 'Failed to get strategy for activation', { error: getError, id }, 'StrategyService');
-
-          // In demo mode, we can try to get the strategy from the strategy sync cache
-          if (isDemo) {
-            const cachedStrategy = strategySync.getStrategy(id);
-            if (cachedStrategy) {
-              logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
-              return this.activateStrategyInDemoMode(cachedStrategy);
-            }
-          }
-
-          throw getError;
-        }
-
-        if (!currentStrategy) {
-          logService.log('error', `Strategy with ID ${id} not found for activation`, null, 'StrategyService');
-
-          // In demo mode, we can try to get the strategy from the strategy sync cache
-          if (isDemo) {
-            const cachedStrategy = strategySync.getStrategy(id);
-            if (cachedStrategy) {
-              logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
-              return this.activateStrategyInDemoMode(cachedStrategy);
-            }
-          }
-
-          throw new Error(`Strategy with ID ${id} not found or activation failed`);
-        }
-
-      // Check if strategy is already active
-      if (currentStrategy.status === 'active') {
-        logService.log('info', `Strategy ${id} is already active, returning current state`, null, 'StrategyService');
-        return currentStrategy;
-      }
-
-      // Check if the strategy has trading pairs
-      let tradingPairs = [];
-      let updateNeeded = false;
-
-      // Determine the trading pairs from various possible sources
-      if (currentStrategy.selected_pairs && currentStrategy.selected_pairs.length > 0) {
-        tradingPairs = currentStrategy.selected_pairs;
-        logService.log('info', `Strategy ${id} has selected_pairs`, { pairs: tradingPairs }, 'StrategyService');
-      } else if (currentStrategy.strategy_config?.assets && currentStrategy.strategy_config.assets.length > 0) {
-        tradingPairs = currentStrategy.strategy_config.assets;
-        logService.log('info', `Strategy ${id} has strategy_config.assets`, { pairs: tradingPairs }, 'StrategyService');
-        updateNeeded = true;
-      } else if (currentStrategy.strategy_config?.config?.pairs && currentStrategy.strategy_config.config.pairs.length > 0) {
-        tradingPairs = currentStrategy.strategy_config.config.pairs;
-        logService.log('info', `Strategy ${id} has strategy_config.config.pairs`, { pairs: tradingPairs }, 'StrategyService');
-        updateNeeded = true;
-      } else {
-        // No trading pairs found, add default
-        tradingPairs = ['BTC/USDT'];
-        logService.log('warn', `Strategy ${id} has no trading pairs, adding default BTC/USDT`, null, 'StrategyService');
-        updateNeeded = true;
-      }
-
-      // Ensure pairs are in the correct format (BTC/USDT instead of BTC_USDT)
-      tradingPairs = tradingPairs.map(pair =>
-        pair.includes('_') ? pair.replace('_', '/') : pair
-      );
-
-      // Ensure market type is set
-      let marketType = currentStrategy.market_type || currentStrategy.marketType || 'spot';
-
-      // Update all trading pair and market type fields for consistency
-      if (!currentStrategy.strategy_config) currentStrategy.strategy_config = {};
-      if (!currentStrategy.strategy_config.config) currentStrategy.strategy_config.config = {};
-
-      currentStrategy.selected_pairs = tradingPairs;
-      currentStrategy.strategy_config.assets = tradingPairs;
-      currentStrategy.strategy_config.config.pairs = tradingPairs;
-
-      // Ensure indicators is always an array
-      if (!Array.isArray(currentStrategy.strategy_config.indicators)) {
-        currentStrategy.strategy_config.indicators = [];
-        logService.log('debug', `Initialized empty indicators array for strategy ${id}`, null, 'StrategyService');
-      }
-
-      // Determine the market type to use, ensuring consistency
-      const strategyMarketType = currentStrategy.market_type || currentStrategy.marketType || 'spot';
-
-      // Update both properties for consistency
-      currentStrategy.market_type = strategyMarketType;
-      currentStrategy.marketType = strategyMarketType;
-
-      updateNeeded = true; // Always update to ensure consistency
-
-      const updateData = {
-        status: 'active',
-        updated_at: new Date().toISOString(),
-        deactivated_at: null, // Clear deactivated_at when activating
-        selected_pairs: currentStrategy.selected_pairs || [],
-        strategy_config: currentStrategy.strategy_config || {},
-        market_type: strategyMarketType // Use market_type for database column
-      };
-
-      // Log the market type being used
-      logService.log('info', `Activating strategy with market type: ${strategyMarketType}`, {
+      // Emit event to notify other components
+      eventBus.emit('strategy:activated', {
         strategyId: id,
-        originalMarketType: currentStrategy.market_type || currentStrategy.marketType
-      }, 'StrategyService');
+        strategy: activatedStrategy,
+        timestamp: Date.now()
+      });
 
-      const { data, error } = await supabase
-        .from('strategies')
-        .update(updateData)
-        .eq('id', id)
-        .select()
-        .single();
+      return activatedStrategy;
+    } catch (apiError) {
+      logService.log('warn', 'Failed to activate strategy via API, falling back to Supabase', apiError, 'StrategyService');
+    }
 
-      if (error) {
-        logService.log('error', 'Failed to activate strategy', { error, id }, 'StrategyService');
+    // Fall back to Supabase
+    // First, get the current strategy to check if it has trading pairs
+    const { data: currentStrategy, error: getError } = await supabase
+      .from('strategies')
+      .select('*')
+      .eq('id', id)
+      .single();
 
-        // Check if the error is due to RLS policy or permissions
-        if (error.code === '42501' || error.message?.includes('permission denied')) {
-          logService.log('error', 'Permission denied when activating strategy - likely an RLS policy issue', { error, id }, 'StrategyService');
+    if (getError) {
+      logService.log('error', 'Failed to get strategy for activation', { error: getError, id }, 'StrategyService');
 
-          // Try to get the current state of the strategy
-          try {
-            const { data: currentState } = await supabase
-              .from('strategies')
-              .select('*')
-              .eq('id', id)
-              .single();
+      // In demo mode, we can try to get the strategy from the strategy sync cache
+      if (isDemo) {
+        // Check if strategySync has the strategy in its cache
+        if (strategySync.hasStrategy(id)) {
+          // Get all strategies and find the one with matching ID
+          const allStrategies = strategySync.getAllStrategies();
+          const cachedStrategy = allStrategies.find(s => s.id === id);
 
-            if (currentState && currentState.status === 'active') {
-              logService.log('info', 'Strategy appears to be active despite update error', { id }, 'StrategyService');
-
-              // Emit event to notify other components
-              eventBus.emit('strategy:activated', {
-                strategyId: id,
-                strategy: currentState,
-                timestamp: Date.now()
-              });
-
-              return currentState;
-            }
-          } catch (checkError) {
-            // If we can't check the current state, just throw the original error
-            logService.log('error', 'Failed to check current strategy state after activation error', { error: checkError, id }, 'StrategyService');
+          if (cachedStrategy) {
+            logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
+            // Convert the cached strategy to the expected format
+            const strategyForActivation: Strategy = {
+              id: cachedStrategy.id,
+              title: cachedStrategy.name,
+              description: cachedStrategy.description || '',
+              riskLevel: 'Medium',
+              type: 'custom',
+              status: cachedStrategy.status as 'active' | 'inactive' | 'paused',
+              performance: 0,
+              selected_pairs: [],
+              strategy_config: {},
+              user_id: cachedStrategy.user_id,
+              created_at: cachedStrategy.created_at,
+              updated_at: cachedStrategy.updated_at
+            };
+            return this.activateStrategyInDemoMode(strategyForActivation);
           }
         }
-
-        throw error;
       }
 
-      if (!data) {
-        // Try to get the current state as a fallback
+      throw getError;
+    }
+
+    if (!currentStrategy) {
+      logService.log('error', `Strategy with ID ${id} not found for activation`, null, 'StrategyService');
+
+      // In demo mode, we can try to get the strategy from the strategy sync cache
+      if (isDemo) {
+        // Check if strategySync has the strategy in its cache
+        if (strategySync.hasStrategy(id)) {
+          // Get all strategies and find the one with matching ID
+          const allStrategies = strategySync.getAllStrategies();
+          const cachedStrategy = allStrategies.find(s => s.id === id);
+
+          if (cachedStrategy) {
+            logService.log('info', `Found strategy ${id} in cache for demo mode activation`, null, 'StrategyService');
+            // Convert the cached strategy to the expected format
+            const strategyForActivation: Strategy = {
+              id: cachedStrategy.id,
+              title: cachedStrategy.name,
+              description: cachedStrategy.description || '',
+              riskLevel: 'Medium',
+              type: 'custom',
+              status: cachedStrategy.status as 'active' | 'inactive' | 'paused',
+              performance: 0,
+              selected_pairs: [],
+              strategy_config: {},
+              user_id: cachedStrategy.user_id,
+              created_at: cachedStrategy.created_at,
+              updated_at: cachedStrategy.updated_at
+            };
+            return this.activateStrategyInDemoMode(strategyForActivation);
+          }
+        }
+      }
+
+      throw new Error(`Strategy with ID ${id} not found or activation failed`);
+    }
+
+    // Check if strategy is already active
+    if (currentStrategy.status === 'active') {
+      logService.log('info', `Strategy ${id} is already active, returning current state`, null, 'StrategyService');
+      return currentStrategy;
+    }
+
+    // Check if the strategy has trading pairs
+    let tradingPairs = [];
+
+    // Determine the trading pairs from various possible sources
+    if (currentStrategy.selected_pairs && currentStrategy.selected_pairs.length > 0) {
+      tradingPairs = currentStrategy.selected_pairs;
+      logService.log('info', `Strategy ${id} has selected_pairs`, { pairs: tradingPairs }, 'StrategyService');
+    } else if (currentStrategy.strategy_config?.assets && currentStrategy.strategy_config.assets.length > 0) {
+      tradingPairs = currentStrategy.strategy_config.assets;
+      logService.log('info', `Strategy ${id} has strategy_config.assets`, { pairs: tradingPairs }, 'StrategyService');
+    } else if (currentStrategy.strategy_config?.config?.pairs && currentStrategy.strategy_config.config.pairs.length > 0) {
+      tradingPairs = currentStrategy.strategy_config.config.pairs;
+      logService.log('info', `Strategy ${id} has strategy_config.config.pairs`, { pairs: tradingPairs }, 'StrategyService');
+    } else {
+      // No trading pairs found, add default
+      tradingPairs = ['BTC/USDT'];
+      logService.log('warn', `Strategy ${id} has no trading pairs, adding default BTC/USDT`, null, 'StrategyService');
+    }
+
+    // Ensure pairs are in the correct format (BTC/USDT instead of BTC_USDT)
+    tradingPairs = tradingPairs.map(pair =>
+      pair.includes('_') ? pair.replace('_', '/') : pair
+    );
+
+    // Market type is handled by strategyMarketType below
+
+    // Update all trading pair and market type fields for consistency
+    if (!currentStrategy.strategy_config) currentStrategy.strategy_config = {};
+    if (!currentStrategy.strategy_config.config) currentStrategy.strategy_config.config = {};
+
+    currentStrategy.selected_pairs = tradingPairs;
+    currentStrategy.strategy_config.assets = tradingPairs;
+    currentStrategy.strategy_config.config.pairs = tradingPairs;
+
+    // Ensure indicators is always an array
+    if (!Array.isArray(currentStrategy.strategy_config.indicators)) {
+      currentStrategy.strategy_config.indicators = [];
+      logService.log('debug', `Initialized empty indicators array for strategy ${id}`, null, 'StrategyService');
+    }
+
+    // Determine the market type to use, ensuring consistency
+    const strategyMarketType = currentStrategy.market_type || currentStrategy.marketType || 'spot';
+
+    // Update both properties for consistency
+    currentStrategy.market_type = strategyMarketType;
+    currentStrategy.marketType = strategyMarketType;
+
+    // Always update to ensure consistency
+
+    const updateData = {
+      status: 'active',
+      updated_at: new Date().toISOString(),
+      deactivated_at: null, // Clear deactivated_at when activating
+      selected_pairs: currentStrategy.selected_pairs || [],
+      strategy_config: currentStrategy.strategy_config || {},
+      market_type: strategyMarketType // Use market_type for database column
+    };
+
+    // Log the market type being used
+    logService.log('info', `Activating strategy with market type: ${strategyMarketType}`, {
+      strategyId: id,
+      originalMarketType: currentStrategy.market_type || currentStrategy.marketType
+    }, 'StrategyService');
+
+    const { data, error } = await supabase
+      .from('strategies')
+      .update(updateData)
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) {
+      logService.log('error', 'Failed to activate strategy', { error, id }, 'StrategyService');
+
+      // Check if the error is due to RLS policy or permissions
+      if (error.code === '42501' || error.message?.includes('permission denied')) {
+        logService.log('error', 'Permission denied when activating strategy - likely an RLS policy issue', { error, id }, 'StrategyService');
+
+        // Try to get the current state of the strategy
         try {
           const { data: currentState } = await supabase
             .from('strategies')
@@ -808,7 +815,7 @@ class StrategyService {
             .single();
 
           if (currentState && currentState.status === 'active') {
-            logService.log('info', 'Strategy appears to be active despite data being null', { id }, 'StrategyService');
+            logService.log('info', 'Strategy appears to be active despite update error', { id }, 'StrategyService');
 
             // Emit event to notify other components
             eventBus.emit('strategy:activated', {
@@ -820,26 +827,52 @@ class StrategyService {
             return currentState;
           }
         } catch (checkError) {
-          logService.log('error', 'Failed to get current strategy state after activation failure', { error: checkError, id }, 'StrategyService');
+          // If we can't check the current state, just throw the original error
+          logService.log('error', 'Failed to check current strategy state after activation error', { error: checkError, id }, 'StrategyService');
         }
-
-        throw new Error(`Strategy with ID ${id} not found or activation failed`);
       }
 
-      logService.log('info', `Strategy ${id} activated successfully with trading pairs: ${tradingPairs.join(', ')}`, null, 'StrategyService');
-
-      // Emit event to notify other components
-      eventBus.emit('strategy:activated', {
-        strategyId: id,
-        strategy: data,
-        timestamp: Date.now()
-      });
-
-      return data;
-    } catch (error) {
-      logService.log('error', 'Failed to activate strategy', { error, id }, 'StrategyService');
       throw error;
     }
+
+    if (!data) {
+      // Try to get the current state as a fallback
+      try {
+        const { data: currentState } = await supabase
+          .from('strategies')
+          .select('*')
+          .eq('id', id)
+          .single();
+
+        if (currentState && currentState.status === 'active') {
+          logService.log('info', 'Strategy appears to be active despite data being null', { id }, 'StrategyService');
+
+          // Emit event to notify other components
+          eventBus.emit('strategy:activated', {
+            strategyId: id,
+            strategy: currentState,
+            timestamp: Date.now()
+          });
+
+          return currentState;
+        }
+      } catch (checkError) {
+        logService.log('error', 'Failed to get current strategy state after activation failure', { error: checkError, id }, 'StrategyService');
+      }
+
+      throw new Error(`Strategy with ID ${id} not found or activation failed`);
+    }
+
+    logService.log('info', `Strategy ${id} activated successfully with trading pairs: ${tradingPairs.join(', ')}`, null, 'StrategyService');
+
+    // Emit event to notify other components
+    eventBus.emit('strategy:activated', {
+      strategyId: id,
+      strategy: data,
+      timestamp: Date.now()
+    });
+
+    return data;
   }
 
   /**
@@ -853,15 +886,28 @@ class StrategyService {
       logService.log('info', `Activating strategy ${strategy.id} in demo mode`, null, 'StrategyService');
 
       // Create a copy of the strategy with active status
-      const activatedStrategy = {
+      const activatedStrategy: Strategy = {
         ...strategy,
         status: 'active',
-        updated_at: new Date().toISOString(),
-        deactivated_at: null
+        updated_at: new Date().toISOString()
+        // deactivated_at is not part of the Strategy type
       };
 
       // Update the strategy in the strategy sync cache
-      strategySync.addStrategyToCache(activatedStrategy);
+      // Convert to the format expected by strategySync
+      const strategyForCache = {
+        id: activatedStrategy.id,
+        user_id: activatedStrategy.user_id,
+        name: activatedStrategy.title,
+        description: activatedStrategy.description,
+        status: activatedStrategy.status,
+        created_at: activatedStrategy.created_at,
+        updated_at: activatedStrategy.updated_at,
+        config: {},
+        performance_metrics: {}
+      };
+
+      strategySync.addStrategyToCache(strategyForCache as any);
 
       // Emit events to notify other components
       eventBus.emit('strategy:activated', {
@@ -893,7 +939,7 @@ class StrategyService {
 
       try {
         // Try to deactivate the strategy using the API first
-        const deactivatedStrategy = await apiClient.deactivateStrategy(id);
+        const deactivatedStrategy = await apiClient.deactivateStrategy(id) as Strategy;
 
         logService.log('info', `Successfully deactivated strategy ${id} via API`, null, 'StrategyService');
 
@@ -1040,7 +1086,7 @@ class StrategyService {
 
       try {
         // Try to get strategies from the API first
-        const strategies = await apiClient.getStrategies();
+        const strategies = await apiClient.getStrategies() as Strategy[];
         logService.log('info', 'Successfully retrieved strategies from API', { count: strategies.length }, 'StrategyService');
         return strategies;
       } catch (apiError) {
@@ -1079,10 +1125,10 @@ class StrategyService {
 
       try {
         // Get all strategies from the API
-        const allStrategies = await apiClient.getStrategies();
+        const allStrategies = await apiClient.getStrategies() as Strategy[];
 
         // Filter for active strategies
-        const activeStrategies = allStrategies.filter(strategy => strategy.status === 'active');
+        const activeStrategies = allStrategies.filter((strategy: Strategy) => strategy.status === 'active');
 
         logService.log('info', 'Successfully retrieved active strategies from API',
           { count: activeStrategies.length, total: allStrategies.length }, 'StrategyService');
@@ -1151,7 +1197,7 @@ class StrategyService {
       const marketInsightAssets = assets.map(asset => `${asset}_USDT`);
 
       // Force a refresh of the news cache to include these assets
-      await globalCacheService.forceRefreshNews(assets);
+      await globalCacheService.forceRefreshNews();
       logService.log('info', 'Successfully refreshed news for strategy assets', { strategyId: strategy.id, assets }, 'StrategyService');
 
       // Force a refresh of the market insights cache to include these assets
@@ -1165,7 +1211,7 @@ class StrategyService {
         marketInsightAssets,
         timestamp: Date.now()
       });
-    } catch (error) {
+    } catch (error: any) {
       logService.log('error', 'Failed to refresh caches for strategy', error, 'StrategyService');
       // Don't throw the error, just log it
     }

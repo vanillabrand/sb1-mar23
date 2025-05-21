@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Preloader } from './components/Preloader';
 import { systemSync } from './lib/system-sync';
 import { AppContent } from './components/AppContent';
-import { SimplifiedAppLayout } from './components/SimplifiedUI';
 
 // Detect devices and browsers
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -21,6 +20,7 @@ const setAppHeight = () => {
 
 function App() {
   const [isInitializing, setIsInitializing] = useState(true);
+  const [isAppReady, setIsAppReady] = useState(false);
 
   // Function to initialize the app
   const initializeApp = async () => {
@@ -58,11 +58,14 @@ function App() {
         const initializationTimeout = setTimeout(() => {
           console.warn('App initialization timed out, proceeding anyway');
           setIsInitializing(false);
+          setIsAppReady(false);
 
           // Schedule a background initialization attempt after the app has loaded
           setTimeout(() => {
             console.log('Attempting background initialization after timeout');
-            initializeApp().catch(error => {
+            initializeApp().then(() => {
+              setIsAppReady(true);
+            }).catch(error => {
               console.warn('Background initialization failed:', error);
             });
           }, 5000); // Try again 5 seconds after showing the app
@@ -72,16 +75,20 @@ function App() {
           await initializeApp();
           // Clear the timeout if initialization completes successfully
           clearTimeout(initializationTimeout);
+          setIsAppReady(true);
         } catch (initError) {
           console.error('App initialization failed:', initError);
           // Clear the timeout if initialization fails
           clearTimeout(initializationTimeout);
           // Continue anyway to prevent the preloader from getting stuck
+          setIsAppReady(false);
 
           // Schedule a background initialization attempt after the app has loaded
           setTimeout(() => {
             console.log('Attempting background initialization after error');
-            initializeApp().catch(error => {
+            initializeApp().then(() => {
+              setIsAppReady(true);
+            }).catch(error => {
               console.warn('Background initialization failed:', error);
             });
           }, 5000); // Try again 5 seconds after showing the app
@@ -249,8 +256,7 @@ function App() {
   }
 
   // Show main content when initialization is complete
-  // Use the simplified UI instead of the original AppContent
-  return <SimplifiedAppLayout />;
+  return <AppContent isReady={isAppReady} />;
 }
 
 export default App;

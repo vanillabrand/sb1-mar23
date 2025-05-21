@@ -465,6 +465,22 @@
   );
 }
 
+/* Panel shadow effect for enhanced depth */
+.panel-shadow {
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5),
+              0 5px 15px -5px rgba(0, 0, 0, 0.3),
+              inset 0 1px 1px rgba(255, 255, 255, 0.05),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.panel-shadow:hover {
+  box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.6),
+              0 8px 20px -5px rgba(0, 0, 0, 0.4),
+              inset 0 1px 1px rgba(255, 255, 255, 0.07),
+              inset 0 -1px 1px rgba(0, 0, 0, 0.4);
+}
+
 .glass-effect-dark {
   @apply backdrop-blur-xl;
   background: linear-gradient(135deg, rgba(15, 15, 17, 0.98) 0%, rgba(25, 25, 28, 0.98) 100%);
@@ -498,6 +514,41 @@
 /* Animation classes */
 .animate-glow {
   animation: glow 2s ease-in-out infinite alternate;
+}
+
+/* Panel entrance animations */
+.panel-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+.panel-slide-up {
+  animation: slideUp 0.5s ease-out forwards;
+}
+
+.panel-scale-in {
+  animation: scaleIn 0.5s ease-out forwards;
+}
+
+/* Staggered animation for panels */
+.stagger-item {
+  opacity: 0;
+}
+
+.stagger-item-1 { animation: fadeIn 0.5s ease-out 0.1s forwards; }
+.stagger-item-2 { animation: fadeIn 0.5s ease-out 0.2s forwards; }
+.stagger-item-3 { animation: fadeIn 0.5s ease-out 0.3s forwards; }
+.stagger-item-4 { animation: fadeIn 0.5s ease-out 0.4s forwards; }
+.stagger-item-5 { animation: fadeIn 0.5s ease-out 0.5s forwards; }
+.stagger-item-6 { animation: fadeIn 0.5s ease-out 0.6s forwards; }
+
+/* Enhanced hover effects */
+.hover-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.hover-lift:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
 }
 
 /* Progress animation for preloader */

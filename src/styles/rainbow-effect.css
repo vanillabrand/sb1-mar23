@@ -1,4 +1,4 @@
-/* Rainbow effects removed */
+/* Enhanced animation effects */
 
 /* Menu Item Hover Effect */
 @keyframes menuHover {
@@ -13,6 +13,40 @@
   }
 }
 
+/* Smooth fade-in animation */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Smooth slide-up animation */
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Smooth scale animation */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* Chevron Animation - No Pulse */
 @keyframes chevronStatic {
   0%, 100% {
@@ -20,24 +54,34 @@
   }
 }
 
-/* Panel Highlight Animation - No Pulsing */
+/* Panel Highlight Animation - Enhanced */
 @keyframes panelHighlight {
-  0%, 100% {
+  0% {
+    box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
+    border-color: rgba(59, 244, 251, 0.2);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(59, 244, 251, 0.3);
+    border-color: rgba(59, 244, 251, 0.3);
+  }
+  100% {
     box-shadow: 0 0 5px rgba(59, 244, 251, 0.2);
     border-color: rgba(59, 244, 251, 0.2);
   }
 }
 
 .chevron-pulse {
-  transition: color 0.3s ease;
+  transition: color 0.3s ease, transform 0.3s ease;
 }
 
 .chevron-pulse:hover {
   color: #3bf4fb !important; /* neon-turquoise */
+  transform: translateX(2px);
 }
 
 .panel-highlight {
   border: 1px solid rgba(59, 244, 251, 0.2);
+  animation: panelHighlight 2s ease-in-out infinite;
 }
 
 /* Active menu item styling (simplified) */
@@ -106,19 +150,29 @@
 .connection-header {
   width: 100%;
   position: relative;
+  transition: all 0.3s ease;
+}
+
+.connection-header:hover {
+  background-color: rgba(40, 40, 45, 0.7);
 }
 
 .connection-details {
   width: 100%;
   position: relative;
   display: block;
+  transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
 }
 
-/* We've removed the easeOutBack animation for the connection panel */
-
-/* Strategy Card - No Hover Effect */
+/* Strategy Card - Enhanced Hover Effect */
 .strategy-card {
-  transition: none;
+  transition: all 0.3s ease;
+  transform-origin: center;
+}
+
+.strategy-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
 }
 
 /* Mobile Menu Transition */

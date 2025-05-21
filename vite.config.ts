@@ -138,6 +138,12 @@ export default defineConfig(({ command, mode }) => {
         },
         define: {
           global: 'globalThis'
+        },
+        // Add this to allow catch blocks without type annotations
+        tsconfigRaw: {
+          compilerOptions: {
+            useUnknownInCatchVariables: false
+          }
         }
       }
     },

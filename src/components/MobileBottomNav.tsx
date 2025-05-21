@@ -6,7 +6,8 @@ import {
   Brain,
   LineChart,
   BarChart3,
-  Menu
+  Menu,
+  History
 } from 'lucide-react';
 import { MobileMenu } from './MobileMenu';
 import { supabase } from '../lib/supabase';
@@ -130,7 +131,17 @@ export function MobileBottomNav({ onMenuToggle }: MobileBottomNavProps) {
           <span className="text-xs mt-1">Trades</span>
         </NavLink>
 
-        {/* Analytics removed from mobile version as requested */}
+        <NavLink
+          to="/backtest"
+          className={({ isActive }) =>
+            `flex flex-col items-center justify-center px-2 py-1 rounded-lg ${
+              isActive ? 'text-neon-yellow' : 'text-gray-400'
+            }`
+          }
+        >
+          <History className="w-5 h-5" />
+          <span className="text-xs mt-1">Backtest</span>
+        </NavLink>
 
         <button
           onClick={() => setIsMenuOpen(true)}

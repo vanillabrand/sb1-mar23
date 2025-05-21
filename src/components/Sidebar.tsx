@@ -402,12 +402,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
         className={`${isMobile ? 'w-full px-4 py-0 relative' : 'px-2 py-3 mb-6'} flex items-center ${isMobile ? 'justify-center h-full' : ''}`}
       >
         <div className={`flex items-center ${isMobile ? 'mobile-logo' : ''}`}>
-          <div className="rounded-xl bg-gradient-to-br from-green-400 via-yellow-400 to-pink-500 p-0.5">
-            <div className="bg-black rounded-xl p-2">
-              <Zap className={`${isMobile ? 'w-5 h-5' : 'w-6 h-6'} text-yellow-400`} />
-            </div>
-          </div>
-          <div className="ml-3">
+          <img src="/logo.svg" alt="Logo" className={`${isMobile ? 'h-8' : 'h-10'} mr-2`} />
+          <div className="ml-1">
             <div className={`${isMobile ? 'text-xl' : 'text-2xl'} gradient-text`}>GIGAntic</div>
             <div className={`text-gray-400 ${isMobile ? 'text-xs' : 'text-sm'} whitespace-nowrap`} style={{ marginTop: "-2px" }}>AI Trading Platform</div>
           </div>

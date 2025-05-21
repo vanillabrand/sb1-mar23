@@ -19,6 +19,9 @@ import { useMobileDetect } from '../hooks/useMobileDetect';
 import { TradeDebugMonitor } from './TradeDebugMonitor';
 import { TradingModeIndicator } from './TradingModeIndicator';
 
+// Lazy load ApiStatusIndicator to avoid circular dependencies
+const ApiStatusIndicatorLazy = lazy(() => import('./ApiStatusIndicator'));
+
 
 interface AppContentProps {
   isReady?: boolean;
@@ -91,9 +94,9 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
         {!isMobile && (
           <div className="bg-gunmetal-900/50 backdrop-blur-sm border-b border-gunmetal-800 py-2 px-4 flex items-center justify-between sticky top-0 z-10">
             <div className="flex items-center space-x-2">
-              {/* Dynamic import for ApiStatusIndicator to avoid circular dependencies */}
+              {/* ApiStatusIndicator */}
               <Suspense fallback={<div className="w-12"></div>}>
-                {React.createElement(React.lazy(() => import('./ApiStatusIndicator')))}
+                <ApiStatusIndicatorLazy />
               </Suspense>
             </div>
             <TradingModeIndicator showToggle={true} />

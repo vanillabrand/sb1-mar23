@@ -123,16 +123,14 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
             <WorldClock timezone={selectedTimezone} />
           </AnimatedPanel>
 
-          {/* DEFCON Monitor - Only shown in sidebar on non-mobile */}
-          {screenSize !== 'sm' && (
-            <AnimatedPanel index={7} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg">
-              <DefconMonitor
-                strategies={activeStrategies}
-                className="mb-2 sm:mb-3"
-                volatility={5}
-              />
-            </AnimatedPanel>
-          )}
+          {/* DEFCON Monitor - Shown on all screens */}
+          <AnimatedPanel index={7} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg">
+            <DefconMonitor
+              strategies={activeStrategies}
+              className="mb-2 sm:mb-3"
+              volatility={5}
+            />
+          </AnimatedPanel>
 
           <AnimatedPanel index={8} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
             <AssetDisplayPanel />

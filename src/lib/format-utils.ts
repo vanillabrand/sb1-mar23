@@ -9,24 +9,24 @@
  */
 export function standardizeAssetPairFormat(symbol: string): string {
   if (!symbol) return '';
-  
+
   // If already in BTC/USDT format, return as is
   if (symbol.includes('/')) return symbol;
-  
+
   // If in BTC_USDT format, replace underscore with slash
   if (symbol.includes('_')) return symbol.replace('_', '/');
-  
+
   // If in BTCUSDT format, find the base and quote currencies
   // Common quote currencies to check for
   const quoteCurrencies = ['USDT', 'BUSD', 'USDC', 'USD', 'BTC', 'ETH'];
-  
+
   for (const quote of quoteCurrencies) {
     if (symbol.endsWith(quote)) {
       const base = symbol.substring(0, symbol.length - quote.length);
       return `${base}/${quote}`;
     }
   }
-  
+
   // If we can't determine the format, make a best guess by assuming
   // the last 4 characters are the quote currency
   if (symbol.length > 4) {
@@ -34,7 +34,7 @@ export function standardizeAssetPairFormat(symbol: string): string {
     const quote = symbol.substring(symbol.length - 4);
     return `${base}/${quote}`;
   }
-  
+
   // If all else fails, return the original
   return symbol;
 }
@@ -46,24 +46,24 @@ export function standardizeAssetPairFormat(symbol: string): string {
  */
 export function toBitmartFormat(symbol: string): string {
   if (!symbol) return '';
-  
+
   // If already in BTC_USDT format, return as is
   if (symbol.includes('_')) return symbol;
-  
+
   // If in BTC/USDT format, replace slash with underscore
   if (symbol.includes('/')) return symbol.replace('/', '_');
-  
+
   // If in BTCUSDT format, find the base and quote currencies
   // Common quote currencies to check for
   const quoteCurrencies = ['USDT', 'BUSD', 'USDC', 'USD', 'BTC', 'ETH'];
-  
+
   for (const quote of quoteCurrencies) {
     if (symbol.endsWith(quote)) {
       const base = symbol.substring(0, symbol.length - quote.length);
       return `${base}_${quote}`;
     }
   }
-  
+
   // If we can't determine the format, make a best guess by assuming
   // the last 4 characters are the quote currency
   if (symbol.length > 4) {
@@ -71,7 +71,7 @@ export function toBitmartFormat(symbol: string): string {
     const quote = symbol.substring(symbol.length - 4);
     return `${base}_${quote}`;
   }
-  
+
   // If all else fails, return the original
   return symbol;
 }
@@ -83,15 +83,15 @@ export function toBitmartFormat(symbol: string): string {
  */
 export function toBinanceWsFormat(symbol: string, suffix: string = '@trade'): string {
   if (!symbol) return '';
-  
+
   // Remove any separators and convert to lowercase
   let formatted = symbol.replace(/[/_]/g, '').toLowerCase();
-  
+
   // Add the suffix if it doesn't already have it
   if (!formatted.includes('@') && suffix) {
     formatted += suffix;
   }
-  
+
   return formatted;
 }
 
@@ -102,10 +102,10 @@ export function toBinanceWsFormat(symbol: string, suffix: string = '@trade'): st
  */
 export function getBasePrice(symbol: string): number {
   const standardized = standardizeAssetPairFormat(symbol);
-  
+
   // Extract the base currency
   const baseCurrency = standardized.split('/')[0];
-  
+
   // Return a realistic base price based on the currency
   switch (baseCurrency.toUpperCase()) {
     case 'BTC': return 50000 + (Math.random() * 5000);
@@ -130,4 +130,28 @@ export function getBasePrice(symbol: string): number {
     case 'ALGO': return 0.15 + (Math.random() * 0.015);
     default: return 10 + (Math.random() * 1); // Default price for unknown assets
   }
+}
+
+/**
+ * Formats a number as a currency string
+ * @param value Number to format
+ * @param currency Currency code (default: USD)
+ * @param locale Locale for formatting (default: en-US)
+ * @returns Formatted currency string
+ */
+export function formatCurrency(value: number, currency: string = 'USD', locale: string = 'en-US'): string {
+  // Handle NaN, undefined, etc.
+  if (value === null || value === undefined || isNaN(value)) {
+    return '$0.00';
+  }
+
+  // Format with appropriate precision based on value
+  const formatter = new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: Math.abs(value) < 1 ? 4 : 2,
+    maximumFractionDigits: Math.abs(value) < 1 ? 4 : 2,
+  });
+
+  return formatter.format(value);
 }
