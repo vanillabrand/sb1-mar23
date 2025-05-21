@@ -17,7 +17,6 @@ import PerformancePage from '../pages/PerformancePage';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobileDetect } from '../hooks/useMobileDetect';
 import { TradeDebugMonitor } from './TradeDebugMonitor';
-import { TradingModeIndicator } from './TradingModeIndicator';
 
 // Lazy load ApiStatusIndicator to avoid circular dependencies
 const ApiStatusIndicatorLazy = lazy(() => import('./ApiStatusIndicator'));
@@ -99,7 +98,6 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
                 <ApiStatusIndicatorLazy />
               </Suspense>
             </div>
-            <TradingModeIndicator showToggle={true} />
           </div>
         )}
         <LazyMotion features={domAnimation}>

@@ -8,13 +8,13 @@ interface SimplifiedPortfolioSummaryProps {
   isDemoMode: boolean;
 }
 
-export function SimplifiedPortfolioSummary({ 
-  value, 
-  change, 
-  isDemoMode 
+export function SimplifiedPortfolioSummary({
+  value,
+  change,
+  isDemoMode
 }: SimplifiedPortfolioSummaryProps) {
   const isPositive = change >= 0;
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
@@ -32,7 +32,7 @@ export function SimplifiedPortfolioSummary({
           </p>
         </div>
       </div>
-      
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Portfolio Value */}
         <div className="bg-gunmetal-800/50 rounded-lg p-4">
@@ -46,7 +46,7 @@ export function SimplifiedPortfolioSummary({
             )}
           </div>
         </div>
-        
+
         {/* 24h Change */}
         <div className="bg-gunmetal-800/50 rounded-lg p-4">
           <p className="text-sm text-gray-400 mb-1">24h Change</p>
@@ -68,15 +68,7 @@ export function SimplifiedPortfolioSummary({
           </div>
         </div>
       </div>
-      
-      {isDemoMode && (
-        <div className="mt-4 p-3 bg-neon-yellow/10 border border-neon-yellow/20 rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 text-neon-yellow" />
-          <p className="text-sm text-neon-yellow">
-            Demo Mode: All trades and values are simulated and do not involve real funds.
-          </p>
-        </div>
-      )}
+
     </motion.div>
   );
 }

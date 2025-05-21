@@ -131,13 +131,7 @@ export function SimplifiedAppLayout() {
               />
             </ul>
 
-            {/* Demo Mode Indicator */}
-            <div className="mt-8 p-3 bg-gunmetal-800 rounded-lg">
-              <p className="text-sm text-gray-400 mb-2">Current Mode:</p>
-              <div className={`text-sm font-medium ${isDemoMode ? 'text-neon-yellow' : 'text-neon-turquoise'}`}>
-                {isDemoMode ? 'Demo Mode' : 'Live Trading'}
-              </div>
-            </div>
+
           </nav>
         )}
 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Bell, 
+import {
+  Bell,
   Moon,
   Sun,
   Globe,
@@ -61,38 +61,6 @@ export function Settings({ onClose }: SettingsProps) {
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Trading Mode */}
-          <div>
-            <h3 className="text-lg font-semibold text-gray-200 mb-4">Trading Mode</h3>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <Power className="w-5 h-5 text-neon-turquoise" />
-                <div>
-                  <p className="font-medium text-gray-200">Live Trading</p>
-                  <p className="text-sm text-gray-400">Switch between demo and live trading</p>
-                </div>
-              </div>
-              <button
-                onClick={handleModeToggle}
-                disabled={isToggling}
-                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                  isLiveMode ? 'bg-neon-turquoise' : 'bg-gunmetal-700'
-                } ${!hasCredentials && !isLiveMode ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                <span
-                  className={`inline-block h-4 w-4 transform rounded-full bg-gunmetal-950 transition-transform ${
-                    isLiveMode ? 'translate-x-6' : 'translate-x-1'
-                  }`}
-                />
-              </button>
-            </div>
-            {!hasCredentials && (
-              <p className="mt-2 text-sm text-neon-orange">
-                Please set up your wallet credentials in the Wallet Manager to enable live trading.
-              </p>
-            )}
-          </div>
-
           {/* Appearance */}
           <div>
             <h3 className="text-lg font-semibold text-gray-200 mb-4">Appearance</h3>

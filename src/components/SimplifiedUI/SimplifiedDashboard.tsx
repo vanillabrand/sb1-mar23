@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  Brain, 
-  TrendingUp, 
-  AlertCircle, 
-  Loader2, 
+import {
+  Brain,
+  TrendingUp,
+  AlertCircle,
+  Loader2,
   Plus,
   ArrowRight,
   DollarSign,
@@ -33,12 +33,12 @@ export function SimplifiedDashboard() {
   // Load data on component mount
   useEffect(() => {
     loadDashboardData();
-    
+
     // Listen for strategy and trade updates
     document.addEventListener('strategies:updated', handleStrategiesUpdated);
     document.addEventListener('trades:updated', handleTradesUpdated);
     document.addEventListener('demo:changed', handleDemoModeChanged);
-    
+
     return () => {
       document.removeEventListener('strategies:updated', handleStrategiesUpdated);
       document.removeEventListener('trades:updated', handleTradesUpdated);
@@ -67,7 +67,7 @@ export function SimplifiedDashboard() {
     try {
       setLoading(true);
       setError(null);
-      
+
       await Promise.all([
         loadStrategies(),
         loadTrades(),
@@ -110,7 +110,7 @@ export function SimplifiedDashboard() {
       // Calculate portfolio value from strategies and trades
       const value = await tradeService.calculatePortfolioValue();
       setPortfolioValue(value);
-      
+
       // Calculate 24h change (simplified for now)
       const change = await tradeService.calculatePortfolioChange();
       setPortfolioChange(change);
@@ -149,13 +149,6 @@ export function SimplifiedDashboard() {
       exit={{ opacity: 0 }}
       className="space-y-6"
     >
-      {/* Mode Indicator */}
-      <div className={`p-3 rounded-lg ${isDemoMode ? 'bg-neon-yellow/10 border border-neon-yellow/20' : 'bg-neon-turquoise/10 border border-neon-turquoise/20'}`}>
-        <p className={`text-sm font-medium ${isDemoMode ? 'text-neon-yellow' : 'text-neon-turquoise'}`}>
-          {isDemoMode ? 'Demo Mode: Test your strategies without real money' : 'Live Mode: Trading with real funds'}
-        </p>
-      </div>
-
       {/* Error Message */}
       {error && (
         <div className="bg-red-500/10 border border-red-500/20 text-red-400 p-3 rounded-lg flex items-center gap-2">
@@ -165,10 +158,10 @@ export function SimplifiedDashboard() {
       )}
 
       {/* Portfolio Summary */}
-      <SimplifiedPortfolioSummary 
-        value={portfolioValue} 
-        change={portfolioChange} 
-        isDemoMode={isDemoMode} 
+      <SimplifiedPortfolioSummary
+        value={portfolioValue}
+        change={portfolioChange}
+        isDemoMode={isDemoMode}
       />
 
       {/* Active Strategies Section */}
@@ -211,9 +204,9 @@ export function SimplifiedDashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {strategies.slice(0, 4).map(strategy => (
-              <SimplifiedStrategyCard 
-                key={strategy.id} 
-                strategy={strategy} 
+              <SimplifiedStrategyCard
+                key={strategy.id}
+                strategy={strategy}
                 compact={true}
                 onViewDetails={() => navigate(`/strategies?id=${strategy.id}`)}
               />
@@ -246,9 +239,9 @@ export function SimplifiedDashboard() {
         ) : (
           <div className="space-y-3">
             {trades.map(trade => (
-              <SimplifiedTradeCard 
-                key={trade.id} 
-                trade={trade} 
+              <SimplifiedTradeCard
+                key={trade.id}
+                trade={trade}
                 onViewDetails={() => navigate(`/trades?id=${trade.id}`)}
               />
             ))}

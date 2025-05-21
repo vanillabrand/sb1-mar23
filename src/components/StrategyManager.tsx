@@ -1,9 +1,8 @@
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, Suspense, lazy, useRef } from 'react';
 import { CollapsibleDescription } from './CollapsibleDescription';
 import { motion, AnimatePresence } from 'framer-motion';
-import { fadeUpVariants, cardVariants, staggerContainerVariants, buttonVariants, controlsVariants } from '../lib/animation-utils';
-import { SwipeAnimation } from './ui/SwipeAnimation';
-import { Brain, Plus, Search, Filter, Loader2, AlertCircle, RefreshCw, BarChart3, Monitor } from 'lucide-react';
+import { fadeUpVariants, cardVariants, staggerContainerVariants, buttonVariants, controlsVariants, SMOOTH_EASE } from '../lib/animation-utils';
+import { Brain, Plus, Search, AlertCircle, Trash2, Filter, Loader2, RefreshCw, BarChart3, Monitor } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import { useStrategies } from '../hooks/useStrategies';
 import { useAuth } from '../hooks/useAuth';
@@ -19,26 +18,89 @@ import { CreateStrategyModal } from './CreateStrategyModal';
 import { BudgetModal } from './BudgetModal';
 import { StrategyCard } from './StrategyCard';
 import { StrategyStats } from './StrategyStats';
-import { StrategyFilters } from './StrategyFilters';
-import { StrategyLibrary } from './StrategyLibrary';
-import { EmptyState } from './ui/EmptyState';
-import { LoadingSpinner } from './LoadingStates';
-import { Pagination } from './ui/Pagination';
 import { MetallicPagination } from './ui/MetallicPagination';
-import { SwipeableCardList } from './ui/SwipeableCardList';
 import { AssetDisplayPanel } from './AssetDisplayPanel';
-import { RiskLevelBadge } from './risk/RiskLevelBadge';
-import type {
-  Strategy,
-  SortOption,
-  FilterOptions,
-  CreateStrategyData,
-  StrategyStatus
-} from '../lib/types';
+import { FixedSizeList as List } from 'react-window';
+
+// Lazy-loaded components for better performance
+const StrategyFilters = lazy(() => import('./StrategyFilters').then(module => ({ default: module.StrategyFilters })));
+const StrategyLibrary = lazy(() => import('./StrategyLibrary').then(module => ({ default: module.StrategyLibrary })));
+const EmptyState = lazy(() => import('./ui/EmptyState').then(module => ({ default: module.EmptyState })));
+const LoadingSpinner = lazy(() => import('./LoadingStates').then(module => ({ default: module.LoadingSpinner })));
+const SwipeableCardList = lazy(() => import('./ui/SwipeableCardList').then(module => ({ default: module.SwipeableCardList })));
+const RiskLevelBadge = lazy(() => import('./risk/RiskLevelBadge').then(module => ({ default: module.RiskLevelBadge })));
+const SwipeAnimation = lazy(() => import('./ui/SwipeAnimation').then(module => ({ default: module.SwipeAnimation })));
 import { templateService } from '../lib/template-service';
 import { templateGenerator } from '../lib/template-generator';
 import { templateManager } from '../lib/template-manager';
-import type { StrategyTemplate, StrategyBudget } from '../lib/types';
+import { demoService } from '../lib/demo-service';
+import { v4 as uuidv4 } from 'uuid';
+import type {
+  StrategyBudget
+} from '../lib/types';
+
+// Define local types for better organization
+type SortOption = 'performance' | 'name' | 'created';
+
+type StrategyStatus = 'active' | 'paused' | 'stopped' | 'inactive';
+
+interface FilterOptions {
+  status: 'all' | StrategyStatus;
+  riskLevel: 'all' | string;
+  performance: 'all' | 'positive' | 'negative';
+}
+
+// Define a local Strategy type that matches what we need
+interface Strategy {
+  id: string;
+  title: string;
+  name?: string;
+  description?: string;
+  user_id: string;
+  status: StrategyStatus;
+  riskLevel?: string;
+  risk_level?: string;
+  performance?: string | number;
+  market_type?: string;
+  marketType?: string;
+  selected_pairs?: string[];
+  created_at: string;
+  updated_at: string;
+  config?: any;
+  performance_metrics?: any;
+  [key: string]: any;
+}
+
+// Define CreateStrategyData type
+interface CreateStrategyData {
+  title: string;
+  name?: string;
+  description?: string;
+  type?: string;
+  riskLevel?: string;
+  risk_level?: string;
+  selected_pairs?: string[];
+  market_type?: string;
+  marketType?: string;
+  [key: string]: any;
+}
+
+
+
+// Define a local StrategyTemplate type that matches what the service returns
+interface StrategyTemplate {
+  id: string;
+  title: string;
+  description?: string;
+  config?: any;
+  performance?: string | number;
+  riskLevel?: string;
+  risk_level?: string;
+  market_type?: string;
+  marketType?: string;
+  selected_pairs?: string[];
+  [key: string]: any;
+}
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
 import { tradeGenerator } from '../lib/trade-generator';
@@ -72,6 +134,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [templateSearchTerm, setTemplateSearchTerm] = useState('');
@@ -84,6 +147,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   });
   const [isSubmittingBudget, setIsSubmittingBudget] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isDeletingAll, setIsDeletingAll] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingStrategy, setLoadingStrategy] = useState<string | null>(null);
 
@@ -288,11 +352,11 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     };
   }, [strategies, refreshStrategies]);
 
-  // Update filtered strategies whenever dependencies change
-  useEffect(() => {
-    if (!strategies) return;
+  // Memoized filtered strategies for better performance
+  const filteredStrategiesMemo = useMemo(() => {
+    if (!strategies) return [];
 
-    const filtered = strategies
+    return strategies
       .filter(strategy => {
         if (searchTerm && !strategy.title.toLowerCase().includes(searchTerm.toLowerCase())) {
           return false;
@@ -307,10 +371,14 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         }
 
         if (filterOptions.performance !== 'all') {
-          const performance = parseFloat(strategy.performance);
+          // Handle performance as string or number
+          const performanceValue = typeof strategy.performance === 'string'
+            ? parseFloat(strategy.performance)
+            : (strategy.performance || 0);
+
           switch (filterOptions.performance) {
-            case 'positive': return performance > 0;
-            case 'negative': return performance < 0;
+            case 'positive': return performanceValue > 0;
+            case 'negative': return performanceValue < 0;
             default: return true;
           }
         }
@@ -329,16 +397,22 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         // Otherwise, apply the selected sort criteria
         switch (sortBy) {
           case 'performance':
-            return parseFloat(b.performance) - parseFloat(a.performance);
+            // Handle performance as string or number
+            const perfA = typeof a.performance === 'string' ? parseFloat(a.performance) : (a.performance || 0);
+            const perfB = typeof b.performance === 'string' ? parseFloat(b.performance) : (b.performance || 0);
+            return perfB - perfA;
           case 'name':
             return a.title.localeCompare(b.title);
           default:
             return dateComparison; // Default to newest first
         }
       });
-
-    setFilteredStrategies(filtered);
   }, [strategies, searchTerm, filterOptions, sortBy]);
+
+  // Update filtered strategies whenever the memoized value changes
+  useEffect(() => {
+    setFilteredStrategies(filteredStrategiesMemo);
+  }, [filteredStrategiesMemo]);
 
   // Listen for strategy deleted events from other components
   useEffect(() => {
@@ -462,6 +536,13 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     }
   }, [refreshStrategies, isRefreshing]);
 
+  // Wrapper for refreshStrategies that returns void to fix type issues
+  const handleRefreshWrapper = useCallback((): void => {
+    refreshStrategies().catch(error => {
+      logService.log('error', 'Failed to refresh strategies', error, 'StrategyManager');
+    });
+  }, [refreshStrategies]);
+
 
 
   const handleStrategyCreate = async (strategyData: CreateStrategyData) => {
@@ -492,9 +573,9 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         user_id: user.id,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        // Ensure risk_level is properly set (both camelCase and snake_case versions)
-        risk_level: strategyData.risk_level || 'Medium',
-        riskLevel: strategyData.risk_level || 'Medium',
+        // Ensure riskLevel is properly set (both camelCase and snake_case versions)
+        risk_level: strategyData.riskLevel || 'Medium',
+        riskLevel: strategyData.riskLevel || 'Medium',
         // Ensure selected_pairs is properly set and formatted correctly
         selected_pairs: formattedPairs,
         // Ensure market_type is properly set (database field)
@@ -519,7 +600,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           description: enrichedData.description || '',
           user_id: user.id,
           status: 'inactive',
-          risk_level: enrichedData.risk_level || 'Medium',
+          risk_level: enrichedData.riskLevel || 'Medium',
           market_type: enrichedData.marketType || enrichedData.market_type || 'spot',
           selected_pairs: formattedPairs,
           created_at: new Date().toISOString(),
@@ -816,6 +897,106 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     setSortBy(newSort);
   };
 
+  // Function to delete all strategies
+  const handleDeleteAllStrategies = async () => {
+    try {
+      setIsDeletingAll(true);
+      setError(null);
+
+      // Get current user session
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError || !session?.user?.id) {
+        throw new Error('No authenticated user found');
+      }
+
+      const userId = session.user.id;
+
+      // Get all strategies for the current user
+      const { data: userStrategies, error: strategiesError } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('user_id', userId);
+
+      if (strategiesError) {
+        throw new Error(`Failed to fetch strategies: ${strategiesError.message}`);
+      }
+
+      if (!userStrategies || userStrategies.length === 0) {
+        // No strategies to delete
+        setShowDeleteAllConfirm(false);
+        return;
+      }
+
+      // First, deactivate any active strategies
+      const activeStrategies = userStrategies.filter(s => s.status === 'active');
+
+      for (const strategy of activeStrategies) {
+        try {
+          await strategyService.deactivateStrategy(strategy.id);
+          logService.log('info', `Deactivated strategy ${strategy.id} before deletion`, null, 'StrategyManager');
+        } catch (deactivateError) {
+          logService.log('warn', `Failed to deactivate strategy ${strategy.id}, continuing with deletion`, deactivateError, 'StrategyManager');
+        }
+      }
+
+      // Delete all trades for all strategies first
+      for (const strategy of userStrategies) {
+        try {
+          // Delete trades for this strategy
+          const { error: tradesError } = await supabase
+            .from('trades')
+            .delete()
+            .eq('strategy_id', strategy.id);
+
+          if (tradesError) {
+            logService.log('warn', `Error deleting trades for strategy ${strategy.id}: ${tradesError.message}`, null, 'StrategyManager');
+          } else {
+            logService.log('info', `Successfully deleted trades for strategy ${strategy.id}`, null, 'StrategyManager');
+          }
+        } catch (tradesError) {
+          logService.log('warn', `Exception deleting trades for strategy ${strategy.id}`, tradesError, 'StrategyManager');
+        }
+      }
+
+      // Now delete all strategies
+      const { error: deleteError } = await supabase
+        .from('strategies')
+        .delete()
+        .eq('user_id', userId);
+
+      if (deleteError) {
+        throw new Error(`Failed to delete strategies: ${deleteError.message}`);
+      }
+
+      // Remove all strategies from the strategy sync cache
+      // Since there's no clearCache method, we'll manually remove each strategy
+      for (const strategy of userStrategies) {
+        if (strategySync.hasStrategy(strategy.id)) {
+          strategySync.removeStrategyFromCache(strategy.id);
+          logService.log('info', `Removed strategy ${strategy.id} from strategy sync cache`, null, 'StrategyManager');
+        }
+      }
+
+      // Emit events to update all components
+      eventBus.emit('strategies:updated', []);
+
+      // Force a refresh of the strategies list
+      await refreshStrategies();
+
+      // Close the confirmation modal
+      setShowDeleteAllConfirm(false);
+
+      logService.log('info', `Successfully deleted all strategies for user ${userId}`, null, 'StrategyManager');
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete all strategies';
+      setError(errorMessage);
+      logService.log('error', 'Failed to delete all strategies', error, 'StrategyManager');
+    } finally {
+      setIsDeletingAll(false);
+    }
+  };
+
   const handleUseTemplate = async (template: StrategyTemplate) => {
     try {
       setIsRefreshing(true);
@@ -937,7 +1118,17 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       // 5. Manually add the strategy to the strategy sync cache
       console.log('StrategyManager: Manually adding strategy to strategy sync cache');
       if (!strategySync.hasStrategy(newStrategy.id)) {
-        strategySync.addStrategyToCache(newStrategy);
+        // Add required fields if missing
+        const strategyWithRequiredFields = {
+          ...newStrategy,
+          name: newStrategy.name || newStrategy.title,
+          description: newStrategy.description || '',
+          config: newStrategy.config || {},
+          performance_metrics: newStrategy.performance_metrics || {},
+          // Convert 'inactive' status to 'stopped' for compatibility with strategySync
+          status: newStrategy.status === 'inactive' ? 'stopped' : newStrategy.status
+        };
+        strategySync.addStrategyToCache(strategyWithRequiredFields as any);
       }
 
       // 6. Manually emit events to update all components
@@ -1057,7 +1248,17 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
       // 0. Ensure the strategy exists in the strategy sync cache
       if (!strategySync.hasStrategy(strategy.id)) {
-        strategySync.addStrategyToCache(strategy);
+        // Add required fields if missing
+        const strategyWithRequiredFields = {
+          ...strategy,
+          name: strategy.name || strategy.title,
+          description: strategy.description || '',
+          config: strategy.config || {},
+          performance_metrics: strategy.performance_metrics || {},
+          // Convert 'inactive' status to 'stopped' for compatibility with strategySync
+          status: strategy.status === 'inactive' ? 'stopped' : strategy.status
+        };
+        strategySync.addStrategyToCache(strategyWithRequiredFields as any);
         logService.log('info', `Added strategy ${strategy.id} to strategy sync cache before activation`, null, 'StrategyManager');
       }
 
@@ -1390,13 +1591,26 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               <p className="description-text">Create, manage, and monitor your trading strategies. Activate strategies to generate real-time trades based on market conditions.</p>
             </CollapsibleDescription>
             <div className="flex items-center gap-4">
-              <button
+              <motion.button
                 onClick={() => setShowCreateModal(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-neon-orange text-white rounded-lg hover:bg-opacity-90 transition-all duration-300 btn-text-small font-bold"
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
               >
                 <Plus className="w-4 h-4" />
                 Create Strategy
-              </button>
+              </motion.button>
+              {filteredStrategies.length > 0 && (
+                <motion.button
+                  onClick={() => setShowDeleteAllConfirm(true)}
+                  className="flex items-center gap-2 px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all duration-300 btn-text-small font-bold"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Delete All Strategies
+                </motion.button>
+              )}
             </div>
           </div>
 
@@ -1418,48 +1632,100 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               </div>
 
               {/* Strategy Search Filter */}
-              <div className="mb-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <div className="mb-4">
+                <div className="relative group">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-neon-turquoise transition-colors duration-200" />
                   <input
                     type="text"
                     placeholder="Search your strategies..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-1.5 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm"
+                    className="w-full pl-9 pr-10 py-2 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm border border-transparent focus:border-neon-turquoise/30 transition-all duration-200"
                   />
+                  {searchTerm && (
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors duration-200"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
 
               {/* Content */}
               {loading ? (
-                <div className="flex justify-center items-center py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
-                </div>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center justify-center py-12"
+                >
+                  <div className="relative">
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-neon-turquoise"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-8 h-8 rounded-full bg-gunmetal-900 flex items-center justify-center">
+                        <Brain className="w-5 h-5 text-neon-turquoise" />
+                      </div>
+                    </div>
+                  </div>
+                  <motion.p
+                    initial={{ y: 10, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.2 }}
+                    className="text-gray-400 mt-4"
+                  >
+                    Loading your strategies...
+                  </motion.p>
+                </motion.div>
               ) : strategiesError ? (
-                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
-                  <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
-                  <p className="text-gray-300 mb-2">Error loading strategies</p>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner border border-neon-raspberry/20"
+                >
+                  <div className="bg-neon-raspberry/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle className="w-10 h-10 text-neon-raspberry" />
+                  </div>
+                  <p className="text-gray-300 mb-2 font-medium">Error loading strategies</p>
                   <p className="text-gray-400 text-sm mb-4">Please try refreshing the page</p>
-                  <button
+                  <motion.button
                     onClick={handleRefresh}
-                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
+                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all flex items-center gap-2 mx-auto"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
+                    <RefreshCw className="w-4 h-4" />
                     Retry
-                  </button>
-                </div>
+                  </motion.button>
+                </motion.div>
               ) : (filteredStrategies?.length || 0) === 0 ? (
-                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
-                  <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
-                  <p className="text-gray-300 mb-2">No strategies found</p>
-                  <p className="text-gray-400 text-sm mb-4">{searchTerm ? "Try adjusting your search" : "Create your first strategy"}</p>
-                  <button
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gunmetal-900 rounded-xl p-8 text-center shadow-inner border border-neon-turquoise/10"
+                >
+                  <div className="bg-neon-turquoise/10 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Brain className="w-12 h-12 text-neon-turquoise" />
+                  </div>
+                  <h3 className="text-xl font-medium text-white mb-2">No strategies found</h3>
+                  <p className="text-gray-400 text-base mb-6 max-w-md mx-auto">
+                    {searchTerm
+                      ? "No strategies match your search criteria. Try adjusting your search terms or filters."
+                      : "Get started by creating your first trading strategy. Our AI will help you generate trades based on market conditions."}
+                  </p>
+                  <motion.button
                     onClick={() => setShowCreateModal(true)}
-                    className="px-4 py-2 bg-neon-orange text-white rounded-lg hover:bg-opacity-90 transition-all font-bold"
+                    className="px-6 py-3 bg-neon-orange text-white rounded-lg hover:bg-opacity-90 transition-all font-bold flex items-center gap-2 mx-auto"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                   >
-                    Create Strategy
-                  </button>
-                </div>
+                    <Plus className="w-5 h-5" />
+                    Create Your First Strategy
+                  </motion.button>
+                </motion.div>
               ) : (
                 <>
                   {screenSize === 'sm' ? (
@@ -1471,27 +1737,39 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                         onPageChange={setCurrentPage}
                       />
 
-                      {(paginatedStrategies || []).map((strategy) => (
-                        <motion.div
-                          key={strategy.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -20 }}
-                          className="strategy-card rounded-xl"
+                      <div style={{ height: paginatedStrategies.length * 180 + 'px', minHeight: '180px' }}>
+                        <List
+                          height={paginatedStrategies.length * 180}
+                          width="100%"
+                          itemCount={paginatedStrategies.length}
+                          itemSize={180}
+                          itemData={paginatedStrategies}
                         >
-                          <StrategyCard
-                            key={strategy.id}
-                            strategy={strategy}
-                            isExpanded={false}
-                            onToggleExpand={() => {}}
-                            onRefresh={refreshStrategies}
-                            onEdit={handleEditStrategy}
-                            onDelete={handleDeleteStrategy}
-                            hideExpandArrow={true}
-                            // Deliberately not passing onActivate and onDeactivate to hide those buttons
-                          />
-                        </motion.div>
-                      ))}
+                          {({ index, style, data }) => (
+                            <div style={style}>
+                              <motion.div
+                                key={data[index].id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="strategy-card rounded-xl"
+                              >
+                                <StrategyCard
+                                  key={data[index].id}
+                                  strategy={data[index]}
+                                  isExpanded={false}
+                                  onToggleExpand={() => {}}
+                                  onRefresh={handleRefreshWrapper}
+                                  onEdit={handleEditStrategy}
+                                  onDelete={handleDeleteStrategy}
+                                  hideExpandArrow={true}
+                                  // Deliberately not passing onActivate and onDeactivate to hide those buttons
+                                />
+                              </motion.div>
+                            </div>
+                          )}
+                        </List>
+                      </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 gap-3 mb-3 relative pt-8 pb-4">
@@ -1502,27 +1780,39 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                         onPageChange={setCurrentPage}
                       />
 
-                      {(paginatedStrategies || []).map((strategy) => (
-                        <motion.div
-                          key={strategy.id}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -20 }}
-                          className="strategy-card rounded-xl"
+                      <div style={{ height: paginatedStrategies.length * 180 + 'px', minHeight: '180px' }}>
+                        <List
+                          height={paginatedStrategies.length * 180}
+                          width="100%"
+                          itemCount={paginatedStrategies.length}
+                          itemSize={180}
+                          itemData={paginatedStrategies}
                         >
-                          <StrategyCard
-                            key={strategy.id}
-                            strategy={strategy}
-                            isExpanded={false}
-                            onToggleExpand={() => {}}
-                            onRefresh={refreshStrategies}
-                            onEdit={handleEditStrategy}
-                            onDelete={handleDeleteStrategy}
-                            hideExpandArrow={true} // Hide the expand arrow in Your Strategies section
-                            // Deliberately not passing onActivate and onDeactivate to hide those buttons
-                          />
-                        </motion.div>
-                      ))}
+                          {({ index, style, data }) => (
+                            <div style={style}>
+                              <motion.div
+                                key={data[index].id}
+                                initial={{ opacity: 0, y: 20 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -20 }}
+                                className="strategy-card rounded-xl"
+                              >
+                                <StrategyCard
+                                  key={data[index].id}
+                                  strategy={data[index]}
+                                  isExpanded={false}
+                                  onToggleExpand={() => {}}
+                                  onRefresh={handleRefreshWrapper}
+                                  onEdit={handleEditStrategy}
+                                  onDelete={handleDeleteStrategy}
+                                  hideExpandArrow={true} // Hide the expand arrow in Your Strategies section
+                                  // Deliberately not passing onActivate and onDeactivate to hide those buttons
+                                />
+                              </motion.div>
+                            </div>
+                          )}
+                        </List>
+                      </div>
                     </div>
                   )}
 
@@ -1541,41 +1831,101 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               </div>
 
               {/* Template Search Filter */}
-              <div className="mb-3">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <div className="mb-4">
+                <div className="relative group">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-neon-turquoise transition-colors duration-200" />
                   <input
                     type="text"
                     placeholder="Search templates..."
                     value={templateSearchTerm}
                     onChange={(e) => setTemplateSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-3 py-1.5 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm"
+                    className="w-full pl-9 pr-10 py-2 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm border border-transparent focus:border-neon-turquoise/30 transition-all duration-200"
                   />
+                  {templateSearchTerm && (
+                    <button
+                      onClick={() => setTemplateSearchTerm('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors duration-200"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
               </div>
 
               {loadingTemplates ? (
-                <div className="flex justify-center items-center py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-neon-turquoise"></div>
-                </div>
-              ) : templateError ? (
-                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
-                  <AlertCircle className="w-12 h-12 text-neon-raspberry mx-auto mb-4" />
-                  <p className="text-gray-300 mb-2">Failed to load templates</p>
-                  <p className="text-gray-400 text-sm mb-4">{templateError}</p>
-                  <button
-                    onClick={loadTemplates}
-                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex flex-col items-center justify-center py-12"
+                >
+                  <div className="relative">
+                    <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-neon-turquoise"></div>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-8 h-8 rounded-full bg-gunmetal-900 flex items-center justify-center">
+                        <Monitor className="w-5 h-5 text-neon-turquoise" />
+                      </div>
+                    </div>
+                  </div>
+                  <motion.p
+                    initial={{ y: 10, opacity: 0 }}
+                    animate={{ y: 0, opacity: 1 }}
+                    transition={{ delay: 0.2 }}
+                    className="text-gray-400 mt-4"
                   >
+                    Loading template strategies...
+                  </motion.p>
+                </motion.div>
+              ) : templateError ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner border border-neon-raspberry/20"
+                >
+                  <div className="bg-neon-raspberry/10 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <AlertCircle className="w-10 h-10 text-neon-raspberry" />
+                  </div>
+                  <p className="text-gray-300 mb-2 font-medium">Failed to load templates</p>
+                  <p className="text-gray-400 text-sm mb-4">{templateError}</p>
+                  <motion.button
+                    onClick={loadTemplates}
+                    className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all flex items-center gap-2 mx-auto"
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    <RefreshCw className="w-4 h-4" />
                     Try Again
-                  </button>
-                </div>
+                  </motion.button>
+                </motion.div>
               ) : filteredTemplates.length === 0 ? (
-                <div className="bg-gunmetal-900 rounded-xl p-6 text-center shadow-inner">
-                  <Brain className="w-12 h-12 text-neon-turquoise mx-auto mb-4" />
-                  <p className="text-gray-300 mb-2">No templates available</p>
-                  <p className="text-gray-400 text-sm">Check back later for new templates</p>
-                </div>
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-gunmetal-900 rounded-xl p-8 text-center shadow-inner border border-neon-turquoise/10"
+                >
+                  <div className="bg-neon-turquoise/10 w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6">
+                    <Monitor className="w-12 h-12 text-neon-turquoise" />
+                  </div>
+                  <h3 className="text-xl font-medium text-white mb-2">No templates available</h3>
+                  <p className="text-gray-400 text-base mb-4 max-w-md mx-auto">
+                    {templateSearchTerm
+                      ? "No templates match your search criteria. Try adjusting your search terms."
+                      : "Template strategies will appear here when available. Check back later for new templates."}
+                  </p>
+                  <div className="flex justify-center">
+                    <motion.button
+                      onClick={() => setTemplateSearchTerm('')}
+                      className={`px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all flex items-center gap-2 mx-auto ${!templateSearchTerm ? 'hidden' : ''}`}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Clear Search
+                    </motion.button>
+                  </div>
+                </motion.div>
               ) : (
                 <>
                   <div className="grid grid-cols-1 gap-3 mb-3 relative pt-8 pb-4">
@@ -1687,6 +2037,63 @@ export function StrategyManager({ className }: StrategyManagerProps) {
           />
         )}
 
+        {/* Delete All Strategies Confirmation Modal */}
+        {showDeleteAllConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              className="bg-gunmetal-900 rounded-xl p-6 max-w-md w-full shadow-xl border border-gunmetal-700"
+            >
+              <div className="flex items-center mb-4">
+                <div className="bg-neon-raspberry bg-opacity-20 p-2 rounded-full mr-3">
+                  <Trash2 className="w-6 h-6 text-neon-raspberry" />
+                </div>
+                <h3 className="text-xl font-bold text-neon-raspberry">Delete All Strategies</h3>
+              </div>
+              <p className="text-gray-300 mb-6">
+                Are you sure you want to delete all your strategies? This action cannot be undone and will permanently remove all your strategies and their associated trades.
+              </p>
+              <div className="flex justify-end gap-4">
+                <motion.button
+                  onClick={() => setShowDeleteAllConfirm(false)}
+                  className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  onClick={handleDeleteAllStrategies}
+                  disabled={isDeletingAll}
+                  className={`px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all font-bold flex items-center gap-2 ${isDeletingAll ? 'opacity-70 cursor-not-allowed' : ''}`}
+                  whileHover={!isDeletingAll ? { scale: 1.05 } : {}}
+                  whileTap={!isDeletingAll ? { scale: 0.95 } : {}}
+                >
+                  {isDeletingAll ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Deleting...
+                    </>
+                  ) : (
+                    <>Delete All</>
+                  )}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
         {/* Budget Modal */}
         {showBudgetModal && selectedStrategy && (
           <BudgetModal
@@ -1696,7 +2103,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               setSelectedStrategy(null);
             }}
             maxBudget={tradeService.calculateAvailableBudget()}
-            riskLevel={selectedStrategy.riskLevel}
+            riskLevel={selectedStrategy.riskLevel as any}
             isSubmitting={isSubmittingBudget}
           />
         )}
