@@ -36,8 +36,9 @@ class ProxyService {
       // Ensure endpoint starts with a slash
       const formattedEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
 
-      // Construct the proxy URL
-      const url = `${this.proxyUrl}${formattedEndpoint}`;
+      // Construct the proxy URL - ensure we have a base URL
+      const baseUrl = this.proxyUrl || '/api'; // Default to '/api' if proxyUrl is empty
+      const url = `${baseUrl}${formattedEndpoint}`;
 
       logService.log('info', `Fetching from proxy: ${url}`, null, 'ProxyService');
 

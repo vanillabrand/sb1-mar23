@@ -609,23 +609,7 @@ class WebSocketManager extends EventEmitter {
     return connection?.state;
   }
 
-  /**
-   * Check if a WebSocket connection is connected
-   * @param connectionId Connection ID
-   * @returns True if connected, false otherwise
-   */
-  isConnected(connectionId: string): boolean {
-    const connection = this.connections.get(connectionId);
-    return !!connection?.state.isConnected;
-  }
 
-  /**
-   * Get all connection IDs
-   * @returns Array of connection IDs
-   */
-  getConnections(): string[] {
-    return Array.from(this.connections.keys());
-  }
 
   /**
    * Add a subscription to a connection

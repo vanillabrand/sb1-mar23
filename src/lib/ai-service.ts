@@ -556,219 +556,102 @@ Please provide a complete strategy in JSON format with the following structure:
     }
   }
 
-  /**
-   * Generates a rule-based strategy as a fallback
-   */
-  private async generateRuleBasedStrategy(
-    description: string,
-    riskLevel: string,
-    assets: string[] | any
-  ): Promise<any> {
-    // Ensure assets is an array
-    if (!assets || !Array.isArray(assets)) {
-      logService.log('warn', 'Assets is not an array in generateRuleBasedStrategy', { assets }, 'AIService');
-      assets = ['BTC/USDT'];
-    }
 
-    // If assets array is empty, use default
-    if (assets.length === 0) {
-      logService.log('warn', 'Assets array is empty in generateRuleBasedStrategy', null, 'AIService');
-      assets = ['BTC/USDT'];
-    }
-    // Default strategy templates based on risk level
-    const templates = {
-      'Low': {
-        name: 'Conservative Trend Following',
-        description: 'A low-risk strategy that follows established trends with tight stop losses and conservative position sizing.',
-        timeframe: '1d',
-        entryConditions: [
-          { indicator: 'SMA', condition: 'Price > SMA', value: '200' },
-          { indicator: 'RSI', condition: 'RSI > ', value: '50' }
-        ],
-        exitConditions: [
-          { indicator: 'SMA', condition: 'Price < SMA', value: '50' },
-          { indicator: 'Profit', condition: 'Profit >', value: '3%' }
-        ],
-        riskManagement: {
-          stopLoss: '2%',
-          takeProfit: '5%',
-          positionSize: '5%',
-          maxOpenPositions: 3
-        }
-      },
-      'Medium': {
-        name: 'Balanced Momentum Strategy',
-        description: 'A medium-risk strategy that uses momentum indicators to identify potential entry and exit points.',
-        timeframe: '4h',
-        entryConditions: [
-          { indicator: 'MACD', condition: 'MACD Crossover', value: 'Signal Line' },
-          { indicator: 'Volume', condition: 'Volume >', value: '1.5x Average' }
-        ],
-        exitConditions: [
-          { indicator: 'MACD', condition: 'MACD Crossunder', value: 'Signal Line' },
-          { indicator: 'Profit', condition: 'Profit >', value: '8%' }
-        ],
+  /**
+   * Generate a rule-based strategy as a fallback when DeepSeek fails
+   * @param description The strategy description
+   * @param riskLevel The risk level to generate a strategy for
+   * @param assets Array of asset pairs to generate strategies for
+   * @param marketType Optional market type to use
+   * @returns Strategy object
+   */
+  private async generateRuleBasedStrategy(description: string, riskLevel: string, assets: string[], marketType?: MarketType): Promise<any> {
+    try {
+      this.emit('progress', { step: 'Generating rule-based strategy...', progress: 50 });
+
+      // Determine market type if not provided
+      const detectedMarketType = marketType || detectMarketType(description);
+
+      // Get market data for the assets
+      const marketData = await this.getMarketData(assets);
+
+      // Generate a strategy for the detected market type
+      return this.generateStrategyForMarketType(detectedMarketType, riskLevel, assets, marketData);
+    } catch (error) {
+      logService.log('error', 'Failed to generate rule-based strategy', error, 'AIService');
+
+      // Create a very basic strategy as a last resort
+      return {
+        id: uuidv4(),
+        name: `${riskLevel} Risk Strategy`,
+        description: description || `A ${riskLevel.toLowerCase()} risk trading strategy.`,
+        riskLevel: riskLevel,
+        risk_level: riskLevel,
+        marketType: marketType || 'spot',
+        market_type: marketType || 'spot',
+        assets: assets,
+        selected_pairs: assets,
+        timeframe: '1h',
+        entryConditions: ['Price above moving average'],
+        exitConditions: ['Take profit at 10%', 'Stop loss at 5%'],
         riskManagement: {
           stopLoss: '5%',
           takeProfit: '10%',
-          positionSize: '10%',
-          maxOpenPositions: 5
-        }
-      },
-      'High': {
-        name: 'Aggressive Breakout Strategy',
-        description: 'A high-risk strategy that looks for breakouts from key levels with larger position sizes.',
-        timeframe: '1h',
-        entryConditions: [
-          { indicator: 'Bollinger Bands', condition: 'Price > Upper Band', value: '2 Standard Deviations' },
-          { indicator: 'RSI', condition: 'RSI >', value: '70' }
-        ],
-        exitConditions: [
-          { indicator: 'Bollinger Bands', condition: 'Price < Middle Band', value: '' },
-          { indicator: 'Profit', condition: 'Profit >', value: '15%' }
-        ],
-        riskManagement: {
-          stopLoss: '10%',
-          takeProfit: '20%',
-          positionSize: '20%',
-          maxOpenPositions: 8
-        }
-      }
-    };
-
-    // Get the template based on risk level
-    const template = templates[riskLevel] || templates['Medium'];
-
-    // Detect market type from description
-    const marketType = detectMarketType(description);
-
-    logService.log('info', `Detected market type: ${marketType} for rule-based strategy`, {
-      description: description.substring(0, 50) + '...',
-    }, 'AIService');
-
-    // Customize the template based on the description and assets
-    const strategy = {
-      id: uuidv4(), // Generate a unique ID for the strategy
-      ...template,
-      name: `${riskLevel} Risk ${assets && assets[0] ? assets[0].split('/')[0] : 'Crypto'} Strategy`,
-      description: description || template.description,
-      riskLevel,
-      risk_level: riskLevel, // Add both formats for compatibility
-      assets,
-      selected_pairs: assets, // Add selected_pairs for compatibility
-      marketType,
-      market_type: marketType, // Add both formats for compatibility
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-      status: 'inactive'
-    };
-
-    // Add market-specific parameters
-    if (marketType === 'futures') {
-      strategy.riskManagement = {
-        ...strategy.riskManagement,
-        leverage: riskLevel === 'Low' ? '2x' : riskLevel === 'Medium' ? '5x' : '10x'
-      };
-    } else if (marketType === 'margin') {
-      strategy.riskManagement = {
-        ...strategy.riskManagement,
-        borrowAmount: riskLevel === 'Low' ? '20%' : riskLevel === 'Medium' ? '50%' : '80%'
+          positionSize: '10%'
+        },
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        status: 'inactive'
       };
     }
-
-    return strategy;
   }
 
+
+
+
   /**
-   * Generates detailed strategies based on risk level and market data
-   * @private
+   * Internal method to generate detailed strategies for a specific risk level
+   * @param riskLevel The risk level to generate strategies for
+   * @param assets Array of asset pairs to generate strategies for
+   * @param marketData Market data for the assets
+   * @returns Array of strategy objects
    */
   private async generateDetailedStrategiesInternal(riskLevel: string, assets: string[], marketData: any[]): Promise<any[]> {
-    // Generate strategies based on risk level
-    const strategies = [];
+    try {
+      this.emit('progress', { step: `Generating ${riskLevel} risk strategies...`, progress: 30 });
 
-    // Generate strategies for different market types
-    const marketTypes = ['spot', 'margin', 'futures'];
+      // Generate strategies for different market types
+      const strategies = [];
 
-    for (const marketType of marketTypes) {
-      // Strategy 1: Trend Following
-      strategies.push({
-        id: uuidv4(), // Generate a unique ID for each strategy
-        name: `${riskLevel} Risk ${marketType.charAt(0).toUpperCase() + marketType.slice(1)} Trend Following`,
-        description: `A ${riskLevel.toLowerCase()} risk ${marketType} trend following strategy for ${Array.isArray(assets) ? assets.join(', ') : 'BTC/USDT'} that uses moving averages to identify trends and enter positions.`,
-        riskLevel,
-        risk_level: riskLevel, // Add both formats for compatibility
-        assets,
-        selected_pairs: assets, // Add selected_pairs for compatibility
-        marketType,
-        market_type: marketType, // Add both formats for compatibility
-        timeframe: riskLevel === 'Low' ? '1d' : riskLevel === 'Medium' ? '4h' : '1h',
-        entryConditions: [
-          { indicator: 'SMA', condition: 'Price > SMA', value: riskLevel === 'Low' ? '200' : riskLevel === 'Medium' ? '100' : '50' },
-          { indicator: 'RSI', condition: 'RSI >', value: riskLevel === 'Low' ? '55' : riskLevel === 'Medium' ? '50' : '45' }
-        ],
-        exitConditions: [
-          { indicator: 'SMA', condition: 'Price < SMA', value: riskLevel === 'Low' ? '50' : riskLevel === 'Medium' ? '20' : '10' },
-          { indicator: 'Profit', condition: 'Profit >', value: `${riskLevel === 'Low' ? '3' : riskLevel === 'Medium' ? '8' : '15'}%` }
-        ],
-        riskManagement: {
-          stopLoss: `${riskLevel === 'Low' ? '2' : riskLevel === 'Medium' ? '5' : '10'}%`,
-          takeProfit: `${riskLevel === 'Low' ? '5' : riskLevel === 'Medium' ? '10' : '20'}%`,
-          positionSize: `${riskLevel === 'Low' ? '5' : riskLevel === 'Medium' ? '10' : '20'}%`,
-          maxOpenPositions: riskLevel === 'Low' ? 3 : riskLevel === 'Medium' ? 5 : 8,
-          ...(marketType === 'futures' ? { leverage: riskLevel === 'Low' ? '2x' : riskLevel === 'Medium' ? '5x' : '10x' } : {}),
-          ...(marketType === 'margin' ? { borrowAmount: riskLevel === 'Low' ? '20%' : riskLevel === 'Medium' ? '50%' : '80%' } : {})
-        },
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        status: 'inactive'
-    });
+      // Generate spot strategy
+      try {
+        const spotStrategy = this.generateStrategyForMarketType('spot', riskLevel, assets, marketData);
+        strategies.push(spotStrategy);
+      } catch (spotError) {
+        logService.log('warn', `Failed to generate spot strategy for risk level ${riskLevel}`, spotError, 'AIService');
+      }
 
-      // Strategy 2: Momentum
-      strategies.push({
-        id: uuidv4(), // Generate a unique ID for each strategy
-        name: `${riskLevel} Risk ${marketType.charAt(0).toUpperCase() + marketType.slice(1)} Momentum Strategy`,
-        description: `A ${riskLevel.toLowerCase()} risk ${marketType} momentum strategy for ${Array.isArray(assets) ? assets.join(', ') : 'BTC/USDT'} that uses MACD and volume to identify potential entry and exit points.`,
-        riskLevel,
-        risk_level: riskLevel, // Add both formats for compatibility
-        assets,
-        selected_pairs: assets, // Add selected_pairs for compatibility
-        marketType,
-        market_type: marketType, // Add both formats for compatibility
-        timeframe: riskLevel === 'Low' ? '1d' : riskLevel === 'Medium' ? '4h' : '1h',
-        entryConditions: [
-          { indicator: 'MACD', condition: 'MACD Crossover', value: 'Signal Line' },
-          { indicator: 'Volume', condition: 'Volume >', value: `${riskLevel === 'Low' ? '1.2' : riskLevel === 'Medium' ? '1.5' : '2'}x Average` }
-        ],
-        exitConditions: [
-          { indicator: 'MACD', condition: 'MACD Crossunder', value: 'Signal Line' },
-          { indicator: 'Profit', condition: 'Profit >', value: `${riskLevel === 'Low' ? '4' : riskLevel === 'Medium' ? '10' : '18'}%` }
-        ],
-        riskManagement: {
-          stopLoss: `${riskLevel === 'Low' ? '3' : riskLevel === 'Medium' ? '6' : '12'}%`,
-          takeProfit: `${riskLevel === 'Low' ? '6' : riskLevel === 'Medium' ? '12' : '24'}%`,
-          positionSize: `${riskLevel === 'Low' ? '5' : riskLevel === 'Medium' ? '10' : '20'}%`,
-          maxOpenPositions: riskLevel === 'Low' ? 2 : riskLevel === 'Medium' ? 4 : 6,
-          ...(marketType === 'futures' ? { leverage: riskLevel === 'Low' ? '2x' : riskLevel === 'Medium' ? '5x' : '10x' } : {}),
-          ...(marketType === 'margin' ? { borrowAmount: riskLevel === 'Low' ? '20%' : riskLevel === 'Medium' ? '50%' : '80%' } : {})
-        },
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        status: 'inactive'
-      });
+      // Generate margin strategy
+      try {
+        const marginStrategy = this.generateStrategyForMarketType('margin', riskLevel, assets, marketData);
+        strategies.push(marginStrategy);
+      } catch (marginError) {
+        logService.log('warn', `Failed to generate margin strategy for risk level ${riskLevel}`, marginError, 'AIService');
+      }
+
+      // Generate futures strategy
+      try {
+        const futuresStrategy = this.generateStrategyForMarketType('futures', riskLevel, assets, marketData);
+        strategies.push(futuresStrategy);
+      } catch (futuresError) {
+        logService.log('warn', `Failed to generate futures strategy for risk level ${riskLevel}`, futuresError, 'AIService');
+      }
+
+      return strategies;
+    } catch (error) {
+      logService.log('error', `Failed to generate detailed strategies for risk level ${riskLevel}`, error, 'AIService');
+      return [];
     }
-
-    // Log the generated strategies to ensure they have IDs
-    strategies.forEach(strategy => {
-      logService.log('info', `Generated strategy with ID: ${strategy.id}`, {
-        id: strategy.id,
-        name: strategy.name,
-        riskLevel: strategy.riskLevel,
-        marketType: strategy.marketType
-      }, 'AIService');
-    });
-
-    return strategies;
   }
 
   /**
@@ -1027,6 +910,63 @@ Please provide a complete strategy in JSON format with the following structure:
    * @param riskLevels Array of risk levels to generate strategies for
    * @returns Array of strategy objects
    */
+  async generateDetailedStrategies(assets: string[], riskLevels: string[]): Promise<any[]> {
+    try {
+      this.emit('progress', { step: 'Generating detailed strategies...', progress: 10 });
+
+      // Ensure assets is an array
+      if (!assets || !Array.isArray(assets)) {
+        logService.log('warn', 'Assets is not an array in generateDetailedStrategies', { assets }, 'AIService');
+        assets = ['BTC/USDT'];
+      }
+
+      // If assets array is empty, use default
+      if (assets.length === 0) {
+        logService.log('warn', 'Assets array is empty in generateDetailedStrategies', null, 'AIService');
+        assets = ['BTC/USDT'];
+      }
+
+      // Ensure riskLevels is an array
+      if (!riskLevels || !Array.isArray(riskLevels)) {
+        logService.log('warn', 'Risk levels is not an array in generateDetailedStrategies', { riskLevels }, 'AIService');
+        riskLevels = ['Low', 'Medium', 'High'];
+      }
+
+      // If riskLevels array is empty, use default
+      if (riskLevels.length === 0) {
+        logService.log('warn', 'Risk levels array is empty in generateDetailedStrategies', null, 'AIService');
+        riskLevels = ['Low', 'Medium', 'High'];
+      }
+
+      // Get market data for the assets
+      const marketData = await this.getMarketData(assets);
+
+      // Generate strategies for each risk level
+      const strategies = [];
+
+      for (const riskLevel of riskLevels) {
+        try {
+          // Generate strategies for this risk level
+          const riskStrategies = await this.generateDetailedStrategiesInternal(riskLevel, assets, marketData);
+          strategies.push(...riskStrategies);
+        } catch (error) {
+          logService.log('warn', `Failed to generate strategies for risk level ${riskLevel}`, error, 'AIService');
+        }
+      }
+
+      // If no strategies were generated, return an empty array
+      if (strategies.length === 0) {
+        logService.log('warn', 'No strategies were generated', null, 'AIService');
+        return [];
+      }
+
+      return strategies;
+    } catch (error) {
+      logService.log('error', 'Failed to generate detailed strategies', error, 'AIService');
+      return [];
+    }
+  }
+
   /**
    * Generate trades for a strategy using DeepSeek AI
    * @param strategy The strategy to generate trades for
@@ -1263,99 +1203,9 @@ Please provide a complete strategy in JSON format with the following structure:
     }
   }
 
-  /**
-   * Internal method to generate detailed strategies for a specific risk level
-   * @param riskLevel The risk level to generate strategies for
-   * @param assets Array of asset pairs to generate strategies for
-   * @param marketData Market data for the assets
-   * @returns Array of strategy objects
-   */
-  private async generateDetailedStrategiesInternal(riskLevel: string, assets: string[], marketData: any[]): Promise<any[]> {
-    try {
-      this.emit('progress', { step: `Generating ${riskLevel} risk strategies...`, progress: 30 });
 
-      // Generate strategies for different market types
-      const strategies = [];
 
-      // Generate spot strategy
-      try {
-        const spotStrategy = this.generateStrategyForMarketType('spot', riskLevel, assets, marketData);
-        strategies.push(spotStrategy);
-      } catch (spotError) {
-        logService.log('warn', `Failed to generate spot strategy for risk level ${riskLevel}`, spotError, 'AIService');
-      }
 
-      // Generate margin strategy
-      try {
-        const marginStrategy = this.generateStrategyForMarketType('margin', riskLevel, assets, marketData);
-        strategies.push(marginStrategy);
-      } catch (marginError) {
-        logService.log('warn', `Failed to generate margin strategy for risk level ${riskLevel}`, marginError, 'AIService');
-      }
-
-      // Generate futures strategy
-      try {
-        const futuresStrategy = this.generateStrategyForMarketType('futures', riskLevel, assets, marketData);
-        strategies.push(futuresStrategy);
-      } catch (futuresError) {
-        logService.log('warn', `Failed to generate futures strategy for risk level ${riskLevel}`, futuresError, 'AIService');
-      }
-
-      return strategies;
-    } catch (error) {
-      logService.log('error', `Failed to generate detailed strategies for risk level ${riskLevel}`, error, 'AIService');
-      return [];
-    }
-  }
-
-  /**
-   * Generate a rule-based strategy as a fallback when DeepSeek fails
-   * @param description The strategy description
-   * @param riskLevel The risk level to generate a strategy for
-   * @param assets Array of asset pairs to generate strategies for
-   * @param marketType Optional market type to use
-   * @returns Strategy object
-   */
-  private async generateRuleBasedStrategy(description: string, riskLevel: string, assets: string[], marketType?: MarketType): Promise<any> {
-    try {
-      this.emit('progress', { step: 'Generating rule-based strategy...', progress: 50 });
-
-      // Determine market type if not provided
-      const detectedMarketType = marketType || detectMarketType(description);
-
-      // Get market data for the assets
-      const marketData = await this.getMarketData(assets);
-
-      // Generate a strategy for the detected market type
-      return this.generateStrategyForMarketType(detectedMarketType, riskLevel, assets, marketData);
-    } catch (error) {
-      logService.log('error', 'Failed to generate rule-based strategy', error, 'AIService');
-
-      // Create a very basic strategy as a last resort
-      return {
-        id: uuidv4(),
-        name: `${riskLevel} Risk Strategy`,
-        description: description || `A ${riskLevel.toLowerCase()} risk trading strategy.`,
-        riskLevel: riskLevel,
-        risk_level: riskLevel,
-        marketType: marketType || 'spot',
-        market_type: marketType || 'spot',
-        assets: assets,
-        selected_pairs: assets,
-        timeframe: '1h',
-        entryConditions: ['Price above moving average'],
-        exitConditions: ['Take profit at 10%', 'Stop loss at 5%'],
-        riskManagement: {
-          stopLoss: '5%',
-          takeProfit: '10%',
-          positionSize: '10%'
-        },
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        status: 'inactive'
-      };
-    }
-  }
 
   /**
    * Generate a strategy for a specific market type
@@ -1500,62 +1350,7 @@ Please provide a complete strategy in JSON format with the following structure:
     };
   }
 
-  async generateDetailedStrategies(assets: string[], riskLevels: string[]): Promise<any[]> {
-    try {
-      this.emit('progress', { step: 'Generating detailed strategies...', progress: 10 });
 
-      // Ensure assets is an array
-      if (!assets || !Array.isArray(assets)) {
-        logService.log('warn', 'Assets is not an array in generateDetailedStrategies', { assets }, 'AIService');
-        assets = ['BTC/USDT'];
-      }
-
-      // If assets array is empty, use default
-      if (assets.length === 0) {
-        logService.log('warn', 'Assets array is empty in generateDetailedStrategies', null, 'AIService');
-        assets = ['BTC/USDT'];
-      }
-
-      // Ensure riskLevels is an array
-      if (!riskLevels || !Array.isArray(riskLevels)) {
-        logService.log('warn', 'Risk levels is not an array in generateDetailedStrategies', { riskLevels }, 'AIService');
-        riskLevels = ['Low', 'Medium', 'High'];
-      }
-
-      // If riskLevels array is empty, use default
-      if (riskLevels.length === 0) {
-        logService.log('warn', 'Risk levels array is empty in generateDetailedStrategies', null, 'AIService');
-        riskLevels = ['Low', 'Medium', 'High'];
-      }
-
-      // Get market data for the assets
-      const marketData = await this.getMarketData(assets);
-
-      // Generate strategies for each risk level
-      const strategies = [];
-
-      for (const riskLevel of riskLevels) {
-        try {
-          // Generate strategies for this risk level
-          const riskStrategies = await this.generateDetailedStrategiesInternal(riskLevel, assets, marketData);
-          strategies.push(...riskStrategies);
-        } catch (error) {
-          logService.log('warn', `Failed to generate strategies for risk level ${riskLevel}`, error, 'AIService');
-        }
-      }
-
-      // If no strategies were generated, return an empty array
-      if (strategies.length === 0) {
-        logService.log('warn', 'No strategies were generated', null, 'AIService');
-        return [];
-      }
-
-      return strategies;
-    } catch (error) {
-      logService.log('error', 'Failed to generate detailed strategies', error, 'AIService');
-      return [];
-    }
-  }
 }
 
 export const aiService = AIService.getInstance();
