@@ -5,10 +5,21 @@ import { v4 as uuidv4 } from 'uuid';
 import { strategyService } from './strategy-service';
 import { strategySync } from './strategy-sync';
 import { eventBus } from './event-bus';
+import { apiCache } from './api-cache';
 
 export class TemplateService {
-  async getTemplates(): Promise<StrategyTemplate[]> {
+  async getTemplates(forceRefresh: boolean = false): Promise<StrategyTemplate[]> {
     try {
+      // Check cache first if not forcing refresh
+      const cacheKey = 'templates:all';
+      if (!forceRefresh) {
+        const cachedTemplates = apiCache.get<StrategyTemplate[]>(cacheKey);
+        if (cachedTemplates) {
+          logService.log('info', 'Using cached templates', null, 'TemplateService');
+          return cachedTemplates;
+        }
+      }
+
       const { data, error } = await supabase
         .from('strategy_templates')
         .select('*')
@@ -50,6 +61,10 @@ export class TemplateService {
         return result;
       });
 
+      // Cache the templates for 5 minutes (300000 ms)
+      apiCache.set(cacheKey, templates, 300000);
+      logService.log('info', 'Cached templates', null, 'TemplateService');
+
       return templates;
     } catch (error) {
       logService.log('error', 'Failed to fetch templates', error, 'TemplateService');
@@ -57,8 +72,18 @@ export class TemplateService {
     }
   }
 
-  async getTemplatesForUser(userId?: string): Promise<StrategyTemplate[]> {
+  async getTemplatesForUser(userId?: string, forceRefresh: boolean = false): Promise<StrategyTemplate[]> {
     try {
+      // Check cache first if not forcing refresh
+      const cacheKey = userId ? `templates:user:${userId}` : 'templates:system';
+      if (!forceRefresh) {
+        const cachedTemplates = apiCache.get<StrategyTemplate[]>(cacheKey);
+        if (cachedTemplates) {
+          logService.log('info', `Using cached templates for user ${userId || 'system'}`, null, 'TemplateService');
+          return cachedTemplates;
+        }
+      }
+
       let query = supabase
         .from('strategy_templates')
         .select('*')
@@ -121,6 +146,10 @@ export class TemplateService {
         return result;
       });
 
+      // Cache the templates for 5 minutes (300000 ms)
+      apiCache.set(cacheKey, templates, 300000);
+      logService.log('info', `Cached templates for user ${userId || 'system'}`, null, 'TemplateService');
+
       return templates;
     } catch (error) {
       logService.log('error', 'Failed to fetch user templates', error, 'TemplateService');
@@ -157,6 +186,11 @@ export class TemplateService {
 
       if (error) throw error;
       if (!data) throw new Error('Failed to create template');
+
+      // Clear template caches
+      apiCache.remove('templates:all');
+      apiCache.remove(`templates:user:${data.user_id}`);
+      apiCache.remove('templates:system');
 
       return this.convertDatabaseToFrontendFormat(data);
     } catch (error) {
@@ -265,12 +299,31 @@ export class TemplateService {
 
   async deleteTemplate(id: string): Promise<void> {
     try {
+      // First get the template to know the user_id
+      const { data: template, error: fetchError } = await supabase
+        .from('strategy_templates')
+        .select('user_id')
+        .eq('id', id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Delete the template
       const { error } = await supabase
         .from('strategy_templates')
         .delete()
         .eq('id', id);
 
       if (error) throw error;
+
+      // Clear template caches
+      apiCache.remove('templates:all');
+      if (template?.user_id) {
+        apiCache.remove(`templates:user:${template.user_id}`);
+      }
+      apiCache.remove('templates:system');
+
+      logService.log('info', `Deleted template ${id}`, null, 'TemplateService');
     } catch (error) {
       logService.log('error', 'Failed to delete template', error, 'TemplateService');
       throw error;
@@ -338,6 +391,10 @@ export class TemplateService {
 
       // Force a refresh of the strategy sync to ensure it's in the local cache
       await strategySync.initialize();
+
+      // Clear any strategy-related caches
+      apiCache.remove('strategies:all');
+      apiCache.remove(`strategies:user:${session.user.id}`);
 
       // Emit events to notify components of the new strategy
       eventBus.emit('strategy:created', strategy);

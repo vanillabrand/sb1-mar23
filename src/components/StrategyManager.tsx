@@ -160,8 +160,20 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
   // Update items per page when screen size changes
   useEffect(() => {
-    setItemsPerPage(screenSize === 'sm' ? 3 : 6);
-    setTemplatesPerPage(screenSize === 'sm' ? 3 : 6);
+    // More responsive pagination based on screen size
+    if (screenSize === 'sm') {
+      setItemsPerPage(3);
+      setTemplatesPerPage(3);
+    } else if (screenSize === 'md') {
+      setItemsPerPage(4);
+      setTemplatesPerPage(4);
+    } else if (screenSize === 'lg') {
+      setItemsPerPage(6);
+      setTemplatesPerPage(6);
+    } else {
+      setItemsPerPage(8);
+      setTemplatesPerPage(8);
+    }
   }, [screenSize]);
 
   // Add event listener for budget modal
@@ -1634,20 +1646,24 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               {/* Strategy Search Filter */}
               <div className="mb-4">
                 <div className="relative group">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-neon-turquoise transition-colors duration-200" />
+                  <label htmlFor="strategy-search" className="sr-only">Search strategies</label>
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-neon-turquoise transition-colors duration-200" aria-hidden="true" />
                   <input
+                    id="strategy-search"
                     type="text"
                     placeholder="Search your strategies..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-9 pr-10 py-2 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm border border-transparent focus:border-neon-turquoise/30 transition-all duration-200"
+                    aria-label="Search strategies"
                   />
                   {searchTerm && (
                     <button
                       onClick={() => setSearchTerm('')}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors duration-200"
+                      aria-label="Clear search"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
@@ -1833,20 +1849,24 @@ export function StrategyManager({ className }: StrategyManagerProps) {
               {/* Template Search Filter */}
               <div className="mb-4">
                 <div className="relative group">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-neon-turquoise transition-colors duration-200" />
+                  <label htmlFor="template-search" className="sr-only">Search template strategies</label>
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 group-hover:text-neon-turquoise transition-colors duration-200" aria-hidden="true" />
                   <input
+                    id="template-search"
                     type="text"
                     placeholder="Search templates..."
                     value={templateSearchTerm}
                     onChange={(e) => setTemplateSearchTerm(e.target.value)}
                     className="w-full pl-9 pr-10 py-2 bg-gunmetal-800/50 rounded-lg focus:outline-none focus:ring-1 focus:ring-neon-turquoise text-sm border border-transparent focus:border-neon-turquoise/30 transition-all duration-200"
+                    aria-label="Search template strategies"
                   />
                   {templateSearchTerm && (
                     <button
                       onClick={() => setTemplateSearchTerm('')}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white transition-colors duration-200"
+                      aria-label="Clear template search"
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                       </svg>
                     </button>
@@ -1969,14 +1989,17 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                               </div>
 
                               <div className="ml-4 flex-shrink-0 self-center">
-                                <button
+                                <motion.button
                                   onClick={() => handleUseTemplate(template)}
                                   className="px-3 py-2 border rounded-lg text-sm transition-all flex items-center justify-center gap-1 bg-transparent border-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry bg-clip-text text-transparent hover:opacity-80"
                                   style={{ borderImage: 'linear-gradient(to right, #00ffd1, #fff152, #ff3864) 1' }}
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  aria-label={`Add ${template.title} template`}
                                 >
                                   <Plus className="w-4 h-4 text-neon-turquoise" />
                                   Add +
-                                </button>
+                                </motion.button>
                               </div>
                             </div>
                           </SwipeAnimation>
@@ -2005,14 +2028,17 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                               </div>
 
                               <div className="ml-4 flex-shrink-0 self-center">
-                                <button
+                                <motion.button
                                   onClick={() => handleUseTemplate(template)}
                                   className="px-3 py-2 border rounded-lg text-sm transition-all flex items-center justify-center gap-1 bg-transparent border-transparent bg-gradient-to-r from-neon-turquoise via-neon-yellow to-neon-raspberry bg-clip-text text-transparent hover:opacity-80"
                                   style={{ borderImage: 'linear-gradient(to right, #00ffd1, #fff152, #ff3864) 1' }}
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  aria-label={`Add ${template.title} template`}
                                 >
                                   <Plus className="w-4 h-4 text-neon-turquoise" />
                                   Add +
-                                </button>
+                                </motion.button>
                               </div>
                             </div>
                           </>

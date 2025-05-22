@@ -1,4 +1,4 @@
-import React, { useState, Suspense, lazy } from 'react';
+import React, { useState, Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AnimatePresence, LazyMotion, domAnimation } from 'framer-motion';
 import PageTransition from './PageTransition';
@@ -17,6 +17,9 @@ import PerformancePage from '../pages/PerformancePage';
 import { MobileBottomNav } from './MobileBottomNav';
 import { useMobileDetect } from '../hooks/useMobileDetect';
 import { TradeDebugMonitor } from './TradeDebugMonitor';
+import { OptimizedImage } from './OptimizedImage';
+import { imageOptimizer } from '../lib/image-optimizer';
+import { performanceOptimizer } from '../lib/performance-optimizer';
 
 // Lazy load ApiStatusIndicator to avoid circular dependencies
 const ApiStatusIndicatorLazy = lazy(() => import('./ApiStatusIndicator'));
@@ -38,6 +41,25 @@ export const AppContent = ({ isReady = true }: AppContentProps) => {
 
   // Import the test page
   const TestPage = React.lazy(() => import('../pages/TestPage').then(module => ({ default: module.TestPage })));
+
+  // Preload common images
+  useEffect(() => {
+    // Preload logo and common UI images
+    const commonImages = [
+      '/logo.png',
+      '/assets/background.jpg',
+      '/assets/icons/btc.svg',
+      '/assets/icons/eth.svg'
+    ];
+
+    // Use performance optimizer to schedule non-critical tasks
+    performanceOptimizer.scheduleTask(() => {
+      commonImages.forEach(imageSrc => {
+        imageOptimizer.preloadImage(imageSrc, { width: 100, height: 100 });
+      });
+      return Promise.resolve();
+    }, { priority: 'low' });
+  }, []);
 
   // Show loading state if app is not ready
   if (!isReady) {

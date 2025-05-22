@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Clock, Calendar } from 'lucide-react';
-import { NetworkStatus, StrategyStatus, AIMarketInsight, PortfolioPerformancePanel, AssetDisplayPanel, AssetDistribution, AnimatedPanel, WorldClock, DefconMonitor, NewsWidget } from './index';
+import { Clock, Calendar, Settings } from 'lucide-react';
+import { NetworkStatus, StrategyStatus, AIMarketInsight, PortfolioPerformancePanel, AssetDisplayPanel, AssetDistribution, AnimatedPanel, WorldClock, DefconMonitor, NewsWidget, WebSocketPerformanceMonitor, PerformanceMonitor } from './index';
+import { performanceOptimizer } from '../lib/performance-optimizer';
+import { fontOptimizer } from '../lib/font-optimizer';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type { Strategy } from '../lib/types';
 
@@ -34,6 +36,7 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
   const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [showPerformanceTools, setShowPerformanceTools] = useState(false);
 
   // Update the date every second
   useEffect(() => {
@@ -78,8 +81,30 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
             </h1>
           </div>
         </div>
-        <NetworkStatus />
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => setShowPerformanceTools(!showPerformanceTools)}
+            className="flex items-center gap-2 px-3 py-1.5 bg-gunmetal-800 hover:bg-gunmetal-700 rounded-lg transition-colors"
+            aria-label="Toggle performance tools"
+          >
+            <Settings className="w-4 h-4 text-neon-turquoise" />
+            <span className="text-sm text-gray-300">Performance Tools</span>
+          </button>
+          <NetworkStatus />
+        </div>
       </div>
+
+      {/* Performance Tools */}
+      {showPerformanceTools && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <AnimatedPanel index={0} className="col-span-1">
+            <PerformanceMonitor />
+          </AnimatedPanel>
+          <AnimatedPanel index={1} className="col-span-1">
+            <WebSocketPerformanceMonitor />
+          </AnimatedPanel>
+        </div>
+      )}
 
       <div className={`grid grid-cols-12 gap-2 sm:gap-3 md:gap-5 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
         <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-4`}>

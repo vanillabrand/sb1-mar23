@@ -1,7 +1,26 @@
 import { useState, useEffect } from 'react';
 import { Preloader } from './components/Preloader';
+import { FontLoader } from './components/FontLoader';
 import { systemSync } from './lib/system-sync';
 import { AppContent } from './components/AppContent';
+import { performanceOptimizer } from './lib/performance-optimizer';
+import { fontOptimizer } from './lib/font-optimizer';
+
+// Define fonts to load
+const fonts = [
+  {
+    family: 'Inter',
+    url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+    preload: true,
+    display: 'swap'
+  },
+  {
+    family: 'Roboto Mono',
+    url: 'https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap',
+    preload: true,
+    display: 'swap'
+  }
+];
 
 // Detect devices and browsers
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -21,6 +40,7 @@ const setAppHeight = () => {
 function App() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [isAppReady, setIsAppReady] = useState(false);
+  const [fontsLoaded, setFontsLoaded] = useState(false);
 
   // Function to initialize the app
   const initializeApp = async () => {
@@ -255,8 +275,35 @@ function App() {
     return <Preloader />;
   }
 
+  // Start performance monitoring
+  useEffect(() => {
+    if (!isInitializing && isAppReady) {
+      // Start performance monitoring after app is ready
+      performanceOptimizer.startMonitoring();
+
+      return () => {
+        // Clean up when component unmounts
+        performanceOptimizer.stopMonitoring();
+      };
+    }
+  }, [isInitializing, isAppReady]);
+
+  // Handle font loading completion
+  const handleFontsLoaded = () => {
+    setFontsLoaded(true);
+    console.log('Fonts loaded successfully');
+  };
+
   // Show main content when initialization is complete
-  return <AppContent isReady={isAppReady} />;
+  return (
+    <FontLoader
+      fonts={fonts}
+      onComplete={handleFontsLoaded}
+      fallbackFonts={['system-ui', 'sans-serif']}
+    >
+      <AppContent isReady={isAppReady} />
+    </FontLoader>
+  );
 }
 
 export default App;
