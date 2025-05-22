@@ -5,9 +5,14 @@ import { configService } from './config-service';
 import { config } from './config';
 import { supabase } from './supabase';
 import ReconnectingWebSocket from 'reconnecting-websocket';
+import { websocketPerformanceMonitor } from './websocket-performance-monitor';
+import { eventBus } from './event-bus';
+import { performanceOptimizer } from './performance-optimizer';
 // Define WebSocket types locally since they're not in the main types file
 interface WebSocketMessage {
-  type: string;
+  type?: string;
+  id?: string;
+  method?: string;
   [key: string]: any;
 }
 
@@ -192,11 +197,23 @@ export class WebSocketService extends EventEmitter {
         // Start the ping interval if connection was successful
         this.startPingInterval();
 
+        // Start WebSocket performance monitoring
+        performanceOptimizer.scheduleTask(() => {
+          websocketPerformanceMonitor.startMonitoring();
+          return Promise.resolve();
+        }, { priority: 'low' });
+
         if (config.subscriptions) {
           await this.subscribe(config.subscriptions);
         }
 
         logService.log('info', 'WebSocket connected successfully', { url: wsUrl }, 'WebSocketService');
+
+        // Emit event for WebSocket performance monitoring
+        eventBus.emit('websocket:connected', {
+          connectionId: wsUrl,
+          timestamp: Date.now()
+        });
       } catch (connectionError) {
         // If connection times out, we'll still continue but log the error
         logService.log('warn', 'WebSocket connection issue, continuing anyway', connectionError, 'WebSocketService');
@@ -259,6 +276,30 @@ export class WebSocketService extends EventEmitter {
       try {
         const message = JSON.parse(event.data);
         logService.log('debug', 'WebSocket message received', message, 'WebSocketService');
+
+        // Track message metrics for performance monitoring
+        if (this.socket) {
+          const wsUrl = this.socket.url;
+          const messageSize = typeof event.data === 'string' ? event.data.length :
+                              event.data instanceof Blob ? event.data.size : 0;
+
+          // Emit event for WebSocket performance monitoring
+          eventBus.emit('websocket:message', {
+            connectionId: wsUrl,
+            message,
+            size: messageSize,
+            timestamp: Date.now()
+          });
+
+          // Handle pong messages for latency measurement
+          if ((message.type === 'pong' || message.result === 'pong') && (message.id || message.echo)) {
+            eventBus.emit('websocket:pong', {
+              connectionId: wsUrl,
+              id: message.id || message.echo,
+              timestamp: Date.now()
+            });
+          }
+        }
 
         // Emit the message to all listeners
         this.emit('message', message);
@@ -401,7 +442,31 @@ export class WebSocketService extends EventEmitter {
     }
 
     try {
-      this.socket?.send(JSON.stringify(message));
+      const messageStr = JSON.stringify(message);
+      this.socket?.send(messageStr);
+
+      // Track message metrics for performance monitoring
+      if (this.socket) {
+        const wsUrl = this.socket.url;
+        const messageSize = messageStr.length;
+
+        // Emit event for WebSocket performance monitoring
+        eventBus.emit('websocket:send', {
+          connectionId: wsUrl,
+          message,
+          size: messageSize,
+          timestamp: Date.now()
+        });
+
+        // If this is a ping message with an ID, track it for latency measurement
+        if ((message.type === 'ping' || message.method === 'ping') && (message.id || message.timestamp)) {
+          eventBus.emit('websocket:ping', {
+            connectionId: wsUrl,
+            id: message.id || `ping-${Date.now()}`,
+            timestamp: Date.now()
+          });
+        }
+      }
     } catch (error) {
       logService.log('error', 'Failed to send WebSocket message',
         error, 'WebSocketService');
@@ -465,11 +530,22 @@ export class WebSocketService extends EventEmitter {
     this.stopPingInterval();
 
     if (this.socket) {
+      // Get the URL before closing the socket
+      const wsUrl = this.socket.url;
+
       this.socket.close();
       this.socket = null;
       this.isConnected = false;
       this.messageQueue = [];
       logService.log('info', 'WebSocket disconnected', null, 'WebSocketService');
+
+      // Emit event for WebSocket performance monitoring
+      eventBus.emit('websocket:disconnected', {
+        connectionId: wsUrl,
+        timestamp: Date.now(),
+        code: 1000,
+        reason: 'Disconnected by application'
+      });
     }
   }
 
@@ -484,6 +560,12 @@ export class WebSocketService extends EventEmitter {
 
     // Disconnect the WebSocket
     this.disconnect();
+
+    // Stop WebSocket performance monitoring
+    performanceOptimizer.scheduleTask(() => {
+      websocketPerformanceMonitor.stopMonitoring();
+      return Promise.resolve();
+    }, { priority: 'normal' });
 
     logService.log('info', 'WebSocket service cleaned up', null, 'WebSocketService');
   }

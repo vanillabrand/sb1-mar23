@@ -5,6 +5,8 @@ import { templateService } from './template-service';
 import { demoService } from './demo-service';
 import { config } from './config';
 import { initializeEnhancedServices, cleanupEnhancedServices } from './enhanced-services';
+import { websocketPerformanceMonitor } from './websocket-performance-monitor';
+import { performanceOptimizer } from './performance-optimizer';
 
 class SystemSync {
   private initialized = false;
@@ -12,6 +14,7 @@ class SystemSync {
   private readonly RETRY_DELAY = 1000;
   private readonly INITIALIZATION_TIMEOUT = 5000; // 5 seconds timeout for initialization
   private readonly FAST_DEMO_MODE = true; // Enable fast demo mode initialization
+  private resourcesPreloaded = false; // Track if resources have been preloaded
 
   async initializeDatabase(): Promise<void> {
     // If fast demo mode is enabled, skip full database initialization
@@ -107,6 +110,12 @@ class SystemSync {
         // This prevents double error handling and makes the code cleaner
         await websocketService.connect({});
         logService.log('info', 'WebSocket connection established', null, 'SystemSync');
+
+        // Start WebSocket performance monitoring
+        performanceOptimizer.scheduleTask(() => {
+          websocketPerformanceMonitor.startMonitoring();
+          return Promise.resolve();
+        }, { priority: 'low' });
       } catch (connectionError) {
         // For all devices, don't let WebSocket issues block initialization
         logService.log('warn', 'WebSocket connection failed, continuing anyway', connectionError, 'SystemSync');
@@ -361,11 +370,90 @@ class SystemSync {
       // Initialize enhanced services
       await initializeEnhancedServices();
 
+      // Preload resources in the background after enhanced services are initialized
+      this.preloadResources();
+
       logService.log('info', 'Enhanced services initialized successfully', null, 'SystemSync');
     } catch (error) {
       logService.log('warn', 'Failed to initialize enhanced services, continuing anyway', error, 'SystemSync');
       // Don't throw error - we want to continue even if enhanced services fail
     }
+  }
+
+  /**
+   * Preload resources for better performance
+   * This method preloads common assets, fonts, and other resources
+   * to improve the application's performance
+   */
+  private preloadResources(): void {
+    // Only preload resources once
+    if (this.resourcesPreloaded) {
+      return;
+    }
+
+    // Use performance optimizer to schedule resource preloading as a low-priority task
+    performanceOptimizer.scheduleTask(() => {
+      try {
+        logService.log('info', 'Preloading resources for better performance', null, 'SystemSync');
+
+        // Import required services
+        import('./image-optimizer').then(({ imageOptimizer }) => {
+          // Preload common images
+          const commonImages = [
+            '/logo.png',
+            '/assets/background.jpg',
+            '/assets/icons/btc.svg',
+            '/assets/icons/eth.svg',
+            '/assets/icons/usdt.svg'
+          ];
+
+          // Preload images with different priorities
+          commonImages.forEach((imageSrc, index) => {
+            // Stagger image preloading to avoid network congestion
+            setTimeout(() => {
+              imageOptimizer.preloadImage(imageSrc, {
+                width: 100,
+                height: 100,
+                format: 'webp',
+                quality: 80
+              });
+            }, index * 200); // 200ms delay between each image
+          });
+        });
+
+        // Preload fonts
+        import('./font-optimizer').then(({ fontOptimizer }) => {
+          // Define common fonts with proper type casting
+          const fonts = [
+            {
+              family: 'Inter',
+              url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
+              preload: true,
+              display: 'swap' as 'swap'
+            },
+            {
+              family: 'Roboto Mono',
+              url: 'https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap',
+              preload: true,
+              display: 'swap' as 'swap'
+            }
+          ];
+
+          // Load fonts
+          fonts.forEach(font => {
+            fontOptimizer.loadFont(font);
+          });
+        });
+
+        this.resourcesPreloaded = true;
+        logService.log('info', 'Resources preloaded successfully', null, 'SystemSync');
+
+        return Promise.resolve();
+      } catch (error) {
+        logService.log('warn', 'Failed to preload resources', error, 'SystemSync');
+        return Promise.resolve(); // Don't reject the promise
+      }
+    }, { priority: 'low' });
   }
 
   /**
@@ -379,6 +467,9 @@ class SystemSync {
       try {
         const { websocketService } = await import('./websocket-service');
         websocketService.cleanup();
+
+        // Stop WebSocket performance monitoring
+        websocketPerformanceMonitor.stopMonitoring();
       } catch (error) {
         logService.log('warn', 'Failed to clean up WebSocket service', error, 'SystemSync');
       }
