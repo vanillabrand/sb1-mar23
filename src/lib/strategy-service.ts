@@ -203,31 +203,43 @@ class StrategyService {
 
         let createdStrategy;
 
-        try {
-          // Try to create the strategy using the API first
-          const apiStrategy = await apiClient.createStrategy({
-            name: completeStrategy.name,
-            title: completeStrategy.title,
-            description: completeStrategy.description,
-            risk_level: completeStrategy.risk_level,
-            market_type: completeStrategy.market_type,
-            selected_pairs: completeStrategy.selected_pairs,
-            strategy_config: completeStrategy.strategy_config
-          }) as Strategy;
+        // Initialize API client
+        await apiClient.initialize();
 
-          logService.log('info', 'Successfully created strategy via API', {
-            strategyId: apiStrategy.id
-          }, 'StrategyService');
+        // Check if API client is initialized
+        if (apiClient['isInitialized']) {
+          try {
+            // Try to create the strategy using the API first
+            const apiStrategy = await apiClient.createStrategy({
+              name: completeStrategy.name,
+              title: completeStrategy.title,
+              description: completeStrategy.description,
+              risk_level: completeStrategy.risk_level,
+              market_type: completeStrategy.market_type,
+              selected_pairs: completeStrategy.selected_pairs,
+              strategy_config: completeStrategy.strategy_config
+            }) as Strategy;
 
-          createdStrategy = apiStrategy;
-        } catch (apiError) {
-          logService.log('warn', 'Failed to create strategy via API, falling back to Supabase', apiError, 'StrategyService');
+            logService.log('info', 'Successfully created strategy via API', {
+              strategyId: apiStrategy.id
+            }, 'StrategyService');
 
+            createdStrategy = apiStrategy;
+          } catch (apiError) {
+            logService.log('warn', 'Failed to create strategy via API, falling back to Supabase', apiError, 'StrategyService');
+            // Fall through to Supabase method
+          }
+        } else {
+          logService.log('info', 'API client not initialized, using Supabase directly', null, 'StrategyService');
+        }
+
+        // If we don't have a created strategy yet, use Supabase directly
+        if (!createdStrategy) {
           // Insert the strategy directly via Supabase
           const { data: dbStrategy, error } = await supabase
             .from('strategies')
             .insert(completeStrategy)
-            .select()
+            .select('*')
             .single();
 
           if (error) {
@@ -239,6 +251,9 @@ class StrategyService {
           }
 
           if (!dbStrategy) {
+            logService.log('error', 'No data returned from Supabase insert', {
+              strategy: completeStrategy
+            }, 'StrategyService');
             throw new Error('Failed to create strategy - no data returned');
           }
 
@@ -463,17 +478,15 @@ class StrategyService {
       // Initialize API client if not already initialized
       await apiClient.initialize();
 
-      // Emit event before database operation for immediate UI update
-      eventBus.emit('strategy:deleted', { strategyId: id });
+      // First, remove from local cache immediately for responsive UI
+      if (strategySync && typeof strategySync.removeStrategyFromCache === 'function') {
+        strategySync.removeStrategyFromCache(id);
+      }
 
       try {
-        // Try to delete the strategy using the API first
+        // Try to delete the strategy using the API
         await apiClient.deleteStrategy(id);
-
         logService.log('info', `Successfully deleted strategy ${id} via API`, null, 'StrategyService');
-
-        // Emit event again to ensure all components are updated
-        eventBus.emit('strategy:deleted', { strategyId: id });
         return;
       } catch (apiError) {
         logService.log('warn', 'Failed to delete strategy via API, falling back to Supabase', apiError, 'StrategyService');

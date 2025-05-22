@@ -68,7 +68,7 @@ export function SimplifiedAppLayout() {
         <div className="flex items-center gap-4">
           {/* API Status Indicator */}
           <Suspense fallback={<div className="w-12"></div>}>
-            {React.createElement(lazy(() => import('../ApiStatusIndicator').then(module => ({ default: module.default }))))}
+            {React.createElement(lazy(() => import('../ApiStatusIndicator').then(module => ({ default: module.ApiStatusIndicator }))))}
           </Suspense>
 
           <TradingModeIndicator showToggle={true} />

@@ -121,9 +121,18 @@ export function Backtester() {
         // Scroll to results section after a short delay to ensure it's rendered
         setTimeout(() => {
           if (resultsRef.current) {
-            resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+            // Use scrollIntoView with more options for better scrolling behavior
+            resultsRef.current.scrollIntoView({
+              behavior: 'smooth',
+              block: 'start'
+            });
+
+            // Add a fallback scroll method for browsers that don't support smooth scrolling well
+            const yOffset = -80; // Adjust this value to account for any fixed headers
+            const y = resultsRef.current.getBoundingClientRect().top + window.pageYOffset + yOffset;
+            window.scrollTo({ top: y, behavior: 'smooth' });
           }
-        }, 300);
+        }, 500); // Increased delay to ensure components are fully rendered
       }
     };
 
@@ -152,9 +161,18 @@ export function Backtester() {
       // Scroll to the progress section after a short delay to ensure it's rendered
       setTimeout(() => {
         if (resultsRef.current) {
-          resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+          // Use scrollIntoView with more options for better scrolling behavior
+          resultsRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+
+          // Add a fallback scroll method for browsers that don't support smooth scrolling well
+          const yOffset = -80; // Adjust this value to account for any fixed headers
+          const y = resultsRef.current.getBoundingClientRect().top + window.pageYOffset + yOffset;
+          window.scrollTo({ top: y, behavior: 'smooth' });
         }
-      }, 300);
+      }, 500);
 
       await backtestService.runBacktest(config);
     } catch (error) {
@@ -169,9 +187,18 @@ export function Backtester() {
       // Also scroll to the error message
       setTimeout(() => {
         if (resultsRef.current) {
-          resultsRef.current.scrollIntoView({ behavior: 'smooth' });
+          // Use scrollIntoView with more options for better scrolling behavior
+          resultsRef.current.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+
+          // Add a fallback scroll method for browsers that don't support smooth scrolling well
+          const yOffset = -80; // Adjust this value to account for any fixed headers
+          const y = resultsRef.current.getBoundingClientRect().top + window.pageYOffset + yOffset;
+          window.scrollTo({ top: y, behavior: 'smooth' });
         }
-      }, 300);
+      }, 500);
     }
   };
 
@@ -415,9 +442,16 @@ export function Backtester() {
           )}
         </div>
 
+        {/* Results Section Reference - Positioned before progress for better scrolling */}
+        <div
+          ref={resultsRef}
+          id="backtest-results"
+          className="scroll-mt-24" // Add scroll margin to account for fixed headers
+        ></div>
+
         {/* Progress Section */}
         {progress && (
-          <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg">
+          <div className="bg-gunmetal-800/30 rounded-xl p-6 border border-gunmetal-700/50 shadow-lg panel-shadow">
             <BacktestProgress
               progress={progress}
               latestUpdate={latestUpdate}
@@ -425,9 +459,6 @@ export function Backtester() {
             />
           </div>
         )}
-
-        {/* Results Section Reference */}
-        <div ref={resultsRef} id="backtest-results"></div>
       </div>
 
       {/* Modals */}

@@ -12,11 +12,11 @@ interface MarketTypeBalanceDisplayProps {
   className?: string;
 }
 
-const MarketTypeBalanceDisplay: React.FC<MarketTypeBalanceDisplayProps> = ({
+export function MarketTypeBalanceDisplay({
   compact = false,
   showRefreshButton = true,
   className = ''
-}) => {
+}: MarketTypeBalanceDisplayProps) {
   const [balances, setBalances] = useState<{
     spot?: WalletBalance;
     margin?: WalletBalance;
@@ -114,5 +114,3 @@ const MarketTypeBalanceDisplay: React.FC<MarketTypeBalanceDisplayProps> = ({
     </div>
   );
 };
-
-export default MarketTypeBalanceDisplay;

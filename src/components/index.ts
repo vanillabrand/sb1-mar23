@@ -31,6 +31,6 @@ export { FlipTile } from './FlipTile';
 export { Dashboard } from './Dashboard';
 export { AuthDebugger } from './AuthDebugger';
 export { WebSocketPerformanceMonitor } from './WebSocketPerformanceMonitor';
-export { PerformanceMonitor } from './PerformanceMonitor';
+export { default as PerformanceMonitor } from './PerformanceMonitor';
 export { OptimizedImage } from './OptimizedImage';
 export { FontLoader } from './FontLoader';

@@ -13,7 +13,7 @@ class ApiClient {
   private constructor() {
     // Use the API URL from config, defaulting to localhost:8080 if not set
     this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
-    
+
     logService.log('info', `API client initialized with base URL: ${this.baseUrl}`, null, 'ApiClient');
   }
 
@@ -38,14 +38,16 @@ class ApiClient {
     try {
       // Check if the API is available
       const health = await this.checkHealth();
-      
+
       if (health.status === 'ok') {
         this.isInitialized = true;
         logService.log('info', 'API client connected successfully', health, 'ApiClient');
       } else {
+        this.isInitialized = false;
         logService.log('warn', 'API health check failed, falling back to direct Supabase access', health, 'ApiClient');
       }
     } catch (error) {
+      this.isInitialized = false;
       logService.log('warn', 'Failed to initialize API client, falling back to direct Supabase access', error, 'ApiClient');
     }
   }
@@ -108,10 +110,10 @@ class ApiClient {
     try {
       // Get the current session
       const { data: { session } } = await supabase.auth.getSession();
-      
+
       // Prepare the URL
       let url = `${this.baseUrl}${endpoint.startsWith('/') ? endpoint : '/' + endpoint}`;
-      
+
       // Add query parameters for GET requests
       if (method === 'GET' && data) {
         const queryParams = new URLSearchParams();
@@ -120,13 +122,13 @@ class ApiClient {
             queryParams.append(key, String(value));
           }
         });
-        
+
         const queryString = queryParams.toString();
         if (queryString) {
           url += `?${queryString}`;
         }
       }
-      
+
       // Prepare the request options
       const options: RequestInit = {
         method,
@@ -135,7 +137,7 @@ class ApiClient {
           'Accept': 'application/json',
         },
       };
-      
+
       // Add authorization header if session exists
       if (session?.access_token) {
         options.headers = {
@@ -143,21 +145,21 @@ class ApiClient {
           'Authorization': `Bearer ${session.access_token}`,
         };
       }
-      
+
       // Add request body for non-GET requests
       if (method !== 'GET' && data) {
         options.body = JSON.stringify(data);
       }
-      
+
       // Make the request
       const response = await fetch(url, options);
-      
+
       // Handle errors
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`API request failed: ${response.status} ${response.statusText} - ${errorText}`);
       }
-      
+
       // Parse the response
       const result = await response.json();
       return result as T;

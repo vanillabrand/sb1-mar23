@@ -95,7 +95,19 @@ export function useStrategies() {
   // Listen for strategy updates from other components
   useEffect(() => {
     const handleStrategiesUpdated = (updatedStrategies: Strategy[]) => {
-      setStrategies(updatedStrategies);
+      console.log('Strategies updated event received in useStrategies:', updatedStrategies.length, 'strategies');
+
+      if (Array.isArray(updatedStrategies) && updatedStrategies.length > 0) {
+        // Sort strategies by creation date (newest first)
+        const sortedStrategies = [...updatedStrategies].sort((a, b) => {
+          const dateA = new Date(a.created_at || 0).getTime();
+          const dateB = new Date(b.created_at || 0).getTime();
+          return dateB - dateA;
+        });
+
+        // Update state with a new array to ensure React detects the change
+        setStrategies(sortedStrategies);
+      }
     };
 
     const handleStrategyCreated = (data: any) => {
@@ -114,7 +126,9 @@ export function useStrategies() {
         // Only add if not already in the list
         if (!prevStrategies.some(s => s.id === newStrategy.id)) {
           console.log('Adding new strategy to list:', newStrategy.id);
-          return [...prevStrategies, newStrategy];
+
+          // Create a new array with the new strategy at the beginning (newest first)
+          return [newStrategy, ...prevStrategies];
         }
         console.log('Strategy already in list:', newStrategy.id);
         return prevStrategies;
@@ -128,16 +142,31 @@ export function useStrategies() {
       }, 500);
     };
 
+    // Handle DOM events for strategy creation
+    const handleDomStrategyCreated = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const strategy = customEvent.detail?.strategy;
+
+      if (strategy) {
+        console.log('DOM strategy created event received in useStrategies:', strategy.id);
+        handleStrategyCreated(strategy);
+      }
+    };
+
     // Subscribe to events
     const unsubscribeUpdated = eventBus.subscribe('strategies:updated', handleStrategiesUpdated);
     const unsubscribeCreated = eventBus.subscribe('strategy:created', handleStrategyCreated);
+
+    // Add DOM event listener
+    document.addEventListener('strategy:created', handleDomStrategyCreated as EventListener);
 
     return () => {
       // Clean up the subscriptions when the component unmounts
       unsubscribeUpdated();
       unsubscribeCreated();
+      document.removeEventListener('strategy:created', handleDomStrategyCreated as EventListener);
     };
-  }, []);
+  }, [refreshStrategies]);
 
   return {
     strategies,

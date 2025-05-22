@@ -14,7 +14,7 @@ interface StatusProps {
 /**
  * Component to display the status of API and WebSocket connections
  */
-const ApiStatusIndicator = () => {
+export const ApiStatusIndicator = () => {
   const [apiStatus, setApiStatus] = useState<ConnectionStatus>('checking');
   const [wsStatus, setWsStatus] = useState<ConnectionStatus>('checking');
   const [latency, setLatency] = useState<number | null>(null);
@@ -128,4 +128,5 @@ const ApiStatusIndicator = () => {
   );
 };
 
+// Also export as default for backward compatibility
 export default ApiStatusIndicator;

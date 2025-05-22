@@ -43,7 +43,7 @@ export function AnimatedPanel({
             y: 0,
             transition: {
               duration: 0.4,
-              delay: 0.1 + (index * 0.15),
+              delay: 0.2 + (index * 0.2), // Increased stagger delay for more pronounced effect
               ease: SMOOTH_EASE
             }
           }
@@ -56,20 +56,21 @@ export function AnimatedPanel({
             x: 0,
             transition: {
               duration: 0.5,
-              delay: 0.1 + (index * 0.15),
+              delay: 0.2 + (index * 0.2),
               ease: SMOOTH_EASE
             }
           }
         };
       case 'scale':
         return {
-          initial: { opacity: 0, scale: 0.92 },
+          initial: { opacity: 0, scale: 0.95, y: 15 }, // Added y movement for better effect
           animate: {
             opacity: 1,
             scale: 1,
+            y: 0,
             transition: {
-              duration: 0.4,
-              delay: 0.1 + (index * 0.15),
+              duration: 0.5,
+              delay: 0.2 + (index * 0.2),
               ease: SMOOTH_EASE
             }
           }
@@ -83,20 +84,20 @@ export function AnimatedPanel({
             y: 0,
             transition: {
               duration: 0.5,
-              delay: 0.1 + (index * 0.15),
+              delay: 0.2 + (index * 0.2),
               ease: SMOOTH_EASE
             }
           }
         };
       default:
         return {
-          initial: { opacity: 0, y: 15 },
+          initial: { opacity: 0, y: 20 },
           animate: {
             opacity: 1,
             y: 0,
             transition: {
-              duration: 0.3,
-              delay: 0.1 + (index * 0.15),
+              duration: 0.4,
+              delay: 0.2 + (index * 0.2),
               ease: SMOOTH_EASE
             }
           }
@@ -133,9 +134,15 @@ export function AnimatedPanel({
         ref={panelRef}
         initial={initial}
         animate={controls}
-        className={`${className} panel-shadow`}
+        className={`${className} tween-effect`} // Added tween-effect class
         whileHover={{
+          y: -3, // More pronounced hover effect
           scale: 1.01,
+          boxShadow: "0 15px 35px rgba(0, 0, 0, 0.2)",
+          transition: { duration: 0.3, ease: SMOOTH_EASE }
+        }}
+        whileTap={{
+          scale: 0.98,
           transition: { duration: 0.2 }
         }}
       >

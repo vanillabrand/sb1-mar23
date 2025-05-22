@@ -309,16 +309,27 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       const customEvent = event as CustomEvent;
       const updatedStrategies = customEvent.detail?.strategies;
 
-      if (updatedStrategies) {
+      if (updatedStrategies && Array.isArray(updatedStrategies)) {
         console.log('Strategies list update event received:', updatedStrategies.length, 'strategies');
 
-        // Immediately update the UI with the new strategies
-        setFilteredStrategies(updatedStrategies);
+        // Sort strategies by creation date (newest first)
+        const sortedStrategies = [...updatedStrategies].sort((a, b) => {
+          const dateA = new Date(a.created_at || 0).getTime();
+          const dateB = new Date(b.created_at || 0).getTime();
+          return dateB - dateA;
+        });
 
-        // Force a refresh to ensure everything is in sync
-        setTimeout(() => {
-          refreshStrategies();
-        }, 500);
+        // Update filtered strategies directly
+        setFilteredStrategies(sortedStrategies);
+
+        // Update paginated strategies based on current page
+        // Use the ITEMS_PER_PAGE constant
+        const ITEMS_PER_PAGE = 10; // Default value
+        const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+        const endIndex = startIndex + ITEMS_PER_PAGE;
+        setPaginatedStrategies(sortedStrategies.slice(startIndex, endIndex));
+
+        // No need to force a refresh immediately - this would cause flickering
       }
     };
 
@@ -345,8 +356,19 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     });
 
     const unsubscribeStrategiesUpdated = eventBus.subscribe('strategies:updated', (strategies) => {
-      console.log('Event bus strategies:updated received:', strategies.length, 'strategies');
-      handleStrategiesUpdated(new CustomEvent('strategies:updated', { detail: { strategies } }));
+      if (Array.isArray(strategies)) {
+        console.log('Event bus strategies:updated received:', strategies.length, 'strategies');
+
+        // Create a deep copy of the strategies to prevent reference issues
+        const strategiesCopy = JSON.parse(JSON.stringify(strategies));
+
+        // Use the handler with a custom event
+        handleStrategiesUpdated(new CustomEvent('strategies:updated', {
+          detail: { strategies: strategiesCopy }
+        }));
+      } else {
+        console.warn('Event bus strategies:updated received invalid data:', strategies);
+      }
     });
 
     return () => {
@@ -752,146 +774,51 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         return;
       }
 
-      console.log('DELETION - Strategy ID:', strategy.id);
-
-      // 2. Store the strategy ID for later use
+      console.log('Deleting strategy:', strategy.id);
       const strategyId = strategy.id;
 
-      // 3. Immediately update the UI for instant feedback
-      if (strategies) {
-        // Update filtered strategies directly
-        setFilteredStrategies(prevStrategies => {
-          const updated = prevStrategies.filter(s => s.id !== strategyId);
-          console.log(`UI updated: Removed strategy ${strategyId} from filtered list`);
-          return updated;
-        });
+      // 2. Optimistically update UI by removing the strategy from local state
+      // This provides immediate feedback without waiting for the server
+      setFilteredStrategies(prev => prev.filter(s => s.id !== strategyId));
+      setPaginatedStrategies(prev => prev.filter(s => s.id !== strategyId));
 
-        // Also update paginated strategies
-        setPaginatedStrategies(prevStrategies => {
-          const updated = prevStrategies.filter(s => s.id !== strategyId);
-          console.log(`UI updated: Removed strategy ${strategyId} from paginated list`);
-          return updated;
-        });
-      }
-
-      // 4. Completely stop the strategy sync system
-      console.log('Stopping strategy sync during deletion');
-      strategySync.pauseSync();
-
-      // 5. Remove the strategy from the strategy sync cache
-      if (strategySync.hasStrategy(strategyId)) {
-        console.log(`Manually removing strategy ${strategyId} from strategy sync cache`);
-        strategySync.removeStrategyFromCache(strategyId);
-      }
-
+      // 3. Delete the strategy using the strategy service
       try {
-        // 6. Use the strategy service to delete the strategy
-        console.log(`Using strategy service to delete strategy ${strategyId}...`);
         await strategyService.deleteStrategy(strategyId);
-        console.log(`Strategy ${strategyId} successfully deleted from database`);
+        console.log(`Strategy ${strategyId} successfully deleted`);
       } catch (deleteError) {
-        console.error(`Error using strategy service: ${deleteError}`);
+        console.error(`Error deleting strategy: ${deleteError}`);
 
-        // 7. Fallback to direct deletion if strategy service fails
-        console.log(`Falling back to direct deletion for strategy ${strategyId}...`);
-        const success = await directDeleteStrategy(strategyId);
+        // 4. If the service method fails, try direct deletion
+        try {
+          // Delete trades first to avoid foreign key constraints
+          await supabase.from('trades').delete().eq('strategy_id', strategyId);
 
-        if (!success) {
-          console.error(`Failed to delete strategy ${strategyId} from database, trying alternative methods`);
+          // Then delete the strategy
+          const { error } = await supabase.from('strategies').delete().eq('id', strategyId);
 
-          // Try deleting trades first to avoid foreign key constraints
-          try {
-            console.log(`Deleting trades for strategy ${strategyId}`);
-            const { error: tradesError } = await supabase
-              .from('trades')
-              .delete()
-              .eq('strategy_id', strategyId);
-
-            if (tradesError) {
-              console.warn(`Error deleting trades: ${tradesError.message}`);
-            } else {
-              console.log(`Successfully deleted all trades for strategy ${strategyId}`);
-            }
-          } catch (tradesError) {
-            console.warn(`Exception deleting trades: ${tradesError}`);
+          if (error) {
+            throw error;
           }
-
-          // Try direct strategy deletion
-          try {
-            console.log(`Deleting strategy ${strategyId} directly`);
-            const { error: strategyError } = await supabase
-              .from('strategies')
-              .delete()
-              .eq('id', strategyId);
-
-            if (strategyError) {
-              console.error(`Error deleting strategy: ${strategyError.message}`);
-
-              // Last resort: Try with a direct SQL query
-              try {
-                console.log(`Attempting direct SQL query as last resort...`);
-                await supabase.rpc('execute_sql', {
-                  query: `
-                    DELETE FROM trades WHERE strategy_id = '${strategyId}';
-                    DELETE FROM strategies WHERE id = '${strategyId}';
-                  `
-                });
-                console.log(`Direct SQL query executed for strategy ${strategyId}`);
-              } catch (sqlError) {
-                console.error(`Final SQL attempt failed: ${sqlError}`);
-              }
-            } else {
-              console.log(`Successfully deleted strategy ${strategyId} directly`);
-            }
-          } catch (strategyError) {
-            console.error(`Exception deleting strategy: ${strategyError}`);
-          }
+        } catch (directError) {
+          // If all deletion attempts fail, revert the UI update
+          console.error(`All deletion attempts failed: ${directError}`);
+          await refreshStrategies(); // Refresh to restore correct state
+          throw directError;
         }
       }
 
-      // 8. Broadcast the deletion event for other components
-      eventBus.emit('strategy:deleted', { strategyId });
-      document.dispatchEvent(new CustomEvent('strategy:remove', {
-        detail: { id: strategyId }
-      }));
-
-      // 9. Force a complete refresh of the strategies list
-      // But first, make sure the strategy is removed from the cache
-      if (strategySync.hasStrategy(strategyId)) {
-        console.log(`Strategy ${strategyId} still in cache, removing again`);
-        strategySync.removeStrategyFromCache(strategyId);
-      }
-
-      console.log('Refreshing strategies list after deletion');
+      // 5. Single refresh after successful deletion
+      // This is more efficient than multiple refreshes
       await refreshStrategies();
 
-      // 10. Double-check that the strategy is gone
-      if (strategySync.hasStrategy(strategyId)) {
-        console.log(`Strategy ${strategyId} STILL in cache after refresh, forcing removal`);
-        strategySync.removeStrategyFromCache(strategyId);
-
-        // Force another refresh
-        await refreshStrategies();
-      }
-
-      // 11. Resume strategy sync after a delay
-      setTimeout(() => {
-        console.log('Resuming strategy sync');
-        strategySync.resumeSync();
-      }, 2000); // Wait 2 seconds before resuming sync
-
       logService.log('info', `Strategy ${strategyId} deleted successfully`, null, 'StrategyManager');
-      console.log(`Strategy ${strategyId} deletion process completed`);
     } catch (error) {
       console.error('Unexpected error in delete handler:', error);
       setError('Failed to delete strategy. Please try again.');
 
-      // Even if there's an error, try to refresh the strategies list
-      try {
-        await refreshStrategies();
-      } catch (refreshError) {
-        console.error('Error refreshing strategies after deletion error:', refreshError);
-      }
+      // Refresh to ensure UI is in sync with database
+      await refreshStrategies();
     } finally {
       setIsDeleting(false);
     }
@@ -1012,11 +939,15 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const handleUseTemplate = async (template: StrategyTemplate) => {
     try {
       setIsRefreshing(true);
+      setError(null);
       console.log(`StrategyManager: Creating strategy from template: ${template.id}`);
 
       // Create strategy from template
       const newStrategy = await templateGenerator.copyTemplateToStrategy(template.id);
       console.log(`StrategyManager: Strategy created from template: ${newStrategy.id}`);
+
+      // Force a refresh of strategies
+      await refreshStrategies();
 
       // Ensure the strategy has the correct market_type and selected_pairs
       if (newStrategy) {
@@ -1091,57 +1022,56 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       // DIRECT APPROACH: Manually add the strategy to all lists
       console.log('StrategyManager: Manually adding strategy to all lists');
 
-      // 1. Add to the main strategies array
-      if (strategies) {
-        console.log('StrategyManager: Current strategies count:', strategies.length);
+      // 1. Add to the strategy sync cache first
+      console.log(`StrategyManager: Adding strategy ${newStrategy.id} to strategy sync cache`);
 
-        // Create a new array with the new strategy
-        const updatedStrategiesArray = [...strategies, newStrategy];
-        console.log('StrategyManager: Updated strategies count:', updatedStrategiesArray.length);
+      // Add required fields if missing to make TypeScript happy
+      const strategyWithRequiredFields = {
+        ...newStrategy,
+        name: newStrategy.name || newStrategy.title,
+        description: newStrategy.description || '',
+        config: newStrategy.config || {},
+        performance_metrics: newStrategy.performance_metrics || {},
+        // Convert 'inactive' status to 'stopped' for compatibility with strategySync
+        status: newStrategy.status === 'inactive' ? 'stopped' : newStrategy.status
+      };
 
-        // 2. Update filtered strategies
-        setFilteredStrategies(prev => {
-          // Only add if not already in the list
-          if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('StrategyManager: Adding strategy to filtered list');
-            return [...prev, newStrategy];
-          }
-          console.log('StrategyManager: Strategy already in filtered list');
-          return prev;
-        });
+      strategySync.addStrategyToCache(strategyWithRequiredFields as any);
 
-        // 3. Update paginated strategies
-        setPaginatedStrategies(prev => {
-          // Only add if not already in the list
-          if (!prev.some(s => s.id === newStrategy.id)) {
-            console.log('StrategyManager: Adding strategy to paginated list');
-            return [...prev, newStrategy];
-          }
-          console.log('StrategyManager: Strategy already in paginated list');
-          return prev;
-        });
+      // 2. Pause any ongoing sync to prevent conflicts
+      strategySync.pauseSync();
 
-        // 4. Force a re-render by updating the current page
-        setCurrentPage(currentPage);
-      } else {
-        console.log('StrategyManager: No strategies array available');
-      }
+      // 3. Update filtered strategies
+      setFilteredStrategies(prev => {
+        // Only add if not already in the list
+        if (!prev.some(s => s.id === newStrategy.id)) {
+          console.log('StrategyManager: Adding strategy to filtered list');
+          return [...prev, newStrategy];
+        }
+        console.log('StrategyManager: Strategy already in filtered list');
+        return prev;
+      });
 
-      // 5. Manually add the strategy to the strategy sync cache
-      console.log('StrategyManager: Manually adding strategy to strategy sync cache');
-      if (!strategySync.hasStrategy(newStrategy.id)) {
-        // Add required fields if missing
-        const strategyWithRequiredFields = {
-          ...newStrategy,
-          name: newStrategy.name || newStrategy.title,
-          description: newStrategy.description || '',
-          config: newStrategy.config || {},
-          performance_metrics: newStrategy.performance_metrics || {},
-          // Convert 'inactive' status to 'stopped' for compatibility with strategySync
-          status: newStrategy.status === 'inactive' ? 'stopped' : newStrategy.status
-        };
-        strategySync.addStrategyToCache(strategyWithRequiredFields as any);
-      }
+      // 4. Update paginated strategies
+      setPaginatedStrategies(prev => {
+        // Only add if not already in the list
+        if (!prev.some(s => s.id === newStrategy.id)) {
+          console.log('StrategyManager: Adding strategy to paginated list');
+          return [...prev, newStrategy];
+        }
+        console.log('StrategyManager: Strategy already in paginated list');
+        return prev;
+      });
+
+      // 5. Use the strategy sync's broadcast method to ensure consistent updates
+      strategySync.broadcastStrategiesUpdate();
+
+      // 6. Resume sync after a delay
+      setTimeout(() => {
+        strategySync.resumeSync();
+      }, 1000);
+
+      // Strategy already added to sync cache above
 
       // 6. Manually emit events to update all components
       console.log('StrategyManager: Manually emitting events');

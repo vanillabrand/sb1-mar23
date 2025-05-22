@@ -533,48 +533,73 @@ export class TemplateGenerator {
         name: strategy.name
       }, 'TemplateGenerator');
 
+      // Properly add the strategy to the cache first
+      console.log(`TemplateGenerator: Adding strategy ${strategy.id} to sync cache`);
+      strategySync.addStrategyToCache(strategy);
+
+      // Pause any ongoing sync to prevent conflicts
+      strategySync.pauseSync();
+
       // Emit events to update UI immediately
       console.log('TemplateGenerator: Emitting strategy:created event with strategy:', strategy.id);
-      eventBus.emit('strategy:created', strategy);
-      eventBus.emit('strategy:created', { strategy }); // Also emit with object wrapper for compatibility
+
+      // Create a complete strategy object with all required fields
+      const completeStrategy = {
+        ...strategy,
+        name: strategy.name || strategy.title,
+        description: strategy.description || '',
+        risk_level: strategy.risk_level || 'Medium',
+        riskLevel: strategy.risk_level || 'Medium',
+        marketType: strategy.market_type || 'spot',
+        market_type: strategy.market_type || 'spot',
+        status: strategy.status || 'inactive',
+        type: strategy.type || 'custom',
+        selected_pairs: strategy.selected_pairs || ['BTC/USDT'],
+        strategy_config: strategy.strategy_config || {},
+        created_at: strategy.created_at || new Date().toISOString(),
+        updated_at: strategy.updated_at || new Date().toISOString()
+      };
+
+      // Emit events with the complete strategy object
+      eventBus.emit('strategy:created', completeStrategy);
+      eventBus.emit('strategy:created', { strategy: completeStrategy }); // Also emit with object wrapper for compatibility
 
       document.dispatchEvent(new CustomEvent('strategy:created', {
-        detail: { strategy }
+        detail: { strategy: completeStrategy }
       }));
 
-      // Force a refresh of all strategies
-      console.log('TemplateGenerator: Forcing refresh of all strategies');
-      try {
-        await strategySync.initialize();
-      } catch (syncError) {
-        console.error('TemplateGenerator: Error initializing strategy sync:', syncError);
-        // Continue even if sync fails
-      }
-
-      // Get the latest strategies and broadcast them
+      // Get the latest strategies
       const allStrategies = strategySync.getAllStrategies();
-      console.log('TemplateGenerator: Broadcasting updated strategies list:', allStrategies.length, 'strategies');
+      console.log('TemplateGenerator: Current strategies list:', allStrategies.length, 'strategies');
 
-      // Add the new strategy to the sync cache if it's not already there
-      if (!strategySync.hasStrategy(strategy.id)) {
-        console.log(`TemplateGenerator: Adding strategy ${strategy.id} to sync cache`);
-        strategySync['strategies'].set(strategy.id, strategy);
+      // Verify the strategy is in the list
+      const strategyExists = allStrategies.some(s => s.id === strategy.id);
+      console.log(`TemplateGenerator: Strategy ${strategy.id} exists in list: ${strategyExists}`);
+
+      // If not in the list, add it again
+      if (!strategyExists) {
+        console.log(`TemplateGenerator: Strategy ${strategy.id} not found in list, adding it again`);
+        strategySync.addStrategyToCache(strategy);
       }
 
-      // Broadcast updates
-      eventBus.emit('strategies:updated', allStrategies);
-      document.dispatchEvent(new CustomEvent('strategies:updated', {
-        detail: { strategies: allStrategies }
-      }));
+      // Use the strategy sync's broadcast method to ensure consistent updates
+      strategySync.broadcastStrategiesUpdate();
 
-      // Add a delayed broadcast to ensure all components catch the update
+      // Resume sync after a delay
       setTimeout(() => {
-        console.log('TemplateGenerator: Delayed broadcast of updated strategies');
-        eventBus.emit('strategies:updated', strategySync.getAllStrategies());
-        document.dispatchEvent(new CustomEvent('strategies:updated', {
-          detail: { strategies: strategySync.getAllStrategies() }
-        }));
-      }, 500);
+        strategySync.resumeSync();
+      }, 1000);
+
+      // Add multiple delayed broadcasts to ensure all components catch the update
+      // This helps with race conditions in React components
+      const broadcastDelays = [500, 1500, 3000];
+
+      broadcastDelays.forEach(delay => {
+        setTimeout(() => {
+          console.log(`TemplateGenerator: Delayed broadcast of updated strategies (${delay}ms)`);
+          strategySync.broadcastStrategiesUpdate();
+        }, delay);
+      });
 
       logService.log('info', `Created strategy from template ${templateId}`,
         { strategyId: strategy.id, userId: session.user.id }, 'TemplateGenerator');

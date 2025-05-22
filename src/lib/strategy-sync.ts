@@ -171,19 +171,30 @@ class StrategySync extends EventEmitter {
 
     try {
       this.syncInProgress = true;
-      console.log('NUCLEAR: Initializing strategy sync');
+      console.log('Initializing strategy sync');
       logService.log('info', 'Initializing strategy sync', null, 'StrategySync');
 
       // Get current user session
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
 
       if (sessionError || !session?.user?.id) {
-        console.error('No authenticated user found');
-        throw new Error('No authenticated user found');
+        console.warn('No authenticated user found, initializing in demo mode');
+        logService.log('warn', 'No authenticated user found, initializing in demo mode', null, 'StrategySync');
+
+        // Initialize with empty strategies instead of throwing an error
+        this.strategies.clear();
+        this.lastSyncTime = Date.now();
+        this.initialized = true;
+        this.emit('syncComplete');
+
+        // Start periodic sync anyway to check for authentication later
+        this.startPeriodicSync();
+
+        return;
       }
 
       const userId = session.user.id;
-      console.log(`NUCLEAR: Fetching strategies for user ${userId}`);
+      console.log(`Fetching strategies for user ${userId}`);
       logService.log('info', `Fetching strategies for user ${userId}`, null, 'StrategySync');
 
       // Get all strategies for the current user
@@ -204,7 +215,7 @@ class StrategySync extends EventEmitter {
         strategies.forEach(strategy => {
           this.strategies.set(strategy.id, strategy);
         });
-        console.log(`NUCLEAR: Loaded ${strategies.length} strategies for user ${userId}`);
+        console.log(`Loaded ${strategies.length} strategies for user ${userId}`);
         logService.log('info', `Loaded ${strategies.length} strategies for user ${userId}`, null, 'StrategySync');
       } else {
         console.log(`No strategies found for user ${userId}`);
@@ -215,20 +226,13 @@ class StrategySync extends EventEmitter {
       this.initialized = true;
       this.emit('syncComplete');
 
-      // NUCLEAR: Broadcast the initial strategies list
-      console.log('NUCLEAR: Broadcasting initial strategies list');
+      // Broadcast the initial strategies list once
       this.broadcastStrategiesUpdate();
 
       // Start periodic sync
       this.startPeriodicSync();
 
-      // NUCLEAR: Force a second broadcast after a delay
-      setTimeout(() => {
-        console.log('NUCLEAR: Broadcasting delayed initial strategies list');
-        this.broadcastStrategiesUpdate();
-      }, 1000);
-
-      console.log('NUCLEAR: Strategy sync initialized successfully');
+      console.log('Strategy sync initialized successfully');
       logService.log('info', 'Strategy sync initialized successfully', null, 'StrategySync');
     } catch (error) {
       console.error('Failed to initialize strategy sync:', error);
@@ -558,10 +562,6 @@ class StrategySync extends EventEmitter {
       // First, remove from local cache immediately for responsive UI
       this.strategies.delete(id);
 
-      // Emit event to update UI
-      this.emit('strategyDeleted', id);
-      eventBus.emit('strategy:deleted', { strategyId: id });
-
       // Then delete from database
       const { error } = await supabase
         .from('strategies')
@@ -571,19 +571,18 @@ class StrategySync extends EventEmitter {
       // Handle 406 errors silently for non-existent strategies
       if (error?.code === 'PGRST116') {
         logService.log('info', `Strategy ${id} already deleted`, null, 'StrategySync');
-        return;
+      } else if (error) {
+        throw error;
       }
-
-      if (error) throw error;
 
       logService.log('info', `Deleted strategy ${id}`, null, 'StrategySync');
 
-      // Force a full sync to ensure consistency
-      setTimeout(() => {
-        this.syncAll().catch(syncError => {
-          logService.log('error', 'Failed to sync after deletion', syncError, 'StrategySync');
-        });
-      }, 500);
+      // Emit event to update UI - only emit once after database operation
+      this.emit('strategyDeleted', id);
+      eventBus.emit('strategy:deleted', { strategyId: id });
+
+      // Broadcast updated strategies list once
+      this.broadcastStrategiesUpdate();
     } catch (error) {
       logService.log('error', `Failed to delete strategy ${id}`, error, 'StrategySync');
       throw error;
@@ -618,60 +617,117 @@ class StrategySync extends EventEmitter {
    * Broadcasts the current strategies list to all subscribers
    * This ensures all components have the most up-to-date list
    */
+  // Debounce timer for strategy updates
+  private broadcastDebounceTimer: NodeJS.Timeout | null = null;
+  private lastBroadcastTime = 0;
+  private pendingBroadcast = false;
+  private readonly DEBOUNCE_DELAY = 500; // Increased to 500ms to reduce flickering
+
   broadcastStrategiesUpdate(): void {
     try {
+      // Set pending flag to track if we have a broadcast waiting
+      this.pendingBroadcast = true;
+
+      // Clear any pending broadcast
+      if (this.broadcastDebounceTimer) {
+        clearTimeout(this.broadcastDebounceTimer);
+        this.broadcastDebounceTimer = null;
+      }
+
+      // Always use debounce to prevent rapid UI updates
+      this.broadcastDebounceTimer = setTimeout(() => {
+        this.doBroadcastStrategiesUpdate();
+      }, this.DEBOUNCE_DELAY);
+
+    } catch (error) {
+      console.error('Error in broadcast strategy update:', error);
+      logService.log('error', 'Error in broadcast strategy update', error, 'StrategySync');
+    }
+  }
+
+  private doBroadcastStrategiesUpdate(): void {
+    try {
+      // Only proceed if we have a pending broadcast
+      if (!this.pendingBroadcast) {
+        return;
+      }
+
       const strategies = this.getAllStrategies();
       console.log(`Broadcasting updated strategies list (${strategies.length} strategies)`);
 
+      // Update last broadcast time
+      this.lastBroadcastTime = Date.now();
+
+      // Clear pending flag
+      this.pendingBroadcast = false;
+
+      // Sort strategies by creation date (newest first) to ensure consistent order
+      const sortedStrategies = [...strategies].sort((a, b) => {
+        const dateA = new Date(a.created_at || 0).getTime();
+        const dateB = new Date(b.created_at || 0).getTime();
+        return dateB - dateA;
+      });
+
+      // Ensure all strategies have required fields
+      const completeStrategies = sortedStrategies.map(strategy => {
+        return {
+          ...strategy,
+          name: strategy.name || strategy.title,
+          title: strategy.title || strategy.name,
+          description: strategy.description || '',
+          riskLevel: strategy.risk_level || strategy.riskLevel || 'Medium',
+          risk_level: strategy.risk_level || strategy.riskLevel || 'Medium',
+          marketType: strategy.market_type || strategy.marketType || 'spot',
+          market_type: strategy.market_type || strategy.marketType || 'spot',
+          status: strategy.status || 'inactive',
+          type: strategy.type || 'custom',
+          selected_pairs: strategy.selected_pairs || ['BTC/USDT'],
+          strategy_config: strategy.strategy_config || strategy.strategyConfig || {},
+          created_at: strategy.created_at || new Date().toISOString(),
+          updated_at: strategy.updated_at || new Date().toISOString()
+        };
+      });
+
       // Emit through the event bus for React components
-      eventBus.emit('strategies:updated', strategies);
+      eventBus.emit('strategies:updated', completeStrategies);
 
       // Dispatch DOM event for legacy components
       document.dispatchEvent(new CustomEvent('strategies:updated', {
-        detail: { strategies }
+        detail: { strategies: completeStrategies }
       }));
 
       // Also emit through the EventEmitter for direct subscribers
-      this.emit('strategiesUpdated', strategies);
+      this.emit('strategiesUpdated', completeStrategies);
 
-      // Emit individual strategy:updated events for each strategy
-      // This ensures components listening for specific strategy updates receive them
-      strategies.forEach(strategy => {
-        eventBus.emit(`strategy:updated:${strategy.id}`, { strategy });
-        eventBus.emit('strategy:updated', { strategy });
-        document.dispatchEvent(new CustomEvent('strategy:update', {
-          detail: { strategy }
-        }));
+      // Emit app:state:updated for global state listeners
+      eventBus.emit('app:state:updated', {
+        component: 'strategy',
+        action: 'updated',
+        strategies: completeStrategies
       });
 
-      // Add a delayed broadcast to ensure all components catch the update
-      // This helps with race conditions where components might not be ready yet
-      setTimeout(() => {
-        console.log(`Delayed broadcast of updated strategies list (${strategies.length} strategies)`);
-        eventBus.emit('strategies:updated', strategies);
-        document.dispatchEvent(new CustomEvent('strategies:updated', {
-          detail: { strategies }
-        }));
+      // Schedule multiple follow-up broadcasts to ensure UI is updated
+      // This helps with race conditions where components might miss the first update
+      const broadcastDelays = [500, 1500, 3000];
 
-        // Also emit app:state:updated for global state listeners
-        eventBus.emit('app:state:updated', {
-          component: 'strategy',
-          action: 'updated',
-          strategies: strategies
-        });
-      }, 500);
+      broadcastDelays.forEach(delay => {
+        setTimeout(() => {
+          if (!this.pendingBroadcast) {
+            console.log(`Delayed broadcast of updated strategies (${delay}ms)`);
+            eventBus.emit('strategies:updated', completeStrategies);
 
-      // Add another delayed broadcast for components that might be initializing slowly
-      setTimeout(() => {
-        console.log(`Final broadcast of updated strategies list (${strategies.length} strategies)`);
-        eventBus.emit('strategies:updated', strategies);
-        document.dispatchEvent(new CustomEvent('strategies:updated', {
-          detail: { strategies }
-        }));
-      }, 1500);
+            // Also dispatch DOM event for legacy components
+            document.dispatchEvent(new CustomEvent('strategies:updated', {
+              detail: { strategies: completeStrategies }
+            }));
+          }
+        }, delay);
+      });
+
     } catch (error) {
       console.error('Error broadcasting strategies update:', error);
       logService.log('error', 'Error broadcasting strategies update', error, 'StrategySync');
+      this.pendingBroadcast = false;
     }
   }
 
@@ -688,12 +744,9 @@ class StrategySync extends EventEmitter {
       console.log(`Manually removing strategy ${id} from cache`);
       this.strategies.delete(id);
 
-      // Broadcast the updated strategies list
+      // Broadcast the updated strategies list only
+      // This is sufficient to update all UI components
       this.broadcastStrategiesUpdate();
-
-      // Also emit deletion events
-      this.emit('strategyDeleted', id);
-      eventBus.emit('strategy:deleted', { strategyId: id });
     } else {
       console.log(`Strategy ${id} not found in cache, nothing to remove`);
     }
@@ -704,22 +757,58 @@ class StrategySync extends EventEmitter {
    * This is useful when a strategy is created but doesn't appear in the UI
    */
   addStrategyToCache(strategy: Strategy): void {
-    if (!this.strategies.has(strategy.id)) {
-      console.log(`Manually adding strategy ${strategy.id} to cache`);
-      this.strategies.set(strategy.id, strategy);
+    try {
+      if (!strategy || !strategy.id) {
+        console.error('Attempted to add invalid strategy to cache:', strategy);
+        return;
+      }
 
-      // Broadcast the updated strategies list
-      this.broadcastStrategiesUpdate();
+      // Ensure the strategy has all required fields
+      const completeStrategy = {
+        ...strategy,
+        // Convert snake_case to camelCase for compatibility
+        name: strategy.name || strategy.title,
+        title: strategy.title || strategy.name,
+        description: strategy.description || '',
+        riskLevel: strategy.risk_level || strategy.riskLevel || 'Medium',
+        risk_level: strategy.risk_level || strategy.riskLevel || 'Medium',
+        marketType: strategy.market_type || strategy.marketType || 'spot',
+        market_type: strategy.market_type || strategy.marketType || 'spot',
+        status: strategy.status || 'inactive',
+        type: strategy.type || 'custom',
+        selected_pairs: strategy.selected_pairs || ['BTC/USDT'],
+        strategy_config: strategy.strategy_config || strategy.strategyConfig || {},
+        created_at: strategy.created_at || new Date().toISOString(),
+        updated_at: strategy.updated_at || new Date().toISOString()
+      };
 
-      // Also emit creation events
-      this.emit('strategyCreated', strategy);
-      eventBus.emit('strategy:created', strategy);
-    } else {
-      console.log(`Strategy ${strategy.id} already in cache, updating it`);
-      this.strategies.set(strategy.id, strategy);
+      if (!this.strategies.has(strategy.id)) {
+        console.log(`Manually adding strategy ${strategy.id} to cache`);
+        this.strategies.set(strategy.id, completeStrategy);
 
-      // Broadcast the updated strategies list
-      this.broadcastStrategiesUpdate();
+        // Also emit creation events
+        this.emit('strategyCreated', completeStrategy);
+        eventBus.emit('strategy:created', completeStrategy);
+        eventBus.emit('strategy:created', { strategy: completeStrategy });
+      } else {
+        console.log(`Strategy ${strategy.id} already in cache, updating it`);
+        this.strategies.set(strategy.id, completeStrategy);
+      }
+
+      // Force a refresh from the database to ensure we have the latest data
+      setTimeout(() => {
+        this.refreshStrategiesFromDatabase().then(() => {
+          // Broadcast update after refresh
+          this.broadcastStrategiesUpdate();
+        }).catch(error => {
+          console.error('Error refreshing strategies after adding to cache:', error);
+          // Broadcast anyway even if refresh fails
+          this.broadcastStrategiesUpdate();
+        });
+      }, 500);
+    } catch (error) {
+      console.error('Failed to add strategy to cache:', error);
+      logService.log('error', 'Failed to add strategy to cache', error, 'StrategySync');
     }
   }
 
@@ -729,6 +818,78 @@ class StrategySync extends EventEmitter {
 
   isSyncing(): boolean {
     return this.syncInProgress;
+  }
+
+  /**
+   * Refresh strategies from the database
+   * This is a direct database query that bypasses the cache
+   */
+  public async refreshStrategiesFromDatabase(): Promise<Strategy[]> {
+    try {
+      // Get current user
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session?.user?.id) {
+        console.log('No authenticated user found');
+        return [];
+      }
+
+      const userId = session.user.id;
+
+      console.log('Refreshing strategies from database for user:', userId);
+
+      // Get strategies from database with explicit ordering
+      const { data: strategies, error } = await supabase
+        .from('strategies')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Error fetching strategies:', error);
+        throw error;
+      }
+
+      console.log(`Fetched ${strategies?.length || 0} strategies from database`);
+
+      // Clear existing cache and update it with new strategies
+      this.strategies.clear();
+      if (strategies && strategies.length > 0) {
+        strategies.forEach(strategy => {
+          // Ensure the strategy has all required fields
+          const completeStrategy = {
+            ...strategy,
+            // Convert snake_case to camelCase for compatibility
+            name: strategy.name || strategy.title,
+            title: strategy.title || strategy.name,
+            description: strategy.description || '',
+            riskLevel: strategy.risk_level || strategy.riskLevel || 'Medium',
+            risk_level: strategy.risk_level || strategy.riskLevel || 'Medium',
+            marketType: strategy.market_type || strategy.marketType || 'spot',
+            market_type: strategy.market_type || strategy.marketType || 'spot',
+            status: strategy.status || 'inactive',
+            type: strategy.type || 'custom',
+            selected_pairs: strategy.selected_pairs || ['BTC/USDT'],
+            strategy_config: strategy.strategy_config || strategy.strategyConfig || {},
+            created_at: strategy.created_at || new Date().toISOString(),
+            updated_at: strategy.updated_at || new Date().toISOString()
+          };
+
+          this.strategies.set(strategy.id, completeStrategy);
+        });
+        console.log(`Loaded ${strategies.length} strategies for user ${userId}`);
+        logService.log('info', `Loaded ${strategies.length} strategies for user ${userId}`, null, 'StrategySync');
+      } else {
+        console.log(`No strategies found for user ${userId}`);
+        logService.log('info', `No strategies found for user ${userId}`, null, 'StrategySync');
+      }
+
+      return strategies || [];
+    } catch (error) {
+      console.error('Error refreshing strategies from database:', error);
+      logService.log('error', 'Error refreshing strategies from database', error, 'StrategySync');
+      return [];
+    }
   }
 
   /**

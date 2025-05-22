@@ -12,9 +12,26 @@ import {
   TrendingUp,
   X
 } from 'lucide-react';
-import { Trade } from '../types';
 import { demoService } from '../lib/demo-service';
-import { TradeFlowStage } from './TradeFlowStage';
+import { TradeFlowStage, TradeFlowStageProps as StageProps } from './TradeFlowStage';
+import type { Trade as TradeType } from '../lib/types';
+
+// Define a more flexible trade type for the component
+interface Trade {
+  id: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  status: 'pending' | 'open' | 'executed' | 'cancelled' | 'failed' | 'closed';
+  amount?: number;
+  price?: number;
+  entryPrice?: number;
+  exitPrice?: number;
+  profit?: number;
+  timestamp: number;
+  strategy_id?: string;
+  strategyId?: string;
+  [key: string]: any; // Allow any other properties
+}
 
 interface TradeFlowDiagramProps {
   trade?: Trade;
@@ -155,7 +172,7 @@ export function TradeFlowDiagram({ trade, className = '' }: TradeFlowDiagramProp
             <div>
               <p className="text-gray-400">Entry Price</p>
               <p className="text-white font-medium">
-                ${trade.entryPrice?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
+                ${(trade.entryPrice || trade.price)?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 8 })}
               </p>
             </div>
             <div>

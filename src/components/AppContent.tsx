@@ -22,7 +22,7 @@ import { imageOptimizer } from '../lib/image-optimizer';
 import { performanceOptimizer } from '../lib/performance-optimizer';
 
 // Lazy load ApiStatusIndicator to avoid circular dependencies
-const ApiStatusIndicatorLazy = lazy(() => import('./ApiStatusIndicator'));
+const ApiStatusIndicatorLazy = lazy(() => import('./ApiStatusIndicator').then(module => ({ default: module.ApiStatusIndicator })));
 
 
 interface AppContentProps {

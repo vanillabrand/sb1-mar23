@@ -65,13 +65,17 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
   }, [activeStrategies]);
 
   return (
-    <div className="p-8 space-y-8 pb-24 sm:pb-8 mobile-p-4">
-      {/* Desktop Header with Date and Network Status */}
-      <div className="hidden sm:flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 mb-6">
-            <Calendar className="w-6 h-6 text-neon-yellow" />
-            <h1 className="text-2xl font-bold gradient-text">
+    <div className="p-4 sm:p-6 md:p-8 space-y-6 pb-24 sm:pb-8">
+      {/* Header with Logo, Date and Network Status */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center">
+          {/* Logo */}
+          <div className="mr-4">
+            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
+          </div>
+          <div className="hidden sm:flex items-center gap-2">
+            <Calendar className="w-5 h-5 text-neon-yellow" />
+            <h1 className="text-xl md:text-2xl font-bold gradient-text">
               {currentDate.toLocaleDateString(undefined, {
                 weekday: 'long',
                 year: 'numeric',
@@ -81,14 +85,14 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
             </h1>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => setShowPerformanceTools(!showPerformanceTools)}
-            className="flex items-center gap-2 px-3 py-1.5 bg-gunmetal-800 hover:bg-gunmetal-700 rounded-lg transition-colors"
+            className="flex items-center gap-2 px-3 py-1.5 bg-gunmetal-800 hover:bg-gunmetal-700 rounded-lg transition-colors shadow-lg"
             aria-label="Toggle performance tools"
           >
             <Settings className="w-4 h-4 text-neon-turquoise" />
-            <span className="text-sm text-gray-300">Performance Tools</span>
+            <span className="text-sm text-gray-300 hidden sm:inline">Performance Tools</span>
           </button>
           <NetworkStatus />
         </div>
@@ -96,40 +100,49 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
 
       {/* Performance Tools */}
       {showPerformanceTools && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <AnimatedPanel index={0} className="col-span-1">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          <AnimatedPanel index={0} className="col-span-1 panel-shadow">
             <PerformanceMonitor />
           </AnimatedPanel>
-          <AnimatedPanel index={1} className="col-span-1">
+          <AnimatedPanel index={1} className="col-span-1 panel-shadow">
             <WebSocketPerformanceMonitor />
           </AnimatedPanel>
         </div>
       )}
 
-      <div className={`grid grid-cols-12 gap-2 sm:gap-3 md:gap-5 ${screenSize === 'sm' ? 'grid-cols-1' : ''}`}>
-        <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-7'} space-y-4`}>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-5">
+        <div className="lg:col-span-7 space-y-4">
           {activeStrategies.length > 0 && (
-            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+            <AnimatedPanel index={0} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
               <StrategyStatus strategies={activeStrategies} />
             </AnimatedPanel>
           )}
 
-          <AnimatedPanel index={2} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+          <AnimatedPanel index={2} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
             <AIMarketInsight assets={new Set(allAssets)} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={3} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6">
+          <AnimatedPanel index={3} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
             <NewsWidget assets={allAssets} limit={4} />
           </AnimatedPanel>
 
-          <AnimatedPanel index={4} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg w-full">
+          <AnimatedPanel index={4} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
             <PortfolioPerformancePanel />
           </AnimatedPanel>
         </div>
 
-        <div className={`${screenSize === 'sm' ? 'col-span-12' : 'col-span-12 lg:col-span-5'} space-y-4`}>
-          <AnimatedPanel index={6} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
-            <div className="flex items-center justify-between mb-6">
+        <div className="lg:col-span-5 space-y-4">
+          {/* DEFCON Monitor - Shown on all screens */}
+          <AnimatedPanel index={5} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
+            <DefconMonitor
+              strategies={activeStrategies}
+              className="mb-2 sm:mb-3"
+              volatility={5}
+            />
+          </AnimatedPanel>
+
+          <AnimatedPanel index={6} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
+            <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Clock className="w-5 h-5 text-neon-turquoise" />
                 <select
@@ -148,20 +161,11 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
             <WorldClock timezone={selectedTimezone} />
           </AnimatedPanel>
 
-          {/* DEFCON Monitor - Shown on all screens */}
-          <AnimatedPanel index={7} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-5 shadow-lg">
-            <DefconMonitor
-              strategies={activeStrategies}
-              className="mb-2 sm:mb-3"
-              volatility={5}
-            />
-          </AnimatedPanel>
-
-          <AnimatedPanel index={8} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={7} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
             <AssetDisplayPanel />
           </AnimatedPanel>
 
-          <AnimatedPanel index={9} className="panel-metallic rounded-xl p-3 sm:p-4 md:p-6 shadow-lg">
+          <AnimatedPanel index={8} className="panel-metallic rounded-xl p-4 md:p-6 panel-shadow">
             <AssetDistribution assets={new Set(allAssets)} />
           </AnimatedPanel>
         </div>

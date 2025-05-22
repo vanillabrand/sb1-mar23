@@ -270,11 +270,6 @@ function App() {
     }
   }, [isInitializing]);
 
-  // Show preloader only during initial load
-  if (isInitializing) {
-    return <Preloader />;
-  }
-
   // Start performance monitoring
   useEffect(() => {
     if (!isInitializing && isAppReady) {
@@ -287,6 +282,11 @@ function App() {
       };
     }
   }, [isInitializing, isAppReady]);
+
+  // Show preloader only during initial load
+  if (isInitializing) {
+    return <Preloader />;
+  }
 
   // Handle font loading completion
   const handleFontsLoaded = () => {

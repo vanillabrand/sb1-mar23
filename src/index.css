@@ -17,6 +17,16 @@
     @apply bg-gradient-to-r from-neon-raspberry via-neon-orange to-neon-yellow bg-clip-text text-transparent text-2xl font-bold;
   }
 
+  /* Scroll margin utility for better scrolling behavior */
+  .scroll-mt-24 {
+    scroll-margin-top: 6rem; /* 96px */
+  }
+
+  /* Smooth scrolling for the entire page */
+  html {
+    scroll-behavior: smooth;
+  }
+
   .panel {
     @apply backdrop-blur-xl rounded-xl p-4 sm:p-6;
     background: linear-gradient(135deg, rgba(18, 18, 20, 0.98) 0%, rgba(28, 28, 32, 0.98) 100%);
@@ -122,16 +132,19 @@
     @apply text-gray-400 text-base;
   }
 
-  /* Darker grey metal effect for panels */
+  /* Darker grey metal effect for panels - enhanced for a sleeker look */
   .panel-metallic {
-    @apply relative overflow-hidden shadow-md backdrop-blur-xl;
+    @apply relative overflow-hidden backdrop-blur-xl transition-all duration-300;
     background: linear-gradient(
       135deg,
       rgba(18, 18, 20, 0.98) 0%,
       rgba(28, 28, 32, 0.98) 100%
     );
-    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.7),
-                inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+    box-shadow:
+      0 10px 30px -5px rgba(0, 0, 0, 0.3),
+      0 5px 15px rgba(0, 0, 0, 0.2),
+      inset 0 1px 1px rgba(255, 255, 255, 0.05),
+      inset 0 -1px 1px rgba(0, 0, 0, 0.3);
     border: none;
     /* Add subtle brushed metal texture */
     background-image: repeating-linear-gradient(
@@ -141,6 +154,16 @@
       transparent 1px,
       transparent 2px
     );
+  }
+
+  /* Hover effect for panels */
+  .panel-metallic:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 15px 35px -5px rgba(0, 0, 0, 0.35),
+      0 8px 20px rgba(0, 0, 0, 0.25),
+      inset 0 1px 1px rgba(255, 255, 255, 0.07),
+      inset 0 -1px 1px rgba(0, 0, 0, 0.4);
   }
 
   /* Dark metal modal style - no borders, dark grey background */
@@ -209,21 +232,46 @@
   }
 }
 
-/* Panel entrance animation */
+/* Panel entrance animation - enhanced for smoother transitions */
 .panel-stagger-enter {
   opacity: 0;
-  transform: scale(1.05);
-  animation: panelStaggerEnter 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  transform: translateY(20px) scale(1.02);
+  animation: panelStaggerEnter 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+  will-change: opacity, transform;
 }
 
 @keyframes panelStaggerEnter {
+  0% {
+    opacity: 0;
+    transform: translateY(20px) scale(1.02);
+  }
+  60% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Tweening effect for smooth transitions */
+.tween-effect {
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+
+/* Fade up animation for panels */
+.fade-up-animation {
+  animation: fadeUp 0.5s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes fadeUp {
   from {
     opacity: 0;
-    transform: scale(1.05);
+    transform: translateY(20px);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -467,18 +515,24 @@
 
 /* Panel shadow effect for enhanced depth */
 .panel-shadow {
-  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5),
-              0 5px 15px -5px rgba(0, 0, 0, 0.3),
-              inset 0 1px 1px rgba(255, 255, 255, 0.05),
-              inset 0 -1px 1px rgba(0, 0, 0, 0.3);
-  transition: box-shadow 0.3s ease, transform 0.3s ease;
+  box-shadow:
+    0 10px 30px -5px rgba(0, 0, 0, 0.5),
+    0 5px 15px rgba(0, 0, 0, 0.3),
+    inset 0 1px 1px rgba(255, 255, 255, 0.05),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.3);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  transform: translateZ(0);
+  backface-visibility: hidden;
+  will-change: transform, box-shadow;
 }
 
 .panel-shadow:hover {
-  box-shadow: 0 15px 35px -10px rgba(0, 0, 0, 0.6),
-              0 8px 20px -5px rgba(0, 0, 0, 0.4),
-              inset 0 1px 1px rgba(255, 255, 255, 0.07),
-              inset 0 -1px 1px rgba(0, 0, 0, 0.4);
+  transform: translateY(-3px) translateZ(0);
+  box-shadow:
+    0 15px 35px -5px rgba(0, 0, 0, 0.6),
+    0 8px 20px rgba(0, 0, 0, 0.4),
+    inset 0 1px 1px rgba(255, 255, 255, 0.07),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.4);
 }
 
 .glass-effect-dark {

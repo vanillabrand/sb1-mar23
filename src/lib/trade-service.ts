@@ -192,6 +192,45 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
     return new Map(this.budgets);
   }
 
+  /**
+   * Get all trades from the database
+   * @param strategyId Optional strategy ID to filter trades
+   * @param status Optional status to filter trades
+   * @returns Promise<any[]> Array of trades
+   */
+  async getAllTrades(strategyId?: string, status?: string): Promise<any[]> {
+    try {
+      logService.log('info', 'Fetching all trades', { strategyId, status }, 'TradeService');
+
+      // Build the query
+      let query = supabase.from('trades').select('*');
+
+      // Add filters if provided
+      if (strategyId) {
+        query = query.eq('strategy_id', strategyId);
+      }
+
+      if (status) {
+        query = query.eq('status', status);
+      }
+
+      // Order by created_at descending (newest first)
+      query = query.order('created_at', { ascending: false });
+
+      // Execute the query
+      const { data, error } = await query;
+
+      if (error) {
+        throw error;
+      }
+
+      return data || [];
+    } catch (error) {
+      logService.log('error', 'Failed to fetch trades', error, 'TradeService');
+      return [];
+    }
+  }
+
 
 
   /**

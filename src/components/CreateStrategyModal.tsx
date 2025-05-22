@@ -4,6 +4,7 @@ import { Brain, X, XCircle } from 'lucide-react';
 import { RiskSlider } from './ui/RiskSlider';
 import { Combobox } from './ui/Combobox';
 import { detectMarketType } from '../lib/market-type-detection';
+import { supabase } from '../lib/enhanced-supabase';
 import type { MarketType } from '../lib/types';
 
 // Add these trading pair options
@@ -149,9 +150,66 @@ export function CreateStrategyModal({ open, onClose, onCreated }: CreateStrategy
         market_type: enrichedData.market_type
       });
 
-      await onCreated(enrichedData);
-      onClose();
+      try {
+        // Try to create the strategy
+        const createdStrategy = await onCreated(enrichedData);
+
+        if (!createdStrategy) {
+          throw new Error('Failed to create strategy - no data returned');
+        }
+
+        console.log('Strategy created successfully:', createdStrategy);
+        onClose();
+      } catch (createError) {
+        console.error('Error creating strategy:', createError);
+        setError(createError instanceof Error ? createError.message : 'Failed to create strategy');
+
+        // Try direct database insertion as a fallback
+        try {
+          console.log('Attempting direct database insertion as fallback');
+
+          // Get current user session
+          const { data: { session } } = await supabase.auth.getSession();
+
+          if (!session?.user?.id) {
+            throw new Error('No authenticated user found');
+          }
+
+          // Add user ID to the strategy data
+          const strategyWithUserId = {
+            ...enrichedData,
+            id: crypto.randomUUID(),
+            user_id: session.user.id
+          };
+
+          // Insert directly into the database
+          const { data: directStrategy, error } = await supabase
+            .from('strategies')
+            .insert(strategyWithUserId)
+            .select('*')
+            .single();
+
+          if (error) {
+            throw error;
+          }
+
+          if (!directStrategy) {
+            throw new Error('No data returned from direct database insertion');
+          }
+
+          console.log('Strategy created successfully via direct insertion:', directStrategy);
+          onClose();
+        } catch (fallbackError) {
+          console.error('Fallback strategy creation failed:', fallbackError);
+          setError(
+            fallbackError instanceof Error
+              ? `Strategy creation failed: ${fallbackError.message}`
+              : 'Failed to create strategy after multiple attempts'
+          );
+        }
+      }
     } catch (err) {
+      console.error('Unexpected error in strategy creation:', err);
       setError(err instanceof Error ? err.message : 'Failed to create strategy');
     } finally {
       setIsSubmitting(false);
