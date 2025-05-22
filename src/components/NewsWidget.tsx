@@ -53,12 +53,22 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
 
       let newsItems: any[] = await globalCacheService.getAllNews();
 
+      // Check if we got any news items
+      if (!newsItems || newsItems.length === 0) {
+        logService.log('warn', 'No news items returned from globalCacheService.getAllNews()', null, 'NewsWidget');
+        setError('No news articles available at this time.');
+        setAllNews([]);
+        return;
+      }
+
+      logService.log('info', `Received ${newsItems.length} news items from cache service`, null, 'NewsWidget');
+
       // If we have specific assets to filter by, filter the news items
       if (assets.length > 0) {
         logService.log('info', `Filtering news for specified assets: ${assets.join(', ')}`, null, 'NewsWidget');
 
         // Filter news items that mention any of the specified assets
-        newsItems = newsItems.filter(item => {
+        const filteredItems = newsItems.filter(item => {
           // Check if any of the specified assets are mentioned in the news item
           return assets.some(asset => {
             const normalizedAsset = asset.replace(/[\/|_|\-].+$/, '').toUpperCase();
@@ -72,7 +82,14 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
           });
         });
 
-        logService.log('info', `Filtered to ${newsItems.length} news items for specified assets`, null, 'NewsWidget');
+        logService.log('info', `Filtered to ${filteredItems.length} news items for specified assets`, null, 'NewsWidget');
+
+        // If filtering resulted in no news, use all news instead
+        if (filteredItems.length === 0) {
+          logService.log('warn', 'Filtering resulted in 0 news items, using all news instead', null, 'NewsWidget');
+        } else {
+          newsItems = filteredItems;
+        }
       }
 
       // Update state with the fetched news
@@ -90,13 +107,15 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
 
       logService.log('info', `News fetched successfully, ${newsItems.length} items`, null, 'NewsWidget');
     } catch (err) {
-      setError('Failed to load news');
+      setError('Failed to load news. Please try again later.');
       logService.log('error', 'Error fetching news:', err, 'NewsWidget');
+      // Set empty news array to show the error message
+      setAllNews([]);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [assets, refreshing, NEWS_REFRESH_INTERVAL]);
+  }, [assets, refreshing, NEWS_REFRESH_INTERVAL, updatePaginatedNews]);
 
   // Function to update paginated news
   const updatePaginatedNews = useCallback((items = allNews) => {
@@ -174,14 +193,56 @@ export function NewsWidget({ assets = [], limit = 4 }: NewsWidgetProps) {
     );
   }
 
-  // If there's an error, don't render the component
+  // If there's an error, show an error message instead of hiding the component
   if (error) {
-    return null;
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold gradient-text">Latest News</h2>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1.5 sm:p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
+          >
+            {refreshing ? (
+              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            )}
+          </button>
+        </div>
+        <div className="bg-gradient-to-br from-gunmetal-900/50 to-gunmetal-800/30 backdrop-blur-sm rounded-lg p-6">
+          <p className="text-gray-400">{error}</p>
+          <p className="text-sm text-gray-500 mt-2">Try refreshing or check back later.</p>
+        </div>
+      </div>
+    );
   }
 
-  // If there are no news articles, don't render the component at all
+  // If there are no news articles, show a message instead of hiding the component
   if (allNews.length === 0) {
-    return null;
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold gradient-text">Latest News</h2>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="p-1.5 sm:p-2 bg-gunmetal-800/50 rounded-lg text-gray-400 hover:text-neon-turquoise transition-all disabled:opacity-50"
+          >
+            {refreshing ? (
+              <Loader2 className="w-3.5 h-3.5 sm:w-4 sm:h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+            )}
+          </button>
+        </div>
+        <div className="bg-gradient-to-br from-gunmetal-900/50 to-gunmetal-800/30 backdrop-blur-sm rounded-lg p-6">
+          <p className="text-gray-400">No news articles available at this time.</p>
+          <p className="text-sm text-gray-500 mt-2">Try refreshing or check back later.</p>
+        </div>
+      </div>
+    );
   }
 
   return (

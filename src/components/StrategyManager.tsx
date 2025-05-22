@@ -272,36 +272,53 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
       if (newStrategy) {
         console.log('Strategy creation event received:', newStrategy.id);
+        console.log('Strategy data:', JSON.stringify(newStrategy));
 
         // Directly update the strategies state
         if (strategies) {
-          // Update filtered strategies
+          // Update filtered strategies - add to the beginning (newest first)
           setFilteredStrategies(prevFiltered => {
             // Only add if not already in the list
             if (!prevFiltered.some(s => s.id === newStrategy.id)) {
               console.log(`Adding new strategy ${newStrategy.id} to filtered list`);
-              return [...prevFiltered, newStrategy];
+              return [newStrategy, ...prevFiltered];
             }
+            console.log(`Strategy ${newStrategy.id} already in filtered list`);
             return prevFiltered;
           });
 
           // Update paginated strategies to show the new strategy immediately
-          setPaginatedStrategies(prevPaginated => {
-            // Only add if not already in the list
-            if (!prevPaginated.some(s => s.id === newStrategy.id)) {
-              console.log(`Adding new strategy ${newStrategy.id} to paginated list`);
-              // Always add to the current page for immediate visibility
-              return [...prevPaginated, newStrategy];
-            }
-            return prevPaginated;
-          });
-
-          // Force a re-render by updating the current page
-          setCurrentPage(currentPage);
+          // Only update if we're on the first page
+          if (currentPage === 1) {
+            setPaginatedStrategies(prevPaginated => {
+              // Only add if not already in the list
+              if (!prevPaginated.some(s => s.id === newStrategy.id)) {
+                console.log(`Adding new strategy ${newStrategy.id} to paginated list`);
+                // Add to the beginning and maintain the correct page size
+                const newList = [newStrategy, ...prevPaginated];
+                return newList.slice(0, ITEMS_PER_PAGE);
+              }
+              console.log(`Strategy ${newStrategy.id} already in paginated list`);
+              return prevPaginated;
+            });
+          } else {
+            // If not on first page, navigate to first page to show the new strategy
+            console.log('Not on first page, navigating to first page to show new strategy');
+            setCurrentPage(1);
+          }
+        } else {
+          // If no strategies exist yet, initialize with the new strategy
+          console.log('No strategies array, initializing with new strategy');
+          setFilteredStrategies([newStrategy]);
+          setPaginatedStrategies([newStrategy]);
         }
 
-        // Force a refresh to ensure everything is in sync
-        refreshStrategies();
+        // Force a refresh to ensure everything is in sync after a delay
+        setTimeout(() => {
+          refreshStrategies().catch(error => {
+            console.error('Error refreshing strategies after creation:', error);
+          });
+        }, 1000);
       }
     };
 
@@ -337,6 +354,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
     document.addEventListener('strategy:remove', handleStrategyRemove);
     document.addEventListener('strategy:update', handleStrategyUpdate);
     document.addEventListener('strategy:created', handleStrategyCreate);
+    document.addEventListener('strategyCreated', handleStrategyCreate); // Additional event for direct updates
     document.addEventListener('strategies:updated', handleStrategiesUpdated);
 
     // Also subscribe to event bus events
@@ -376,6 +394,7 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       document.removeEventListener('strategy:remove', handleStrategyRemove);
       document.removeEventListener('strategy:update', handleStrategyUpdate);
       document.removeEventListener('strategy:created', handleStrategyCreate);
+      document.removeEventListener('strategyCreated', handleStrategyCreate); // Clean up additional event
       document.removeEventListener('strategies:updated', handleStrategiesUpdated);
 
       // Unsubscribe from event bus
@@ -470,11 +489,21 @@ export function StrategyManager({ className }: StrategyManagerProps) {
 
   // Update paginated strategies whenever filtered strategies or page changes
   useEffect(() => {
-    const paginated = filteredStrategies.slice(
-      (currentPage - 1) * ITEMS_PER_PAGE,
-      currentPage * ITEMS_PER_PAGE
-    );
-    setPaginatedStrategies(paginated);
+    console.log('Updating paginated strategies. Current page:', currentPage, 'Items per page:', ITEMS_PER_PAGE);
+    console.log('Filtered strategies count:', filteredStrategies.length);
+
+    if (filteredStrategies.length > 0) {
+      const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+      const endIndex = currentPage * ITEMS_PER_PAGE;
+      const paginated = filteredStrategies.slice(startIndex, endIndex);
+
+      console.log(`Slicing from ${startIndex} to ${endIndex}, got ${paginated.length} strategies`);
+      console.log('First strategy in paginated list:', paginated[0]?.id);
+
+      setPaginatedStrategies(paginated);
+    } else {
+      setPaginatedStrategies([]);
+    }
   }, [filteredStrategies, currentPage, ITEMS_PER_PAGE]);
 
   // Update paginated templates whenever filtered templates or template page changes
@@ -946,8 +975,35 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       const newStrategy = await templateGenerator.copyTemplateToStrategy(template.id);
       console.log(`StrategyManager: Strategy created from template: ${newStrategy.id}`);
 
-      // Force a refresh of strategies
-      await refreshStrategies();
+      // Manually add the strategy to the filtered and paginated lists
+      // This ensures it appears immediately in the UI
+      setFilteredStrategies(prev => {
+        // Only add if not already in the list
+        if (!prev.some(s => s.id === newStrategy.id)) {
+          console.log('StrategyManager: Manually adding strategy to filtered list');
+          // Add to the beginning of the array (newest first)
+          return [newStrategy, ...prev];
+        }
+        return prev;
+      });
+
+      // Update paginated strategies to show the new strategy immediately
+      setPaginatedStrategies(prev => {
+        // Only add if not already in the list and if we're on the first page
+        if (!prev.some(s => s.id === newStrategy.id) && currentPage === 1) {
+          console.log('StrategyManager: Manually adding strategy to paginated list');
+          // Add to the beginning of the array (newest first)
+          return [newStrategy, ...prev].slice(0, ITEMS_PER_PAGE);
+        }
+        return prev;
+      });
+
+      // Force a refresh of strategies after a delay
+      setTimeout(() => {
+        refreshStrategies().catch(error => {
+          console.error('Error refreshing strategies:', error);
+        });
+      }, 1000);
 
       // Ensure the strategy has the correct market_type and selected_pairs
       if (newStrategy) {
@@ -1071,7 +1127,39 @@ export function StrategyManager({ className }: StrategyManagerProps) {
         strategySync.resumeSync();
       }, 1000);
 
-      // Strategy already added to sync cache above
+      // Add the strategy to the UI immediately
+      console.log('StrategyManager: Adding strategy to UI immediately');
+
+      // Update filtered strategies - add to the beginning (newest first)
+      setFilteredStrategies(prevFiltered => {
+        // Only add if not already in the list
+        if (!prevFiltered.some(s => s.id === newStrategy.id)) {
+          console.log(`Adding new strategy ${newStrategy.id} to filtered list`);
+          return [newStrategy, ...prevFiltered];
+        }
+        console.log(`Strategy ${newStrategy.id} already in filtered list`);
+        return prevFiltered;
+      });
+
+      // Update paginated strategies to show the new strategy immediately
+      // Only update if we're on the first page
+      if (currentPage === 1) {
+        setPaginatedStrategies(prevPaginated => {
+          // Only add if not already in the list
+          if (!prevPaginated.some(s => s.id === newStrategy.id)) {
+            console.log(`Adding new strategy ${newStrategy.id} to paginated list`);
+            // Add to the beginning and maintain the correct page size
+            const newList = [newStrategy, ...prevPaginated];
+            return newList.slice(0, ITEMS_PER_PAGE);
+          }
+          console.log(`Strategy ${newStrategy.id} already in paginated list`);
+          return prevPaginated;
+        });
+      } else {
+        // If not on first page, navigate to first page to show the new strategy
+        console.log('Not on first page, navigating to first page to show new strategy');
+        setCurrentPage(1);
+      }
 
       // 6. Manually emit events to update all components
       console.log('StrategyManager: Manually emitting events');

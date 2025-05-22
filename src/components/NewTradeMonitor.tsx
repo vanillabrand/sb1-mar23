@@ -11,7 +11,7 @@ import {
   Clock,
   ToggleLeft,
   ToggleRight,
-  Wallet
+  Wallet, 
 } from 'lucide-react';
 import { tradeService } from '../lib/trade-service';
 import { strategyService } from '../lib/strategy-service';
@@ -22,7 +22,7 @@ import { websocketService } from '../lib/websocket-service';
 import { walletBalanceService } from '../lib/wallet-balance-service';
 import { eventBus } from '../lib/event-bus';
 import { BudgetConfirmModal } from './BudgetConfirmModal';
-import { getBasePrice, standardizeSymbolFormat } from '../lib/format-utils';
+import { getBasePrice, standardizeAssetPairFormat } from '../lib/format-utils';
 import type { Strategy, Trade, StrategyBudget } from '../lib/types';
 
 interface TradeMonitorProps {
@@ -617,7 +617,7 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // Generate trades using the trade service
       const isDemo = demoService.isDemoMode();
-      const result = await tradeService.generateTradesForStrategy(strategy, budget, isDemo);
+      const result = await tradeService.generateTradesForStrategy(strategy);
 
       if (result.success) {
         logService.log('info', `Generated ${result.trades?.length || 0} trades for strategy ${strategyId}`, null, 'TradeMonitor');
@@ -668,7 +668,7 @@ export const NewTradeMonitor: React.FC<TradeMonitorProps> = ({
 
       // Pick a random pair
       const pair = strategy.selected_pairs[Math.floor(Math.random() * strategy.selected_pairs.length)];
-      const standardizedPair = standardizeSymbolFormat(pair);
+      const standardizedPair = standardizeAssetPairFormat(pair);
 
       // Get base price with validation
       let basePrice = getBasePrice(standardizedPair);

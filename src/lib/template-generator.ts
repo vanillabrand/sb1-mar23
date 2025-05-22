@@ -542,6 +542,7 @@ export class TemplateGenerator {
 
       // Emit events to update UI immediately
       console.log('TemplateGenerator: Emitting strategy:created event with strategy:', strategy.id);
+      console.log('TemplateGenerator: Strategy data:', JSON.stringify(strategy));
 
       // Create a complete strategy object with all required fields
       const completeStrategy = {
@@ -560,11 +561,23 @@ export class TemplateGenerator {
         updated_at: strategy.updated_at || new Date().toISOString()
       };
 
+      console.log('TemplateGenerator: Complete strategy data:', JSON.stringify(completeStrategy));
+
       // Emit events with the complete strategy object
+      console.log('TemplateGenerator: Emitting strategy:created event');
       eventBus.emit('strategy:created', completeStrategy);
+
+      console.log('TemplateGenerator: Emitting strategy:created event with wrapper');
       eventBus.emit('strategy:created', { strategy: completeStrategy }); // Also emit with object wrapper for compatibility
 
+      console.log('TemplateGenerator: Dispatching DOM event strategy:created');
       document.dispatchEvent(new CustomEvent('strategy:created', {
+        detail: { strategy: completeStrategy }
+      }));
+
+      // Also dispatch a direct DOM event for the StrategyManager component
+      console.log('TemplateGenerator: Dispatching DOM event strategyCreated');
+      document.dispatchEvent(new CustomEvent('strategyCreated', {
         detail: { strategy: completeStrategy }
       }));
 
