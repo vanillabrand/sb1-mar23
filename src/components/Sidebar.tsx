@@ -17,7 +17,8 @@ import {
   Loader2,
   Circle,
   BarChart3,
-  AlertTriangle
+  AlertTriangle,
+  Settings
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
@@ -92,6 +93,9 @@ const NavItem: React.FC<NavItemProps> = ({ to, icon, label, onClick, className, 
           } else if (label === 'Bug Tracker') {
             activeStyles = 'bg-gray-800/50 text-gray-200';
             hoverStyles = 'hover:text-gray-200';
+          } else if (label === 'Settings') {
+            activeStyles = 'bg-neon-turquoise/10 text-neon-turquoise';
+            hoverStyles = 'hover:text-neon-turquoise';
           }
 
           return `${baseClass} ${isActive
@@ -592,6 +596,15 @@ export const Sidebar: React.FC<SidebarProps> = ({ isOpen, onToggle }) => {
           onMenuClick={highlightMenuItem}
           onNavClick={contractMenu}
           index={7}
+          isMobile={isMobile}
+        />
+        <NavItem
+          to="/settings"
+          icon={<Settings className="w-5 h-5" />}
+          label="Settings"
+          onMenuClick={highlightMenuItem}
+          onNavClick={contractMenu}
+          index={8}
           isMobile={isMobile}
         />
       </nav>

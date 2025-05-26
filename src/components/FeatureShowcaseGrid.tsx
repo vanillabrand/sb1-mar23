@@ -52,49 +52,41 @@ const features: Feature[] = [
 export const FeatureShowcaseGrid: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const controls = useAnimation();
-  
+
   useEffect(() => {
     controls.start(i => ({
       opacity: 1,
       y: 0,
-      transition: { 
+      transition: {
         duration: 0.5,
         delay: i * 0.1,
         ease: [0.25, 0.1, 0.25, 1]
       }
     }));
   }, [controls]);
-  
+
   useEffect(() => {
     if (!containerRef.current) return;
-    
+
     const cards = containerRef.current.querySelectorAll('.feature-card');
-    
+
     cards.forEach(card => {
       // Create hover effect
       const handleMouseMove = (e: MouseEvent) => {
         const rect = card.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const y = e.clientY - rect.top;
-        
+
         // Calculate percentage position
         const xPercent = x / rect.width;
         const yPercent = y / rect.height;
-        
+
         // Calculate rotation (subtle)
         const rotateX = (0.5 - yPercent) * 8;
         const rotateY = (xPercent - 0.5) * 8;
-        
-        gsap.to(card, {
-          rotationY: rotateY,
-          rotationX: rotateX,
-          transformPerspective: 1000,
-          ease: 'power2.out',
-          duration: 0.3,
-          boxShadow: '0 20px 40px rgba(0, 0, 0, 0.2)',
-          scale: 1.02
-        });
-        
+
+        // Removed hover scaling and 3D effects
+
         // Move icon
         const icon = card.querySelector('.feature-icon');
         if (icon) {
@@ -105,7 +97,7 @@ export const FeatureShowcaseGrid: React.FC = () => {
             duration: 0.3
           });
         }
-        
+
         // Highlight effect
         const highlight = card.querySelector('.card-highlight');
         if (highlight) {
@@ -118,7 +110,7 @@ export const FeatureShowcaseGrid: React.FC = () => {
           });
         }
       };
-      
+
       const handleMouseLeave = () => {
         gsap.to(card, {
           rotationY: 0,
@@ -128,7 +120,7 @@ export const FeatureShowcaseGrid: React.FC = () => {
           ease: 'power2.out',
           duration: 0.5
         });
-        
+
         // Reset icon position
         const icon = card.querySelector('.feature-icon');
         if (icon) {
@@ -139,7 +131,7 @@ export const FeatureShowcaseGrid: React.FC = () => {
             duration: 0.5
           });
         }
-        
+
         // Reset highlight
         const highlight = card.querySelector('.card-highlight');
         if (highlight) {
@@ -150,17 +142,17 @@ export const FeatureShowcaseGrid: React.FC = () => {
           });
         }
       };
-      
+
       card.addEventListener('mousemove', handleMouseMove);
       card.addEventListener('mouseleave', handleMouseLeave);
-      
+
       return () => {
         card.removeEventListener('mousemove', handleMouseMove);
         card.removeEventListener('mouseleave', handleMouseLeave);
       };
     });
   }, []);
-  
+
   return (
     <div className="py-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -177,8 +169,8 @@ export const FeatureShowcaseGrid: React.FC = () => {
             Our platform combines cutting-edge AI with intuitive design to make trading accessible to everyone.
           </p>
         </motion.div>
-        
-        <div 
+
+        <div
           ref={containerRef}
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"
         >
@@ -193,10 +185,10 @@ export const FeatureShowcaseGrid: React.FC = () => {
             >
               {/* Card highlight effect */}
               <div className="card-highlight absolute w-32 h-32 rounded-full bg-white -translate-x-1/2 -translate-y-1/2 opacity-0 pointer-events-none blur-xl" />
-              
+
               {/* Gradient border */}
               <div className={`absolute inset-0 rounded-2xl bg-gradient-to-br ${feature.color} opacity-10 pointer-events-none`} />
-              
+
               {/* Content */}
               <div className="relative z-10 flex flex-col h-full">
                 <div className="feature-icon flex items-center justify-center w-12 h-12 rounded-xl bg-gradient-to-br from-white/10 to-white/5 backdrop-blur-sm mb-4">
@@ -204,15 +196,15 @@ export const FeatureShowcaseGrid: React.FC = () => {
                     {feature.icon}
                   </div>
                 </div>
-                
+
                 <h3 className="text-xl font-medium text-white mb-2">
                   {feature.title}
                 </h3>
-                
+
                 <p className="text-gray-300 text-sm leading-relaxed flex-grow">
                   {feature.description}
                 </p>
-                
+
                 <div className="mt-4 pt-4 border-t border-white/5">
                   <motion.button
                     whileHover={{ x: 5 }}

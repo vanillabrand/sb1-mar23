@@ -24,7 +24,7 @@ export function StrategyExamples({ onStrategyCreated }: StrategyExamplesProps) {
   const { createStrategy } = useStrategies();
   const [hoveredStrategy, setHoveredStrategy] = useState<number | null>(null);
   const [creatingStrategy, setCreatingStrategy] = useState<number | null>(null);
-  
+
   const examples: StrategyExample[] = [
     {
       title: "RSI Reversal Strategy",
@@ -156,7 +156,7 @@ export function StrategyExamples({ onStrategyCreated }: StrategyExamplesProps) {
       const strategy = await createStrategy({
         title: template.title,
         description: template.description,
-        risk_level: template.risk === 'Low' ? 'Low' : 
+        risk_level: template.risk === 'Low' ? 'Low' :
                    template.risk === 'Medium' ? 'Medium' : 'High'
       });
 
@@ -190,17 +190,16 @@ export function StrategyExamples({ onStrategyCreated }: StrategyExamplesProps) {
             key={index}
             onMouseEnter={() => setHoveredStrategy(index)}
             onMouseLeave={() => setHoveredStrategy(null)}
-            whileHover={{ scale: 1.02 }}
-            className="bg-gunmetal-800/30 rounded-lg p-5 hover:bg-gunmetal-800/50 transition-all duration-300 border border-transparent hover:border-gunmetal-700/50"
+            className="bg-gunmetal-800/30 rounded-lg p-5 transition-all duration-300"
           >
             <div className="flex flex-col h-full">
               <div className="flex items-center gap-3 mb-3">
                 {strategy.icon}
                 <h3 className="font-semibold text-gray-200">{strategy.title}</h3>
               </div>
-              
+
               <p className="text-sm text-gray-400 mb-4 flex-grow">{strategy.description}</p>
-              
+
               <div className="grid grid-cols-2 gap-3 mt-auto">
                 <div className="bg-gunmetal-900/40 rounded-lg p-2">
                   <p className="text-xs text-gray-500 mb-1">Type</p>
@@ -211,7 +210,7 @@ export function StrategyExamples({ onStrategyCreated }: StrategyExamplesProps) {
                   <p className={`text-sm font-medium ${getRiskColor(strategy.risk)}`}>{strategy.risk}</p>
                 </div>
               </div>
-              
+
               <div className="mt-3 pt-3 border-t border-gunmetal-700/50 flex justify-between items-center">
                 <div>
                   <p className="text-xs text-gray-500">Performance</p>

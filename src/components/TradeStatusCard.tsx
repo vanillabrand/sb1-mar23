@@ -1,19 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  Clock, 
-  DollarSign, 
-  BarChart3, 
-  AlertTriangle, 
-  CheckCircle, 
+import {
+  ArrowUpRight,
+  ArrowDownRight,
+  Clock,
+  DollarSign,
+  BarChart3,
+  AlertTriangle,
+  CheckCircle,
   XCircle,
   Edit,
   Trash2,
   ExternalLink,
   RefreshCw
 } from 'lucide-react';
+import { rustApiIntegration } from '../lib/rust-api-integration';
 import { marketDataService } from '../lib/market-data-service';
 import { tradeService } from '../lib/trade-service';
 import { logService } from '../lib/log-service';
@@ -41,18 +42,18 @@ export function TradeStatusCard({
   const [isLoading, setIsLoading] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   const isDemoMode = demoService.isDemoMode();
   const isOpen = trade.status === 'open' || trade.status === 'pending';
   const isClosed = trade.status === 'closed';
   const isCancelled = trade.status === 'cancelled';
-  
+
   // Calculate profit/loss
   const calculatePnL = () => {
     if (!trade.amount || !trade.entryPrice) {
       return { percent: null, value: null };
     }
-    
+
     // If the trade has an exit price, use that
     if (trade.exitPrice) {
       const pnlValue = (trade.amount * trade.exitPrice) - (trade.amount * trade.entryPrice);
@@ -62,7 +63,7 @@ export function TradeStatusCard({
         value: trade.side === 'buy' ? pnlValue : -pnlValue
       };
     }
-    
+
     // If the trade is still open, use current market price
     if (currentPrice) {
       const pnlValue = (trade.amount * currentPrice) - (trade.amount * trade.entryPrice);
@@ -72,25 +73,25 @@ export function TradeStatusCard({
         value: trade.side === 'buy' ? pnlValue : -pnlValue
       };
     }
-    
+
     // If we don't have a current price, use the profit field if available
     if (trade.profit !== undefined) {
       const estimatedValue = (trade.profit / 100) * (trade.amount * trade.entryPrice);
       return { percent: trade.profit, value: estimatedValue };
     }
-    
+
     return { percent: null, value: null };
   };
-  
+
   const pnl = calculatePnL();
   const isProfitable = pnl.percent !== null && pnl.percent > 0;
   const isLoss = pnl.percent !== null && pnl.percent < 0;
-  
+
   // Fetch current price
   useEffect(() => {
     const fetchPrice = async () => {
       if (!trade.symbol) return;
-      
+
       try {
         const marketData = await marketDataService.getMarketData(trade.symbol);
         if (marketData && marketData.price !== undefined) {
@@ -100,20 +101,20 @@ export function TradeStatusCard({
         console.error(`Failed to fetch price for ${trade.symbol}:`, error);
       }
     };
-    
+
     fetchPrice();
-    
+
     // Set up an interval to refresh price every 10 seconds if trade is open
     if (isOpen) {
       const intervalId = setInterval(fetchPrice, 10000);
       return () => clearInterval(intervalId);
     }
   }, [trade.symbol, isOpen]);
-  
+
   // Handle closing a trade
   const handleCloseTrade = async () => {
     if (!isOpen || !onCloseTrade) return;
-    
+
     try {
       setIsClosing(true);
       setError(null);
@@ -126,11 +127,11 @@ export function TradeStatusCard({
       setIsClosing(false);
     }
   };
-  
+
   // Handle refreshing price manually
   const handleRefreshPrice = async () => {
     if (!trade.symbol) return;
-    
+
     try {
       setIsLoading(true);
       const marketData = await marketDataService.getMarketData(trade.symbol);
@@ -143,18 +144,18 @@ export function TradeStatusCard({
       setIsLoading(false);
     }
   };
-  
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
       className={`panel-metallic rounded-xl overflow-hidden panel-shadow ${
-        isOpen 
-          ? 'border-l-4 border-neon-turquoise' 
-          : isClosed 
-            ? isProfitable 
-              ? 'border-l-4 border-green-500' 
+        isOpen
+          ? 'border-l-4 border-neon-turquoise'
+          : isClosed
+            ? isProfitable
+              ? 'border-l-4 border-green-500'
               : 'border-l-4 border-red-500'
             : 'border-l-4 border-gray-500'
       }`}
@@ -171,7 +172,7 @@ export function TradeStatusCard({
                 </span>
               )}
             </div>
-            
+
             <div className="flex items-center gap-2">
               <span className={`flex items-center gap-1 text-sm ${
                 trade.side === 'buy' ? 'text-green-400' : 'text-red-400'
@@ -183,12 +184,12 @@ export function TradeStatusCard({
                 )}
                 {trade.side || 'Unknown'}
               </span>
-              
+
               <span className="text-xs px-2 py-0.5 bg-gunmetal-800 rounded-full text-gray-300">
                 {trade.marketType || 'spot'}
                 {trade.marginType && ` (${trade.marginType})`}
               </span>
-              
+
               {trade.leverage && (
                 <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-400 rounded-full">
                   {trade.leverage}x
@@ -196,7 +197,7 @@ export function TradeStatusCard({
               )}
             </div>
           </div>
-          
+
           {/* Status Badge */}
           <div>
             <span className={`px-2 py-1 rounded-full text-xs ${
@@ -209,7 +210,7 @@ export function TradeStatusCard({
             </span>
           </div>
         </div>
-        
+
         {/* Trade Details */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
           <div>
@@ -218,14 +219,14 @@ export function TradeStatusCard({
               {trade.amount !== undefined ? trade.amount.toFixed(6) : '-'}
             </div>
           </div>
-          
+
           <div>
             <div className="text-xs text-gray-400 mb-1">Entry Price</div>
             <div className="text-sm text-white">
               {trade.entryPrice !== undefined ? `$${trade.entryPrice.toFixed(2)}` : '-'}
             </div>
           </div>
-          
+
           <div>
             <div className="text-xs text-gray-400 mb-1">
               {isOpen ? 'Current Price' : 'Exit Price'}
@@ -251,7 +252,7 @@ export function TradeStatusCard({
               )}
             </div>
           </div>
-          
+
           <div>
             <div className="text-xs text-gray-400 mb-1">Trade Value</div>
             <div className="text-sm text-white">
@@ -261,7 +262,7 @@ export function TradeStatusCard({
             </div>
           </div>
         </div>
-        
+
         {/* Profit/Loss and Risk Parameters */}
         <div className="grid grid-cols-2 gap-3 mb-3">
           <div>
@@ -281,7 +282,7 @@ export function TradeStatusCard({
               <span className="text-sm text-gray-400">-</span>
             )}
           </div>
-          
+
           <div>
             <div className="text-xs text-gray-400 mb-1">Risk Parameters</div>
             <div className="flex flex-col gap-1 text-xs">
@@ -306,7 +307,7 @@ export function TradeStatusCard({
             </div>
           </div>
         </div>
-        
+
         {/* Action Buttons */}
         <div className="flex flex-wrap items-center justify-between mt-3 pt-3 border-t border-gunmetal-800">
           <div className="flex items-center gap-1 text-xs text-gray-400">
@@ -315,7 +316,7 @@ export function TradeStatusCard({
               {new Date(trade.created_at).toLocaleString()}
             </span>
           </div>
-          
+
           <div className="flex items-center gap-2">
             {isOpen && (
               <button
@@ -331,7 +332,7 @@ export function TradeStatusCard({
                 Close Trade
               </button>
             )}
-            
+
             {isOpen && onEditTrade && (
               <button
                 onClick={() => onEditTrade(trade)}
@@ -341,7 +342,7 @@ export function TradeStatusCard({
                 Edit
               </button>
             )}
-            
+
             {onViewDetails && (
               <button
                 onClick={() => onViewDetails(trade)}
@@ -353,7 +354,7 @@ export function TradeStatusCard({
             )}
           </div>
         </div>
-        
+
         {/* Error Message */}
         {error && (
           <div className="mt-3 pt-3 border-t border-red-500/20 text-red-400 text-xs flex items-center gap-1">

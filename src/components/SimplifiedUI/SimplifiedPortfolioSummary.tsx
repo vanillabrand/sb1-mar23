@@ -3,17 +3,20 @@ import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, DollarSign, AlertCircle } from 'lucide-react';
 
 interface SimplifiedPortfolioSummaryProps {
-  value: number;
-  change: number;
-  isDemoMode: boolean;
+  value?: number;
+  change?: number;
+  isDemoMode?: boolean;
 }
 
 export function SimplifiedPortfolioSummary({
-  value,
-  change,
-  isDemoMode
+  value = 0,
+  change = 0,
+  isDemoMode = false
 }: SimplifiedPortfolioSummaryProps) {
-  const isPositive = change >= 0;
+  // Ensure we have valid numbers
+  const safeValue = typeof value === 'number' && !isNaN(value) ? value : 0;
+  const safeChange = typeof change === 'number' && !isNaN(change) ? change : 0;
+  const isPositive = safeChange >= 0;
 
   return (
     <motion.div
@@ -39,7 +42,7 @@ export function SimplifiedPortfolioSummary({
           <p className="text-sm text-gray-400 mb-1">Total Value</p>
           <div className="flex items-baseline">
             <span className="text-2xl font-bold text-white">
-              ${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${safeValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             {isDemoMode && (
               <span className="ml-2 text-xs text-neon-yellow">Demo</span>
@@ -57,13 +60,13 @@ export function SimplifiedPortfolioSummary({
               <TrendingDown className="w-5 h-5 text-neon-pink mr-2" />
             )}
             <span className={`text-2xl font-bold ${isPositive ? 'text-neon-turquoise' : 'text-neon-pink'}`}>
-              {isPositive ? '+' : ''}{change.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {isPositive ? '+' : ''}{safeChange.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
             <span className={`ml-1 text-lg ${isPositive ? 'text-neon-turquoise' : 'text-neon-pink'}`}>
               USD
             </span>
             <span className={`ml-2 text-sm ${isPositive ? 'text-neon-turquoise/70' : 'text-neon-pink/70'}`}>
-              ({isPositive ? '+' : ''}{((change / (value - change)) * 100).toFixed(2)}%)
+              ({isPositive ? '+' : ''}{safeValue > 0 ? ((safeChange / (safeValue - safeChange)) * 100).toFixed(2) : '0.00'}%)
             </span>
           </div>
         </div>

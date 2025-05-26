@@ -49,22 +49,7 @@ export const cardVariants: Variants = {
       delay: 0.1 + custom * STAGGER_DELAY // Slightly faster stagger
     }
   }),
-  hover: {
-    y: -3,
-    scale: 1.01,
-    boxShadow: "0 10px 25px rgba(0, 0, 0, 0.1)",
-    transition: {
-      duration: 0.3,
-      ease: SMOOTH_EASE
-    }
-  },
-  tap: {
-    scale: 0.98,
-    transition: {
-      duration: 0.1,
-      ease: SMOOTH_EASE
-    }
-  },
+  // Removed hover and tap effects
   exit: {
     opacity: 0,
     scale: 0.97,
@@ -108,20 +93,7 @@ export const buttonVariants: Variants = {
       ease: SMOOTH_EASE
     }
   },
-  hover: {
-    scale: 1.05,
-    transition: {
-      duration: 0.2,
-      ease: SMOOTH_EASE
-    }
-  },
-  tap: {
-    scale: 0.95,
-    transition: {
-      duration: 0.1,
-      ease: SMOOTH_EASE
-    }
-  }
+  // Removed button hover and tap scaling effects
 };
 
 // Subtle fade for search and filter elements
@@ -317,13 +289,7 @@ export const menuItemVariants: Variants = {
       delay: 0.1 + custom * 0.05
     }
   }),
-  hover: {
-    x: 3,
-    transition: {
-      duration: 0.2,
-      ease: SMOOTH_EASE
-    }
-  }
+  // Removed menu item hover effect
 };
 
 // Toast notification animation

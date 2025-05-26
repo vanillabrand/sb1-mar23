@@ -27,7 +27,7 @@ export const AnimatedPanel: React.FC<AnimatedPanelProps> = ({
   ...props
 }) => {
   const animation = useAnimationConfig(type);
-  
+
   return (
     <motion.div
       className={`${className}`}
@@ -35,8 +35,7 @@ export const AnimatedPanel: React.FC<AnimatedPanelProps> = ({
       initial={animation.initial}
       animate={animation.animate}
       exit={animation.exit}
-      whileHover={animation.whileHover}
-      whileTap={animation.whileTap}
+      // Removed hover and tap animations
       transition={{
         delay: delay + index * 0.1,
       }}
@@ -68,7 +67,7 @@ export const AnimatedContainer: React.FC<AnimatedContainerProps> = ({
   ...props
 }) => {
   const animation = useAnimationConfig('staggerContainer');
-  
+
   return (
     <motion.div
       className={className}
@@ -108,7 +107,7 @@ export const AnimatedCard: React.FC<AnimatedCardProps> = ({
   ...props
 }) => {
   const animation = useAnimationConfig('card');
-  
+
   return (
     <motion.div
       className={`${className}`}
@@ -116,8 +115,7 @@ export const AnimatedCard: React.FC<AnimatedCardProps> = ({
       initial={animation.initial}
       animate={animation.animate}
       exit={animation.exit}
-      whileHover={interactive ? animation.whileHover : undefined}
-      whileTap={interactive && onClick ? animation.whileTap : undefined}
+      // Removed hover and tap animations
       transition={{
         delay: delay + index * 0.08,
       }}
@@ -151,7 +149,7 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
   ...props
 }) => {
   const animation = useAnimationConfig('button');
-  
+
   return (
     <motion.button
       className={className}
@@ -160,8 +158,7 @@ export const AnimatedButton: React.FC<AnimatedButtonProps> = ({
       disabled={disabled}
       initial={animation.initial}
       animate={animation.animate}
-      whileHover={!disabled ? animation.whileHover : undefined}
-      whileTap={!disabled ? animation.whileTap : undefined}
+      // Removed hover and tap animations
       transition={{
         delay,
       }}
@@ -192,7 +189,7 @@ export const AnimatedListItem: React.FC<AnimatedListItemProps> = ({
   ...props
 }) => {
   const animation = useAnimationConfig('listItem');
-  
+
   return (
     <motion.li
       className={className}

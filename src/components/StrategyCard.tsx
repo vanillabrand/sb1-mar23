@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { ChevronDown, ChevronUp, Activity, DollarSign, BarChart3, Clock, Edit, ArrowUpRight, ArrowDownRight, Wallet } from 'lucide-react';
 import { RiskLevelBadge } from './risk/RiskLevelBadge';
 import { AssetPriceIndicator } from './AssetPriceIndicator';
+import { rustApiIntegration } from '../lib/rust-api-integration';
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
 import { marketService } from '../lib/market-service';
@@ -30,6 +31,8 @@ import { TradeBudgetPanel } from './TradeBudgetPanel';
 import BudgetValidationStatus from './BudgetValidationStatus';
 import TradeExecutionMetrics from './TradeExecutionMetrics';
 import { StrategyActivationWizard } from './StrategyActivationWizard';
+import { SimpleStrategyActivation } from './BeginnerUI/SimpleStrategyActivation';
+import { useExperienceMode } from '../hooks/useExperienceMode';
 import { ErrorDisplay } from './ErrorDisplay';
 import { TradeList } from './TradeList';
 import { SimplifiedTradeCreator } from './SimplifiedTradeCreator';
@@ -103,6 +106,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
   const [showBudgetAdjustmentModal, setShowBudgetAdjustmentModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showActivationWizard, setShowActivationWizard] = useState(false);
+  const { currentMode } = useExperienceMode();
   const [showTradeCreator, setShowTradeCreator] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
   const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
@@ -739,8 +743,23 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
           }
         }
 
-        // 3. Deactivate strategy in database
-        await strategyService.deactivateStrategy(strategy.id);
+        // 3. Initialize API client and deactivate strategy
+        await apiClient.initialize();
+
+        try {
+          const deactivatedStrategy = await apiClient.deactivateStrategy(strategy.id);
+          logService.log('info', 'Strategy deactivated via API client', { strategyId: strategy.id, response: deactivatedStrategy }, 'StrategyCard');
+        } catch (apiError) {
+          logService.log('warn', 'API client deactivation failed, trying Rust API integration', apiError, 'StrategyCard');
+          try {
+            const rustResponse = await rustApiIntegration.deactivateStrategy(strategy.id);
+            logService.log('info', 'Strategy deactivated via Rust API integration', { strategyId: strategy.id, response: rustResponse }, 'StrategyCard');
+          } catch (rustError) {
+            logService.log('warn', 'Rust API deactivation failed, falling back to legacy service', rustError, 'StrategyCard');
+            // Fallback to legacy service
+            await strategyService.deactivateStrategy(strategy.id);
+          }
+        }
 
         // 4. Remove from monitoring services
         try {
@@ -820,39 +839,73 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       // Ensure strategy has required configuration
       const enhancedStrategy = await ensureStrategyConfiguration(strategy);
 
-      // 1. Activate strategy in database
-      const updatedStrategy = await strategyService.activateStrategy(enhancedStrategy.id);
+      // 1. Initialize API client first
+      await apiClient.initialize();
+
+      // 2. Activate strategy using API client directly (which uses Rust API)
+      let activatedStrategy;
+      try {
+        activatedStrategy = await apiClient.activateStrategy(enhancedStrategy.id);
+        logService.log('info', 'Strategy activated via API client', { strategyId: enhancedStrategy.id, response: activatedStrategy }, 'StrategyCard');
+      } catch (apiError) {
+        logService.log('warn', 'API client activation failed, trying Rust API integration', apiError, 'StrategyCard');
+        try {
+          const rustResponse = await rustApiIntegration.activateStrategy(enhancedStrategy.id);
+          logService.log('info', 'Strategy activated via Rust API integration', { strategyId: enhancedStrategy.id, response: rustResponse }, 'StrategyCard');
+          activatedStrategy = rustResponse;
+        } catch (rustError) {
+          logService.log('warn', 'Rust API activation failed, falling back to legacy service', rustError, 'StrategyCard');
+          // Fallback to legacy service
+          activatedStrategy = await strategyService.activateStrategy(enhancedStrategy.id);
+        }
+      }
+
+      // Update enhanced strategy with activation result
+      if (activatedStrategy) {
+        Object.assign(enhancedStrategy, activatedStrategy);
+      }
 
       try {
         // 2. Start market monitoring - wrapped in try/catch to prevent errors
-        await marketService.startStrategyMonitoring(updatedStrategy);
+        await marketService.startStrategyMonitoring(enhancedStrategy);
       } catch (marketError) {
         logService.log('warn', 'Error starting market monitoring, continuing with activation',
           marketError, 'StrategyCard');
       }
 
-      try {
-        // 3. Add strategy to trade generator
-        await tradeGenerator.addStrategy(updatedStrategy as any);
-      } catch (generatorError) {
-        logService.log('warn', 'Error adding strategy to trade generator, continuing with activation',
-          generatorError, 'StrategyCard');
-      }
+      // 3. Initialize all monitoring services in parallel
+      const initPromises = [];
 
-      try {
-        // 4. Initialize strategy monitoring
-        await strategyMonitor.addStrategy(updatedStrategy as any);
-      } catch (monitorError) {
-        logService.log('warn', 'Error adding strategy to monitor, continuing with activation',
-          monitorError, 'StrategyCard');
-      }
+      // Add strategy to trade generator
+      initPromises.push(
+        tradeGenerator.addStrategy(enhancedStrategy as any).catch(error => {
+          logService.log('warn', 'Error adding strategy to trade generator', error, 'StrategyCard');
+        })
+      );
 
+      // Initialize strategy monitoring
+      initPromises.push(
+        strategyMonitor.addStrategy(enhancedStrategy as any).catch(error => {
+          logService.log('warn', 'Error adding strategy to monitor', error, 'StrategyCard');
+        })
+      );
+
+      // Start trade engine monitoring
+      initPromises.push(
+        tradeEngine.addStrategy(enhancedStrategy as any).catch(error => {
+          logService.log('warn', 'Error adding strategy to trade engine', error, 'StrategyCard');
+        })
+      );
+
+      // Wait for all initialization to complete
+      await Promise.allSettled(initPromises);
+
+      // 4. Force immediate trade generation
       try {
-        // 5. Start trade engine monitoring
-        await tradeEngine.addStrategy(updatedStrategy as any);
-      } catch (engineError) {
-        logService.log('warn', 'Error adding strategy to trade engine, continuing with activation',
-          engineError, 'StrategyCard');
+        await tradeGenerator.checkStrategyForTrades(enhancedStrategy as any);
+        logService.log('info', `Immediate trade check completed for strategy ${enhancedStrategy.id}`, null, 'StrategyCard');
+      } catch (tradeError) {
+        logService.log('warn', 'Error in immediate trade generation', tradeError, 'StrategyCard');
       }
 
       // 6. Refresh data
@@ -868,7 +921,7 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
       logService.log('info', `Strategy ${strategy.id} activated with budget`,
         { strategyId: strategy.id, budgetAmount: budget.total }, 'StrategyCard');
 
-      return updatedStrategy;
+      return enhancedStrategy;
     } catch (error) {
       logService.log('error', 'Failed to activate strategy with budget', error, 'StrategyCard');
       throw error;
@@ -1202,7 +1255,10 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
 
         {/* Strategy Details (Expanded) */}
         {isExpanded && (
-          <div className="mt-6 pt-6 border-t border-gunmetal-700/50 space-y-6">
+          <div
+            className="mt-6 pt-6 border-t border-gunmetal-700/50 space-y-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             {/* Trading Parameters */}
             <div className="mb-6">
               <h4 className="text-sm font-medium text-neon-turquoise mb-4 flex items-center gap-2 uppercase tracking-wider">
@@ -1713,21 +1769,37 @@ export function StrategyCard({ strategy, isExpanded, onToggleExpand, onRefresh, 
         {/* No pulsing animation */}
       </motion.div>
 
-      {/* Strategy Activation Wizard */}
+      {/* Strategy Activation - Simple for beginners, full wizard for others */}
       {showActivationWizard && (
-        <StrategyActivationWizard
-          strategy={strategy}
-          onComplete={(success) => {
-            setShowActivationWizard(false);
-            if (success && onRefresh) {
-              onRefresh();
-            }
-          }}
-          onCancel={() => {
-            setShowActivationWizard(false);
-          }}
-          maxBudget={availableBalance}
-        />
+        currentMode === 'beginner' ? (
+          <SimpleStrategyActivation
+            strategy={strategy}
+            onComplete={(success) => {
+              setShowActivationWizard(false);
+              if (success && onRefresh) {
+                onRefresh();
+              }
+            }}
+            onCancel={() => {
+              setShowActivationWizard(false);
+            }}
+            maxBudget={availableBalance}
+          />
+        ) : (
+          <StrategyActivationWizard
+            strategy={strategy}
+            onComplete={(success) => {
+              setShowActivationWizard(false);
+              if (success && onRefresh) {
+                onRefresh();
+              }
+            }}
+            onCancel={() => {
+              setShowActivationWizard(false);
+            }}
+            maxBudget={availableBalance}
+          />
+        )
       )}
 
       {/* Simplified Trade Creator */}

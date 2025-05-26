@@ -94,43 +94,11 @@ export const AnimatedStats: React.FC = () => {
         const x = (e.clientX - rect.left) / rect.width - 0.5;
         const y = (e.clientY - rect.top) / rect.height - 0.5;
 
-        gsap.to(card, {
-          rotationY: x * 10,
-          rotationX: -y * 10,
-          transformPerspective: 1000,
-          duration: 0.4,
-          ease: 'power2.out'
-        });
-
-        // Move icon slightly
-        const icon = card.querySelector('.stat-icon');
-        if (icon) {
-          gsap.to(icon, {
-            x: x * 15,
-            y: y * 15,
-            duration: 0.4,
-            ease: 'power2.out'
-          });
-        }
+        // Removed 3D hover effects and icon movement
       };
 
       const handleMouseLeave = () => {
-        gsap.to(card, {
-          rotationY: 0,
-          rotationX: 0,
-          duration: 0.7,
-          ease: 'elastic.out(1, 0.3)'
-        });
-
-        const icon = card.querySelector('.stat-icon');
-        if (icon) {
-          gsap.to(icon, {
-            x: 0,
-            y: 0,
-            duration: 0.7,
-            ease: 'elastic.out(1, 0.3)'
-          });
-        }
+        // Removed mouse leave animations
       };
 
       card.addEventListener('mousemove', (e: Event) => handleMouseMove(e as MouseEvent));

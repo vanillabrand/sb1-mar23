@@ -106,8 +106,7 @@ export function SimplifiedStrategyWizard({ onComplete, onCancel }: SimplifiedStr
         description,
         risk_level: riskLevel,
         selected_pairs: selectedPairs.length > 0 ? selectedPairs : ['BTC_USDT'],
-        market_type: marketType,
-        marketType: marketType
+        market_type: marketType // Only use database column name
       });
 
       if (!strategy || !strategy.id) {

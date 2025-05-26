@@ -12,7 +12,7 @@ pub struct Strategy {
     pub user_id: Uuid,
     pub name: String,
     pub description: Option<String>,
-    #[serde(default = "default_type")]
+    #[serde(default = "default_type", rename = "type")]
     pub type_: String,
     #[serde(default = "default_status")]
     pub status: String,
@@ -27,6 +27,14 @@ pub struct Strategy {
     #[serde(default = "default_performance")]
     pub performance: f64,
     pub last_adapted_at: Option<DateTime<Utc>>,
+    #[serde(default = "default_budget")]
+    pub budget: f64,
+}
+
+impl Strategy {
+    pub fn symbols(&self) -> &Vec<String> {
+        &self.selected_pairs
+    }
 }
 
 fn default_type() -> String {
@@ -65,4 +73,8 @@ fn default_strategy_config() -> Value {
 
 fn default_performance() -> f64 {
     0.0
+}
+
+fn default_budget() -> f64 {
+    1000.0
 }

@@ -609,6 +609,10 @@ class StrategySync extends EventEmitter {
     }
   }
 
+  getStrategies(): Strategy[] {
+    return this.getAllStrategies();
+  }
+
   getAllStrategies(): Strategy[] {
     return Array.from(this.strategies.values());
   }

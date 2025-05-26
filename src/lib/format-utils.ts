@@ -155,3 +155,104 @@ export function formatCurrency(value: number, currency: string = 'USD', locale: 
 
   return formatter.format(value);
 }
+
+/**
+ * Formats a date string or Date object into a readable format
+ * @param date Date string or Date object
+ * @param format Format type ('short', 'medium', 'long', 'relative')
+ * @returns Formatted date string
+ */
+export function formatDate(date: string | Date, format: 'short' | 'medium' | 'long' | 'relative' = 'medium'): string {
+  if (!date) return '';
+
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
+
+  if (isNaN(dateObj.getTime())) {
+    return 'Invalid Date';
+  }
+
+  const now = new Date();
+  const diffMs = now.getTime() - dateObj.getTime();
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (format === 'relative') {
+    if (diffMinutes < 1) {
+      return 'Just now';
+    } else if (diffMinutes < 60) {
+      return `${diffMinutes}m ago`;
+    } else if (diffHours < 24) {
+      return `${diffHours}h ago`;
+    } else if (diffDays < 7) {
+      return `${diffDays}d ago`;
+    } else {
+      return dateObj.toLocaleDateString();
+    }
+  }
+
+  switch (format) {
+    case 'short':
+      return dateObj.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric'
+      });
+    case 'long':
+      return dateObj.toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    case 'medium':
+    default:
+      return dateObj.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+  }
+}
+
+/**
+ * Formats a percentage value
+ * @param value Number to format as percentage
+ * @param decimals Number of decimal places (default: 2)
+ * @returns Formatted percentage string
+ */
+export function formatPercentage(value: number, decimals: number = 2): string {
+  if (value === null || value === undefined || isNaN(value)) {
+    return '0.00%';
+  }
+
+  return `${value.toFixed(decimals)}%`;
+}
+
+/**
+ * Formats a number with appropriate precision
+ * @param value Number to format
+ * @param decimals Number of decimal places (default: auto)
+ * @returns Formatted number string
+ */
+export function formatNumber(value: number, decimals?: number): string {
+  if (value === null || value === undefined || isNaN(value)) {
+    return '0';
+  }
+
+  if (decimals !== undefined) {
+    return value.toFixed(decimals);
+  }
+
+  // Auto-determine decimal places based on value
+  if (Math.abs(value) >= 1000) {
+    return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  } else if (Math.abs(value) >= 1) {
+    return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
+  } else if (Math.abs(value) >= 0.01) {
+    return value.toLocaleString('en-US', { maximumFractionDigits: 4 });
+  } else {
+    return value.toLocaleString('en-US', { maximumFractionDigits: 8 });
+  }
+}

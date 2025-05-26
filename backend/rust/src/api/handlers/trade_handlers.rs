@@ -2,13 +2,12 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::db::SupabaseClient;
+use crate::db::supabase::SupabaseClient;
 use crate::error::ApiError;
 use crate::models::Trade;
 use crate::services::trade_service::TradeService;
 use crate::services::strategy_service::StrategyService;
-use crate::services::deepseek_service::DeepseekService;
-use crate::services::exchange_service::ExchangeService;
+use std::sync::Arc;
 use crate::api::middleware::extract_user_id;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -29,33 +28,18 @@ pub struct TradeRequest {
 pub async fn get_trades(
     req: HttpRequest,
     query: web::Query<std::collections::HashMap<String, String>>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
-    let _user_id = extract_user_id(&req)?;
-    
+    let user_id = extract_user_id(&req)?;
+
     // Get query parameters
     let strategy_id = query.get("strategy_id").map(|s| s.as_str());
-    let status = query.get("status").map(|s| s.as_str());
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Get trades
-    let trades = trade_service.get_trades(strategy_id, status).await?;
-    
+    let _status = query.get("status").map(|s| s.as_str());
+
+    // Fetch trades using service
+    let trades = trade_service.get_trades(strategy_id, Some(&user_id)).await?;
+
     Ok(HttpResponse::Ok().json(trades))
 }
 
@@ -63,32 +47,17 @@ pub async fn get_trades(
 pub async fn get_trade(
     req: HttpRequest,
     path: web::Path<String>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Get trade ID from path
     let trade_id = path.into_inner();
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Get trade
+
+    // Fetch trade using service
     let trade = trade_service.get_trade(&trade_id).await?;
-    
+
     Ok(HttpResponse::Ok().json(trade))
 }
 
@@ -96,14 +65,15 @@ pub async fn get_trade(
 pub async fn create_trade(
     req: HttpRequest,
     trade_req: web::Json<TradeRequest>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
-    let _user_id = extract_user_id(&req)?;
-    
+    let user_id = extract_user_id(&req)?;
+
     // Create trade object
     let trade = Trade {
         id: Uuid::new_v4(),
+        user_id: Uuid::parse_str(&user_id).map_err(|_| ApiError::Validation("Invalid user ID".to_string()))?,
         strategy_id: Uuid::parse_str(&trade_req.strategy_id).map_err(|_| ApiError::Validation("Invalid strategy ID".to_string()))?,
         symbol: trade_req.symbol.clone(),
         side: trade_req.side.clone(),
@@ -114,6 +84,7 @@ pub async fn create_trade(
         profit: None,
         timestamp: chrono::Utc::now().timestamp_millis(),
         created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
         executed_at: None,
         closed_at: None,
         order_id: None,
@@ -124,25 +95,10 @@ pub async fn create_trade(
         trailing_stop: trade_req.trailing_stop,
         metadata: serde_json::json!({}),
     };
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Create trade
+
+    // Create trade using service
     let created_trade = trade_service.create_trade(trade).await?;
-    
+
     Ok(HttpResponse::Created().json(created_trade))
 }
 
@@ -151,33 +107,19 @@ pub async fn update_trade(
     req: HttpRequest,
     path: web::Path<String>,
     trade_req: web::Json<TradeRequest>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
-    let _user_id = extract_user_id(&req)?;
-    
+    let user_id = extract_user_id(&req)?;
+
     // Get trade ID from path
     let trade_id = path.into_inner();
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
+
     // Get existing trade
     let mut trade = trade_service.get_trade(&trade_id).await?;
-    
-    // Update trade
+
+    // Update trade fields
+    trade.strategy_id = Uuid::parse_str(&trade_req.strategy_id).map_err(|_| ApiError::Validation("Invalid strategy ID".to_string()))?;
     trade.symbol = trade_req.symbol.clone();
     trade.side = trade_req.side.clone();
     trade.amount = trade_req.amount;
@@ -185,16 +127,13 @@ pub async fn update_trade(
     trade.stop_loss = trade_req.stop_loss;
     trade.take_profit = trade_req.take_profit;
     trade.trailing_stop = trade_req.trailing_stop;
-    
-    if let Some(market_type) = &trade_req.market_type {
-        trade.market_type = market_type.clone();
-    }
-    
+    trade.market_type = trade_req.market_type.clone().unwrap_or_else(|| "spot".to_string());
     trade.leverage = trade_req.leverage;
-    
-    // Update trade
+    trade.updated_at = chrono::Utc::now();
+
+    // Update trade using service
     let updated_trade = trade_service.update_trade(&trade_id, trade).await?;
-    
+
     Ok(HttpResponse::Ok().json(updated_trade))
 }
 
@@ -202,32 +141,17 @@ pub async fn update_trade(
 pub async fn delete_trade(
     req: HttpRequest,
     path: web::Path<String>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Get trade ID from path
     let trade_id = path.into_inner();
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Delete trade
+
+    // Delete trade using service
     trade_service.delete_trade(&trade_id).await?;
-    
+
     Ok(HttpResponse::NoContent().finish())
 }
 
@@ -235,32 +159,17 @@ pub async fn delete_trade(
 pub async fn execute_trade(
     req: HttpRequest,
     path: web::Path<String>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Get trade ID from path
     let trade_id = path.into_inner();
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Execute trade
+
+    // Execute trade using service
     let executed_trade = trade_service.execute_trade(&trade_id).await?;
-    
+
     Ok(HttpResponse::Ok().json(executed_trade))
 }
 
@@ -268,32 +177,17 @@ pub async fn execute_trade(
 pub async fn close_trade(
     req: HttpRequest,
     path: web::Path<String>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Get trade ID from path
     let trade_id = path.into_inner();
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Close trade
+
+    // Close trade using service
     let closed_trade = trade_service.close_trade(&trade_id).await?;
-    
+
     Ok(HttpResponse::Ok().json(closed_trade))
 }
 
@@ -302,35 +196,20 @@ pub async fn get_trades_by_strategy(
     req: HttpRequest,
     path: web::Path<String>,
     query: web::Query<std::collections::HashMap<String, String>>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
-    let _user_id = extract_user_id(&req)?;
-    
+    let user_id = extract_user_id(&req)?;
+
     // Get strategy ID from path
     let strategy_id = path.into_inner();
-    
+
     // Get query parameters
-    let status = query.get("status").map(|s| s.as_str());
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Get trades
-    let trades = trade_service.get_trades(Some(&strategy_id), status).await?;
-    
+    let _status = query.get("status").map(|s| s.as_str());
+
+    // Get trades by strategy using service
+    let trades = trade_service.get_trades(Some(&strategy_id), Some(&user_id)).await?;
+
     Ok(HttpResponse::Ok().json(trades))
 }
 
@@ -339,31 +218,17 @@ pub async fn generate_trades(
     req: HttpRequest,
     path: web::Path<String>,
     market_data: web::Json<serde_json::Value>,
-    db: web::Data<SupabaseClient>,
+    trade_service: web::Data<Arc<TradeService>>,
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
-    let _user_id = extract_user_id(&req)?;
-    
+    let user_id = extract_user_id(&req)?;
+
     // Get strategy ID from path
     let strategy_id = path.into_inner();
-    
-    // Create services
-    let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-    );
-    
-    let exchange_service = ExchangeService::new(true);
-    
-    let trade_service = TradeService::new(
-        db.into_inner(),
-        web::Data::new(DeepseekService::new()).into_inner(),
-        web::Data::new(exchange_service).into_inner(),
-        web::Data::new(strategy_service).into_inner(),
-    );
-    
-    // Generate trades
-    let trades = trade_service.generate_trades(&strategy_id, market_data.into_inner()).await?;
-    
+
+    // Generate trades using service
+    let trades = trade_service.generate_trades(&strategy_id, &user_id, market_data.into_inner()).await?;
+
     Ok(HttpResponse::Ok().json(trades))
 }
+

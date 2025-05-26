@@ -4,6 +4,7 @@ import { supabase } from './supabase';
 import { v4 as uuidv4 } from 'uuid';
 import type { StrategyBudget, TradeService as TradeServiceInterface } from './types';
 import { eventBus } from './event-bus';
+import { apiClient } from './api-client';
 
 class TradeService extends EventEmitter implements TradeServiceInterface {
   private static instance: TradeService;
@@ -200,38 +201,62 @@ class TradeService extends EventEmitter implements TradeServiceInterface {
    */
   async getAllTrades(strategyId?: string, status?: string): Promise<any[]> {
     try {
-      logService.log('info', 'Fetching all trades', { strategyId, status }, 'TradeService');
+      logService.log('info', 'Fetching all trades via Rust API', { strategyId, status }, 'TradeService');
 
-      // Build the query
-      let query = supabase.from('trades').select('*');
+      // Initialize API client
+      await apiClient.initialize();
 
-      // Add filters if provided
-      if (strategyId) {
-        query = query.eq('strategy_id', strategyId);
+      try {
+        // Try to get trades from the Rust API first
+        const params: any = {};
+        if (strategyId) params.strategy_id = strategyId;
+        if (status) params.status = status;
+
+        const trades = await apiClient.getTrades(params);
+        const tradesArray = Array.isArray(trades) ? trades : [];
+        logService.log('info', `Successfully fetched ${tradesArray.length} trades via Rust API`, { strategyId, status }, 'TradeService');
+        return tradesArray;
+      } catch (apiError) {
+        logService.log('warn', 'Failed to fetch trades via Rust API, falling back to Supabase', apiError, 'TradeService');
+
+        // Fall back to direct Supabase access
+        let query = supabase.from('trades').select('*');
+
+        // Add filters if provided
+        if (strategyId) {
+          query = query.eq('strategy_id', strategyId);
+        }
+
+        if (status) {
+          query = query.eq('status', status);
+        }
+
+        // Order by created_at descending (newest first)
+        query = query.order('created_at', { ascending: false });
+
+        // Execute the query
+        const { data, error } = await query;
+
+        if (error) {
+          throw error;
+        }
+
+        return data || [];
       }
-
-      if (status) {
-        query = query.eq('status', status);
-      }
-
-      // Order by created_at descending (newest first)
-      query = query.order('created_at', { ascending: false });
-
-      // Execute the query
-      const { data, error } = await query;
-
-      if (error) {
-        throw error;
-      }
-
-      return data || [];
     } catch (error) {
       logService.log('error', 'Failed to fetch trades', error, 'TradeService');
       return [];
     }
   }
 
-
+  /**
+   * Get trades for a specific strategy
+   * @param strategyId The strategy ID
+   * @returns Promise<any[]> Array of trades for the strategy
+   */
+  async getTradesByStrategy(strategyId: string): Promise<any[]> {
+    return this.getAllTrades(strategyId);
+  }
 
   /**
    * Simple version of updateBudgetCache for basic updates

@@ -179,15 +179,7 @@ export function DefconMonitor({ strategies, className = '', volatility, marketCo
     }
   };
 
-  const getBorderColor = (level: number) => {
-    switch (level) {
-      case 1: return 'border-red-500/20';
-      case 2: return 'border-orange-500/20';
-      case 3: return 'border-yellow-500/20';
-      case 4: return 'border-blue-500/20';
-      default: return 'border-green-500/20';
-    }
-  };
+  // Removed border colors - no borders on panels
 
   const getDefconRingColor = (level: number) => {
     switch (level) {

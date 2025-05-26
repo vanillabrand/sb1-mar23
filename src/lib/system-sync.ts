@@ -7,6 +7,8 @@ import { config } from './config';
 import { initializeEnhancedServices, cleanupEnhancedServices } from './enhanced-services';
 import { websocketPerformanceMonitor } from './websocket-performance-monitor';
 import { performanceOptimizer } from './performance-optimizer';
+import { backendSyncService } from './backend-sync-service';
+import { loginSyncService } from './login-sync-service';
 
 class SystemSync {
   private initialized = false;
@@ -370,6 +372,17 @@ class SystemSync {
       // Initialize enhanced services
       await initializeEnhancedServices();
 
+      // Start backend synchronization service
+      try {
+        await backendSyncService.start();
+        logService.log('info', 'Backend sync service started', null, 'SystemSync');
+      } catch (syncError) {
+        logService.log('warn', 'Backend sync service failed to start, continuing anyway', syncError, 'SystemSync');
+      }
+
+      // Initialize login sync service (sets up event listeners)
+      loginSyncService.getStatus(); // This initializes the service
+
       // Preload resources in the background after enhanced services are initialized
       this.preloadResources();
 
@@ -398,10 +411,10 @@ class SystemSync {
 
         // Import required services
         import('./image-optimizer').then(({ imageOptimizer }) => {
-          // Preload common images
+          // Preload existing images including crypto icons
           const commonImages = [
-            '/logo.png',
-            '/assets/background.jpg',
+            '/logo.svg',
+            '/vite.svg',
             '/assets/icons/btc.svg',
             '/assets/icons/eth.svg',
             '/assets/icons/usdt.svg'
@@ -412,8 +425,8 @@ class SystemSync {
             // Stagger image preloading to avoid network congestion
             setTimeout(() => {
               imageOptimizer.preloadImage(imageSrc, {
-                width: 100,
-                height: 100,
+                width: 32,
+                height: 32,
                 format: 'webp',
                 quality: 80
               });
@@ -472,6 +485,14 @@ class SystemSync {
         websocketPerformanceMonitor.stopMonitoring();
       } catch (error) {
         logService.log('warn', 'Failed to clean up WebSocket service', error, 'SystemSync');
+      }
+
+      // Stop backend sync service
+      try {
+        backendSyncService.stop();
+        logService.log('info', 'Backend sync service stopped', null, 'SystemSync');
+      } catch (error) {
+        logService.log('warn', 'Failed to stop backend sync service', error, 'SystemSync');
       }
 
       // Clean up enhanced services

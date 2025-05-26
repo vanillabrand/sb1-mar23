@@ -3,6 +3,7 @@ import { logService } from './log-service';
 import { marketDataWebSocket, MarketDataUpdate } from './market-data-websocket';
 import { cacheService } from './cache-service';
 import { eventBus } from './event-bus';
+import { apiClient } from './api-client';
 import type { MarketData } from './types';
 
 class MarketDataService extends EventEmitter {
@@ -96,7 +97,20 @@ class MarketDataService extends EventEmitter {
       // Check if we have the data in memory
       let data = this.marketData.get(normalizedSymbol);
 
-      // If not in memory, try to get from WebSocket service
+      // If not in memory, try to get from Rust API first
+      if (!data) {
+        try {
+          const rustData = await this.fetchFromRustAPI(normalizedSymbol);
+          if (rustData) {
+            data = rustData;
+            this.marketData.set(normalizedSymbol, data);
+          }
+        } catch (error) {
+          logService.log('warn', `Failed to fetch from Rust API for ${normalizedSymbol}, falling back to WebSocket`, error, 'MarketDataService');
+        }
+      }
+
+      // If not from Rust API, try to get from WebSocket service
       if (!data) {
         const wsData = marketDataWebSocket.getLatestMarketData(normalizedSymbol);
 
@@ -148,6 +162,45 @@ class MarketDataService extends EventEmitter {
       return data;
     } catch (error) {
       logService.log('error', `Failed to get market data for ${symbol}`, error, 'MarketDataService');
+      return undefined;
+    }
+  }
+
+  /**
+   * Fetch market data from Rust API
+   * @param symbol Trading pair symbol
+   * @returns Promise that resolves to the market data or undefined if not available
+   */
+  private async fetchFromRustAPI(symbol: string): Promise<MarketData | undefined> {
+    try {
+      // Convert symbol format for Rust API (BTC/USDT -> BTC-USDT)
+      const rustSymbol = symbol.replace('/', '-');
+
+      // Fetch from Rust API
+      const response = await apiClient.get(`/api/market/data/${rustSymbol}`);
+
+      if (response && response.symbol) {
+        // Convert Rust API response to MarketData format
+        const data: MarketData = {
+          symbol: response.symbol.replace('-', '/'), // Convert back to standard format
+          price: response.price || 0,
+          bid: response.bid || response.price || 0,
+          ask: response.ask || response.price || 0,
+          high24h: response.high_24h || response.price || 0,
+          low24h: response.low_24h || response.price || 0,
+          volume24h: response.volume_24h || 0,
+          change24h: response.change_24h || 0,
+          lastUpdate: response.timestamp || Date.now(),
+          source: 'rust-api'
+        };
+
+        logService.log('debug', `Fetched market data from Rust API for ${symbol}`, data, 'MarketDataService');
+        return data;
+      }
+
+      return undefined;
+    } catch (error) {
+      logService.log('error', `Failed to fetch market data from Rust API for ${symbol}`, error, 'MarketDataService');
       return undefined;
     }
   }
@@ -368,6 +421,21 @@ class MarketDataService extends EventEmitter {
       // Normalize the symbol
       const normalizedSymbol = this.normalizeSymbol(symbol);
 
+      // Try to get order book from Rust API first
+      try {
+        const rustSymbol = normalizedSymbol.replace('/', '-');
+        const orderBookData = await apiClient.get(`/api/market/orderbook/${rustSymbol}?limit=20`);
+
+        if (orderBookData && orderBookData.bids && orderBookData.asks) {
+          return {
+            bids: orderBookData.bids,
+            asks: orderBookData.asks
+          };
+        }
+      } catch (error) {
+        logService.log('warn', `Failed to fetch order book from Rust API for ${normalizedSymbol}, falling back to WebSocket`, error, 'MarketDataService');
+      }
+
       // Try to get order book from WebSocket service
       const orderBook = marketDataWebSocket.getOrderBook?.(normalizedSymbol);
 
@@ -411,6 +479,73 @@ class MarketDataService extends EventEmitter {
     } catch (error) {
       logService.log('error', `Failed to get order book for ${symbol}`, error, 'MarketDataService');
       return undefined;
+    }
+  }
+
+  /**
+   * Get market tickers from Rust API
+   * @returns Promise that resolves to array of market tickers
+   */
+  async getMarketTickers(): Promise<MarketData[]> {
+    try {
+      // Try to get tickers from Rust API first
+      const tickersData = await apiClient.get('/api/market/tickers');
+
+      if (tickersData && Array.isArray(tickersData)) {
+        const tickers: MarketData[] = tickersData.map((ticker: any) => ({
+          symbol: ticker.symbol?.replace('-', '/') || '',
+          price: ticker.price || 0,
+          bid: ticker.bid || ticker.price || 0,
+          ask: ticker.ask || ticker.price || 0,
+          high24h: ticker.high_24h || ticker.price || 0,
+          low24h: ticker.low_24h || ticker.price || 0,
+          volume24h: ticker.volume_24h || 0,
+          change24h: ticker.change_24h || 0,
+          lastUpdate: ticker.timestamp || Date.now(),
+          source: 'rust-api'
+        }));
+
+        // Update local cache
+        tickers.forEach(ticker => {
+          if (ticker.symbol) {
+            this.marketData.set(ticker.symbol, ticker);
+          }
+        });
+
+        logService.log('debug', `Fetched ${tickers.length} market tickers from Rust API`, null, 'MarketDataService');
+        return tickers;
+      }
+
+      return [];
+    } catch (error) {
+      logService.log('error', 'Failed to fetch market tickers from Rust API', error, 'MarketDataService');
+      return [];
+    }
+  }
+
+  /**
+   * Get candlestick data from Rust API
+   * @param symbol Trading pair symbol
+   * @param timeframe Timeframe (1m, 5m, 1h, 1d, etc.)
+   * @param limit Number of candles to fetch
+   * @returns Promise that resolves to candlestick data
+   */
+  async getCandlestickData(symbol: string, timeframe: string = '1h', limit: number = 100): Promise<any[]> {
+    try {
+      const normalizedSymbol = this.normalizeSymbol(symbol);
+      const rustSymbol = normalizedSymbol.replace('/', '-');
+
+      const candleData = await apiClient.get(`/api/market/candles/${rustSymbol}?timeframe=${timeframe}&limit=${limit}`);
+
+      if (candleData && Array.isArray(candleData)) {
+        logService.log('debug', `Fetched ${candleData.length} candles for ${symbol}`, { timeframe, limit }, 'MarketDataService');
+        return candleData;
+      }
+
+      return [];
+    } catch (error) {
+      logService.log('error', `Failed to fetch candlestick data for ${symbol}`, error, 'MarketDataService');
+      return [];
     }
   }
 

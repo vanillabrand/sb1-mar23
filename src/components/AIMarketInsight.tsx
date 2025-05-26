@@ -52,7 +52,14 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
   };
 
   const fetchInsights = async () => {
+    // Prevent multiple simultaneous fetches
+    if (isFetchingRef.current) {
+      logService.log('info', 'Fetch already in progress, skipping', null, 'AIMarketInsight');
+      return;
+    }
+
     try {
+      isFetchingRef.current = true;
       setError(null);
 
       // Start with loading state
@@ -141,9 +148,22 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
         // Continue with normal loading
       }
 
+      // Add timeout to prevent getting stuck
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Market insights request timed out after 15 seconds'));
+        }, 15000);
+      });
+
       // Use the global cache service to get the latest data (may be from cache or fresh)
       // Pass skipRefresh=true to prevent triggering background refreshes
-      const marketInsights = await globalCacheService.getMarketInsights(assetList, true);
+      const insightsPromise = globalCacheService.getMarketInsights(assetList, true);
+
+      // Race between the insights request and timeout
+      const marketInsights = await Promise.race([insightsPromise, timeoutPromise]);
+
+      if (!isMountedRef.current) return; // Component unmounted
+
       setInsights(marketInsights);
 
       logService.log('info', 'Successfully fetched market insights', { timestamp: Date.now() }, 'AIMarketInsight');
@@ -155,13 +175,41 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
       const lastUpdateTime = globalCacheService.getMarketInsightsLastUpdate();
       setLastUpdateTime(lastUpdateTime);
     } catch (err) {
-      setError('Failed to generate market insights');
+      if (!isMountedRef.current) return; // Component unmounted
+
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate market insights';
+      setError(errorMessage);
       logService.log('error', 'Error fetching market insights', err, 'AIMarketInsight');
       setSentimentDistribution(DEFAULT_DISTRIBUTION);
+
+      // Show fallback synthetic insights if available
+      try {
+        const fallbackInsights = {
+          timestamp: Date.now(),
+          assets: assetList.map(asset => ({
+            symbol: asset,
+            sentiment: 'neutral' as const,
+            signals: ['Market data temporarily unavailable'],
+            riskLevel: 'medium' as const
+          })),
+          marketConditions: {
+            trend: 'sideways' as const,
+            volatility: 'medium' as const,
+            volume: 'medium' as const
+          },
+          recommendations: ['Please try refreshing in a few moments']
+        };
+        setInsights(fallbackInsights);
+      } catch (fallbackError) {
+        logService.log('error', 'Failed to create fallback insights', fallbackError, 'AIMarketInsight');
+      }
     } finally {
-      // Ensure loading state is turned off
-      setLoading(false);
-      setRefreshing(false);
+      // Ensure loading state is turned off and fetch flag is reset
+      if (isMountedRef.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
+      isFetchingRef.current = false;
     }
   };
 
@@ -171,6 +219,14 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
   const isFetchingRef = useRef(false);
   // Reference to track the last fetch time to prevent too frequent updates
   const lastFetchTimeRef = useRef(0);
+
+  // Cleanup effect
+  useEffect(() => {
+    return () => {
+      isMountedRef.current = false;
+      isFetchingRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     // Initial fetch only if we haven't fetched recently
@@ -210,8 +266,11 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
   }, [assets]);
 
   const handleRefresh = async () => {
+    if (refreshing || isFetchingRef.current) return;
+
     try {
       setRefreshing(true);
+      setError(null);
 
       // Get assets from props or from user strategies
       let assetList: string[];
@@ -266,16 +325,32 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
         }
       }
 
+      // Add timeout for refresh operation
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => {
+          reject(new Error('Refresh operation timed out after 20 seconds'));
+        }, 20000);
+      });
+
       // Force a refresh of the global cache with the specific assets
-      await globalCacheService.forceRefreshMarketInsights(assetList);
+      const refreshPromise = globalCacheService.forceRefreshMarketInsights(assetList);
+
+      await Promise.race([refreshPromise, timeoutPromise]);
+
+      if (!isMountedRef.current) return;
 
       // Then fetch the updated insights
       await fetchInsights();
     } catch (error) {
+      if (!isMountedRef.current) return;
+
+      const errorMessage = error instanceof Error ? error.message : 'Failed to refresh market insights';
       logService.log('error', 'Error refreshing market insights', error, 'AIMarketInsight');
-      setError('Failed to refresh market insights');
+      setError(errorMessage);
     } finally {
-      setRefreshing(false);
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
     }
   };
 
@@ -292,8 +367,22 @@ function AIMarketInsightContent({ assets, className = "" }: AIMarketInsightProps
 
   if (error && !insights) {
     return (
-      <div className={`${className} flex flex-col items-center justify-center h-[300px]`}>
-        <p className="text-gray-400">{error}</p>
+      <div className={`${className} flex flex-col items-center justify-center h-[300px] space-y-4`}>
+        <p className="text-gray-400 text-center">{error}</p>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          className="px-4 py-2 bg-neon-turquoise text-black rounded-lg hover:bg-neon-turquoise/80 transition-colors disabled:opacity-50"
+        >
+          {refreshing ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+              Retrying...
+            </>
+          ) : (
+            'Try Again'
+          )}
+        </button>
       </div>
     );
   }

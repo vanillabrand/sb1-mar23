@@ -14,8 +14,9 @@ export const config = {
   LAZY_LOAD_SERVICES: import.meta.env.VITE_LAZY_LOAD_SERVICES === 'false' ? false : true, // Default to true for faster loading
   INITIALIZATION_TIMEOUT: parseInt(import.meta.env.VITE_INITIALIZATION_TIMEOUT || '5000', 10), // 5 seconds timeout for initialization
 
-  // API URLs
-  apiBaseUrl: '/api', // Base URL for all API requests through the proxy server
+  // API URLs - Updated to use Rust API
+  apiBaseUrl: 'http://localhost:3000/api', // Base URL for Rust Trading API
+  rustApiUrl: 'http://localhost:3000', // Rust Trading API base URL
   proxyUrl: import.meta.env.VITE_PROXY_URL || '',
   proxyBaseUrl: import.meta.env.VITE_PROXY_BASE_URL || '', // Base URL for the proxy server - empty string means use relative URLs
 

@@ -32,6 +32,8 @@ import { MarketTypeBalanceDisplay } from './MarketTypeBalanceDisplay';
 import { TradeFlowDiagram } from './TradeFlowDiagram';
 import { formatDistanceToNow } from 'date-fns';
 import type { Strategy, StrategyBudget, MarketType } from '../lib/types';
+import { rustApiService } from '../lib/rust-api-service';
+import { useRustApi } from './RustApiProvider';
 
 // Define a more flexible trade type that includes database fields
 interface Trade {
@@ -55,6 +57,9 @@ interface NewTradeMonitorLayoutProps {
 }
 
 export function NewTradeMonitorLayout({ className = '' }: NewTradeMonitorLayoutProps) {
+  // Rust API integration
+  const { isConnected: isApiConnected } = useRustApi();
+
   // State for strategies and trades
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const [trades, setTrades] = useState<Trade[]>([]);
@@ -136,24 +141,69 @@ export function NewTradeMonitorLayout({ className = '' }: NewTradeMonitorLayoutP
     try {
       setRefreshing(true);
 
-      // Get all trades
-      const allTrades = await tradeService.getAllTrades();
-      setTrades(allTrades);
+      // Try to use Rust API if connected
+      if (isApiConnected) {
+        try {
+          logService.log('info', 'Fetching trade data via Rust API', null, 'NewTradeMonitorLayout');
 
-      // Group trades by strategy
-      const tradesByStrategy: Record<string, Trade[]> = {};
-      allTrades.forEach(trade => {
-        if (trade.strategy_id) {
-          if (!tradesByStrategy[trade.strategy_id]) {
-            tradesByStrategy[trade.strategy_id] = [];
-          }
-          tradesByStrategy[trade.strategy_id].push(trade);
+          // Get all trades via Rust API
+          const allTrades = await rustApiService.getTrades();
+          setTrades(allTrades);
+
+          // Group trades by strategy
+          const tradesByStrategy: Record<string, Trade[]> = {};
+          allTrades.forEach(trade => {
+            const strategyId = trade.strategy_id || trade.strategyId;
+            if (strategyId) {
+              if (!tradesByStrategy[strategyId]) {
+                tradesByStrategy[strategyId] = [];
+              }
+              tradesByStrategy[strategyId].push(trade);
+            }
+          });
+
+          setStrategyTrades(tradesByStrategy);
+          logService.log('info', `Fetched ${allTrades.length} trades via Rust API`, null, 'NewTradeMonitorLayout');
+        } catch (apiError) {
+          logService.log('warn', 'Failed to fetch trades via Rust API, falling back to trade service', apiError, 'NewTradeMonitorLayout');
+
+          // Fallback to existing trade service
+          const allTrades = await tradeService.getAllTrades();
+          setTrades(allTrades);
+
+          // Group trades by strategy
+          const tradesByStrategy: Record<string, Trade[]> = {};
+          allTrades.forEach(trade => {
+            if (trade.strategy_id) {
+              if (!tradesByStrategy[trade.strategy_id]) {
+                tradesByStrategy[trade.strategy_id] = [];
+              }
+              tradesByStrategy[trade.strategy_id].push(trade);
+            }
+          });
+
+          setStrategyTrades(tradesByStrategy);
         }
-      });
+      } else {
+        // Use existing trade service when API is not connected
+        const allTrades = await tradeService.getAllTrades();
+        setTrades(allTrades);
 
-      setStrategyTrades(tradesByStrategy);
+        // Group trades by strategy
+        const tradesByStrategy: Record<string, Trade[]> = {};
+        allTrades.forEach(trade => {
+          if (trade.strategy_id) {
+            if (!tradesByStrategy[trade.strategy_id]) {
+              tradesByStrategy[trade.strategy_id] = [];
+            }
+            tradesByStrategy[trade.strategy_id].push(trade);
+          }
+        });
 
-      // Get budgets for all strategies
+        setStrategyTrades(tradesByStrategy);
+      }
+
+      // Get budgets for all strategies (always use trade service for now)
       const budgetData: Record<string, StrategyBudget> = {};
       for (const strategy of strategies) {
         const budget = await tradeService.getBudget(strategy.id);

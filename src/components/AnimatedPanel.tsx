@@ -134,17 +134,7 @@ export function AnimatedPanel({
         ref={panelRef}
         initial={initial}
         animate={controls}
-        className={`${className} tween-effect`} // Added tween-effect class
-        whileHover={{
-          y: -3, // More pronounced hover effect
-          scale: 1.01,
-          boxShadow: "0 15px 35px rgba(0, 0, 0, 0.2)",
-          transition: { duration: 0.3, ease: SMOOTH_EASE }
-        }}
-        whileTap={{
-          scale: 0.98,
-          transition: { duration: 0.2 }
-        }}
+        className={`${className}`} // Removed tween-effect class and hover effects
       >
         {children}
       </motion.div>

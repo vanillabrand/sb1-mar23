@@ -341,6 +341,9 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
 
       console.log('useAuth: User signed out successfully');
       toast.success('Successfully signed out!');
+
+      // Redirect to home page after successful sign out
+      window.location.href = '/';
     } catch (error) {
       console.error('useAuth: Error during sign out:', error);
       const authError = error as AuthError;
@@ -352,6 +355,9 @@ export function AuthProvider({ children }: AuthProviderProps): JSX.Element {
       localStorage.removeItem('sb-user');
       localStorage.removeItem('activeExchange');
       localStorage.removeItem('defaultExchange');
+
+      // Force redirect even if there's an error
+      window.location.href = '/';
       throw error;
     }
   };

@@ -156,15 +156,7 @@
     );
   }
 
-  /* Hover effect for panels */
-  .panel-metallic:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      0 15px 35px -5px rgba(0, 0, 0, 0.35),
-      0 8px 20px rgba(0, 0, 0, 0.25),
-      inset 0 1px 1px rgba(255, 255, 255, 0.07),
-      inset 0 -1px 1px rgba(0, 0, 0, 0.4);
-  }
+  /* Removed hover effect for panels */
 
   /* Dark metal modal style - no borders, dark grey background */
   .modal-dark-metal {
@@ -222,14 +214,7 @@
     );
   }
 
-  /* Hover effect for top nav panel */
-  .topnav-metallic:hover {
-    background: linear-gradient(
-      135deg,
-      rgba(22, 22, 24, 0.98) 0%,
-      rgba(32, 32, 36, 0.98) 100%
-    );
-  }
+  /* Removed hover effect for top nav panel */
 }
 
 /* Panel entrance animation - enhanced for smoother transitions */
@@ -526,14 +511,7 @@
   will-change: transform, box-shadow;
 }
 
-.panel-shadow:hover {
-  transform: translateY(-3px) translateZ(0);
-  box-shadow:
-    0 15px 35px -5px rgba(0, 0, 0, 0.6),
-    0 8px 20px rgba(0, 0, 0, 0.4),
-    inset 0 1px 1px rgba(255, 255, 255, 0.07),
-    inset 0 -1px 1px rgba(0, 0, 0, 0.4);
-}
+/* Removed panel shadow hover effect */
 
 .glass-effect-dark {
   @apply backdrop-blur-xl;
@@ -600,10 +578,7 @@
   transition: transform 0.3s ease, box-shadow 0.3s ease;
 }
 
-.hover-lift:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-}
+/* Removed hover-lift effect */
 
 /* Progress animation for preloader */
 .animate-progress {
@@ -751,22 +726,14 @@
   @apply transition-all duration-300;
 }
 
-.card-hover:hover {
-  @apply transform scale-[1.02] shadow-lg;
-}
+/* Removed card hover scaling effect */
 
 /* Button transitions */
 .btn-transition {
   @apply transition-all duration-300;
 }
 
-.btn-transition:hover {
-  @apply transform scale-[1.05];
-}
-
-.btn-transition:active {
-  @apply transform scale-[0.98];
-}
+/* Removed button scaling transitions */
 
 /* Make Recharts cursor/hover effect transparent */
 .recharts-tooltip-cursor {

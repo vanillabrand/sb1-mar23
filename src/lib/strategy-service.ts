@@ -156,8 +156,7 @@ class StrategyService {
           indicators: Array.isArray(data.strategy_config?.indicators) ?
             data.strategy_config.indicators : [] // Ensure indicators is always an array
         },
-        market_type: marketType,
-        marketType: marketType // Also set marketType for UI components
+        market_type: marketType // Only use database column name
       };
 
       // Log the strategy data for debugging
@@ -166,7 +165,6 @@ class StrategyService {
         name: strategy.name,
         title: strategy.title,
         userId: session.user.id,
-        marketType: strategy.marketType,
         market_type: strategy.market_type,
         selected_pairs: strategy.selected_pairs,
         strategy_config: strategy.strategy_config
@@ -178,7 +176,7 @@ class StrategyService {
           id: strategy.id,
           name: strategy.name || strategy.title,
           title: strategy.title || strategy.name,
-          market_type: strategy.market_type || strategy.marketType,
+          market_type: strategy.market_type || 'spot',
           selected_pairs: strategy.selected_pairs
         }, 'StrategyService');
 
@@ -193,11 +191,12 @@ class StrategyService {
           created_at: strategy.created_at || new Date().toISOString(),
           updated_at: strategy.updated_at || new Date().toISOString(),
           status: strategy.status || 'inactive',
-          market_type: strategy.market_type || strategy.marketType || 'spot',
+          market_type: strategy.market_type || 'spot', // Only use market_type (database column name)
           selected_pairs: Array.isArray(strategy.selected_pairs) && strategy.selected_pairs.length > 0
             ? strategy.selected_pairs
             : ['BTC/USDT'],
           risk_level: (strategy as any).risk_level || strategy.riskLevel || 'Medium',
+          riskLevel: strategy.riskLevel || (strategy as any).risk_level || 'Medium', // Support both formats
           type: strategy.type || 'custom'
         };
 
@@ -235,6 +234,15 @@ class StrategyService {
 
         // If we don't have a created strategy yet, use Supabase directly
         if (!createdStrategy) {
+          // Log the current session and user ID for debugging
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          logService.log('debug', 'Current session info for strategy creation', {
+            sessionExists: !!currentSession,
+            sessionUserId: currentSession?.user?.id,
+            strategyUserId: completeStrategy.user_id,
+            userIdMatch: currentSession?.user?.id === completeStrategy.user_id
+          }, 'StrategyService');
+
           // Insert the strategy directly via Supabase
           const { data: dbStrategy, error } = await supabase
             .from('strategies')
@@ -245,19 +253,42 @@ class StrategyService {
           if (error) {
             logService.log('error', 'Failed to create strategy via Supabase', {
               error,
-              strategy: completeStrategy
+              strategy: completeStrategy,
+              sessionUserId: currentSession?.user?.id
             }, 'StrategyService');
             throw error;
           }
 
           if (!dbStrategy) {
-            logService.log('error', 'No data returned from Supabase insert', {
-              strategy: completeStrategy
+            logService.log('error', 'No data returned from Supabase insert - likely RLS policy issue', {
+              strategy: completeStrategy,
+              sessionUserId: currentSession?.user?.id,
+              strategyUserId: completeStrategy.user_id,
+              userIdMatch: currentSession?.user?.id === completeStrategy.user_id
             }, 'StrategyService');
-            throw new Error('Failed to create strategy - no data returned');
-          }
 
-          createdStrategy = dbStrategy;
+            // Try to fetch the strategy directly by ID to see if it was actually created
+            const { data: fetchedStrategy, error: fetchError } = await supabase
+              .from('strategies')
+              .select('*')
+              .eq('id', completeStrategy.id)
+              .single();
+
+            if (fetchedStrategy) {
+              logService.log('info', 'Strategy was created but not returned due to RLS - using fetched strategy', {
+                strategyId: fetchedStrategy.id
+              }, 'StrategyService');
+              createdStrategy = fetchedStrategy;
+            } else {
+              logService.log('error', 'Strategy was not created at all', {
+                fetchError,
+                strategyId: completeStrategy.id
+              }, 'StrategyService');
+              throw new Error('Failed to create strategy - no data returned');
+            }
+          } else {
+            createdStrategy = dbStrategy;
+          }
         }
 
         logService.log('info', 'Successfully created strategy', {
@@ -325,10 +356,7 @@ class StrategyService {
       // Determine the market type (use updated value if provided, otherwise use current)
       let marketType: MarketType;
 
-      if (updates.marketType) {
-        // If marketType is provided in updates, normalize it
-        marketType = normalizeMarketType(updates.marketType);
-      } else if (updates.market_type) {
+      if (updates.market_type) {
         // Support for market_type field (database field name)
         marketType = normalizeMarketType(updates.market_type);
       } else {
@@ -430,11 +458,10 @@ class StrategyService {
         }
       }
 
-      // Ensure market_type and marketType are both set if either is being updated
-      if (safeUpdates.market_type || safeUpdates.marketType) {
-        const updatedMarketType = safeUpdates.market_type || safeUpdates.marketType;
-        safeUpdates.market_type = updatedMarketType;
-        safeUpdates.marketType = updatedMarketType;
+      // Ensure market_type is set if being updated (only use database column name)
+      if (safeUpdates.market_type) {
+        // Remove any marketType field that might have been passed
+        delete (safeUpdates as any).marketType;
       }
 
       try {
@@ -849,28 +876,54 @@ class StrategyService {
     }
 
     if (!data) {
+      logService.log('warn', 'No data returned from strategy activation update - likely RLS policy issue', {
+        strategyId: id,
+        updateData
+      }, 'StrategyService');
+
       // Try to get the current state as a fallback
       try {
-        const { data: currentState } = await supabase
+        const { data: currentState, error: fetchError } = await supabase
           .from('strategies')
           .select('*')
           .eq('id', id)
           .single();
 
-        if (currentState && currentState.status === 'active') {
-          logService.log('info', 'Strategy appears to be active despite data being null', { id }, 'StrategyService');
+        if (fetchError) {
+          logService.log('error', 'Failed to fetch strategy after activation update', { error: fetchError, id }, 'StrategyService');
+          throw fetchError;
+        }
 
-          // Emit event to notify other components
-          eventBus.emit('strategy:activated', {
-            strategyId: id,
-            strategy: currentState,
-            timestamp: Date.now()
-          });
+        if (currentState) {
+          logService.log('info', 'Strategy fetched successfully after activation update', {
+            id,
+            status: currentState.status,
+            updated_at: currentState.updated_at
+          }, 'StrategyService');
 
-          return currentState;
+          // Check if the strategy was actually activated
+          if (currentState.status === 'active') {
+            logService.log('info', 'Strategy activation confirmed via direct fetch', { id }, 'StrategyService');
+
+            // Emit event to notify other components
+            eventBus.emit('strategy:activated', {
+              strategyId: id,
+              strategy: currentState,
+              timestamp: Date.now()
+            });
+
+            return currentState;
+          } else {
+            logService.log('warn', 'Strategy was not activated - status is still inactive', {
+              id,
+              status: currentState.status
+            }, 'StrategyService');
+            throw new Error(`Strategy activation failed - status is ${currentState.status}`);
+          }
         }
       } catch (checkError) {
         logService.log('error', 'Failed to get current strategy state after activation failure', { error: checkError, id }, 'StrategyService');
+        throw new Error(`Strategy with ID ${id} not found or activation failed: ${checkError.message}`);
       }
 
       throw new Error(`Strategy with ID ${id} not found or activation failed`);
@@ -1092,6 +1145,10 @@ class StrategyService {
     }
   }
 
+  async getStrategies(): Promise<Strategy[]> {
+    return this.getAllStrategies();
+  }
+
   async getAllStrategies(): Promise<Strategy[]> {
     try {
       // Initialize API client if not already initialized
@@ -1127,6 +1184,22 @@ class StrategyService {
       }
     } catch (error) {
       logService.log('error', 'Failed to get strategies', { error }, 'StrategyService');
+      return [];
+    }
+  }
+
+  async getMonitoringStatuses(): Promise<any[]> {
+    try {
+      // Import monitoring service dynamically to avoid circular dependencies
+      const { monitoringService } = await import('./monitoring-service');
+
+      // Get all monitoring statuses
+      const statuses = await monitoringService.getAllMonitoringStatuses();
+
+      logService.log('info', 'Successfully retrieved monitoring statuses', { count: statuses.length }, 'StrategyService');
+      return statuses;
+    } catch (error) {
+      logService.log('error', 'Failed to get monitoring statuses', { error }, 'StrategyService');
       return [];
     }
   }

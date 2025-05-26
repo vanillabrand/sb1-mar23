@@ -101,6 +101,7 @@ interface StrategyTemplate {
   selected_pairs?: string[];
   [key: string]: any;
 }
+import { rustApiIntegration } from '../lib/rust-api-integration';
 import { strategyService } from '../lib/strategy-service';
 import { tradeService } from '../lib/trade-service';
 import { tradeGenerator } from '../lib/trade-generator';
@@ -135,7 +136,10 @@ export function StrategyManager({ className }: StrategyManagerProps) {
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showDeleteAllConfirm, setShowDeleteAllConfirm] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<Strategy | null>(null);
+  const [selectedStrategies, setSelectedStrategies] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [templateSearchTerm, setTemplateSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<SortOption>('performance');
@@ -850,6 +854,121 @@ export function StrategyManager({ className }: StrategyManagerProps) {
       await refreshStrategies();
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  // Enhanced strategy selection handlers
+  const handleStrategySelection = (strategyId: string, selected: boolean) => {
+    setSelectedStrategies(prev => {
+      const newSet = new Set(prev);
+      if (selected) {
+        newSet.add(strategyId);
+      } else {
+        newSet.delete(strategyId);
+      }
+      return newSet;
+    });
+  };
+
+  const handleSelectAll = () => {
+    const inactiveStrategies = filteredStrategies.filter(s => s.status !== 'active');
+    setSelectedStrategies(new Set(inactiveStrategies.map(s => s.id)));
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedStrategies(new Set());
+  };
+
+  const handleToggleSelectMode = () => {
+    setIsSelectMode(!isSelectMode);
+    setSelectedStrategies(new Set());
+  };
+
+  // Bulk strategy deletion
+  const handleBulkDelete = async () => {
+    try {
+      setIsDeleting(true);
+      setError(null);
+
+      const strategiesToDelete = Array.from(selectedStrategies);
+
+      if (strategiesToDelete.length === 0) {
+        setError('No strategies selected for deletion.');
+        setIsDeleting(false);
+        return;
+      }
+
+      console.log(`Bulk deleting ${strategiesToDelete.length} strategies`);
+
+      // Optimistically update UI
+      setFilteredStrategies(prev => prev.filter(s => !selectedStrategies.has(s.id)));
+      setPaginatedStrategies(prev => prev.filter(s => !selectedStrategies.has(s.id)));
+
+      // Delete each strategy with cleanup
+      for (const strategyId of strategiesToDelete) {
+        try {
+          await deleteStrategyWithCleanup(strategyId);
+          logService.log('info', `Bulk deleted strategy ${strategyId}`, null, 'StrategyManager');
+        } catch (error) {
+          logService.log('error', `Failed to delete strategy ${strategyId} in bulk operation`, error, 'StrategyManager');
+        }
+      }
+
+      // Clear selection and exit select mode
+      setSelectedStrategies(new Set());
+      setIsSelectMode(false);
+      setShowBulkDeleteConfirm(false);
+
+      // Refresh to ensure consistency
+      await refreshStrategies();
+
+      logService.log('info', `Bulk deletion completed for ${strategiesToDelete.length} strategies`, null, 'StrategyManager');
+    } catch (error) {
+      console.error('Unexpected error in bulk delete:', error);
+      setError('Failed to delete some strategies. Please try again.');
+      await refreshStrategies();
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  // Comprehensive strategy deletion with cleanup
+  const deleteStrategyWithCleanup = async (strategyId: string) => {
+    try {
+      // 1. Stop all monitoring and services
+      try {
+        await marketService.stopStrategyMonitoring(strategyId);
+        tradeGenerator.removeStrategy(strategyId);
+        strategyMonitor.removeStrategy(strategyId);
+        await tradeEngine.removeStrategy(strategyId);
+      } catch (serviceError) {
+        logService.log('warn', 'Error stopping services during deletion', serviceError, 'StrategyManager');
+      }
+
+      // 2. Delete related data first
+      await supabase.from('trades').delete().eq('strategy_id', strategyId);
+      await supabase.from('strategy_budgets').delete().eq('strategy_id', strategyId);
+      await supabase.from('strategy_performance').delete().eq('strategy_id', strategyId);
+
+      // 3. Delete the strategy
+      const { error } = await supabase.from('strategies').delete().eq('id', strategyId);
+
+      if (error) {
+        throw error;
+      }
+
+      // 4. Remove from caches
+      if (strategySync.hasStrategy(strategyId)) {
+        strategySync.removeStrategyFromCache(strategyId);
+      }
+
+    } catch (error) {
+      // Try strategy service as fallback
+      try {
+        await strategyService.deleteStrategy(strategyId);
+      } catch (serviceError) {
+        throw new Error(`All deletion methods failed: ${error}, ${serviceError}`);
+      }
     }
   };
 
@@ -1689,6 +1808,52 @@ export function StrategyManager({ className }: StrategyManagerProps) {
                 </div>
               </div>
 
+              {/* Bulk Delete Controls */}
+              {filteredStrategies.length > 0 && (
+                <div className="mb-4 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    {isSelectMode ? (
+                      <>
+                        <button
+                          onClick={handleSelectAll}
+                          className="px-3 py-1.5 text-sm bg-gunmetal-800 text-gray-300 rounded-lg hover:bg-gunmetal-700 transition-colors"
+                        >
+                          Select All
+                        </button>
+                        <button
+                          onClick={handleDeselectAll}
+                          className="px-3 py-1.5 text-sm bg-gunmetal-800 text-gray-300 rounded-lg hover:bg-gunmetal-700 transition-colors"
+                        >
+                          Deselect All
+                        </button>
+                        {selectedStrategies.size > 0 && (
+                          <button
+                            onClick={() => setShowBulkDeleteConfirm(true)}
+                            className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                          >
+                            Delete Selected ({selectedStrategies.size})
+                          </button>
+                        )}
+                        <button
+                          onClick={handleToggleSelectMode}
+                          className="px-3 py-1.5 text-sm bg-gunmetal-700 text-gray-300 rounded-lg hover:bg-gunmetal-600 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={handleToggleSelectMode}
+                        className="flex items-center gap-2 px-3 py-1.5 text-sm bg-gunmetal-800 text-gray-300 rounded-lg hover:bg-gunmetal-700 transition-colors"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Bulk Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+
               {/* Content */}
               {loading ? (
                 <motion.div
@@ -2079,6 +2244,62 @@ export function StrategyManager({ className }: StrategyManagerProps) {
             onClose={() => setShowCreateModal(false)}
             onCreated={handleStrategyCreate}
           />
+        )}
+
+        {/* Bulk Delete Confirmation Modal */}
+        {showBulkDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              transition={{ type: "spring", damping: 20, stiffness: 300 }}
+              className="bg-gunmetal-900 rounded-xl p-6 max-w-md w-full shadow-xl border border-gunmetal-700"
+            >
+              <div className="flex items-center mb-4">
+                <div className="bg-neon-raspberry bg-opacity-20 p-2 rounded-full mr-3">
+                  <Trash2 className="w-6 h-6 text-neon-raspberry" />
+                </div>
+                <h3 className="text-xl font-bold text-neon-raspberry">Delete Selected Strategies</h3>
+              </div>
+              <p className="text-gray-300 mb-6">
+                Are you sure you want to delete {selectedStrategies.size} selected strategies? This action cannot be undone and will permanently remove these strategies and their associated trades.
+              </p>
+              <div className="flex justify-end gap-4">
+                <motion.button
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="px-4 py-2 bg-gunmetal-800 text-white rounded-lg hover:bg-gunmetal-700 transition-all"
+                >
+                  Cancel
+                </motion.button>
+                <motion.button
+                  onClick={handleBulkDelete}
+                  disabled={isDeleting}
+                  className={`px-4 py-2 bg-neon-raspberry text-white rounded-lg hover:bg-opacity-90 transition-all font-bold flex items-center gap-2 ${isDeleting ? 'opacity-70 cursor-not-allowed' : ''}`}
+                >
+                  {isDeleting ? (
+                    <>
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Deleting...
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      Delete {selectedStrategies.size} Strategies
+                    </>
+                  )}
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
         )}
 
         {/* Delete All Strategies Confirmation Modal */}

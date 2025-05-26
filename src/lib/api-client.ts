@@ -11,10 +11,10 @@ class ApiClient {
   private isInitialized: boolean = false;
 
   private constructor() {
-    // Use the API URL from config, defaulting to localhost:8080 if not set
-    this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+    // Use the Rust API URL from config, defaulting to localhost:3000 if not set
+    this.baseUrl = import.meta.env.VITE_RUST_API_URL || config.rustApiUrl || 'http://localhost:3000';
 
-    logService.log('info', `API client initialized with base URL: ${this.baseUrl}`, null, 'ApiClient');
+    logService.log('info', `API client initialized with Rust API base URL: ${this.baseUrl}`, null, 'ApiClient');
   }
 
   /**
@@ -138,11 +138,19 @@ class ApiClient {
         },
       };
 
-      // Add authorization header if session exists
+      // Add authorization header and user ID if session exists
       if (session?.access_token) {
         options.headers = {
           ...options.headers,
           'Authorization': `Bearer ${session.access_token}`,
+        };
+      }
+
+      // Add user ID header if session exists
+      if (session?.user?.id) {
+        options.headers = {
+          ...options.headers,
+          'X-User-ID': session.user.id,
         };
       }
 
@@ -169,6 +177,10 @@ class ApiClient {
     }
   }
 
+  // ===== HEALTH CHECK ===== (Removed duplicate method)
+
+  // ===== STRATEGY ENDPOINTS =====
+
   /**
    * Get strategies for the current user
    */
@@ -177,8 +189,7 @@ class ApiClient {
   }
 
   /**
-   * Get a strategy by ID
-   * @param id Strategy ID
+   * Get a specific strategy by ID
    */
   public async getStrategy(id: string) {
     return this.get(`/api/strategies/${id}`);
@@ -186,24 +197,20 @@ class ApiClient {
 
   /**
    * Create a new strategy
-   * @param strategy Strategy data
    */
   public async createStrategy(strategy: any) {
     return this.post('/api/strategies', strategy);
   }
 
   /**
-   * Update a strategy
-   * @param id Strategy ID
-   * @param strategy Strategy data
+   * Update an existing strategy
    */
-  public async updateStrategy(id: string, strategy: any) {
-    return this.put(`/api/strategies/${id}`, strategy);
+  public async updateStrategy(id: string, updates: any) {
+    return this.put(`/api/strategies/${id}`, updates);
   }
 
   /**
    * Delete a strategy
-   * @param id Strategy ID
    */
   public async deleteStrategy(id: string) {
     return this.delete(`/api/strategies/${id}`);
@@ -211,7 +218,6 @@ class ApiClient {
 
   /**
    * Activate a strategy
-   * @param id Strategy ID
    */
   public async activateStrategy(id: string) {
     return this.post(`/api/strategies/${id}/activate`);
@@ -219,36 +225,43 @@ class ApiClient {
 
   /**
    * Deactivate a strategy
-   * @param id Strategy ID
    */
   public async deactivateStrategy(id: string) {
     return this.post(`/api/strategies/${id}/deactivate`);
   }
 
   /**
-   * Adapt a strategy
-   * @param id Strategy ID
-   * @param marketData Market data
+   * Adapt a strategy based on market data
    */
   public async adaptStrategy(id: string, marketData: any) {
     return this.post(`/api/strategies/${id}/adapt`, marketData);
   }
 
   /**
-   * Get trades for a strategy
-   * @param strategyId Strategy ID
-   * @param status Trade status filter
+   * Get strategy budget
    */
-  public async getTrades(strategyId?: string, status?: string) {
-    const params: Record<string, any> = {};
-    if (strategyId) params.strategy_id = strategyId;
-    if (status) params.status = status;
+  public async getStrategyBudget(id: string) {
+    return this.get(`/api/strategies/${id}/budget`);
+  }
+
+  /**
+   * Update strategy budget
+   */
+  public async updateStrategyBudget(id: string, budget: any) {
+    return this.put(`/api/strategies/${id}/budget`, budget);
+  }
+
+  // ===== TRADE ENDPOINTS =====
+
+  /**
+   * Get all trades
+   */
+  public async getTrades(params?: { status?: string; strategy_id?: string }) {
     return this.get('/api/trades', params);
   }
 
   /**
-   * Get a trade by ID
-   * @param id Trade ID
+   * Get a specific trade by ID
    */
   public async getTrade(id: string) {
     return this.get(`/api/trades/${id}`);
@@ -256,24 +269,20 @@ class ApiClient {
 
   /**
    * Create a new trade
-   * @param trade Trade data
    */
   public async createTrade(trade: any) {
     return this.post('/api/trades', trade);
   }
 
   /**
-   * Update a trade
-   * @param id Trade ID
-   * @param trade Trade data
+   * Update an existing trade
    */
-  public async updateTrade(id: string, trade: any) {
-    return this.put(`/api/trades/${id}`, trade);
+  public async updateTrade(id: string, updates: any) {
+    return this.put(`/api/trades/${id}`, updates);
   }
 
   /**
    * Delete a trade
-   * @param id Trade ID
    */
   public async deleteTrade(id: string) {
     return this.delete(`/api/trades/${id}`);
@@ -281,7 +290,6 @@ class ApiClient {
 
   /**
    * Execute a trade
-   * @param id Trade ID
    */
   public async executeTrade(id: string) {
     return this.post(`/api/trades/${id}/execute`);
@@ -289,63 +297,26 @@ class ApiClient {
 
   /**
    * Close a trade
-   * @param id Trade ID
    */
   public async closeTrade(id: string) {
     return this.post(`/api/trades/${id}/close`);
   }
 
   /**
+   * Get trades for a specific strategy
+   */
+  public async getTradesByStrategy(strategyId: string) {
+    return this.get(`/api/trades/strategy/${strategyId}`);
+  }
+
+  /**
    * Generate trades for a strategy
-   * @param strategyId Strategy ID
-   * @param marketData Market data
    */
   public async generateTrades(strategyId: string, marketData: any) {
     return this.post(`/api/trades/strategy/${strategyId}/generate`, marketData);
   }
 
-  /**
-   * Get market data for a symbol
-   * @param symbol Trading pair symbol
-   */
-  public async getMarketData(symbol: string) {
-    return this.get(`/api/market/data/${symbol}`);
-  }
-
-  /**
-   * Get candles for a symbol
-   * @param symbol Trading pair symbol
-   * @param timeframe Timeframe
-   * @param limit Number of candles
-   */
-  public async getCandles(symbol: string, timeframe: string, limit: number) {
-    return this.get(`/api/market/candles/${symbol}`, { timeframe, limit });
-  }
-
-  /**
-   * Get order book for a symbol
-   * @param symbol Trading pair symbol
-   * @param limit Order book depth
-   */
-  public async getOrderBook(symbol: string, limit: number) {
-    return this.get(`/api/market/orderbook/${symbol}`, { limit });
-  }
-
-  /**
-   * Get ticker for a symbol
-   * @param symbol Trading pair symbol
-   */
-  public async getTicker(symbol: string) {
-    return this.get(`/api/market/ticker/${symbol}`);
-  }
-
-  /**
-   * Get market state for a symbol
-   * @param symbol Trading pair symbol
-   */
-  public async getMarketState(symbol: string) {
-    return this.get(`/api/market/state/${symbol}`);
-  }
+  // ===== EXCHANGE ENDPOINTS =====
 
   /**
    * Get account balance
@@ -356,7 +327,6 @@ class ApiClient {
 
   /**
    * Create an order
-   * @param order Order data
    */
   public async createOrder(order: any) {
     return this.post('/api/exchange/order', order);
@@ -364,7 +334,6 @@ class ApiClient {
 
   /**
    * Cancel an order
-   * @param id Order ID
    */
   public async cancelOrder(id: string) {
     return this.delete(`/api/exchange/order/${id}`);
@@ -372,24 +341,103 @@ class ApiClient {
 
   /**
    * Get open orders
-   * @param symbol Trading pair symbol
    */
   public async getOpenOrders(symbol?: string) {
     return this.get('/api/exchange/orders', symbol ? { symbol } : undefined);
   }
 
   /**
-   * Get trades from the exchange
-   * @param symbol Trading pair symbol
-   * @param limit Number of trades
+   * Get exchange trades
    */
-  public async getExchangeTrades(symbol: string, limit: number) {
+  public async getExchangeTrades(symbol: string, limit?: number) {
     return this.get('/api/exchange/trades', { symbol, limit });
   }
 
+  // ===== MARKET DATA ENDPOINTS =====
+
+  /**
+   * Get market data for a symbol
+   */
+  public async getMarketData(symbol: string) {
+    return this.get(`/api/market/data/${symbol}`);
+  }
+
+  /**
+   * Get candles for a symbol
+   */
+  public async getCandles(symbol: string, timeframe: string, limit: number) {
+    return this.get(`/api/market/candles/${symbol}`, { timeframe, limit });
+  }
+
+  /**
+   * Get order book for a symbol
+   */
+  public async getOrderBook(symbol: string, limit: number) {
+    return this.get(`/api/market/orderbook/${symbol}`, { limit });
+  }
+
+  /**
+   * Get all market tickers
+   */
+  public async getTickers() {
+    return this.get('/api/market/tickers');
+  }
+
+  /**
+   * Get ticker for a symbol
+   */
+  public async getTicker(symbol: string) {
+    return this.get(`/api/market/ticker/${symbol}`);
+  }
+
+  /**
+   * Get market state for a symbol
+   */
+  public async getMarketState(symbol: string) {
+    return this.get(`/api/market/state/${symbol}`);
+  }
+
+  // ===== MONITORING ENDPOINTS =====
+
+  /**
+   * Get strategy monitoring status
+   */
+  public async getStrategyMonitoringStatus(id: string) {
+    return this.get(`/api/monitoring/strategies/${id}`);
+  }
+
+  /**
+   * Get all monitoring statuses
+   */
+  public async getAllMonitoringStatuses() {
+    return this.get('/api/monitoring/strategies');
+  }
+
+  /**
+   * Get system status
+   */
+  public async getSystemStatus() {
+    return this.get('/api/monitoring/system');
+  }
+
+  /**
+   * Get performance metrics
+   */
+  public async getPerformanceMetrics() {
+    return this.get('/api/monitoring/metrics');
+  }
+
+  /**
+   * Get system alerts
+   */
+  public async getAlerts() {
+    return this.get('/api/monitoring/alerts');
+  }
+
+  // ===== NEWS ENDPOINTS =====
+
   /**
    * Get crypto news
-   * @param limit Number of news items
    */
   public async getCryptoNews(limit: number) {
     return this.get('/api/news/crypto', { limit });

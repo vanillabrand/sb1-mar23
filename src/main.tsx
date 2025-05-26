@@ -1,7 +1,11 @@
-import './lib/node-polyfills';  // This must be the first import
+// Import React first to ensure it's available
 import React, { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
+
+// Then import polyfills after React is loaded
+import './lib/node-polyfills';
+
 import App from './App';
 import { AuthProvider } from './hooks/useAuth';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -32,6 +36,11 @@ ErrorHandler.setupGlobalErrorHandlers();
 const initApp = async () => {
   try {
     console.log('Main: Starting application initialization...');
+
+    // Debug React availability
+    console.log('React available:', typeof React);
+    console.log('React.useRef available:', typeof React.useRef);
+    console.log('BrowserRouter available:', typeof BrowserRouter);
 
     // Create root element if it doesn't exist
     let rootElement = document.getElementById('root');

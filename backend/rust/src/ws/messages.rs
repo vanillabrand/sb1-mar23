@@ -55,3 +55,12 @@ pub struct Message {
 impl ActixMessage for Message {
     type Result = ();
 }
+
+// WebSocket message type for session handling
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WsMessage {
+    #[serde(rename = "type")]
+    pub message_type: String,
+    #[serde(default)]
+    pub data: Value,
+}

@@ -21,8 +21,12 @@ import { tradeService } from '../../lib/trade-service';
 import { strategyService } from '../../lib/strategy-service';
 import { logService } from '../../lib/log-service';
 import { demoService } from '../../lib/demo-service';
+import { supabase } from '../../lib/enhanced-supabase';
 // Import the activation wizard component
 import { StrategyActivationWizard } from './StrategyActivationWizard';
+import { SimpleStrategyActivation } from '../BeginnerUI/SimpleStrategyActivation';
+import { useExperienceMode } from '../../hooks/useExperienceMode';
+import { useStrategyState } from '../../hooks/useStrategyState';
 
 interface SimplifiedStrategyCardProps {
   strategy: Strategy;
@@ -38,12 +42,18 @@ export function SimplifiedStrategyCard({
   onRefresh
 }: SimplifiedStrategyCardProps) {
   const [budget, setBudget] = useState<StrategyBudget | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isActivating, setIsActivating] = useState(false);
-  const [isDeactivating, setIsDeactivating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showActivationWizard, setShowActivationWizard] = useState(false);
-  const isDemoMode = demoService.isDemoMode();
+  const { mode } = useExperienceMode();
+
+  // Use the strategy state hook for real-time updates
+  const {
+    strategy: currentStrategy,
+    isActivating,
+    isDeactivating,
+    activateStrategy: activateStrategyState,
+    deactivateStrategy: deactivateStrategyState
+  } = useStrategyState(strategy);
 
   // Load budget on mount
   useEffect(() => {
@@ -63,15 +73,11 @@ export function SimplifiedStrategyCard({
   // Handle strategy activation
   const handleActivate = async () => {
     try {
-      setIsActivating(true);
       setError(null);
-
       // Show activation wizard
       setShowActivationWizard(true);
-      setIsActivating(false);
     } catch (err) {
       setError('Failed to prepare strategy activation');
-      setIsActivating(false);
       logService.log('error', `Failed to prepare activation for strategy ${strategy.id}`, err, 'SimplifiedStrategyCard');
     }
   };
@@ -79,21 +85,42 @@ export function SimplifiedStrategyCard({
   // Handle strategy deactivation
   const handleDeactivate = async () => {
     try {
-      setIsDeactivating(true);
       setError(null);
 
-      // Deactivate the strategy
-      await strategyService.deactivateStrategy(strategy.id);
+      await deactivateStrategyState(async () => {
+        logService.log('info', `Deactivating strategy ${strategy.id}`, null, 'SimplifiedStrategyCard');
 
-      // Refresh data
-      if (onRefresh) {
-        onRefresh();
-      }
+        // Direct database update to avoid API issues
+        const { data: deactivatedStrategy, error: deactivationError } = await supabase
+          .from('strategies')
+          .update({
+            status: 'inactive',
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', strategy.id)
+          .select()
+          .single();
 
-      setIsDeactivating(false);
+        if (deactivationError) {
+          throw deactivationError;
+        }
+
+        if (!deactivatedStrategy) {
+          throw new Error('Failed to deactivate strategy - no data returned');
+        }
+
+        logService.log('info', `Strategy ${strategy.id} deactivated successfully`, null, 'SimplifiedStrategyCard');
+
+        // Refresh data
+        if (onRefresh) {
+          onRefresh();
+        }
+
+        return deactivatedStrategy as Strategy;
+      });
     } catch (err) {
-      setError('Failed to deactivate strategy');
-      setIsDeactivating(false);
+      const errorMessage = err instanceof Error ? err.message : 'Failed to deactivate strategy';
+      setError(errorMessage);
       logService.log('error', `Failed to deactivate strategy ${strategy.id}`, err, 'SimplifiedStrategyCard');
     }
   };
@@ -136,9 +163,9 @@ export function SimplifiedStrategyCard({
     }
   };
 
-  const RiskIcon = getRiskIcon(strategy.risk_level);
-  const riskColor = getRiskColor(strategy.risk_level);
-  const statusColor = getStatusColor(strategy.status);
+  const RiskIcon = getRiskIcon(currentStrategy.riskLevel || 'Medium');
+  const riskColor = getRiskColor(currentStrategy.riskLevel || 'Medium');
+  const statusColor = getStatusColor(currentStrategy.status);
 
   // Render compact version
   if (compact) {
@@ -154,10 +181,10 @@ export function SimplifiedStrategyCard({
             <div className={`p-2 rounded-lg bg-gunmetal-900/50 ${riskColor}`}>
               <RiskIcon className="w-4 h-4" />
             </div>
-            <h3 className="font-semibold text-gray-200">{strategy.name}</h3>
+            <h3 className="font-semibold text-gray-200">{currentStrategy.name}</h3>
           </div>
           <div className={`px-2 py-1 rounded-full text-xs font-medium ${statusColor} bg-gunmetal-900`}>
-            {strategy.status === 'active' ? 'Active' : 'Inactive'}
+            {currentStrategy.status === 'active' ? 'Active' : 'Inactive'}
           </div>
         </div>
 
@@ -177,8 +204,8 @@ export function SimplifiedStrategyCard({
         </div>
 
         <div className="flex items-center justify-between text-xs text-gray-400">
-          <div>Pairs: {strategy.selected_pairs?.length || 0}</div>
-          <div className={riskColor}>{strategy.risk_level}</div>
+          <div>Pairs: {currentStrategy.selected_pairs?.length || 0}</div>
+          <div className={riskColor}>{currentStrategy.riskLevel || 'Medium'}</div>
         </div>
       </motion.div>
     );
@@ -205,16 +232,16 @@ export function SimplifiedStrategyCard({
           <RiskIcon className="w-5 h-5" />
         </div>
         <div>
-          <h3 className="font-semibold text-gray-200">{strategy.name}</h3>
-          <span className={`text-sm ${riskColor}`}>{strategy.risk_level}</span>
+          <h3 className="font-semibold text-gray-200">{currentStrategy.name}</h3>
+          <span className={`text-sm ${riskColor}`}>{currentStrategy.riskLevel || 'Medium'}</span>
         </div>
         <div className={`ml-auto px-2 py-1 rounded-full text-xs font-medium ${statusColor} bg-gunmetal-900`}>
-          {strategy.status === 'active' ? 'Active' : 'Inactive'}
+          {currentStrategy.status === 'active' ? 'Active' : 'Inactive'}
         </div>
       </div>
 
       {/* Description */}
-      <p className="text-sm text-gray-400 mb-4">{strategy.description}</p>
+      <p className="text-sm text-gray-400 mb-4">{currentStrategy.description}</p>
 
       {/* Budget and Stats */}
       <div className="grid grid-cols-2 gap-4 mb-4">
@@ -236,7 +263,7 @@ export function SimplifiedStrategyCard({
       <div className="mb-4">
         <p className="text-xs text-gray-400 mb-2">Trading Pairs</p>
         <div className="flex flex-wrap gap-2">
-          {strategy.selected_pairs?.map(pair => (
+          {currentStrategy.selected_pairs?.map(pair => (
             <div key={pair} className="px-2 py-1 bg-gunmetal-900 rounded-lg text-xs text-gray-300">
               {pair.replace('_', '/')}
             </div>
@@ -246,7 +273,7 @@ export function SimplifiedStrategyCard({
 
       {/* Actions */}
       <div className="flex gap-2">
-        {strategy.status === 'inactive' ? (
+        {currentStrategy.status === 'inactive' ? (
           <button
             onClick={handleActivate}
             disabled={isActivating}
@@ -282,21 +309,44 @@ export function SimplifiedStrategyCard({
         </button>
       </div>
 
-      {/* Strategy Activation Wizard */}
+      {/* Strategy Activation - Simple for beginners, full wizard for others */}
       {showActivationWizard && (
-        <StrategyActivationWizard
-          strategy={strategy}
-          onComplete={(success) => {
-            setShowActivationWizard(false);
-            if (success && onRefresh) {
-              onRefresh();
-            }
-          }}
-          onCancel={() => {
-            setShowActivationWizard(false);
-          }}
-          maxBudget={budget?.available || 10000}
-        />
+        mode === 'beginner' ? (
+          <SimpleStrategyActivation
+            strategy={strategy}
+            onComplete={(success) => {
+              setShowActivationWizard(false);
+              if (success && onRefresh) {
+                onRefresh();
+              }
+            }}
+            onCancel={() => {
+              setShowActivationWizard(false);
+            }}
+            onActivated={(activatedStrategy) => {
+              // The useStrategyState hook will handle the update automatically
+              logService.log('info', 'Strategy activated via SimpleStrategyActivation', {
+                strategyId: activatedStrategy.id,
+                status: activatedStrategy.status
+              }, 'SimplifiedStrategyCard');
+            }}
+            maxBudget={budget?.available || 10000}
+          />
+        ) : (
+          <StrategyActivationWizard
+            strategy={strategy}
+            onComplete={(success) => {
+              setShowActivationWizard(false);
+              if (success && onRefresh) {
+                onRefresh();
+              }
+            }}
+            onCancel={() => {
+              setShowActivationWizard(false);
+            }}
+            maxBudget={budget?.available || 10000}
+          />
+        )
       )}
     </motion.div>
   );

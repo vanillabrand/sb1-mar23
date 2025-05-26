@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { TrendingUp, TrendingDown, DollarSign, BarChart2, Clock, Activity, Zap } from 'lucide-react';
+import { rustApiIntegration } from '../lib/rust-api-integration';
 import { eventBus } from '../lib/event-bus';
 import { logService } from '../lib/log-service';
 import { tradeService } from '../lib/trade-service';
@@ -95,7 +96,7 @@ export function RealTimeTradeAnalytics({ strategy, trades, budget, className = '
     // Clean up subscriptions
     return () => {
       eventBus.unsubscribe('market:ticker', handlePriceUpdate);
-      
+
       // Unsubscribe from websocket channels
       if (strategy.selected_pairs) {
         for (const pair of strategy.selected_pairs) {
@@ -121,25 +122,25 @@ export function RealTimeTradeAnalytics({ strategy, trades, budget, className = '
       const closedTrades = trades.filter(t => t.status === 'closed');
       const profitableTrades = closedTrades.filter(t => (t.profit || 0) > 0);
       const unprofitableTrades = closedTrades.filter(t => (t.profit || 0) <= 0);
-      
+
       const totalProfit = profitableTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
       const totalLoss = unprofitableTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
       const netProfit = totalProfit + totalLoss;
-      
+
       // Calculate unrealized profit for active trades
       let unrealizedProfit = 0;
       for (const trade of activeTrades) {
         const currentPrice = livePrices[trade.symbol] || trade.entryPrice;
         if (!currentPrice) continue;
-        
-        const priceDiff = trade.side === 'buy' 
-          ? currentPrice - trade.entryPrice 
+
+        const priceDiff = trade.side === 'buy'
+          ? currentPrice - trade.entryPrice
           : trade.entryPrice - currentPrice;
-        
+
         const tradeProfit = priceDiff * (trade.amount || 0);
         unrealizedProfit += tradeProfit;
       }
-      
+
       // Calculate average trade duration for closed trades
       let totalDuration = 0;
       for (const trade of closedTrades) {
@@ -148,7 +149,7 @@ export function RealTimeTradeAnalytics({ strategy, trades, budget, className = '
         }
       }
       const avgTradeDuration = closedTrades.length > 0 ? totalDuration / closedTrades.length : 0;
-      
+
       setTradeMetrics({
         totalTrades: trades.length,
         activeTrades: activeTrades.length,
@@ -163,12 +164,12 @@ export function RealTimeTradeAnalytics({ strategy, trades, budget, className = '
         unrealizedProfit
       });
     };
-    
+
     calculateMetrics();
-    
+
     // Recalculate metrics when live prices update
     const interval = setInterval(calculateMetrics, 5000);
-    
+
     return () => clearInterval(interval);
   }, [trades, livePrices]);
 
@@ -176,16 +177,16 @@ export function RealTimeTradeAnalytics({ strategy, trades, budget, className = '
   const formatDuration = (ms: number) => {
     const seconds = Math.floor(ms / 1000);
     if (seconds < 60) return `${seconds}s`;
-    
+
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m`;
-    
+
     const hours = Math.floor(minutes / 60);
     return `${hours}h ${minutes % 60}m`;
   };
 
   return (
-    <motion.div 
+    <motion.div
       className={`bg-gunmetal-800/50 rounded-lg p-4 ${className}`}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}

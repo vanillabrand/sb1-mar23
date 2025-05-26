@@ -32,8 +32,10 @@ import HowItWorksSection from './HowItWorksSection';
 import FeaturesSection from './FeaturesSection';
 import { supabase } from '../lib/supabase';
 import { logService } from '../lib/log-service';
+import { useAuth } from '../hooks/useAuth';
 
 export function Hero() {
+  const { user } = useAuth();
   const [showLogin, setShowLogin] = useState(false);
   const [showSignup, setShowSignup] = useState(false);
   const [email, setEmail] = useState('');
@@ -43,6 +45,13 @@ export function Hero() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  // Redirect authenticated users to dashboard
+  useEffect(() => {
+    if (user) {
+      navigate('/dashboard');
+    }
+  }, [user, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,7 +73,7 @@ export function Hero() {
       if (signInError) throw signInError;
 
       logService.log('info', 'User logged in successfully', null, 'Hero');
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to sign in');
       logService.log('error', 'Login error:', err, 'Hero');
@@ -95,7 +104,8 @@ export function Hero() {
       setLoading(true);
       setError(null);
 
-      const { error: signUpError } = await supabase.auth.signUp({
+      console.log('Starting signup process...');
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -103,7 +113,23 @@ export function Hero() {
         }
       });
 
+      console.log('Signup response:', { data, error: signUpError });
+
       if (signUpError) throw signUpError;
+
+      // Check if email confirmation is required
+      if (data.user && !data.session) {
+        setError('Please check your email and click the confirmation link to complete registration.');
+        setLoading(false);
+        return;
+      }
+
+      // If we have a session, user is logged in immediately
+      if (data.session) {
+        console.log('User logged in immediately after signup');
+        navigate('/dashboard');
+        return;
+      }
 
       setShowSignup(false);
       setShowLogin(true);
@@ -114,6 +140,7 @@ export function Hero() {
 
       logService.log('info', 'User signed up successfully', null, 'Hero');
     } catch (err) {
+      console.error('Signup error:', err);
       setError(err instanceof Error ? err.message : 'Failed to sign up');
       logService.log('error', 'Signup error:', err, 'Hero');
     } finally {
@@ -230,13 +257,30 @@ export function Hero() {
 
         {/* Login Modal */}
         {showLogin && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowLogin(false);
+                setError(null);
+              }
+            }}
+          >
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white/[0.03] backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)]"
+              className="bg-white/[0.03] backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-white/10 shadow-[0_8px_30px_rgb(0,0,0,0.12)] relative"
             >
+              <button
+                onClick={() => {
+                  setShowLogin(false);
+                  setError(null);
+                }}
+                className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors"
+              >
+                ✕
+              </button>
               <h2 className="text-2xl font-bold gradient-text mb-2">Welcome Back</h2>
               <p className="text-gray-400 mb-6">Sign in to access your account</p>
 
@@ -323,118 +367,112 @@ export function Hero() {
           </div>
         )}
 
-        {/* Signup Modal */}
+        {/* Debug State Display */}
+        <div style={{
+          position: 'fixed',
+          top: '10px',
+          right: '10px',
+          backgroundColor: 'yellow',
+          color: 'black',
+          padding: '10px',
+          zIndex: 9999,
+          fontSize: '14px',
+          fontWeight: 'bold'
+        }}>
+          showSignup: {showSignup ? 'TRUE' : 'FALSE'}
+        </div>
+
+        {/* Simple Signup Modal */}
         {showSignup && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 w-full max-w-md border border-gunmetal-800"
+          <div
+            className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50"
+            onClick={() => setShowSignup(false)}
+          >
+            <div
+              className="bg-white rounded-lg p-8 max-w-md w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-2xl font-bold gradient-text mb-2">Create Your Account</h2>
-              <p className="text-gray-400 mb-6">Join thousands of traders using AI to master the markets</p>
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-2xl font-bold text-gray-900">Create Account</h2>
+                <button
+                  onClick={() => setShowSignup(false)}
+                  className="text-gray-500 hover:text-gray-700 text-2xl"
+                >
+                  ×
+                </button>
+              </div>
 
               {error && (
-                <div className="mb-6 p-3 bg-red-500/10 border border-red-500/20 text-red-400 rounded-lg flex items-center gap-2">
-                  <AlertCircle className="w-5 h-5" />
+                <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
                   {error}
                 </div>
               )}
 
               <form onSubmit={handleSignup} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
-                    Email Address
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Email
                   </label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                    <input
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg pl-10 pr-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent"
-                      placeholder="your@email.com"
-                      required
-                    />
-                  </div>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    placeholder="your@email.com"
+                    required
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Password
                   </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg pl-10 pr-10 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent"
-                      placeholder="Create a strong password"
-                      required
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-300"
-                    >
-                      {showPassword ? (
-                        <EyeOff className="w-5 h-5" />
-                      ) : (
-                        <Eye className="w-5 h-5" />
-                      )}
-                    </button>
-                  </div>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    placeholder="Create a password"
+                    required
+                  />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
                     Confirm Password
                   </label>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      value={confirmPassword}
-                      onChange={(e) => setConfirmPassword(e.target.value)}
-                      className="w-full bg-gunmetal-800 border border-gunmetal-700 rounded-lg pl-10 pr-4 py-2 text-gray-200 focus:outline-none focus:ring-2 focus:ring-neon-raspberry focus:border-transparent"
-                      placeholder="Confirm your password"
-                      required
-                    />
-                  </div>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
+                    placeholder="Confirm your password"
+                    required
+                  />
                 </div>
 
-                <motion.button
-                  whileTap={{ scale: 0.98 }}
+                <button
                   type="submit"
                   disabled={loading}
-                  className="w-full flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-lg text-white bg-neon-raspberry hover:bg-[#FF69B4] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-neon-raspberry transition-all duration-300"
+                  className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 >
-                  {loading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                  ) : (
-                    <>
-                      <User className="w-5 h-5 mr-2" />
-                      Create Account
-                    </>
-                  )}
-                </motion.button>
+                  {loading ? 'Creating Account...' : 'Create Account'}
+                </button>
 
-                <div className="text-center space-y-2">
+                <div className="text-center">
                   <button
                     type="button"
                     onClick={() => {
                       setShowSignup(false);
                       setShowLogin(true);
                     }}
-                    className="text-sm text-gray-400 hover:text-neon-turquoise transition-colors"
+                    className="text-sm text-blue-600 hover:text-blue-800"
                   >
                     Already have an account? Sign in
                   </button>
                 </div>
               </form>
-            </motion.div>
+            </div>
           </div>
         )}
       </div>

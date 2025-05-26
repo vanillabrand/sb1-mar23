@@ -1,10 +1,15 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Preloader } from './components/Preloader';
 import { FontLoader } from './components/FontLoader';
 import { systemSync } from './lib/system-sync';
 import { AppContent } from './components/AppContent';
 import { performanceOptimizer } from './lib/performance-optimizer';
 import { fontOptimizer } from './lib/font-optimizer';
+import { ExperienceModeProvider } from './hooks/useExperienceMode';
+import { RustApiProvider } from './components/RustApiProvider';
+import { envValidation } from './lib/env-validation';
+// import './lib/strategy-diagnostics'; // Auto-run diagnostics - temporarily disabled
+// import './lib/strategy-emergency-fix'; // Emergency fixes - temporarily disabled
 
 // Define fonts to load
 const fonts = [
@@ -12,13 +17,13 @@ const fonts = [
     family: 'Inter',
     url: 'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap',
     preload: true,
-    display: 'swap'
+    display: 'swap' as const
   },
   {
     family: 'Roboto Mono',
     url: 'https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500;600&display=swap',
     preload: true,
-    display: 'swap'
+    display: 'swap' as const
   }
 ];
 
@@ -45,6 +50,12 @@ function App() {
   // Function to initialize the app
   const initializeApp = async () => {
     try {
+      // Validate environment variables first
+      const isEnvValid = envValidation.validateAndInitialize();
+      if (!isEnvValid) {
+        console.warn('Environment validation failed, but continuing with initialization');
+      }
+
       // Initialize database connection
       await systemSync.initializeDatabase();
 
@@ -296,13 +307,15 @@ function App() {
 
   // Show main content when initialization is complete
   return (
-    <FontLoader
-      fonts={fonts}
-      onComplete={handleFontsLoaded}
-      fallbackFonts={['system-ui', 'sans-serif']}
-    >
-      <AppContent isReady={isAppReady} />
-    </FontLoader>
+    <RustApiProvider>
+      <FontLoader
+        fonts={fonts}
+        onComplete={handleFontsLoaded}
+        fallbackFonts={['system-ui', 'sans-serif']}
+      >
+        <AppContent isReady={isAppReady} />
+      </FontLoader>
+    </RustApiProvider>
   );
 }
 

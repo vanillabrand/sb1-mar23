@@ -2,6 +2,7 @@ import { logService } from './log-service';
 import { EventEmitter } from './event-emitter';
 import type { Strategy } from './types';
 import { demoService } from './demo-service';
+import { rustApiService } from './rust-api-service';
 
 class MarketService extends EventEmitter {
   private monitoredStrategies: Set<string> = new Set();
@@ -93,17 +94,48 @@ class MarketService extends EventEmitter {
     }
   }
 
-  private async fetchMarketData(_strategy: Strategy): Promise<any> {
-    // This is a placeholder implementation that would be replaced with actual market data fetching
-    // For now, we're just returning an empty object to avoid errors
-    return {
-      price: 0,
-      high24h: 0,
-      low24h: 0,
-      volume24h: 0,
-      recentTrades: [],
-      orderBook: { bids: [], asks: [] }
-    };
+  private async fetchMarketData(strategy: Strategy): Promise<any> {
+    try {
+      // Initialize Rust API service
+      const isApiAvailable = await rustApiService.initialize();
+
+      if (isApiAvailable && strategy.selected_pairs && strategy.selected_pairs.length > 0) {
+        // Use the first selected pair for market data
+        const symbol = strategy.selected_pairs[0];
+
+        try {
+          // Try to get market data from Rust API
+          const marketData = await rustApiService.getMarketData(symbol);
+          logService.log('debug', `Fetched market data via Rust API for ${symbol}`, null, 'MarketService');
+          return marketData;
+        } catch (apiError) {
+          logService.log('warn', `Failed to fetch market data via Rust API for ${symbol}, using fallback`, apiError, 'MarketService');
+        }
+      }
+
+      // Fallback to mock data
+      return {
+        price: 50000 + Math.random() * 1000, // Mock price with some variation
+        high24h: 52000,
+        low24h: 48000,
+        volume24h: 1000000000,
+        recentTrades: [],
+        orderBook: { bids: [], asks: [] },
+        timestamp: Date.now()
+      };
+    } catch (error) {
+      logService.log('error', 'Failed to fetch market data', error, 'MarketService');
+      // Return fallback data
+      return {
+        price: 50000,
+        high24h: 52000,
+        low24h: 48000,
+        volume24h: 1000000000,
+        recentTrades: [],
+        orderBook: { bids: [], asks: [] },
+        timestamp: Date.now()
+      };
+    }
   }
 
   private async analyzeMarketConditions(
@@ -229,7 +261,6 @@ class MarketService extends EventEmitter {
     try {
       // Import dynamically to avoid circular dependencies
       const { tradeService } = await import('./trade-service');
-      const { tradeGenerator } = await import('./trade-generator');
 
       // Get the strategy budget - getBudget is not async so no need for await
       const budget = tradeService.getBudget(strategy.id);
@@ -239,47 +270,59 @@ class MarketService extends EventEmitter {
       }
 
       // Get market data
-      const marketData = this.marketData.get(strategy.id);
+      let marketData = this.marketData.get(strategy.id);
       if (!marketData) {
-        logService.log('warn', `No market data available for strategy ${strategy.id}`, null, 'MarketService');
-        return;
+        // Try to fetch fresh market data
+        marketData = await this.fetchMarketData(strategy);
+        this.marketData.set(strategy.id, marketData);
       }
 
-      // Import additional services
-      const { demoService } = await import('./demo-service');
-      const { exchangeService } = await import('./exchange-service');
-
-      // Check if we're in demo mode or using a live exchange
-      const isDemoMode = demoService.isDemoMode();
-      const isExchangeConnected = await exchangeService.isConnected();
-
-      logService.log('info', `Generating initial trades for strategy ${strategy.id}`, {
-        isDemoMode,
-        isExchangeConnected,
-        budget: budget.available
+      logService.log('info', `Generating initial trades for strategy ${strategy.id} via Rust API`, {
+        budget: budget.available,
+        hasMarketData: !!marketData
       }, 'MarketService');
 
-      // Let DeepSeek decide whether to generate trades
-      // We'll just trigger the trade generator and let it handle the decision-making
-      logService.log('info', `Triggering trade generation for strategy ${strategy.id}`, null, 'MarketService');
+      // Try to use Rust API for trade generation
+      const isApiAvailable = await rustApiService.initialize();
 
+      if (isApiAvailable) {
+        try {
+          // Use Rust API to generate trades
+          const trades = await rustApiService.generateTrades(strategy.id, {
+            symbols: strategy.selected_pairs || ['BTC/USDT'],
+            marketConditions: await this.analyzeMarketConditions(strategy, marketData),
+            budget: budget.available,
+            riskLevel: strategy.riskLevel || 'Medium',
+            marketType: strategy.market_type || 'spot'
+          });
+
+          logService.log('info', `Generated ${trades.length} trades via Rust API for strategy ${strategy.id}`, null, 'MarketService');
+          return;
+        } catch (apiError) {
+          logService.log('warn', `Failed to generate trades via Rust API for strategy ${strategy.id}, falling back to trade generator`, apiError, 'MarketService');
+        }
+      }
+
+      // Fallback to existing trade generator
       try {
+        const { tradeGenerator } = await import('./trade-generator');
+
         // Add the strategy to the trade generator if it's not already there
-        // Use type assertion to handle potential type mismatch
         await tradeGenerator.addStrategy(strategy as any);
 
         // Trigger a check for trade opportunities
         await tradeGenerator.checkTradeOpportunities(strategy.id);
-      } catch (error) {
-        logService.log('error', `Failed to add strategy to trade generator: ${strategy.id}`, error, 'MarketService');
-        // Continue execution - don't throw here to prevent interval disruption
-      }
 
-      logService.log('info', `Trade generation triggered for strategy ${strategy.id}`, null, 'MarketService');
+        logService.log('info', `Trade generation triggered via fallback for strategy ${strategy.id}`, null, 'MarketService');
+      } catch (error) {
+        logService.log('error', `Failed to generate trades for strategy ${strategy.id}`, error, 'MarketService');
+      }
     } catch (error) {
       logService.log('error', `Failed to generate initial trades for strategy ${strategy.id}`, error, 'MarketService');
     }
   }
+
+  // Removed duplicate analyzeMarketConditions method
 
   /**
    * Get available trading pairs
@@ -298,7 +341,7 @@ class MarketService extends EventEmitter {
       // In a real implementation, we would fetch this from the exchange
       // For now, we'll just return a static list of common pairs
       logService.log('info', 'Returning available trading pairs', { count: commonPairs.length }, 'MarketService');
-      
+
       return commonPairs;
     } catch (error) {
       logService.log('error', 'Failed to get available trading pairs', error, 'MarketService');
@@ -317,13 +360,13 @@ class MarketService extends EventEmitter {
       // In a real implementation, we would fetch this from the exchange
       // For now, we'll just return mock data
       const normalizedSymbol = symbol.replace('_', '/');
-      
+
       // Import dynamically to avoid circular dependencies
       const { exchangeService } = await import('./exchange-service');
-      
+
       // Check if we're in demo mode
       const isDemoMode = demoService.isDemoMode();
-      
+
       if (isDemoMode) {
         // In demo mode, use mock data
         return {

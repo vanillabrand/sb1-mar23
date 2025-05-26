@@ -5,7 +5,7 @@ WORKDIR /app
 
 # Install dependencies
 RUN apt-get update && \
-    apt-get install -y pkg-config libssl-dev && \
+    apt-get install -y pkg-config libssl-dev ca-certificates curl && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy Cargo files
@@ -25,17 +25,29 @@ RUN touch src/main.rs && \
     cargo build --release
 
 # Runtime stage
-FROM debian:bullseye-slim
-
-WORKDIR /app
+FROM debian:bookworm-slim
 
 # Install runtime dependencies
 RUN apt-get update && \
-    apt-get install -y ca-certificates libssl1.1 && \
+    apt-get install -y ca-certificates libssl3 curl && \
     rm -rf /var/lib/apt/lists/*
+
+# Create app user for security
+RUN useradd -r -s /bin/false -m -d /app appuser
+
+WORKDIR /app
 
 # Copy the binary from the builder stage
 COPY --from=builder /app/target/release/trading-api /app/trading-api
+
+# Copy environment template
+COPY .env.example /app/.env.example
+
+# Change ownership to app user
+RUN chown -R appuser:appuser /app
+
+# Switch to app user
+USER appuser
 
 # Expose the port
 EXPOSE 8080
@@ -44,6 +56,10 @@ EXPOSE 8080
 ENV RUST_LOG=info
 ENV HOST=0.0.0.0
 ENV PORT=8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application
 CMD ["/app/trading-api"]

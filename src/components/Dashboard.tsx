@@ -5,6 +5,7 @@ import { performanceOptimizer } from '../lib/performance-optimizer';
 import { fontOptimizer } from '../lib/font-optimizer';
 import { useScreenSize } from '../lib/hooks/useScreenSize';
 import type { Strategy } from '../lib/types';
+import { RustApiStatus } from './RustApiProvider';
 
 // Define MonitoringStatus interface locally to avoid type errors
 interface MonitoringStatus {
@@ -27,11 +28,11 @@ const TIMEZONES = [
 ];
 
 interface DashboardProps {
-  strategies: Strategy[];
-  monitoringStatuses: Record<string, MonitoringStatus>;
+  strategies?: Strategy[];
+  monitoringStatuses?: Record<string, MonitoringStatus>;
 }
 
-export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
+export function Dashboard({ strategies: initialStrategies = [] }: DashboardProps = {}) {
   // We're not using monitoringStatuses in this simplified version
   const [selectedTimezone, setSelectedTimezone] = useState('UTC');
   const screenSize = useScreenSize();
@@ -49,7 +50,7 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
 
   // Use provided strategies or fallback to empty array
   const activeStrategies = useMemo(() => {
-    return initialStrategies.filter(s => s.status === 'active');
+    return (initialStrategies || []).filter(s => s.status === 'active');
   }, [initialStrategies]);
 
   // Extract all assets from strategies
@@ -71,7 +72,7 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
         <div className="flex items-center">
           {/* Logo */}
           <div className="mr-4">
-            <img src="/logo.png" alt="Logo" className="h-10 w-auto" />
+            <img src="/logo.svg" alt="Logo" className="h-10 w-auto" />
           </div>
           <div className="hidden sm:flex items-center gap-2">
             <Calendar className="w-5 h-5 text-neon-yellow" />
@@ -86,6 +87,7 @@ export function Dashboard({ strategies: initialStrategies }: DashboardProps) {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <RustApiStatus />
           <button
             onClick={() => setShowPerformanceTools(!showPerformanceTools)}
             className="flex items-center gap-2 px-3 py-1.5 bg-gunmetal-800 hover:bg-gunmetal-700 rounded-lg transition-colors shadow-lg"

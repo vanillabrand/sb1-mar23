@@ -13,6 +13,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { strategySync } from '../../lib/strategy-sync';
 import { tradeService } from '../../lib/trade-service';
+import { portfolioService } from '../../lib/portfolio-service';
+import { portfolioPerformanceService } from '../../lib/portfolio-performance-service';
 import { demoService } from '../../lib/demo-service';
 import { logService } from '../../lib/log-service';
 import { Strategy, Trade } from '../../lib/types';
@@ -107,15 +109,34 @@ export function SimplifiedDashboard() {
   // Load portfolio data
   const loadPortfolioData = async () => {
     try {
-      // Calculate portfolio value from strategies and trades
-      const value = await tradeService.calculatePortfolioValue();
-      setPortfolioValue(value);
+      // Initialize portfolio service if needed
+      await portfolioService.initialize();
 
-      // Calculate 24h change (simplified for now)
-      const change = await tradeService.calculatePortfolioChange();
-      setPortfolioChange(change);
+      // Get portfolio summary
+      const summary = await portfolioService.getPortfolioSummary();
+
+      if (summary) {
+        setPortfolioValue(summary.currentValue || 0);
+        setPortfolioChange(summary.totalChange || 0);
+      } else {
+        // Fallback: calculate from budgets if no portfolio data
+        const totalBudgets = Array.from(tradeService.getAllBudgets().values())
+          .reduce((sum, budget) => sum + (budget.total || 0), 0);
+
+        setPortfolioValue(totalBudgets);
+        setPortfolioChange(0);
+      }
     } catch (err) {
       logService.log('error', 'Failed to load portfolio data', err, 'SimplifiedDashboard');
+
+      // Fallback to demo values
+      if (isDemoMode) {
+        setPortfolioValue(10000); // Demo starting value
+        setPortfolioChange(0);
+      } else {
+        setPortfolioValue(0);
+        setPortfolioChange(0);
+      }
     }
   };
 

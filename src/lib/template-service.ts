@@ -374,8 +374,7 @@ export class TemplateService {
         status: 'inactive', // Start as inactive
         selected_pairs: selectedPairs,
         strategy_config: strategyConfig,
-        marketType: template.marketType || 'spot', // Pass the market type from the template
-        market_type: template.marketType || template.market_type || 'spot' // Also set market_type for database
+        market_type: template.marketType || template.market_type || 'spot' // Only use database column name
       });
 
       // Log the strategy creation for debugging

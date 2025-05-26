@@ -49,7 +49,7 @@ export function Awards() {
             return (
               <div
                 key={index}
-                className="group relative bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 border border-gunmetal-800 hover:border-neon-turquoise/50 transform hover:scale-105 transition-all duration-300"
+                className="group relative bg-gunmetal-900/90 backdrop-blur-xl rounded-xl p-6 transition-all duration-300"
               >
                 <div className={`absolute inset-0 bg-gradient-to-br from-${award.color}/10 to-transparent rounded-xl opacity-0 group-hover:opacity-100 transition-opacity`} />
                 <div className="relative">

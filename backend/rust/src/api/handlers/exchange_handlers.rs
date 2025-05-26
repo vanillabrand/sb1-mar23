@@ -29,13 +29,13 @@ pub async fn get_balance(
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Create service
-    let exchange_service = ExchangeService::new(true);
-    
+    let exchange_service = ExchangeService::new();
+
     // Get balance
     let balance = exchange_service.get_balance().await?;
-    
+
     Ok(HttpResponse::Ok().json(balance))
 }
 
@@ -47,20 +47,18 @@ pub async fn create_order(
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Create service
-    let exchange_service = ExchangeService::new(true);
-    
+    let exchange_service = ExchangeService::new();
+
     // Create order
     let order = exchange_service.create_order(
         &order_req.symbol,
         &order_req.side,
         order_req.amount,
-        order_req.price,
-        order_req.is_futures.unwrap_or(false),
-        order_req.leverage,
+        order_req.price.unwrap_or(0.0),
     ).await?;
-    
+
     Ok(HttpResponse::Created().json(order))
 }
 
@@ -72,16 +70,16 @@ pub async fn cancel_order(
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Get order ID from path
     let order_id = path.into_inner();
-    
+
     // Create service
-    let exchange_service = ExchangeService::new(true);
-    
+    let exchange_service = ExchangeService::new();
+
     // Cancel order
-    exchange_service.cancel_order("", &order_id).await?;
-    
+    let _result = exchange_service.cancel_order(&order_id).await?;
+
     Ok(HttpResponse::NoContent().finish())
 }
 
@@ -93,16 +91,16 @@ pub async fn get_open_orders(
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Get query parameters
     let symbol = query.get("symbol").map(|s| s.as_str());
-    
+
     // Create service
-    let exchange_service = ExchangeService::new(true);
-    
+    let exchange_service = ExchangeService::new();
+
     // Get open orders
-    let orders = exchange_service.get_open_orders(symbol).await?;
-    
+    let orders = exchange_service.get_open_orders().await?;
+
     Ok(HttpResponse::Ok().json(orders))
 }
 
@@ -114,16 +112,16 @@ pub async fn get_trades(
 ) -> Result<HttpResponse, ApiError> {
     // Extract user ID from request
     let _user_id = extract_user_id(&req)?;
-    
+
     // Get query parameters
     let symbol = &query.symbol;
     let limit = query.limit.unwrap_or(100);
-    
+
     // Create service
-    let exchange_service = ExchangeService::new(true);
-    
+    let exchange_service = ExchangeService::new();
+
     // Get trades
-    let trades = exchange_service.get_trades(symbol, limit).await?;
-    
+    let trades = exchange_service.get_trades().await?;
+
     Ok(HttpResponse::Ok().json(trades))
 }

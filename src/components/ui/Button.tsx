@@ -18,7 +18,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           "disabled:pointer-events-none disabled:opacity-50",
           {
             'default': "bg-neon-raspberry text-white hover:bg-neon-raspberry/90",
-            'outline': "border border-gunmetal-700 bg-transparent hover:bg-gunmetal-800",
+            'outline': "bg-transparent hover:bg-gunmetal-800",
             'ghost': "hover:bg-gunmetal-800",
             'link': "text-neon-raspberry underline-offset-4 hover:underline"
           }[variant],

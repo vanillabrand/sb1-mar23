@@ -165,12 +165,58 @@ export const FluidHero: React.FC<FluidHeroProps> = ({ onGetStarted, onLearnMore 
               Start Trading with AI
             </FluidButton>
 
+            {/* Simple test button */}
+            <button
+              onClick={() => alert('SIMPLE BUTTON WORKS!')}
+              style={{
+                backgroundColor: 'red',
+                color: 'white',
+                padding: '10px 20px',
+                border: 'none',
+                borderRadius: '5px',
+                fontSize: '16px',
+                cursor: 'pointer'
+              }}
+            >
+              TEST BUTTON
+            </button>
+
+            {/* Another test button that calls onGetStarted */}
+            <button
+              onClick={() => {
+                alert('Calling onGetStarted...');
+                onGetStarted();
+              }}
+              style={{
+                backgroundColor: 'green',
+                color: 'white',
+                padding: '10px 20px',
+                border: 'none',
+                borderRadius: '5px',
+                fontSize: '16px',
+                cursor: 'pointer'
+              }}
+            >
+              DIRECT TEST
+            </button>
+
             <FluidButton
               onClick={onLearnMore}
               icon={<Star className="w-5 h-5 text-neon-yellow" />}
             >
               How It Works
             </FluidButton>
+
+            {/* Test button for debugging */}
+            <button
+              onClick={() => {
+                console.log('Test button clicked!');
+                onGetStarted();
+              }}
+              className="px-6 py-3 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium"
+            >
+              Test Get Started
+            </button>
           </motion.div>
 
           {/* Floating elements */}

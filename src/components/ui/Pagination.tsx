@@ -33,7 +33,15 @@ export function Pagination({
   const screenSize = useScreenSize();
   const isMobile = screenSize === 'sm';
 
-  // Calculate start and end items for display (moved to the top to avoid reference error)
+  // Handle items per page change (moved to top to avoid reference error)
+  const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newItemsPerPage = parseInt(e.target.value, 10);
+    if (onItemsPerPageChange) {
+      onItemsPerPageChange(newItemsPerPage);
+    }
+  };
+
+  // Calculate start and end items for display
   const startItem = totalItems ? (currentPage - 1) * itemsPerPage + 1 : 0;
   const endItem = totalItems ? Math.min(currentPage * itemsPerPage, totalItems) : 0;
 
@@ -143,14 +151,6 @@ export function Pagination({
     }
 
     return pageNumbers;
-  };
-
-  // Handle items per page change
-  const handleItemsPerPageChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newItemsPerPage = parseInt(e.target.value, 10);
-    if (onItemsPerPageChange) {
-      onItemsPerPageChange(newItemsPerPage);
-    }
   };
 
   // Start and end items are calculated at the top of the component

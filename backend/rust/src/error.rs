@@ -6,27 +6,30 @@ use thiserror::Error;
 pub enum ApiError {
     #[error("Authentication error: {0}")]
     Auth(String),
-    
+
     #[error("Database error: {0}")]
     Database(String),
-    
+
     #[error("Validation error: {0}")]
     Validation(String),
-    
+
     #[error("Not found: {0}")]
     NotFound(String),
-    
+
     #[error("Exchange error: {0}")]
     Exchange(String),
-    
+
     #[error("External API error: {0}")]
     ExternalApi(String),
-    
+
     #[error("Rate limit exceeded: {0}")]
     RateLimit(String),
-    
+
     #[error("Internal server error: {0}")]
     Internal(String),
+
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -47,24 +50,22 @@ impl ResponseError for ApiError {
             ApiError::ExternalApi(_) => (actix_web::http::StatusCode::BAD_GATEWAY, "EXTERNAL_API_ERROR"),
             ApiError::RateLimit(_) => (actix_web::http::StatusCode::TOO_MANY_REQUESTS, "RATE_LIMIT_EXCEEDED"),
             ApiError::Internal(_) => (actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR"),
+            ApiError::ConfigError(_) => (actix_web::http::StatusCode::INTERNAL_SERVER_ERROR, "CONFIG_ERROR"),
         };
-        
+
         let error_response = ErrorResponse {
             error: error_type.to_string(),
             message: self.to_string(),
             status_code: status_code.as_u16(),
         };
-        
+
         HttpResponse::build(status_code).json(error_response)
     }
 }
 
 // Utility functions for error conversion
-impl From<postgrest::RequestError> for ApiError {
-    fn from(err: postgrest::RequestError) -> Self {
-        ApiError::Database(err.to_string())
-    }
-}
+// Note: postgrest::RequestError is not available in current version
+// Database errors will be handled through other error types
 
 impl From<reqwest::Error> for ApiError {
     fn from(err: reqwest::Error) -> Self {

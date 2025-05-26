@@ -170,10 +170,7 @@
   transform-origin: center;
 }
 
-.strategy-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
-}
+/* Removed strategy card hover transform effect */
 
 /* Mobile Menu Transition */
 .mobile-menu-enter {
