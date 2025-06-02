@@ -13,6 +13,30 @@ pub struct WsServer {
 }
 
 impl WsServer {
+    pub fn send(&self, msg: ServerMessage) {
+        match msg {
+            ServerMessage::Connect(Connect { id, addr }) => {
+                self.sessions.insert(id.clone(), addr);
+            },
+            ServerMessage::Disconnect(Disconnect { id }) => {
+                self.sessions.remove(&id);
+                self.remove_client_from_all_subscriptions(&id);
+            },
+            ServerMessage::Message(Message { id, msg }) => {
+                if let Some(addr) = self.sessions.get(&id) {
+                    let _ = addr.do_send(ServerMessage::Message(Message { id, msg }));
+                }
+            },
+            ServerMessage::Text(text) => {
+                for addr in self.sessions.values() {
+                    let _ = addr.do_send(ServerMessage::Text(text.clone()));
+                }
+            }
+        }
+    }
+}
+
+impl WsServer {
     pub fn new() -> Self {
         Self {
             sessions: HashMap::new(),

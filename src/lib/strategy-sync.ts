@@ -1,7 +1,6 @@
 import { EventEmitter } from './event-emitter';
 import { logService } from './log-service';
 import { supabase } from './supabase';
-import { strategyService } from './strategy-service';
 import { eventBus } from './event-bus';
 import { v4 as uuidv4 } from 'uuid';
 import { AIService } from './ai-service';
@@ -377,9 +376,8 @@ class StrategySync extends EventEmitter {
       };
 
       // Set risk_level for database compatibility - ensure both camelCase and snake_case versions
-      const riskLevel = data.riskLevel || data.risk_level || 'Medium';
+      const riskLevel = data.riskLevel || 'Medium';
       strategyData.riskLevel = riskLevel;
-      strategyData.risk_level = riskLevel;
 
       // Log the data we're trying to insert
       console.log('Creating strategy with data:', strategyData);
@@ -390,7 +388,6 @@ class StrategySync extends EventEmitter {
         user_id: strategyData.user_id,
         title: strategyData.title,
         name: strategyData.name,
-        risk_level: strategyData.risk_level,
         riskLevel: strategyData.riskLevel,
         type: strategyData.type,
         status: strategyData.status,
@@ -462,22 +459,19 @@ class StrategySync extends EventEmitter {
         const fallbackStrategy = {
           id: strategyId,
           user_id: session.user.id,
-          title: capitalizedTitle,
           name: data.name || capitalizedTitle,
           description: data.description || '',
-          type: data.type || 'custom',
+          config: data.strategy_config || {},
           status: data.status || 'inactive',
-          risk_level: riskLevel,
-          riskLevel: riskLevel,
+          performance_metrics: {},
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
           selected_pairs: Array.isArray(data.selected_pairs)
             ? data.selected_pairs.map(pair =>
                 pair.includes('_') ? pair.replace('_', '/') : pair
               )
             : ['BTC/USDT'],
-          strategy_config: data.strategy_config || {},
-          performance: 0,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
+          performance: 0
         } as Strategy;
 
         logService.log('warn', 'No strategy returned from database, using fallback', { fallbackStrategy }, 'StrategySync');
@@ -764,6 +758,34 @@ class StrategySync extends EventEmitter {
     } else {
       console.log(`Strategy ${id} not found in cache`);
     }
+  }
+
+  async refreshCache(): Promise<void> {
+    try {
+      const { data: strategies, error } = await supabase
+        .from('strategies')
+        .select('*');
+      
+      if (error) throw error;
+      
+      this.strategies.clear();
+      strategies.forEach(strategy => {
+        this.strategies.set(strategy.id, strategy);
+      });
+      this.lastSyncTime = Date.now();
+      console.log('Strategy cache refreshed successfully');
+    } catch (error) {
+      console.error('Failed to refresh strategy cache:', error);
+      throw error;
+    }
+  }
+
+  getCachedStrategy(id: string): Strategy | null {
+    if (!this.strategies.has(id)) {
+      console.log(`Strategy ${id} not found in cache`);
+      return null;
+    }
+    return this.strategies.get(id)!;
   }
 
   cleanup() {

@@ -73,7 +73,7 @@ impl AuthService {
     
     // Get user by ID
     async fn get_user_by_id(&self, id: &str) -> Result<User, ApiError> {
-        let response = self.db.client
+        let response = self.db.client()
             .from("users")
             .select("*")
             .eq("id", id)
@@ -91,7 +91,7 @@ impl AuthService {
     
     // Get user by email
     async fn get_user_by_email(&self, email: &str) -> Result<User, ApiError> {
-        let response = self.db.client
+        let response = self.db.client()
             .from("users")
             .select("*")
             .eq("email", email)

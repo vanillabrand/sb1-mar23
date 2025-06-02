@@ -66,18 +66,20 @@ impl Actor for WsSession {
         self.start_heartbeat(ctx);
         
         // Register with server
-        self.server.send(Connect {
+        self.server.send(ws::messages::ServerMessage::Connect(Connect {
             id: self.id.clone(),
-            addr: ctx.address(),
-        });
+            addr: ctx.address().recipient(),
+        }));
         
         // Send welcome message
-        let welcome_msg = ServerMessage {
-            type_: "connection".to_string(),
-            data: serde_json::json!({
-                "message": "Connected to trading server",
-                "clientId": self.id,
-                "isDemo": self.demo_mode,
+        let welcome_msg = ws::messages::ServerMessage::Message(ws::messages::Message {
+            id: self.id.clone(),
+            msg: ws::messages::ClientMessage {
+                type_: "connection".to_string(),
+                data: serde_json::json!({
+                    "message": "Connected to trading server",
+                    "clientId": self.id,
+                    "isDemo": self.demo_mode,
             }),
         };
         
@@ -86,9 +88,9 @@ impl Actor for WsSession {
     
     fn stopping(&mut self, _: &mut Self::Context) -> actix::Running {
         // Notify server that client has disconnected
-        self.server.send(Disconnect {
+        self.server.send(ws::messages::ServerMessage::Disconnect(Disconnect {
             id: self.id.clone(),
-        });
+        }));
         
         actix::Running::Stop
     }
@@ -146,10 +148,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                             }
                             _ => {
                                 // Forward message to server
-                                self.server.send(Message {
+                                self.server.send(ws::messages::ServerMessage::Message(Message {
                                     id: self.id.clone(),
                                     msg: client_msg,
-                                });
+                                }));
                             }
                         }
                     }
@@ -210,7 +212,7 @@ impl WsSession {
                             self.subscriptions.push(key.clone());
                             
                             // Notify server about the subscription
-                            self.server.send(Message {
+                            self.server.send(ws::messages::ServerMessage::Message(Message {
                                 id: self.id.clone(),
                                 msg: ClientMessage {
                                     type_: "subscribe".to_string(),
@@ -233,13 +235,13 @@ impl WsSession {
             self.subscriptions.push(subscription_key.clone());
             
             // Notify server about the subscription
-            self.server.send(Message {
+            self.server.send(ws::messages::ServerMessage::Message(Message {
                 id: self.id.clone(),
                 msg: ClientMessage {
                     type_: "subscribe".to_string(),
                     data: data.clone(),
                 },
-            });
+            }));
             
             // Send confirmation
             let confirm_msg = ServerMessage {
@@ -268,13 +270,13 @@ impl WsSession {
             self.subscriptions.remove(pos);
             
             // Notify server about the unsubscription
-            self.server.send(Message {
+            self.server.send(ws::messages::ServerMessage::Message(Message {
                 id: self.id.clone(),
                 msg: ClientMessage {
                     type_: "unsubscribe".to_string(),
                     data: data.clone(),
                 },
-            });
+            }));
             
             // Send confirmation
             let confirm_msg = ServerMessage {

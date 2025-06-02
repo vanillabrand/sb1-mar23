@@ -60,8 +60,8 @@ impl ResponseError for ApiError {
 }
 
 // Utility functions for error conversion
-impl From<postgrest::RequestError> for ApiError {
-    fn from(err: postgrest::RequestError) -> Self {
+impl From<postgrest::Error> for ApiError {
+    fn from(err: postgrest::Error) -> Self {
         ApiError::Database(err.to_string())
     }
 }

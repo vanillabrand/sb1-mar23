@@ -92,7 +92,7 @@ impl StrategyService {
     
     // Get budget for a strategy
     pub async fn get_budget(&self, strategy_id: &str) -> Result<StrategyBudget, ApiError> {
-        let response = self.db.client
+        let response = self.db.client()
             .from("strategy_budgets")
             .select("*")
             .eq("strategy_id", strategy_id)
@@ -110,7 +110,7 @@ impl StrategyService {
     
     // Update budget for a strategy
     pub async fn update_budget(&self, strategy_id: &str, budget: StrategyBudget) -> Result<StrategyBudget, ApiError> {
-        let response = self.db.client
+        let response = self.db.client()
             .from("strategy_budgets")
             .eq("strategy_id", strategy_id)
             .update(serde_json::to_string(&budget)?)
@@ -138,7 +138,7 @@ impl StrategyService {
         };
         
         // Insert into database
-        let response = self.db.client
+        let response = self.db.client()
             .from("strategy_budgets")
             .insert(serde_json::to_string(&budget)?)
             .execute()

@@ -14,6 +14,12 @@ pub struct SupabaseClient {
 }
 
 impl SupabaseClient {
+    pub fn client(&self) -> &Postgrest {
+        &self.client
+    }
+}
+
+impl SupabaseClient {
     pub fn new(url: &str, key: &str) -> Self {
         let client = Postgrest::new(url)
             .insert_header("apikey", key)
@@ -41,11 +47,12 @@ pub async fn init_db_pool() -> Result<Arc<SupabaseClient>, ApiError> {
     
     let client = SupabaseClient::new(&supabase_url, &supabase_key);
     
-    // Test the connection
-    let _ = client.client.from("health_check").select("*").limit(1).execute().await
+    // Test the connection with a simple count query on existing table
+    let _ = client.client.from("strategies").select("count").execute().await
         .map_err(|e| ApiError::Database(format!("Failed to connect to Supabase: {}", e)))?;
     
-    tracing::info!("Successfully connected to Supabase");
+    tracing::info!("Successfully connected to Supabase at {}", supabase_url);
+    tracing::debug!("Supabase connection established with key: {}", supabase_key);
     
     Ok(Arc::new(client))
 }

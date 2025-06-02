@@ -28,22 +28,45 @@ export interface MarketAnalysis {
   resistance: number | null;
 }
 
-export interface Strategy {
+
+export interface BaseStrategy {
   id: string;
-  title: string;
-  name?: string; // Added name field
-  description: string;
-  riskLevel: RiskLevel;
-  status: 'active' | 'inactive' | 'paused';
-  type: string;
   user_id: string;
   created_at: string;
   updated_at: string;
+  name: string;
+  title: string;
+  description: string;
+  riskLevel: RiskLevel;
+  status: 'active' | 'inactive' | 'paused' | 'stopped';
   performance: number;
-  selected_pairs: string[];
-  strategy_config: any;
-  marketType?: MarketType; // Added market type field
-  market_type?: MarketType; // Added snake_case version for database compatibility
+  config: Json;
+  performance_metrics: Json;
+  /** @deprecated Use marketType instead */
+  market_type?: MarketType;
+  marketType?: MarketType;
+  type?: string;
+  selected_pairs?: string[];
+  strategy_config?: any;
+}
+
+export interface Strategy extends BaseStrategy {}
+
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json }
+  | Json[];
+
+export interface ApiStrategy extends BaseStrategy {
+  // Override status to match API expectations
+  status: 'active' | 'paused' | 'stopped';
+  // Make name required for API
+  name: string;
+  // Make description required for API
+  description: string;
 }
 
 export interface Trade {
@@ -354,16 +377,14 @@ export interface StrategyTemplate {
   };
 }
 
-export interface CreateStrategyData {
-  title: string;
-  name?: string; // Added name field to match database schema requirement
-  description: string;
-  riskLevel: RiskLevel;
+export interface CreateStrategyData extends Pick<BaseStrategy,
+  'title' | 'description' | 'riskLevel' | 'marketType' | 'market_type'
+> {
+  name?: string;
   type?: string;
   status?: 'active' | 'inactive' | 'paused';
   selected_pairs?: string[];
   strategy_config?: any;
-  marketType?: MarketType; // Market type (spot, margin, futures)
 }
 
 export interface MarketCondition {

@@ -41,16 +41,11 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self, config::ConfigError> {
-        let mut cfg = config::Config::default();
+        let cfg = config::Config::builder()
+            .add_source(config::Environment::default())
+            .build()?;
         
-        // Add in settings from environment variables (with a prefix of APP)
-        // E.g. `APP_DEBUG=1 ./target/app` would set the `debug` key
-        cfg.merge(config::Environment::default())?;
-        
-        // Deserialize the configuration
-        let config = cfg.try_into::<Config>()?;
-        
-        Ok(config)
+        cfg.try_deserialize()
     }
     
     pub fn load() -> Self {
