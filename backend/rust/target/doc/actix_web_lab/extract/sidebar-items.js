@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_BODY_LIMIT","DEFAULT_BYTES_LIMIT","DEFAULT_JSON_LIMIT","DEFAULT_URL_ENCODED_FORM_LIMIT"],"enum":["RequestSignatureError"],"struct":["BodyLimit","Bytes","Host","Json","LazyData","LocalData","Path","Query","ReconstructedPath","RequestSignature","SwapData","UrlEncodedForm"],"trait":["RequestSignatureScheme"],"type":["SharedData"]};

@@ -1,0 +1,43 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="postgrest-rs"><title>postgrest - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-916cea96.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="postgrest" data-themes="" data-resource-suffix="" data-rustdoc-version="1.87.0 (17067e9ac 2025-05-09)" data-channel="1.87.0" data-search-js="search-e7298875.js" data-settings-js="settings-d72f25bb.js" ><script src="../static.files/storage-82c7156e.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-fb8c74a8.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../postgrest/index.html">postgrest</a><span class="version">1.6.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#postgrest-rs" title="postgrest-rs">postgrest-rs</a><ul><li><a href="#usage" title="Usage">Usage</a></li></ul></li></ul><h3><a href="#structs">Crate Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1>Crate <span>postgrest</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/postgrest/lib.rs.html#1-239">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><h2 id="postgrest-rs"><a class="doc-anchor" href="#postgrest-rs">§</a>postgrest-rs</h2>
+<p><a href="https://postgrest.org">PostgREST</a> client-side library.</p>
+<p>This library is a thin wrapper that brings an ORM-like interface to
+PostgREST.</p>
+<h3 id="usage"><a class="doc-anchor" href="#usage">§</a>Usage</h3>
+<p>Simple example:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+<span class="kw">let </span>resp = client
+    .from(<span class="string">"your_table"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+<span class="kw">let </span>body = resp
+    .text()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>Using filters:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>resp = client
+    .from(<span class="string">"countries"</span>)
+    .eq(<span class="string">"name"</span>, <span class="string">"Germany"</span>)
+    .gte(<span class="string">"id"</span>, <span class="string">"20"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>Updating a table:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>resp = client
+    .from(<span class="string">"users"</span>)
+    .eq(<span class="string">"username"</span>, <span class="string">"soedirgo"</span>)
+    .update(<span class="string">"{\"organization\": \"supabase\"}"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>Executing stored procedures:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>resp = client
+    .rpc(<span class="string">"add"</span>, <span class="string">r#"{"a": 1, "b": 2}"#</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>Check out the <a href="https://github.com/supabase/postgrest-rs">README</a> for more info.</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></dt><dd>QueryBuilder struct</dd><dt><a class="struct" href="struct.Postgrest.html" title="struct postgrest::Postgrest">Postgrest</a></dt></dl></section></div></main></body></html>

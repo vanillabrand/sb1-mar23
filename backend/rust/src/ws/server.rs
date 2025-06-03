@@ -1,35 +1,55 @@
 use actix::{Actor, Context, Handler, Recipient};
 use std::collections::{HashMap, HashSet};
+use std::sync::RwLock;
 use uuid::Uuid;
 
 use crate::ws::messages::{Connect, Disconnect, Message, ServerMessage};
 
-#[derive(Clone)]
 pub struct WsServer {
     // Client sessions
-    sessions: HashMap<String, Recipient<ServerMessage>>,
+    sessions: RwLock<HashMap<String, Recipient<ServerMessage>>>,
     // Subscriptions: channel -> client_ids
-    subscriptions: HashMap<String, HashSet<String>>,
+    subscriptions: RwLock<HashMap<String, HashSet<String>>>,
+}
+
+impl Clone for WsServer {
+    fn clone(&self) -> Self {
+        let sessions = self.sessions.read().unwrap().clone();
+        let subscriptions = self.subscriptions.read().unwrap().clone();
+        
+        WsServer {
+            sessions: RwLock::new(sessions),
+            subscriptions: RwLock::new(subscriptions),
+        }
+    }
 }
 
 impl WsServer {
     pub fn send(&self, msg: ServerMessage) {
         match msg {
             ServerMessage::Connect(Connect { id, addr }) => {
-                self.sessions.insert(id.clone(), addr);
+                if let Ok(mut sessions) = self.sessions.write() {
+                    sessions.insert(id.clone(), addr);
+                }
             },
             ServerMessage::Disconnect(Disconnect { id }) => {
-                self.sessions.remove(&id);
+                if let Ok(mut sessions) = self.sessions.write() {
+                    sessions.remove(&id);
+                }
                 self.remove_client_from_all_subscriptions(&id);
             },
             ServerMessage::Message(Message { id, msg }) => {
-                if let Some(addr) = self.sessions.get(&id) {
-                    let _ = addr.do_send(ServerMessage::Message(Message { id, msg }));
+                if let Ok(sessions) = self.sessions.read() {
+                    if let Some(addr) = sessions.get(&id) {
+                        let _ = addr.do_send(ServerMessage::Message(Message { id, msg }));
+                    }
                 }
             },
             ServerMessage::Text(text) => {
-                for addr in self.sessions.values() {
-                    let _ = addr.do_send(ServerMessage::Text(text.clone()));
+                if let Ok(sessions) = self.sessions.read() {
+                    for addr in sessions.values() {
+                        let _ = addr.do_send(ServerMessage::Text(text.clone()));
+                    }
                 }
             }
         }
@@ -39,53 +59,65 @@ impl WsServer {
 impl WsServer {
     pub fn new() -> Self {
         Self {
-            sessions: HashMap::new(),
-            subscriptions: HashMap::new(),
+            sessions: RwLock::new(HashMap::new()),
+            subscriptions: RwLock::new(HashMap::new()),
         }
     }
     
     // Send message to a specific client
     pub fn send_message(&self, client_id: &str, message: ServerMessage) {
-        if let Some(addr) = self.sessions.get(client_id) {
-            let _ = addr.do_send(message);
+        if let Ok(sessions) = self.sessions.read() {
+            if let Some(addr) = sessions.get(client_id) {
+                let _ = addr.do_send(message);
+            }
         }
     }
     
     // Send message to all clients subscribed to a channel
     pub fn broadcast(&self, channel: &str, message: ServerMessage) {
-        if let Some(clients) = self.subscriptions.get(channel) {
-            for client_id in clients {
-                self.send_message(client_id, message.clone());
+        if let Ok(subscriptions) = self.subscriptions.read() {
+            if let Some(clients) = subscriptions.get(channel) {
+                for client_id in clients {
+                    self.send_message(client_id, message.clone());
+                }
             }
         }
     }
     
     // Add client to a subscription
-    fn add_subscription(&mut self, channel: &str, client_id: &str) {
-        let clients = self.subscriptions.entry(channel.to_string()).or_insert_with(HashSet::new);
-        clients.insert(client_id.to_string());
+    fn add_subscription(&self, channel: &str, client_id: &str) {
+        if let Ok(mut subscriptions) = self.subscriptions.write() {
+            let clients = subscriptions.entry(channel.to_string()).or_insert_with(HashSet::new);
+            clients.insert(client_id.to_string());
+        }
     }
     
     // Remove client from a subscription
-    fn remove_subscription(&mut self, channel: &str, client_id: &str) {
-        if let Some(clients) = self.subscriptions.get_mut(channel) {
-            clients.remove(client_id);
-            
-            // Remove channel if no clients are subscribed
-            if clients.is_empty() {
-                self.subscriptions.remove(channel);
+    fn remove_subscription(&self, channel: &str, client_id: &str) {
+        if let Ok(mut subscriptions) = self.subscriptions.write() {
+            if let Some(clients) = subscriptions.get_mut(channel) {
+                clients.remove(client_id);
+                
+                // Remove channel if no clients are subscribed
+                if clients.is_empty() {
+                    subscriptions.remove(channel);
+                }
             }
         }
     }
     
     // Remove client from all subscriptions
-    fn remove_client_from_all_subscriptions(&mut self, client_id: &str) {
+    fn remove_client_from_all_subscriptions(&self, client_id: &str) {
         // Collect channels to remove client from
-        let channels: Vec<String> = self.subscriptions
-            .iter()
-            .filter(|(_, clients)| clients.contains(client_id))
-            .map(|(channel, _)| channel.clone())
-            .collect();
+        let channels: Vec<String> = if let Ok(subscriptions) = self.subscriptions.read() {
+            subscriptions
+                .iter()
+                .filter(|(_, clients)| clients.contains(client_id))
+                .map(|(channel, _)| channel.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
         
         // Remove client from each channel
         for channel in channels {
@@ -104,7 +136,9 @@ impl Handler<Connect> for WsServer {
     
     fn handle(&mut self, msg: Connect, _: &mut Self::Context) {
         // Add client to sessions
-        self.sessions.insert(msg.id.clone(), msg.addr);
+        if let Ok(mut sessions) = self.sessions.write() {
+            sessions.insert(msg.id.clone(), msg.addr);
+        }
         
         tracing::info!("Client connected: {}", msg.id);
     }
@@ -116,7 +150,9 @@ impl Handler<Disconnect> for WsServer {
     
     fn handle(&mut self, msg: Disconnect, _: &mut Self::Context) {
         // Remove client from sessions
-        self.sessions.remove(&msg.id);
+        if let Ok(mut sessions) = self.sessions.write() {
+            sessions.remove(&msg.id);
+        }
         
         // Remove client from all subscriptions
         self.remove_client_from_all_subscriptions(&msg.id);

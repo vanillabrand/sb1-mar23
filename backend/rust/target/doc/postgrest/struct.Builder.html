@@ -1,0 +1,596 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="QueryBuilder struct"><title>Builder in postgrest - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-916cea96.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="postgrest" data-themes="" data-resource-suffix="" data-rustdoc-version="1.87.0 (17067e9ac 2025-05-09)" data-channel="1.87.0" data-search-js="search-e7298875.js" data-settings-js="settings-d72f25bb.js" ><script src="../static.files/storage-82c7156e.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-fb8c74a8.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc struct"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../postgrest/index.html">postgrest</a><span class="version">1.6.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Builder</a></h2><h3><a href="#implementations">Methods</a></h3><ul class="block method"><li><a href="#method.adj" title="adj">adj</a></li><li><a href="#method.and" title="and">and</a></li><li><a href="#method.auth" title="auth">auth</a></li><li><a href="#method.build" title="build">build</a></li><li><a href="#method.cd" title="cd">cd</a></li><li><a href="#method.cs" title="cs">cs</a></li><li><a href="#method.delete" title="delete">delete</a></li><li><a href="#method.eq" title="eq">eq</a></li><li><a href="#method.estimated_count" title="estimated_count">estimated_count</a></li><li><a href="#method.exact_count" title="exact_count">exact_count</a></li><li><a href="#method.execute" title="execute">execute</a></li><li><a href="#method.foreign_table_limit" title="foreign_table_limit">foreign_table_limit</a></li><li><a href="#method.fts" title="fts">fts</a></li><li><a href="#method.gt" title="gt">gt</a></li><li><a href="#method.gte" title="gte">gte</a></li><li><a href="#method.ilike" title="ilike">ilike</a></li><li><a href="#method.in_" title="in_">in_</a></li><li><a href="#method.insert" title="insert">insert</a></li><li><a href="#method.is" title="is">is</a></li><li><a href="#method.like" title="like">like</a></li><li><a href="#method.limit" title="limit">limit</a></li><li><a href="#method.lt" title="lt">lt</a></li><li><a href="#method.lte" title="lte">lte</a></li><li><a href="#method.neq" title="neq">neq</a></li><li><a href="#method.new" title="new">new</a></li><li><a href="#method.not" title="not">not</a></li><li><a href="#method.nxl" title="nxl">nxl</a></li><li><a href="#method.nxr" title="nxr">nxr</a></li><li><a href="#method.on_conflict" title="on_conflict">on_conflict</a></li><li><a href="#method.or" title="or">or</a></li><li><a href="#method.order" title="order">order</a></li><li><a href="#method.order_with_options" title="order_with_options">order_with_options</a></li><li><a href="#method.ov" title="ov">ov</a></li><li><a href="#method.phfts" title="phfts">phfts</a></li><li><a href="#method.planned_count" title="planned_count">planned_count</a></li><li><a href="#method.plfts" title="plfts">plfts</a></li><li><a href="#method.range" title="range">range</a></li><li><a href="#method.rpc" title="rpc">rpc</a></li><li><a href="#method.select" title="select">select</a></li><li><a href="#method.single" title="single">single</a></li><li><a href="#method.sl" title="sl">sl</a></li><li><a href="#method.sr" title="sr">sr</a></li><li><a href="#method.update" title="update">update</a></li><li><a href="#method.upsert" title="upsert">upsert</a></li><li><a href="#method.wfts" title="wfts">wfts</a></li></ul><h3><a href="#trait-implementations">Trait Implementations</a></h3><ul class="block trait-implementation"><li><a href="#impl-Clone-for-Builder" title="Clone">Clone</a></li></ul><h3><a href="#synthetic-implementations">Auto Trait Implementations</a></h3><ul class="block synthetic-implementation"><li><a href="#impl-RefUnwindSafe-for-Builder" title="!RefUnwindSafe">!RefUnwindSafe</a></li><li><a href="#impl-UnwindSafe-for-Builder" title="!UnwindSafe">!UnwindSafe</a></li><li><a href="#impl-Freeze-for-Builder" title="Freeze">Freeze</a></li><li><a href="#impl-Send-for-Builder" title="Send">Send</a></li><li><a href="#impl-Sync-for-Builder" title="Sync">Sync</a></li><li><a href="#impl-Unpin-for-Builder" title="Unpin">Unpin</a></li></ul><h3><a href="#blanket-implementations">Blanket Implementations</a></h3><ul class="block blanket-implementation"><li><a href="#impl-Any-for-T" title="Any">Any</a></li><li><a href="#impl-Borrow%3CT%3E-for-T" title="Borrow&#60;T&#62;">Borrow&#60;T&#62;</a></li><li><a href="#impl-BorrowMut%3CT%3E-for-T" title="BorrowMut&#60;T&#62;">BorrowMut&#60;T&#62;</a></li><li><a href="#impl-CloneToUninit-for-T" title="CloneToUninit">CloneToUninit</a></li><li><a href="#impl-ErasedDestructor-for-T" title="ErasedDestructor">ErasedDestructor</a></li><li><a href="#impl-From%3CT%3E-for-T" title="From&#60;T&#62;">From&#60;T&#62;</a></li><li><a href="#impl-Instrument-for-T" title="Instrument">Instrument</a></li><li><a href="#impl-Into%3CU%3E-for-T" title="Into&#60;U&#62;">Into&#60;U&#62;</a></li><li><a href="#impl-ToOwned-for-T" title="ToOwned">ToOwned</a></li><li><a href="#impl-TryFrom%3CU%3E-for-T" title="TryFrom&#60;U&#62;">TryFrom&#60;U&#62;</a></li><li><a href="#impl-TryInto%3CU%3E-for-T" title="TryInto&#60;U&#62;">TryInto&#60;U&#62;</a></li><li><a href="#impl-WithSubscriber-for-T" title="WithSubscriber">WithSubscriber</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate postgrest</a></h2></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">postgrest</a></div><h1>Struct <span class="struct">Builder</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/postgrest/builder.rs.html#8-20">Source</a> </span></div><pre class="rust item-decl"><code>pub struct Builder { <span class="comment">/* private fields */</span> }</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>QueryBuilder struct</p>
+</div></details><h2 id="implementations" class="section-header">Implementations<a href="#implementations" class="anchor">§</a></h2><div id="implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-Builder" class="impl"><a class="src rightside" href="../src/postgrest/builder.rs.html#23-578">Source</a><a href="#impl-Builder" class="anchor">§</a><h3 class="code-header">impl <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.new" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#25-43">Source</a><h4 class="code-header">pub fn <a href="#method.new" class="fn">new</a>&lt;T&gt;(
+    url: T,
+    schema: <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    headers: <a class="struct" href="../http/header/map/struct.HeaderMap.html" title="struct http::header::map::HeaderMap">HeaderMap</a>,
+    client: <a class="struct" href="../reqwest/async_impl/client/struct.Client.html" title="struct reqwest::async_impl::client::Client">Client</a>,
+) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Creates a new <code>Builder</code> with the specified <code>schema</code>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.auth" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#57-66">Source</a><h4 class="code-header">pub fn <a href="#method.auth" class="fn">auth</a>&lt;T&gt;(self, token: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Authenticates the request with JWT.</p>
+<h5 id="example"><a class="doc-anchor" href="#example">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"table"</span>)
+    .auth(<span class="string">"supers.ecretjw.ttoken"</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.select" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#153-159">Source</a><h4 class="code-header">pub fn <a href="#method.select" class="fn">select</a>&lt;T&gt;(self, columns: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Performs horizontal filtering with SELECT.</p>
+<h5 id="note"><a class="doc-anchor" href="#note">§</a>Note</h5>
+<p><code>columns</code> is whitespace-sensitive, so you need to omit them unless your
+column name contains whitespaces.</p>
+<h5 id="example-1"><a class="doc-anchor" href="#example-1">§</a>Example</h5>
+<p>Simple example:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+<span class="kw">let </span>resp = client
+    .from(<span class="string">"table"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>Renaming columns:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>resp = client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"name:very_very_long_column_name"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>Casting columns:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>resp = client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"age::text"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>SELECTing JSON fields:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>resp = client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"id,json_data-&gt;phones-&gt;0-&gt;&gt;number"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+<p>Embedded filters (assume there is a foreign key constraint between
+tables <code>users</code> and <code>tweets</code>):</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">let </span>resp = client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*,tweets(*)"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.order" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#174-180">Source</a><h4 class="code-header">pub fn <a href="#method.order" class="fn">order</a>&lt;T&gt;(self, columns: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Orders the result with the specified <code>columns</code>.</p>
+<h5 id="example-2"><a class="doc-anchor" href="#example-2">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*"</span>)
+    .order(<span class="string">"username.desc.nullsfirst,age_range"</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.order_with_options" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#195-249">Source</a><h4 class="code-header">pub fn <a href="#method.order_with_options" class="fn">order_with_options</a>&lt;T, U&gt;(
+    self,
+    columns: T,
+    foreign_table: <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;U&gt;,
+    ascending: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.bool.html">bool</a>,
+    nulls_first: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.bool.html">bool</a>,
+) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Orders the result of a foreign table with the specified <code>columns</code>.</p>
+<h5 id="example-3"><a class="doc-anchor" href="#example-3">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"countries"</span>)
+    .select(<span class="string">"name, cities(name)"</span>)
+    .order_with_options(<span class="string">"name"</span>, <span class="prelude-val">Some</span>(<span class="string">"cities"</span>), <span class="bool-val">true</span>, <span class="bool-val">false</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.limit" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#264-272">Source</a><h4 class="code-header">pub fn <a href="#method.limit" class="fn">limit</a>(self, count: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.usize.html">usize</a>) -&gt; Self</h4></section></summary><div class="docblock"><p>Limits the result with the specified <code>count</code>.</p>
+<h5 id="example-4"><a class="doc-anchor" href="#example-4">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*"</span>)
+    .limit(<span class="number">20</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.foreign_table_limit" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#287-294">Source</a><h4 class="code-header">pub fn <a href="#method.foreign_table_limit" class="fn">foreign_table_limit</a>&lt;T&gt;(self, count: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.usize.html">usize</a>, foreign_table: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Limits the result of a foreign table with the specified <code>count</code>.</p>
+<h5 id="example-5"><a class="doc-anchor" href="#example-5">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"countries"</span>)
+    .select(<span class="string">"name, cities(name)"</span>)
+    .foreign_table_limit(<span class="number">1</span>, <span class="string">"cities"</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.range" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#310-318">Source</a><h4 class="code-header">pub fn <a href="#method.range" class="fn">range</a>(self, low: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.usize.html">usize</a>, high: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.usize.html">usize</a>) -&gt; Self</h4></section></summary><div class="docblock"><p>Limits the result to rows within the specified range, inclusive.</p>
+<h5 id="example-6"><a class="doc-anchor" href="#example-6">§</a>Example</h5>
+<p>This retrieves the 2nd to 5th entries in the result:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*"</span>)
+    .range(<span class="number">1</span>, <span class="number">4</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.exact_count" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#346-348">Source</a><h4 class="code-header">pub fn <a href="#method.exact_count" class="fn">exact_count</a>(self) -&gt; Self</h4></section></summary><div class="docblock"><p>Retrieves the (accurate) total size of the result.</p>
+<h5 id="example-7"><a class="doc-anchor" href="#example-7">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*"</span>)
+    .exact_count();</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.planned_count" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#364-366">Source</a><h4 class="code-header">pub fn <a href="#method.planned_count" class="fn">planned_count</a>(self) -&gt; Self</h4></section></summary><div class="docblock"><p>Estimates the total size of the result using PostgreSQL statistics. This
+is faster than using <code>exact_count()</code>.</p>
+<h5 id="example-8"><a class="doc-anchor" href="#example-8">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*"</span>)
+    .planned_count();</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.estimated_count" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#382-384">Source</a><h4 class="code-header">pub fn <a href="#method.estimated_count" class="fn">estimated_count</a>(self) -&gt; Self</h4></section></summary><div class="docblock"><p>Retrieves the total size of the result using some heuristics:
+<code>exact_count</code> for smaller sizes, <code>planned_count</code> for larger sizes.</p>
+<h5 id="example-9"><a class="doc-anchor" href="#example-9">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*"</span>)
+    .estimated_count();</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.single" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#399-405">Source</a><h4 class="code-header">pub fn <a href="#method.single" class="fn">single</a>(self) -&gt; Self</h4></section></summary><div class="docblock"><p>Retrieves only one row from the result.</p>
+<h5 id="example-10"><a class="doc-anchor" href="#example-10">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .select(<span class="string">"*"</span>)
+    .single();</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.insert" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#420-429">Source</a><h4 class="code-header">pub fn <a href="#method.insert" class="fn">insert</a>&lt;T&gt;(self, body: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Performs an INSERT of the <code>body</code> (in JSON) into the table.</p>
+<h5 id="example-11"><a class="doc-anchor" href="#example-11">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .insert(<span class="string">r#"[{ "username": "soedirgo", "status": "online" },
+                { "username": "jose", "status": "offline" }]"#</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.upsert" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#449-460">Source</a><h4 class="code-header">pub fn <a href="#method.upsert" class="fn">upsert</a>&lt;T&gt;(self, body: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Performs an upsert of the <code>body</code> (in JSON) into the table.</p>
+<h5 id="note-1"><a class="doc-anchor" href="#note-1">§</a>Note</h5>
+<p>This merges duplicates by default. Ignoring duplicates is possible via
+PostgREST, but is currently unsupported.</p>
+<h5 id="example-12"><a class="doc-anchor" href="#example-12">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .upsert(<span class="string">r#"[{ "username": "soedirgo", "status": "online" },
+                { "username": "jose", "status": "offline" }]"#</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.on_conflict" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#485-492">Source</a><h4 class="code-header">pub fn <a href="#method.on_conflict" class="fn">on_conflict</a>&lt;T&gt;(self, columns: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Resolve upsert conflicts on unique columns other than the primary key.</p>
+<h5 id="note-2"><a class="doc-anchor" href="#note-2">§</a>Note</h5>
+<p>This informs PostgREST to resolve upsert conflicts through an
+alternative, unique index other than the primary key of the table.
+See the related
+<a href="https://postgrest.org/en/stable/api.html?highlight=upsert#on-conflict">PostgREST documentation</a>.</p>
+<h5 id="example-13"><a class="doc-anchor" href="#example-13">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+<span class="comment">// Suppose `users` are keyed an SERIAL primary key,
+// but have a unique index on `username`.
+</span>client
+    .from(<span class="string">"users"</span>)
+    .upsert(<span class="string">r#"[{ "username": "soedirgo", "status": "online" },
+                { "username": "jose", "status": "offline" }]"#</span>)
+    .on_conflict(<span class="string">"username"</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.update" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#507-516">Source</a><h4 class="code-header">pub fn <a href="#method.update" class="fn">update</a>&lt;T&gt;(self, body: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Performs an UPDATE using the <code>body</code> (in JSON) on the table.</p>
+<h5 id="example-14"><a class="doc-anchor" href="#example-14">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .eq(<span class="string">"username"</span>, <span class="string">"soedirgo"</span>)
+    .update(<span class="string">r#"{ "status": "offline" }"#</span>);</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.delete" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#531-536">Source</a><h4 class="code-header">pub fn <a href="#method.delete" class="fn">delete</a>(self) -&gt; Self</h4></section></summary><div class="docblock"><p>Performs a DELETE on the table.</p>
+<h5 id="example-15"><a class="doc-anchor" href="#example-15">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>client = Postgrest::new(<span class="string">"https://your.postgrest.endpoint"</span>);
+client
+    .from(<span class="string">"users"</span>)
+    .eq(<span class="string">"username"</span>, <span class="string">"soedirgo"</span>)
+    .delete();</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.rpc" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#540-548">Source</a><h4 class="code-header">pub fn <a href="#method.rpc" class="fn">rpc</a>&lt;T&gt;(self, params: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Performs a stored procedure call. This should only be used through the
+<code>rpc()</code> method in <code>Postgrest</code>.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.build" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#551-572">Source</a><h4 class="code-header">pub fn <a href="#method.build" class="fn">build</a>(self) -&gt; <a class="struct" href="../reqwest/async_impl/request/struct.RequestBuilder.html" title="struct reqwest::async_impl::request::RequestBuilder">RequestBuilder</a></h4></section></summary><div class="docblock"><p>Build the PostgREST request.</p>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.execute" class="method"><a class="src rightside" href="../src/postgrest/builder.rs.html#575-577">Source</a><h4 class="code-header">pub async fn <a href="#method.execute" class="fn">execute</a>(self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;<a class="struct" href="../reqwest/async_impl/response/struct.Response.html" title="struct reqwest::async_impl::response::Response">Response</a>, <a class="struct" href="../reqwest/error/struct.Error.html" title="struct reqwest::error::Error">Error</a>&gt;</h4></section></summary><div class="docblock"><p>Executes the PostgREST request.</p>
+</div></details></div></details><details class="toggle implementors-toggle" open><summary><section id="impl-Builder-1" class="impl"><a class="src rightside" href="../src/postgrest/filter.rs.html#3-771">Source</a><a href="#impl-Builder-1" class="anchor">§</a><h3 class="code-header">impl <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.not" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#21-32">Source</a><h4 class="code-header">pub fn <a href="#method.not" class="fn">not</a>&lt;T, U, V&gt;(self, operator: T, column: U, filter: V) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    V: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows which doesn’t satisfy the filter.</p>
+<h5 id="example-16"><a class="doc-anchor" href="#example-16">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .not(<span class="string">"eq"</span>, <span class="string">"name"</span>, <span class="string">"New Zealand"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.and" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#58-65">Source</a><h4 class="code-header">pub fn <a href="#method.and" class="fn">and</a>&lt;T&gt;(self, filters: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows satisfying all of the filters.</p>
+<h5 id="note-3"><a class="doc-anchor" href="#note-3">§</a>Note</h5>
+<p>If your column/filter contains PostgREST’s reserved characters, you need
+to surround them with double quotes (not percent encoded). See
+<a href="https://postgrest.org/en/v7.0.0/api.html#reserved-characters">here</a> for
+details.</p>
+<h5 id="example-17"><a class="doc-anchor" href="#example-17">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .and(<span class="string">"name.eq.New Zealand,or(id.gte.1,capital.is.null)"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.or" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#91-98">Source</a><h4 class="code-header">pub fn <a href="#method.or" class="fn">or</a>&lt;T&gt;(self, filters: T) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows satisfying at least one of the filters.</p>
+<h5 id="note-4"><a class="doc-anchor" href="#note-4">§</a>Note</h5>
+<p>If your column/filter contains PostgREST’s reserved characters, you need
+to surround them with double quotes (not percent encoded). See
+<a href="https://postgrest.org/en/v7.0.0/api.html#reserved-characters">here</a> for
+details.</p>
+<h5 id="example-18"><a class="doc-anchor" href="#example-18">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .or(<span class="string">"name.eq.New Zealand,or(id.gte.1,capital.is.null)"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.eq" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#118-126">Source</a><h4 class="code-header">pub fn <a href="#method.eq" class="fn">eq</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value on the stated <code>column</code> exactly matches the
+specified <code>filter</code>.</p>
+<h5 id="example-19"><a class="doc-anchor" href="#example-19">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .eq(<span class="string">"name"</span>, <span class="string">"New Zealand"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.neq" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#146-154">Source</a><h4 class="code-header">pub fn <a href="#method.neq" class="fn">neq</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value on the stated <code>column</code> doesn’t match the
+specified <code>filter</code>.</p>
+<h5 id="example-20"><a class="doc-anchor" href="#example-20">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .neq(<span class="string">"name"</span>, <span class="string">"China"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.gt" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#174-182">Source</a><h4 class="code-header">pub fn <a href="#method.gt" class="fn">gt</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value on the stated <code>column</code> is greater than the
+specified <code>filter</code>.</p>
+<h5 id="example-21"><a class="doc-anchor" href="#example-21">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .gt(<span class="string">"id"</span>, <span class="string">"20"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.gte" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#202-210">Source</a><h4 class="code-header">pub fn <a href="#method.gte" class="fn">gte</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value on the stated <code>column</code> is greater than or
+equal to the specified <code>filter</code>.</p>
+<h5 id="example-22"><a class="doc-anchor" href="#example-22">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .gte(<span class="string">"id"</span>, <span class="string">"20"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.lt" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#230-238">Source</a><h4 class="code-header">pub fn <a href="#method.lt" class="fn">lt</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value on the stated <code>column</code> is less than the
+specified <code>filter</code>.</p>
+<h5 id="example-23"><a class="doc-anchor" href="#example-23">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .lt(<span class="string">"id"</span>, <span class="string">"20"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.lte" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#258-266">Source</a><h4 class="code-header">pub fn <a href="#method.lte" class="fn">lte</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value on the stated <code>column</code> is less than or equal
+to the specified <code>filter</code>.</p>
+<h5 id="example-24"><a class="doc-anchor" href="#example-24">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .lte(<span class="string">"id"</span>, <span class="string">"20"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.like" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#293-302">Source</a><h4 class="code-header">pub fn <a href="#method.like" class="fn">like</a>&lt;T, U&gt;(self, column: T, pattern: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value in the stated <code>column</code> matches the supplied
+<code>pattern</code> (case sensitive).</p>
+<h5 id="example-25"><a class="doc-anchor" href="#example-25">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .like(<span class="string">"name"</span>, <span class="string">"%United%"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .like(<span class="string">"name"</span>, <span class="string">"%United States%"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ilike" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#329-338">Source</a><h4 class="code-header">pub fn <a href="#method.ilike" class="fn">ilike</a>&lt;T, U&gt;(self, column: T, pattern: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value in the stated <code>column</code> matches the supplied
+<code>pattern</code> (case insensitive).</p>
+<h5 id="example-26"><a class="doc-anchor" href="#example-26">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .ilike(<span class="string">"name"</span>, <span class="string">"%United%"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .ilike(<span class="string">"name"</span>, <span class="string">"%united states%"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.is" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#358-366">Source</a><h4 class="code-header">pub fn <a href="#method.is" class="fn">is</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>A check for exact equality (null, true, false), finds all rows whose
+value on the stated <code>column</code> exactly match the specified <code>filter</code>.</p>
+<h5 id="example-27"><a class="doc-anchor" href="#example-27">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .is(<span class="string">"name"</span>, <span class="string">"null"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.in_" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#400-413">Source</a><h4 class="code-header">pub fn <a href="#method.in_" class="fn">in_</a>&lt;T, U, V&gt;(self, column: T, values: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/iter/traits/collect/trait.IntoIterator.html" title="trait core::iter::traits::collect::IntoIterator">IntoIterator</a>&lt;Item = V&gt;,
+    V: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose value on the stated <code>column</code> is found on the
+specified <code>values</code>.</p>
+<h5 id="example-28"><a class="doc-anchor" href="#example-28">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .in_(<span class="string">"name"</span>, <span class="macro">vec!</span>[<span class="string">"China"</span>, <span class="string">"France"</span>])
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"countries"</span>)
+    .in_(<span class="string">"capitals"</span>, <span class="macro">vec!</span>[<span class="string">"Beijing,China"</span>, <span class="string">"Paris,France"</span>])
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"recipes"</span>)
+    .in_(<span class="string">"food_supplies"</span>, <span class="macro">vec!</span>[<span class="string">"carrot (big)"</span>, <span class="string">"carrot (small)"</span>])
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.cs" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#433-441">Source</a><h4 class="code-header">pub fn <a href="#method.cs" class="fn">cs</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose json, array, or range value on the stated <code>column</code>
+contains the values specified in <code>filter</code>.</p>
+<h5 id="example-29"><a class="doc-anchor" href="#example-29">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"users"</span>)
+    .cs(<span class="string">"age_range"</span>, <span class="string">"(10,20)"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.cd" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#461-469">Source</a><h4 class="code-header">pub fn <a href="#method.cd" class="fn">cd</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose json, array, or range value on the stated <code>column</code>
+is contained by the specified <code>filter</code>.</p>
+<h5 id="example-30"><a class="doc-anchor" href="#example-30">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"users"</span>)
+    .cd(<span class="string">"age_range"</span>, <span class="string">"(10,20)"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.sl" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#489-496">Source</a><h4 class="code-header">pub fn <a href="#method.sl" class="fn">sl</a>&lt;T&gt;(self, column: T, range: (<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>, <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>)) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose range value on the stated <code>column</code> is strictly to
+the left of the specified <code>range</code>.</p>
+<h5 id="example-31"><a class="doc-anchor" href="#example-31">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"users"</span>)
+    .sl(<span class="string">"age_range"</span>, (<span class="number">10</span>, <span class="number">20</span>))
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.sr" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#516-523">Source</a><h4 class="code-header">pub fn <a href="#method.sr" class="fn">sr</a>&lt;T&gt;(self, column: T, range: (<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>, <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>)) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose range value on the stated <code>column</code> is strictly to
+the right of the specified <code>range</code>.</p>
+<h5 id="example-32"><a class="doc-anchor" href="#example-32">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .sr(<span class="string">"age_range"</span>, (<span class="number">10</span>, <span class="number">20</span>))
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.nxl" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#543-550">Source</a><h4 class="code-header">pub fn <a href="#method.nxl" class="fn">nxl</a>&lt;T&gt;(self, column: T, range: (<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>, <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>)) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose range value on the stated <code>column</code> does not extend
+to the left of the specified <code>range</code>.</p>
+<h5 id="example-33"><a class="doc-anchor" href="#example-33">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .nxl(<span class="string">"age_range"</span>, (<span class="number">10</span>, <span class="number">20</span>))
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.nxr" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#570-577">Source</a><h4 class="code-header">pub fn <a href="#method.nxr" class="fn">nxr</a>&lt;T&gt;(self, column: T, range: (<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>, <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>)) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose range value on the stated <code>column</code> does not extend
+to the right of the specified <code>range</code>.</p>
+<h5 id="example-34"><a class="doc-anchor" href="#example-34">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .nxr(<span class="string">"age_range"</span>, (<span class="number">10</span>, <span class="number">20</span>))
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.adj" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#597-604">Source</a><h4 class="code-header">pub fn <a href="#method.adj" class="fn">adj</a>&lt;T&gt;(self, column: T, range: (<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>, <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.i64.html">i64</a>)) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose range value on the stated <code>column</code> is adjacent to
+the specified <code>range</code>.</p>
+<h5 id="example-35"><a class="doc-anchor" href="#example-35">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .adj(<span class="string">"age_range"</span>, (<span class="number">10</span>, <span class="number">20</span>))
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.ov" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#624-632">Source</a><h4 class="code-header">pub fn <a href="#method.ov" class="fn">ov</a>&lt;T, U&gt;(self, column: T, filter: U) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose array or range value on the stated <code>column</code>
+overlaps with the specified <code>filter</code>.</p>
+<h5 id="example-36"><a class="doc-anchor" href="#example-36">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .ov(<span class="string">"age_range"</span>, <span class="string">"(10,20)"</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.fts" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#652-665">Source</a><h4 class="code-header">pub fn <a href="#method.fts" class="fn">fts</a>&lt;T, U&gt;(self, column: T, tsquery: U, config: <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose tsvector value on the stated <code>column</code> matches
+to_tsquery(<code>tsquery</code>).</p>
+<h5 id="example-37"><a class="doc-anchor" href="#example-37">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .fts(<span class="string">"phrase"</span>, <span class="string">"The Fat Cats"</span>, <span class="prelude-val">Some</span>(<span class="string">"english"</span>))
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.plfts" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#685-700">Source</a><h4 class="code-header">pub fn <a href="#method.plfts" class="fn">plfts</a>&lt;T, U&gt;(self, column: T, tsquery: U, config: <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose tsvector value on the stated <code>column</code> matches
+plainto_tsquery(<code>tsquery</code>).</p>
+<h5 id="example-38"><a class="doc-anchor" href="#example-38">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .plfts(<span class="string">"phrase"</span>, <span class="string">"The Fat Cats"</span>, <span class="prelude-val">None</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.phfts" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#720-735">Source</a><h4 class="code-header">pub fn <a href="#method.phfts" class="fn">phfts</a>&lt;T, U&gt;(self, column: T, tsquery: U, config: <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose tsvector value on the stated <code>column</code> matches
+phraseto_tsquery(<code>tsquery</code>).</p>
+<h5 id="example-39"><a class="doc-anchor" href="#example-39">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .phfts(<span class="string">"phrase"</span>, <span class="string">"The Fat Cats"</span>, <span class="prelude-val">Some</span>(<span class="string">"english"</span>))
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details><details class="toggle method-toggle" open><summary><section id="method.wfts" class="method"><a class="src rightside" href="../src/postgrest/filter.rs.html#755-770">Source</a><h4 class="code-header">pub fn <a href="#method.wfts" class="fn">wfts</a>&lt;T, U&gt;(self, column: T, tsquery: U, config: <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/option/enum.Option.html" title="enum core::option::Option">Option</a>&lt;&amp;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;) -&gt; Self<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="https://doc.rust-lang.org/1.87.0/alloc/string/struct.String.html" title="struct alloc::string::String">String</a>&gt;,
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.AsRef.html" title="trait core::convert::AsRef">AsRef</a>&lt;<a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.str.html">str</a>&gt;,</div></h4></section></summary><div class="docblock"><p>Finds all rows whose tsvector value on the stated <code>column</code> matches
+websearch_to_tsquery(<code>tsquery</code>).</p>
+<h5 id="example-40"><a class="doc-anchor" href="#example-40">§</a>Example</h5>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>postgrest::Postgrest;
+
+<span class="kw">let </span>resp = Postgrest::new(<span class="string">"http://localhost:3000"</span>)
+    .from(<span class="string">"table"</span>)
+    .wfts(<span class="string">"phrase"</span>, <span class="string">"The Fat Cats"</span>, <span class="prelude-val">None</span>)
+    .select(<span class="string">"*"</span>)
+    .execute()
+    .<span class="kw">await</span><span class="question-mark">?</span>;</code></pre></div>
+</div></details></div></details></div><h2 id="trait-implementations" class="section-header">Trait Implementations<a href="#trait-implementations" class="anchor">§</a></h2><div id="trait-implementations-list"><details class="toggle implementors-toggle" open><summary><section id="impl-Clone-for-Builder" class="impl"><a class="src rightside" href="../src/postgrest/builder.rs.html#7">Source</a><a href="#impl-Clone-for-Builder" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/clone/trait.Clone.html" title="trait core::clone::Clone">Clone</a> for <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.clone" class="method trait-impl"><a class="src rightside" href="../src/postgrest/builder.rs.html#7">Source</a><a href="#method.clone" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/clone/trait.Clone.html#tymethod.clone" class="fn">clone</a>(&amp;self) -&gt; <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h4></section></summary><div class='docblock'>Returns a copy of the value. <a href="https://doc.rust-lang.org/1.87.0/core/clone/trait.Clone.html#tymethod.clone">Read more</a></div></details><details class="toggle method-toggle" open><summary><section id="method.clone_from" class="method trait-impl"><span class="rightside"><span class="since" title="Stable since Rust version 1.0.0">1.0.0</span> · <a class="src" href="https://doc.rust-lang.org/1.87.0/src/core/clone.rs.html#174">Source</a></span><a href="#method.clone_from" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/clone/trait.Clone.html#method.clone_from" class="fn">clone_from</a>(&amp;mut self, source: &amp;Self)</h4></section></summary><div class='docblock'>Performs copy-assignment from <code>source</code>. <a href="https://doc.rust-lang.org/1.87.0/core/clone/trait.Clone.html#method.clone_from">Read more</a></div></details></div></details></div><h2 id="synthetic-implementations" class="section-header">Auto Trait Implementations<a href="#synthetic-implementations" class="anchor">§</a></h2><div id="synthetic-implementations-list"><section id="impl-Freeze-for-Builder" class="impl"><a href="#impl-Freeze-for-Builder" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/marker/trait.Freeze.html" title="trait core::marker::Freeze">Freeze</a> for <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section><section id="impl-RefUnwindSafe-for-Builder" class="impl"><a href="#impl-RefUnwindSafe-for-Builder" class="anchor">§</a><h3 class="code-header">impl !<a class="trait" href="https://doc.rust-lang.org/1.87.0/core/panic/unwind_safe/trait.RefUnwindSafe.html" title="trait core::panic::unwind_safe::RefUnwindSafe">RefUnwindSafe</a> for <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section><section id="impl-Send-for-Builder" class="impl"><a href="#impl-Send-for-Builder" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/marker/trait.Send.html" title="trait core::marker::Send">Send</a> for <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section><section id="impl-Sync-for-Builder" class="impl"><a href="#impl-Sync-for-Builder" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/marker/trait.Sync.html" title="trait core::marker::Sync">Sync</a> for <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section><section id="impl-Unpin-for-Builder" class="impl"><a href="#impl-Unpin-for-Builder" class="anchor">§</a><h3 class="code-header">impl <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/marker/trait.Unpin.html" title="trait core::marker::Unpin">Unpin</a> for <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section><section id="impl-UnwindSafe-for-Builder" class="impl"><a href="#impl-UnwindSafe-for-Builder" class="anchor">§</a><h3 class="code-header">impl !<a class="trait" href="https://doc.rust-lang.org/1.87.0/core/panic/unwind_safe/trait.UnwindSafe.html" title="trait core::panic::unwind_safe::UnwindSafe">UnwindSafe</a> for <a class="struct" href="struct.Builder.html" title="struct postgrest::Builder">Builder</a></h3></section></div><h2 id="blanket-implementations" class="section-header">Blanket Implementations<a href="#blanket-implementations" class="anchor">§</a></h2><div id="blanket-implementations-list"><details class="toggle implementors-toggle"><summary><section id="impl-Any-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/any.rs.html#138">Source</a><a href="#impl-Any-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/any/trait.Any.html" title="trait core::any::Any">Any</a> for T<div class="where">where
+    T: 'static + ?<a class="trait" href="https://doc.rust-lang.org/1.87.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.type_id" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/any.rs.html#139">Source</a><a href="#method.type_id" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/any/trait.Any.html#tymethod.type_id" class="fn">type_id</a>(&amp;self) -&gt; <a class="struct" href="https://doc.rust-lang.org/1.87.0/core/any/struct.TypeId.html" title="struct core::any::TypeId">TypeId</a></h4></section></summary><div class='docblock'>Gets the <code>TypeId</code> of <code>self</code>. <a href="https://doc.rust-lang.org/1.87.0/core/any/trait.Any.html#tymethod.type_id">Read more</a></div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-Borrow%3CT%3E-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/borrow.rs.html#209">Source</a><a href="#impl-Borrow%3CT%3E-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/borrow/trait.Borrow.html" title="trait core::borrow::Borrow">Borrow</a>&lt;T&gt; for T<div class="where">where
+    T: ?<a class="trait" href="https://doc.rust-lang.org/1.87.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.borrow" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/borrow.rs.html#211">Source</a><a href="#method.borrow" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/borrow/trait.Borrow.html#tymethod.borrow" class="fn">borrow</a>(&amp;self) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.reference.html">&amp;T</a></h4></section></summary><div class='docblock'>Immutably borrows from an owned value. <a href="https://doc.rust-lang.org/1.87.0/core/borrow/trait.Borrow.html#tymethod.borrow">Read more</a></div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-BorrowMut%3CT%3E-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/borrow.rs.html#217">Source</a><a href="#impl-BorrowMut%3CT%3E-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/borrow/trait.BorrowMut.html" title="trait core::borrow::BorrowMut">BorrowMut</a>&lt;T&gt; for T<div class="where">where
+    T: ?<a class="trait" href="https://doc.rust-lang.org/1.87.0/core/marker/trait.Sized.html" title="trait core::marker::Sized">Sized</a>,</div></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.borrow_mut" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/borrow.rs.html#218">Source</a><a href="#method.borrow_mut" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/borrow/trait.BorrowMut.html#tymethod.borrow_mut" class="fn">borrow_mut</a>(&amp;mut self) -&gt; <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.reference.html">&amp;mut T</a></h4></section></summary><div class='docblock'>Mutably borrows from an owned value. <a href="https://doc.rust-lang.org/1.87.0/core/borrow/trait.BorrowMut.html#tymethod.borrow_mut">Read more</a></div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-CloneToUninit-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/clone.rs.html#441">Source</a><a href="#impl-CloneToUninit-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/clone/trait.CloneToUninit.html" title="trait core::clone::CloneToUninit">CloneToUninit</a> for T<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/clone/trait.Clone.html" title="trait core::clone::Clone">Clone</a>,</div></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.clone_to_uninit" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/clone.rs.html#443">Source</a><a href="#method.clone_to_uninit" class="anchor">§</a><h4 class="code-header">unsafe fn <a href="https://doc.rust-lang.org/1.87.0/core/clone/trait.CloneToUninit.html#tymethod.clone_to_uninit" class="fn">clone_to_uninit</a>(&amp;self, dest: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.pointer.html">*mut </a><a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.u8.html">u8</a>)</h4></section></summary><span class="item-info"><div class="stab unstable"><span class="emoji">🔬</span><span>This is a nightly-only experimental API. (<code>clone_to_uninit</code>)</span></div></span><div class='docblock'>Performs copy-assignment from <code>self</code> to <code>dest</code>. <a href="https://doc.rust-lang.org/1.87.0/core/clone/trait.CloneToUninit.html#tymethod.clone_to_uninit">Read more</a></div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-From%3CT%3E-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#767">Source</a><a href="#impl-From%3CT%3E-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.From.html" title="trait core::convert::From">From</a>&lt;T&gt; for T</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.from" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#770">Source</a><a href="#method.from" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/convert/trait.From.html#tymethod.from" class="fn">from</a>(t: T) -&gt; T</h4></section></summary><div class="docblock"><p>Returns the argument unchanged.</p>
+</div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-Instrument-for-T" class="impl"><a class="src rightside" href="../src/tracing/instrument.rs.html#325">Source</a><a href="#impl-Instrument-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="../tracing/instrument/trait.Instrument.html" title="trait tracing::instrument::Instrument">Instrument</a> for T</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.instrument" class="method trait-impl"><a class="src rightside" href="../src/tracing/instrument.rs.html#86">Source</a><a href="#method.instrument" class="anchor">§</a><h4 class="code-header">fn <a href="../tracing/instrument/trait.Instrument.html#method.instrument" class="fn">instrument</a>(self, span: <a class="struct" href="../tracing/span/struct.Span.html" title="struct tracing::span::Span">Span</a>) -&gt; <a class="struct" href="../tracing/instrument/struct.Instrumented.html" title="struct tracing::instrument::Instrumented">Instrumented</a>&lt;Self&gt;</h4></section></summary><div class='docblock'>Instruments this type with the provided <a href="../tracing/span/struct.Span.html" title="struct tracing::span::Span"><code>Span</code></a>, returning an
+<code>Instrumented</code> wrapper. <a href="../tracing/instrument/trait.Instrument.html#method.instrument">Read more</a></div></details><details class="toggle method-toggle" open><summary><section id="method.in_current_span" class="method trait-impl"><a class="src rightside" href="../src/tracing/instrument.rs.html#128">Source</a><a href="#method.in_current_span" class="anchor">§</a><h4 class="code-header">fn <a href="../tracing/instrument/trait.Instrument.html#method.in_current_span" class="fn">in_current_span</a>(self) -&gt; <a class="struct" href="../tracing/instrument/struct.Instrumented.html" title="struct tracing::instrument::Instrumented">Instrumented</a>&lt;Self&gt;</h4></section></summary><div class='docblock'>Instruments this type with the <a href="../tracing/span/struct.Span.html#method.current" title="associated function tracing::span::Span::current">current</a> <a href="../tracing/span/struct.Span.html" title="struct tracing::span::Span"><code>Span</code></a>, returning an
+<code>Instrumented</code> wrapper. <a href="../tracing/instrument/trait.Instrument.html#method.in_current_span">Read more</a></div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-Into%3CU%3E-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#750-752">Source</a><a href="#impl-Into%3CU%3E-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T, U&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;U&gt; for T<div class="where">where
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.From.html" title="trait core::convert::From">From</a>&lt;T&gt;,</div></h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.into" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#760">Source</a><a href="#method.into" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html#tymethod.into" class="fn">into</a>(self) -&gt; U</h4></section></summary><div class="docblock"><p>Calls <code>U::from(self)</code>.</p>
+<p>That is, this conversion is whatever the implementation of
+<code><a href="https://doc.rust-lang.org/1.87.0/core/convert/trait.From.html" title="trait core::convert::From">From</a>&lt;T&gt; for U</code> chooses to do.</p>
+</div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-ToOwned-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/alloc/borrow.rs.html#82-84">Source</a><a href="#impl-ToOwned-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/alloc/borrow/trait.ToOwned.html" title="trait alloc::borrow::ToOwned">ToOwned</a> for T<div class="where">where
+    T: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/clone/trait.Clone.html" title="trait core::clone::Clone">Clone</a>,</div></h3></section></summary><div class="impl-items"><details class="toggle" open><summary><section id="associatedtype.Owned" class="associatedtype trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/alloc/borrow.rs.html#86">Source</a><a href="#associatedtype.Owned" class="anchor">§</a><h4 class="code-header">type <a href="https://doc.rust-lang.org/1.87.0/alloc/borrow/trait.ToOwned.html#associatedtype.Owned" class="associatedtype">Owned</a> = T</h4></section></summary><div class='docblock'>The resulting type after obtaining ownership.</div></details><details class="toggle method-toggle" open><summary><section id="method.to_owned" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/alloc/borrow.rs.html#87">Source</a><a href="#method.to_owned" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/alloc/borrow/trait.ToOwned.html#tymethod.to_owned" class="fn">to_owned</a>(&amp;self) -&gt; T</h4></section></summary><div class='docblock'>Creates owned data from borrowed data, usually by cloning. <a href="https://doc.rust-lang.org/1.87.0/alloc/borrow/trait.ToOwned.html#tymethod.to_owned">Read more</a></div></details><details class="toggle method-toggle" open><summary><section id="method.clone_into" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/alloc/borrow.rs.html#91">Source</a><a href="#method.clone_into" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/alloc/borrow/trait.ToOwned.html#method.clone_into" class="fn">clone_into</a>(&amp;self, target: <a class="primitive" href="https://doc.rust-lang.org/1.87.0/std/primitive.reference.html">&amp;mut T</a>)</h4></section></summary><div class='docblock'>Uses borrowed data to replace owned data, usually by cloning. <a href="https://doc.rust-lang.org/1.87.0/alloc/borrow/trait.ToOwned.html#method.clone_into">Read more</a></div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-TryFrom%3CU%3E-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#806-808">Source</a><a href="#impl-TryFrom%3CU%3E-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T, U&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html" title="trait core::convert::TryFrom">TryFrom</a>&lt;U&gt; for T<div class="where">where
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;T&gt;,</div></h3></section></summary><div class="impl-items"><details class="toggle" open><summary><section id="associatedtype.Error-1" class="associatedtype trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#810">Source</a><a href="#associatedtype.Error-1" class="anchor">§</a><h4 class="code-header">type <a href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html#associatedtype.Error" class="associatedtype">Error</a> = <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/convert/enum.Infallible.html" title="enum core::convert::Infallible">Infallible</a></h4></section></summary><div class='docblock'>The type returned in the event of a conversion error.</div></details><details class="toggle method-toggle" open><summary><section id="method.try_from" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#813">Source</a><a href="#method.try_from" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html#tymethod.try_from" class="fn">try_from</a>(value: U) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;T, &lt;T as <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html" title="trait core::convert::TryFrom">TryFrom</a>&lt;U&gt;&gt;::<a class="associatedtype" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html#associatedtype.Error" title="type core::convert::TryFrom::Error">Error</a>&gt;</h4></section></summary><div class='docblock'>Performs the conversion.</div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-TryInto%3CU%3E-for-T" class="impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#791-793">Source</a><a href="#impl-TryInto%3CU%3E-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T, U&gt; <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryInto.html" title="trait core::convert::TryInto">TryInto</a>&lt;U&gt; for T<div class="where">where
+    U: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html" title="trait core::convert::TryFrom">TryFrom</a>&lt;T&gt;,</div></h3></section></summary><div class="impl-items"><details class="toggle" open><summary><section id="associatedtype.Error" class="associatedtype trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#795">Source</a><a href="#associatedtype.Error" class="anchor">§</a><h4 class="code-header">type <a href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryInto.html#associatedtype.Error" class="associatedtype">Error</a> = &lt;U as <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html" title="trait core::convert::TryFrom">TryFrom</a>&lt;T&gt;&gt;::<a class="associatedtype" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html#associatedtype.Error" title="type core::convert::TryFrom::Error">Error</a></h4></section></summary><div class='docblock'>The type returned in the event of a conversion error.</div></details><details class="toggle method-toggle" open><summary><section id="method.try_into" class="method trait-impl"><a class="src rightside" href="https://doc.rust-lang.org/1.87.0/src/core/convert/mod.rs.html#798">Source</a><a href="#method.try_into" class="anchor">§</a><h4 class="code-header">fn <a href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryInto.html#tymethod.try_into" class="fn">try_into</a>(self) -&gt; <a class="enum" href="https://doc.rust-lang.org/1.87.0/core/result/enum.Result.html" title="enum core::result::Result">Result</a>&lt;U, &lt;U as <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html" title="trait core::convert::TryFrom">TryFrom</a>&lt;T&gt;&gt;::<a class="associatedtype" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.TryFrom.html#associatedtype.Error" title="type core::convert::TryFrom::Error">Error</a>&gt;</h4></section></summary><div class='docblock'>Performs the conversion.</div></details></div></details><details class="toggle implementors-toggle"><summary><section id="impl-WithSubscriber-for-T" class="impl"><a class="src rightside" href="../src/tracing/instrument.rs.html#393">Source</a><a href="#impl-WithSubscriber-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="../tracing/instrument/trait.WithSubscriber.html" title="trait tracing::instrument::WithSubscriber">WithSubscriber</a> for T</h3></section></summary><div class="impl-items"><details class="toggle method-toggle" open><summary><section id="method.with_subscriber" class="method trait-impl"><a class="src rightside" href="../src/tracing/instrument.rs.html#176-178">Source</a><a href="#method.with_subscriber" class="anchor">§</a><h4 class="code-header">fn <a href="../tracing/instrument/trait.WithSubscriber.html#method.with_subscriber" class="fn">with_subscriber</a>&lt;S&gt;(self, subscriber: S) -&gt; <a class="struct" href="../tracing/instrument/struct.WithDispatch.html" title="struct tracing::instrument::WithDispatch">WithDispatch</a>&lt;Self&gt;<div class="where">where
+    S: <a class="trait" href="https://doc.rust-lang.org/1.87.0/core/convert/trait.Into.html" title="trait core::convert::Into">Into</a>&lt;<a class="struct" href="../tracing_core/dispatcher/struct.Dispatch.html" title="struct tracing_core::dispatcher::Dispatch">Dispatch</a>&gt;,</div></h4></section></summary><div class='docblock'>Attaches the provided <a href="../tracing_core/subscriber/trait.Subscriber.html" title="trait tracing_core::subscriber::Subscriber"><code>Subscriber</code></a> to this type, returning a
+<a href="../tracing/instrument/struct.WithDispatch.html" title="struct tracing::instrument::WithDispatch"><code>WithDispatch</code></a> wrapper. <a href="../tracing/instrument/trait.WithSubscriber.html#method.with_subscriber">Read more</a></div></details><details class="toggle method-toggle" open><summary><section id="method.with_current_subscriber" class="method trait-impl"><a class="src rightside" href="../src/tracing/instrument.rs.html#228">Source</a><a href="#method.with_current_subscriber" class="anchor">§</a><h4 class="code-header">fn <a href="../tracing/instrument/trait.WithSubscriber.html#method.with_current_subscriber" class="fn">with_current_subscriber</a>(self) -&gt; <a class="struct" href="../tracing/instrument/struct.WithDispatch.html" title="struct tracing::instrument::WithDispatch">WithDispatch</a>&lt;Self&gt;</h4></section></summary><div class='docblock'>Attaches the current <a href="../tracing/dispatcher/index.html#setting-the-default-subscriber" title="mod tracing::dispatcher">default</a> <a href="../tracing_core/subscriber/trait.Subscriber.html" title="trait tracing_core::subscriber::Subscriber"><code>Subscriber</code></a> to this type, returning a
+<a href="../tracing/instrument/struct.WithDispatch.html" title="struct tracing::instrument::WithDispatch"><code>WithDispatch</code></a> wrapper. <a href="../tracing/instrument/trait.WithSubscriber.html#method.with_current_subscriber">Read more</a></div></details></div></details><section id="impl-ErasedDestructor-for-T" class="impl"><a class="src rightside" href="../src/yoke/erased.rs.html#22">Source</a><a href="#impl-ErasedDestructor-for-T" class="anchor">§</a><h3 class="code-header">impl&lt;T&gt; <a class="trait" href="../yoke/erased/trait.ErasedDestructor.html" title="trait yoke::erased::ErasedDestructor">ErasedDestructor</a> for T<div class="where">where
+    T: 'static,</div></h3></section></div></section></div></main></body></html>

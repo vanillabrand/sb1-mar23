@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["from_bytes","from_reader","from_str","push_to_string","to_string"],"mod":["de","ser"],"struct":["Deserializer","Serializer"]};

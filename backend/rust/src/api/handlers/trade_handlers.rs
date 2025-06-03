@@ -1,5 +1,6 @@
 use actix_web::{web, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::db::SupabaseClient;
@@ -40,14 +41,14 @@ pub async fn get_trades(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     
     let exchange_service = ExchangeService::new(true);
     
     let trade_service = TradeService::new(
-        db.into_inner(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
         web::Data::new(exchange_service).into_inner(),
         web::Data::new(strategy_service).into_inner(),
@@ -73,7 +74,7 @@ pub async fn get_trade(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     
@@ -127,7 +128,7 @@ pub async fn create_trade(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     
@@ -161,14 +162,14 @@ pub async fn update_trade(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
-        web::Data::new(DeepseekService::new()).into_inner(),
+        db.clone().into_inner(),
+        Arc::new(DeepseekService::new()),
     );
     
     let exchange_service = ExchangeService::new(true);
     
     let trade_service = TradeService::new(
-        db.clone(),
+        db.into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
         web::Data::new(exchange_service).into_inner(),
         web::Data::new(strategy_service).into_inner(),
@@ -212,7 +213,7 @@ pub async fn delete_trade(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     
@@ -245,7 +246,7 @@ pub async fn execute_trade(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     
@@ -278,7 +279,7 @@ pub async fn close_trade(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     
@@ -315,7 +316,7 @@ pub async fn get_trades_by_strategy(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     
@@ -349,7 +350,7 @@ pub async fn generate_trades(
     
     // Create services
     let strategy_service = StrategyService::new(
-        db.clone(),
+        db.clone().into_inner(),
         web::Data::new(DeepseekService::new()).into_inner(),
     );
     

@@ -1,0 +1,1 @@
+searchState.loadedDescShard("actix_web_lab_derive", 0, "Experimental macros for Actix Web.\nDerive a <code>FromRequest</code> implementation for an aggregate …")

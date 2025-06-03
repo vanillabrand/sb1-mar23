@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["NotKeyed"],"struct":["InsufficientCapacity","RatelimitedSink","RatelimitedStream"],"trait":["DirectStateStore","SinkRateLimitExt","StreamRateLimitExt"]};

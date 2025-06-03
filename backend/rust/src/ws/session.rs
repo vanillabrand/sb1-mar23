@@ -43,9 +43,10 @@ impl WsSession {
                 tracing::warn!("WebSocket client timeout: {}", act.id);
                 
                 // Notify server that client has disconnected
-                act.server.send(Disconnect {
+                let disconnect_msg = ServerMessage::Disconnect(Disconnect {
                     id: act.id.clone(),
                 });
+                act.server.send(disconnect_msg);
                 
                 // Stop the actor
                 ctx.stop();
@@ -66,31 +67,34 @@ impl Actor for WsSession {
         self.start_heartbeat(ctx);
         
         // Register with server
-        self.server.send(ws::messages::ServerMessage::Connect(Connect {
+        let connect_msg = ServerMessage::Connect(Connect {
             id: self.id.clone(),
             addr: ctx.address().recipient(),
-        }));
+        });
+        self.server.send(connect_msg);
         
         // Send welcome message
-        let welcome_msg = ws::messages::ServerMessage::Message(ws::messages::Message {
+        let welcome_msg = ServerMessage::Message(Message {
             id: self.id.clone(),
-            msg: ws::messages::ClientMessage {
+            msg: ClientMessage {
                 type_: "connection".to_string(),
                 data: serde_json::json!({
                     "message": "Connected to trading server",
                     "clientId": self.id,
                     "isDemo": self.demo_mode,
-            }),
-        };
+                }),
+            },
+        });
         
         ctx.text(serde_json::to_string(&welcome_msg).unwrap());
     }
     
     fn stopping(&mut self, _: &mut Self::Context) -> actix::Running {
         // Notify server that client has disconnected
-        self.server.send(ws::messages::ServerMessage::Disconnect(Disconnect {
+        let disconnect_msg = ServerMessage::Disconnect(Disconnect {
             id: self.id.clone(),
-        }));
+        });
+        self.server.send(disconnect_msg);
         
         actix::Running::Stop
     }
@@ -115,10 +119,10 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                         match client_msg.type_.as_str() {
                             "ping" => {
                                 // Respond with pong
-                                let pong_msg = ServerMessage {
-                                    type_: "pong".to_string(),
-                                    data: serde_json::json!({}),
-                                };
+                                let pong_msg = ServerMessage::Text(serde_json::json!({
+                                    "type": "pong",
+                                    "data": {}
+                                }).to_string());
                                 ctx.text(serde_json::to_string(&pong_msg).unwrap());
                             }
                             "subscribe" => {
@@ -136,19 +140,19 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                                         self.demo_mode = demo;
                                         
                                         // Respond with confirmation
-                                        let demo_msg = ServerMessage {
-                                            type_: "demo_mode".to_string(),
-                                            data: serde_json::json!({
-                                                "enabled": self.demo_mode,
-                                            }),
-                                        };
+                                        let demo_msg = ServerMessage::Text(serde_json::json!({
+                                            "type": "demo_mode",
+                                            "data": {
+                                                "enabled": self.demo_mode
+                                            }
+                                        }).to_string());
                                         ctx.text(serde_json::to_string(&demo_msg).unwrap());
                                     }
                                 }
                             }
                             _ => {
                                 // Forward message to server
-                                self.server.send(ws::messages::ServerMessage::Message(Message {
+                                self.server.send(ServerMessage::Message(Message {
                                     id: self.id.clone(),
                                     msg: client_msg,
                                 }));
@@ -159,12 +163,12 @@ impl StreamHandler<Result<ws::Message, ws::ProtocolError>> for WsSession {
                         tracing::error!("Failed to parse WebSocket message: {}", e);
                         
                         // Send error message
-                        let error_msg = ServerMessage {
-                            type_: "error".to_string(),
-                            data: serde_json::json!({
-                                "message": format!("Failed to parse message: {}", e),
-                            }),
-                        };
+                        let error_msg = ServerMessage::Text(serde_json::json!({
+                            "type": "error",
+                            "data": {
+                                "message": format!("Failed to parse message: {}", e)
+                            }
+                        }).to_string());
                         ctx.text(serde_json::to_string(&error_msg).unwrap());
                     }
                 }
@@ -198,7 +202,8 @@ impl WsSession {
         // Extract subscription data
         let channel = data.get("channel").and_then(|v| v.as_str()).unwrap_or("");
         let strategy_id = data.get("strategyId").and_then(|v| v.as_str()).unwrap_or("");
-        let symbols = data.get("symbols").and_then(|v| v.as_array()).unwrap_or(&vec![]);
+        let empty_vec = vec![];
+        let symbols = data.get("symbols").and_then(|v| v.as_array()).unwrap_or(&empty_vec);
         
         // Create subscription key
         let subscription_key = match channel {
@@ -212,7 +217,7 @@ impl WsSession {
                             self.subscriptions.push(key.clone());
                             
                             // Notify server about the subscription
-                            self.server.send(ws::messages::ServerMessage::Message(Message {
+                            self.server.send(ServerMessage::Message(Message {
                                 id: self.id.clone(),
                                 msg: ClientMessage {
                                     type_: "subscribe".to_string(),
@@ -221,7 +226,7 @@ impl WsSession {
                                         "symbol": symbol,
                                     }),
                                 },
-                            });
+                            }));
                         }
                     }
                 }
@@ -235,7 +240,7 @@ impl WsSession {
             self.subscriptions.push(subscription_key.clone());
             
             // Notify server about the subscription
-            self.server.send(ws::messages::ServerMessage::Message(Message {
+            self.server.send(ServerMessage::Message(Message {
                 id: self.id.clone(),
                 msg: ClientMessage {
                     type_: "subscribe".to_string(),
@@ -244,14 +249,14 @@ impl WsSession {
             }));
             
             // Send confirmation
-            let confirm_msg = ServerMessage {
-                type_: "subscription".to_string(),
-                data: serde_json::json!({
+            let confirm_msg = ServerMessage::Text(serde_json::json!({
+                "type": "subscription",
+                "data": {
                     "channel": channel,
                     "strategyId": strategy_id,
-                    "status": "subscribed",
-                }),
-            };
+                    "status": "subscribed"
+                }
+            }).to_string());
             ctx.text(serde_json::to_string(&confirm_msg).unwrap());
         }
     }
@@ -270,7 +275,7 @@ impl WsSession {
             self.subscriptions.remove(pos);
             
             // Notify server about the unsubscription
-            self.server.send(ws::messages::ServerMessage::Message(Message {
+            self.server.send(ServerMessage::Message(Message {
                 id: self.id.clone(),
                 msg: ClientMessage {
                     type_: "unsubscribe".to_string(),
@@ -279,14 +284,14 @@ impl WsSession {
             }));
             
             // Send confirmation
-            let confirm_msg = ServerMessage {
-                type_: "subscription".to_string(),
-                data: serde_json::json!({
+            let confirm_msg = ServerMessage::Text(serde_json::json!({
+                "type": "subscription",
+                "data": {
                     "channel": channel,
                     "strategyId": strategy_id,
-                    "status": "unsubscribed",
-                }),
-            };
+                    "status": "unsubscribed"
+                }
+            }).to_string());
             ctx.text(serde_json::to_string(&confirm_msg).unwrap());
         }
     }

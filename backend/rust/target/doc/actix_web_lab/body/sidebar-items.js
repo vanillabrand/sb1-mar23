@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["channel","new_infallible_body_stream","new_infallible_sized_stream","writer"],"struct":["Sender","Writer"]};

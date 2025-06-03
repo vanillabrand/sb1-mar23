@@ -1,0 +1,181 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Prometheus instrumentation for actix-web. This middleware is heavily influenced by the work in sd2k/rocket_prometheus. We track the same default metrics and allow for adding user defined metrics."><title>actix_web_prom - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2" crossorigin href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-916cea96.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="actix_web_prom" data-themes="" data-resource-suffix="" data-rustdoc-version="1.87.0 (17067e9ac 2025-05-09)" data-channel="1.87.0" data-search-js="search-e7298875.js" data-settings-js="settings-d72f25bb.js" ><script src="../static.files/storage-82c7156e.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-fb8c74a8.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-893ab5e7.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-6580c154.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="mobile-topbar"><button class="sidebar-menu-toggle" title="show sidebar"></button></nav><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../actix_web_prom/index.html">actix_<wbr>web_<wbr>prom</a><span class="version">0.6.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#usage" title="Usage">Usage</a><ul><li><a href="#custom-metrics" title="Custom metrics">Custom metrics</a></li><li><a href="#custom-registry" title="Custom `Registry`">Custom <code>Registry</code></a></li></ul></li></ul><h3><a href="#structs">Crate Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer"></div><main><div class="width-limiter"><rustdoc-search></rustdoc-search><section id="main-content" class="content"><div class="main-heading"><h1>Crate <span>actix_web_prom</span><button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/actix_web_prom/lib.rs.html#1-961">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Prometheus instrumentation for <a href="https://github.com/actix/actix-web">actix-web</a>. This middleware is heavily influenced by the work in <a href="https://github.com/sd2k/rocket_prometheus">sd2k/rocket_prometheus</a>. We track the same default metrics and allow for adding user defined metrics.</p>
+<p>By default two metrics are tracked (this assumes the namespace <code>actix_web_prom</code>):</p>
+<ul>
+<li>
+<p><code>actix_web_prom_http_requests_total</code> (labels: endpoint, method, status): the total number
+of HTTP requests handled by the actix HttpServer.</p>
+</li>
+<li>
+<p><code>actix_web_prom_http_requests_duration_seconds</code> (labels: endpoint, method, status): the
+request duration for all HTTP requests handled by the actix HttpServer.</p>
+</li>
+</ul>
+<h2 id="usage"><a class="doc-anchor" href="#usage">§</a>Usage</h2>
+<p>First add <code>actix-web-prom</code> to your <code>Cargo.toml</code>:</p>
+<div class="example-wrap"><pre class="language-toml"><code>[dependencies]
+actix-web-prom = &quot;0.6.0&quot;</code></pre></div>
+<p>You then instantiate the prometheus middleware and pass it to <code>.wrap()</code>:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>std::collections::HashMap;
+
+<span class="kw">use </span>actix_web::{web, App, HttpResponse, HttpServer};
+<span class="kw">use </span>actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
+
+<span class="kw">async fn </span>health() -&gt; HttpResponse {
+    HttpResponse::Ok().finish()
+}
+
+<span class="attr">#[actix_web::main]
+</span><span class="kw">async fn </span>main() -&gt; std::io::Result&lt;()&gt; {
+    <span class="kw">let </span><span class="kw-2">mut </span>labels = HashMap::new();
+    labels.insert(<span class="string">"label1"</span>.to_string(), <span class="string">"value1"</span>.to_string());
+    <span class="kw">let </span>prometheus = PrometheusMetricsBuilder::new(<span class="string">"api"</span>)
+        .endpoint(<span class="string">"/metrics"</span>)
+        .const_labels(labels)
+        .build()
+        .unwrap();
+
+        HttpServer::new(<span class="kw">move </span>|| {
+            App::new()
+                .wrap(prometheus.clone())
+                .service(web::resource(<span class="string">"/health"</span>).to(health))
+        })
+        .bind(<span class="string">"127.0.0.1:8080"</span>)<span class="question-mark">?
+        </span>.run()
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div>
+<p>Using the above as an example, a few things are worth mentioning:</p>
+<ul>
+<li><code>api</code> is the metrics namespace</li>
+<li><code>/metrics</code> will be auto exposed (GET requests only) with Content-Type header <code>content-type: text/plain; version=0.0.4; charset=utf-8</code></li>
+<li><code>Some(labels)</code> is used to add fixed labels to the metrics; <code>None</code> can be passed instead
+if no additional labels are necessary.</li>
+</ul>
+<p>A call to the /metrics endpoint will expose your metrics:</p>
+<div class="example-wrap"><pre class="language-shell"><code>$ curl http://localhost:8080/metrics
+# HELP api_http_requests_duration_seconds HTTP request duration in seconds for all requests
+# TYPE api_http_requests_duration_seconds histogram
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;0.005&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;0.01&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;0.025&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;0.05&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;0.1&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;0.25&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;0.5&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;1&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;2.5&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;5&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;10&quot;} 1
+api_http_requests_duration_seconds_bucket{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;,le=&quot;+Inf&quot;} 1
+api_http_requests_duration_seconds_sum{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;} 0.00003
+api_http_requests_duration_seconds_count{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;} 1
+# HELP api_http_requests_total Total number of HTTP requests
+# TYPE api_http_requests_total counter
+api_http_requests_total{endpoint=&quot;/metrics&quot;,label1=&quot;value1&quot;,method=&quot;GET&quot;,status=&quot;200&quot;} 1</code></pre></div><h3 id="custom-metrics"><a class="doc-anchor" href="#custom-metrics">§</a>Custom metrics</h3>
+<p>You instantiate <code>PrometheusMetrics</code> and then use its <code>.registry</code> to register your custom
+metric (in this case, we use a <code>IntCounterVec</code>).</p>
+<p>Then you can pass this counter through <code>.data()</code> to have it available within the resource
+responder.</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>actix_web::{web, App, HttpResponse, HttpServer};
+<span class="kw">use </span>actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
+<span class="kw">use </span>prometheus::{opts, IntCounterVec};
+
+<span class="kw">async fn </span>health(counter: web::Data&lt;IntCounterVec&gt;) -&gt; HttpResponse {
+    counter.with_label_values(<span class="kw-2">&amp;</span>[<span class="string">"endpoint"</span>, <span class="string">"method"</span>, <span class="string">"status"</span>]).inc();
+    HttpResponse::Ok().finish()
+}
+
+<span class="attr">#[actix_web::main]
+</span><span class="kw">async fn </span>main() -&gt; std::io::Result&lt;()&gt; {
+    <span class="kw">let </span>prometheus = PrometheusMetricsBuilder::new(<span class="string">"api"</span>)
+        .endpoint(<span class="string">"/metrics"</span>)
+        .build()
+        .unwrap();
+
+    <span class="kw">let </span>counter_opts = <span class="macro">opts!</span>(<span class="string">"counter"</span>, <span class="string">"some random counter"</span>).namespace(<span class="string">"api"</span>);
+    <span class="kw">let </span>counter = IntCounterVec::new(counter_opts, <span class="kw-2">&amp;</span>[<span class="string">"endpoint"</span>, <span class="string">"method"</span>, <span class="string">"status"</span>]).unwrap();
+    prometheus
+        .registry
+        .register(Box::new(counter.clone()))
+        .unwrap();
+
+        HttpServer::new(<span class="kw">move </span>|| {
+            App::new()
+                .wrap(prometheus.clone())
+                .data(counter.clone())
+                .service(web::resource(<span class="string">"/health"</span>).to(health))
+        })
+        .bind(<span class="string">"127.0.0.1:8080"</span>)<span class="question-mark">?
+        </span>.run()
+        .<span class="kw">await</span><span class="question-mark">?</span>;
+    <span class="prelude-val">Ok</span>(())
+}</code></pre></div>
+<h3 id="custom-registry"><a class="doc-anchor" href="#custom-registry">§</a>Custom <code>Registry</code></h3>
+<p>Some apps might have more than one <code>actix_web::HttpServer</code>.
+If that’s the case, you might want to use your own registry:</p>
+
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>actix_web::{web, App, HttpResponse, HttpServer};
+<span class="kw">use </span>actix_web_prom::{PrometheusMetrics, PrometheusMetricsBuilder};
+<span class="kw">use </span>actix_web::rt::System;
+<span class="kw">use </span>prometheus::Registry;
+<span class="kw">use </span>std::thread;
+
+<span class="kw">async fn </span>public_handler() -&gt; HttpResponse {
+    HttpResponse::Ok().body(<span class="string">"Everyone can see it!"</span>)
+}
+
+<span class="kw">async fn </span>private_handler() -&gt; HttpResponse {
+    HttpResponse::Ok().body(<span class="string">"This can be hidden behind a firewall"</span>)
+}
+
+<span class="kw">fn </span>main() -&gt; std::io::Result&lt;()&gt; {
+    <span class="kw">let </span>shared_registry = Registry::new();
+
+    <span class="kw">let </span>private_metrics = PrometheusMetricsBuilder::new(<span class="string">"private_api"</span>)
+        .registry(shared_registry.clone())
+        .endpoint(<span class="string">"/metrics"</span>)
+        .build()
+        <span class="comment">// It is safe to unwrap when __no other app has the same namespace__
+        </span>.unwrap();
+
+    <span class="kw">let </span>public_metrics = PrometheusMetricsBuilder::new(<span class="string">"public_api"</span>)
+        .registry(shared_registry.clone())
+        <span class="comment">// Metrics should not be available from the outside
+        // so no endpoint is registered
+        </span>.build()
+        .unwrap();
+
+    <span class="kw">let </span>private_thread = thread::spawn(<span class="kw">move </span>|| {
+        <span class="kw">let </span><span class="kw-2">mut </span>sys = System::new();
+        <span class="kw">let </span>srv = HttpServer::new(<span class="kw">move </span>|| {
+            App::new()
+                .wrap(private_metrics.clone())
+                .service(web::resource(<span class="string">"/test"</span>).to(private_handler))
+        })
+        .bind(<span class="string">"127.0.0.1:8081"</span>)
+        .unwrap()
+        .run();
+        sys.block_on(srv).unwrap();
+    });
+
+    <span class="kw">let </span>public_thread = thread::spawn(|| {
+        <span class="kw">let </span><span class="kw-2">mut </span>sys = System::new();
+        <span class="kw">let </span>srv = HttpServer::new(<span class="kw">move </span>|| {
+            App::new()
+                .wrap(public_metrics.clone())
+                .service(web::resource(<span class="string">"/test"</span>).to(public_handler))
+        })
+        .bind(<span class="string">"127.0.0.1:8082"</span>)
+        .unwrap()
+        .run();
+        sys.block_on(srv).unwrap();
+    });
+
+    private_thread.join().unwrap();
+    public_thread.join().unwrap();
+    <span class="prelude-val">Ok</span>(())
+}
+</code></pre></div>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.PrometheusMetrics.html" title="struct actix_web_prom::PrometheusMetrics">Prometheus<wbr>Metrics</a></dt><dd>By default two metrics are tracked (this assumes the namespace <code>actix_web_prom</code>):</dd><dt><a class="struct" href="struct.PrometheusMetricsBuilder.html" title="struct actix_web_prom::PrometheusMetricsBuilder">Prometheus<wbr>Metrics<wbr>Builder</a></dt><dd>Builder to create new PrometheusMetrics struct.HistogramVec</dd></dl></section></div></main></body></html>

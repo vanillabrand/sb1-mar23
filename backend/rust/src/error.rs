@@ -68,7 +68,11 @@ impl From<postgrest::Error> for ApiError {
 
 impl From<reqwest::Error> for ApiError {
     fn from(err: reqwest::Error) -> Self {
-        ApiError::ExternalApi(err.to_string())
+        if err.is_status() {
+            ApiError::ExternalApi(format!("HTTP {}: {}", err.status().unwrap(), err))
+        } else {
+            ApiError::ExternalApi(err.to_string())
+        }
     }
 }
 

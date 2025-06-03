@@ -365,10 +365,10 @@ impl MarketService {
         
         // Remove duplicates and sort
         support_levels.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        support_levels.dedup_by(|a, b| (a - b).abs() < 0.001 * a);
+        support_levels.dedup_by(|a, b| (*a - *b).abs() < 0.001 * *a);
         
         resistance_levels.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        resistance_levels.dedup_by(|a, b| (a - b).abs() < 0.001 * a);
+        resistance_levels.dedup_by(|a, b| (*a - *b).abs() < 0.001 * *a);
         
         (support_levels, resistance_levels)
     }
